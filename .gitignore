@@ -1,0 +1,22 @@
+# Build output
+bin/
+obj/
+
+# Generated graphify knowledge-graph output (rebuild with ./refresh-graph.ps1)
+graphify-out/
+
+# Bulk third-party reference material — regenerable, not redistributed.
+# Disassembly is split from a local dump; LM help is decompiled from Lunar Magic.chm.
+reference/smw-disasm/*.asm
+reference/smw-disasm/index.txt
+reference/smw-disasm/graph/
+reference/lm-help/
+
+# Never commit copyrighted game data
+*.smc
+*.sfc
+*.sfc.bak
+
+# Editor / UI state
+imgui.ini
+*.user
