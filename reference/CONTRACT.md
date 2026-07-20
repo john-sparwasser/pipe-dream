@@ -467,3 +467,25 @@ identically; vanilla had placeholder $0DB3E3)
 - LM ext obj 0x02 ($0DE1B0): secondary exit — consumes 2 EXTRA stream bytes (exit word).
 Parse lengths must match exactly or the whole object stream desyncs (DoW builds levels
 almost entirely from extended 0x27 forms).
+
+## 10. Layer 2  [CONFIRMED from bank 05 loader]
+
+Layer-2 pointer (§3): bank != $FF → **object mode**: same stream format as layer 1 with its
+OWN 5-byte header copy, which the game skips ($0583FB "address +5"); screen counter resets
+to 0. Only loaded when the header's level mode is a layer-2 mode (not in
+{0,0A,0C,0D,0E,11,1E}) — the editor just renders it whenever present.
+
+Bank == $FF → **background image** ($05803B): data at `$0C:(ptr&FFFF)` (all vanilla BGs in
+bank $0C), decoded by the RLE at $058126 into a 0x400-tile map (two 16-wide × 32-tall
+screens, repeating horizontally):
+```
+cmd  = byte;  cmd==FF && next==FF → end
+bit7 set: run  — next byte repeated (cmd&0x7F)+1 times
+bit7 clr: copy — next cmd+1 bytes literal
+```
+Buffer initialized to tile 0x25. High/page byte for ALL tiles = 0, or 1 when
+`(ptr&FFFF) >= 0xE8FF` ($058046). **BG Map16 defs are at fixed `$0D9100 + idx*8`**
+(idx = page<<8|low, 0x000-0x1FF) — the $0FBE refill at $05819B. Same word format as §5.
+Readers: Level.ParseLayer2 / Level.DecodeBgImage / Map16.ComposeAllBg; ComposeLevel draws
+backdrop → layer 2 → layer 1. (Layer-2 vertical positioning/scroll modes not modeled; BG
+drawn from y=0.)

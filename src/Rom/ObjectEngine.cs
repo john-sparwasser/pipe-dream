@@ -47,8 +47,11 @@ public static class ObjectEngine
     public const int Marker = 0x8000;
 
     public static Map16Grid Render(Rom rom, Level level)
+        => Render(rom, level.Header, level.Objects);
+
+    public static Map16Grid Render(Rom rom, LevelHeader header, IReadOnlyList<LevelObject> objects)
     {
-        int w = Math.Max(16, level.Header.Screens * 16);
+        int w = Math.Max(16, header.Screens * 16);
         var g = new Map16Grid(w, 32);
 
         // Tile tables read from bank 0D (unchanged by Lunar Magic).
@@ -81,7 +84,7 @@ public static class ObjectEngine
         int[] mwTop = ReadTable(rom, 0x0DB212, 3), mwMid = ReadTable(rom, 0x0DB215, 3), mwBot = ReadTable(rom, 0x0DB218, 3);
         int[] glTop = ReadTable(rom, 0x0DB21B, 3), glMid = ReadTable(rom, 0x0DB21E, 3), glBot = ReadTable(rom, 0x0DB221, 3);
 
-        foreach (var o in level.Objects)
+        foreach (var o in objects)
         {
             if (o.IsScreenExit) continue;                       // no tiles
             int ax = o.AbsoluteX, ay = o.Y;
@@ -134,6 +137,22 @@ public static class ObjectEngine
                         g.Set(ax, ay, ReadTable(rom, 0x0DDA7A, 3)[(ext - 0x7C) % 3]);
                         g.Set(ax, ay + 1, ReadTable(rom, 0x0DDA7D, 3)[(ext - 0x7C) % 3]);
                         break;
+                    case 0x0DB583:                              // yellow switch block (outline)
+                        g.Set(ax, ay, ReadTable(rom, 0x0DB589, 2)[1]);
+                        break;
+                    case 0x0DB58B:                              // green switch block (outline)
+                        g.Set(ax, ay, ReadTable(rom, 0x0DB589, 2)[0]);
+                        break;
+                    case 0x0DB2CA:                              // Yoshi coin (top + bottom)
+                        g.Set(ax, ay, 0x02D); g.Set(ax, ay + 1, 0x02E);
+                        break;
+                    case 0x0DA7E7:                              // 2x2 block (DATA_0DA7E3)
+                    {
+                        var t4 = ReadTable(rom, 0x0DA7E3, 4);
+                        g.Set(ax, ay, t4[0]); g.Set(ax + 1, ay, t4[1]);
+                        g.Set(ax, ay + 1, t4[2]); g.Set(ax + 1, ay + 1, t4[3]);
+                        break;
+                    }
                     case 0x0DE1B0:                              // LM secondary exit: no tiles
                     case 0x0DE1E0:                              // LM screen jump (0x03): no tiles
                         break;
@@ -149,7 +168,7 @@ public static class ObjectEngine
             // $0DA41E + tileset*3, per-object handler table at dispatcher+0xA, entry (n-1)*3.
             // Handlers are shared across tilesets (theming comes from the Map16 defs), so we
             // key the port on the handler address.
-            switch (Handler(rom, level.Header.Tileset, n))
+            switch (Handler(rom, header.Tileset, n))
             {
                 case 0x0DA8C3:                                  // rectangle family
                 {

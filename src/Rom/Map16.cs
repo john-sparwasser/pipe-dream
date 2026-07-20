@@ -72,9 +72,26 @@ public static class Map16
         return tiles;
     }
 
+    /// <summary>Compose the 0x200 BG Map16 tiles (defs at fixed $0D9100 + idx*8, CONTRACT §10).</summary>
+    public static uint[][] ComposeAllBg(Rom rom, LevelHeader h, int level = -1)
+    {
+        var fg = Gfx.FgTiles.Load(rom, h.Tileset, level);
+        var pal = Palette.Load(rom, h, level);
+        var tiles = new uint[0x200][];
+        for (int t = 0; t < 0x200; t++)
+        {
+            int fo = rom.FileOffset(0x0D9100 + t * 8);
+            var w = new Word[4];
+            for (int i = 0; i < 4; i++)
+                w[i] = new Word((ushort)(rom.Data[fo + i * 2] | (rom.Data[fo + i * 2 + 1] << 8)));
+            tiles[t] = Compose(w, fg.Fetch, pal);
+        }
+        return tiles;
+    }
+
     /// <summary>
-    /// Compose a full level canvas: the object-engine Map16 grid rendered with real tiles.
-    /// Empty cells get the backdrop color; unimplemented-handler markers render magenta.
+    /// Compose a full level canvas: backdrop, then layer 2 (background image or object
+    /// layer), then the layer-1 grid. Markers render magenta.
     /// </summary>
     public static (uint[] px, int w, int h) ComposeLevel(Rom rom, LevelHeader h, Map16Grid grid, int level = -1)
     {
@@ -83,6 +100,42 @@ public static class Map16
         int W = grid.Width * 16, H = grid.Height * 16;
         var img = new uint[W * H];
         Array.Fill(img, backdrop);
+
+        if (level >= 0 && Level.DecodeBgImage(rom, level) is { } bgImg)
+        {
+            var bgCache = ComposeAllBg(rom, h, level);
+            DrawBgImage(img, W, H, grid.Width, bgImg, bgCache);
+        }
+        else if (level >= 0 && Level.ParseLayer2(rom, level) is { } l2objs)
+        {
+            DrawGrid(img, W, ObjectEngine.Render(rom, h, l2objs), cache);
+        }
+
+        DrawGrid(img, W, grid, cache);
+        return (img, W, H);
+    }
+
+    /// <summary>Tile a decoded 32x32 BG image across the canvas (repeats every 2 screens).</summary>
+    public static void DrawBgImage(uint[] img, int W, int H, int gridW, ushort[] bgImg, uint[][] bgCache)
+    {
+        for (int cy = 0; cy < Math.Min(32, H / 16); cy++)
+            for (int cx = 0; cx < gridW; cx++)
+            {
+                int within = cx & 0x1F;                          // 2-screen horizontal repeat
+                int idx = bgImg[(within / 16) * 0x200 + cy * 16 + (within & 0x0F)];
+                uint[] tile = bgCache[idx & 0x1FF];
+                for (int y = 0; y < 16; y++)
+                    for (int x = 0; x < 16; x++)
+                    {
+                        uint c = tile[y * 16 + x];
+                        if (c != 0) img[(cy * 16 + y) * W + (cx * 16 + x)] = c;
+                    }
+            }
+    }
+
+    /// <summary>Draw a Map16 grid onto an existing canvas (transparent pixels leave it).</summary>
+    public static void DrawGrid(uint[] img, int W, Map16Grid grid, uint[][] cache)
+    {
         for (int cy = 0; cy < grid.Height; cy++)
             for (int cx = 0; cx < grid.Width; cx++)
             {
@@ -93,33 +146,22 @@ public static class Map16
                     for (int x = 0; x < 16; x++)
                     {
                         uint c = tile is null ? 0xFFFF00FFu : tile[y * 16 + x];
-                        if (c == 0) continue;                   // transparent → keep backdrop
+                        if (c == 0) continue;                   // transparent → keep what's behind
                         img[(cy * 16 + y) * W + (cx * 16 + x)] = c;
                     }
             }
-        return (img, W, H);
     }
 
-    /// <summary>Compose a level canvas from a precomputed tile cache (fast; for live edits).</summary>
-    public static (uint[] px, int w, int h) ComposeLevel(uint[][] cache, uint backdrop, Map16Grid grid)
+    /// <summary>Compose a level canvas from precomputed caches (fast; for live edits).</summary>
+    public static (uint[] px, int w, int h) ComposeLevel(uint[][] cache, uint backdrop, Map16Grid grid,
+        ushort[]? bgImg = null, uint[][]? bgCache = null, Map16Grid? l2 = null)
     {
         int W = grid.Width * 16, H = grid.Height * 16;
         var img = new uint[W * H];
         Array.Fill(img, backdrop);
-        for (int cy = 0; cy < grid.Height; cy++)
-            for (int cx = 0; cx < grid.Width; cx++)
-            {
-                int t = grid.Get(cx, cy);
-                if (t == Map16Grid.Empty) continue;
-                uint[]? tile = (t & ObjectEngine.Marker) != 0 || t >= cache.Length ? null : cache[t];
-                for (int y = 0; y < 16; y++)
-                    for (int x = 0; x < 16; x++)
-                    {
-                        uint c = tile is null ? 0xFFFF00FFu : tile[y * 16 + x];
-                        if (c == 0) continue;
-                        img[(cy * 16 + y) * W + (cx * 16 + x)] = c;
-                    }
-            }
+        if (bgImg is not null && bgCache is not null) DrawBgImage(img, W, H, grid.Width, bgImg, bgCache);
+        else if (l2 is not null) DrawGrid(img, W, l2, cache);
+        DrawGrid(img, W, grid, cache);
         return (img, W, H);
     }
 

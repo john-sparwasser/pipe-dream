@@ -210,6 +210,17 @@ public static class RomSelfCheck
             File.Delete(tmp);
         }
 
+        {
+            Console.WriteLine("Layer 2 (CONTRACT §10):");
+            var r2 = Rom.Load(CleanRom);
+            Check("YI2 layer 2 is a background image", r2.Layer2IsBackground(0x105));
+            var bg = Level.DecodeBgImage(r2, 0x105);
+            Check("BG image decodes (0x400 tiles, variety)",
+                  bg is not null && bg.Distinct().Count() > 8);
+            var l2 = Level.ParseLayer2(r2, 0x105);
+            Check("BG-image level has no layer-2 objects", l2 is null);
+        }
+
         string map16After = @"C:\SMW\Projects\.resources\map16_after.smc";
         if (File.Exists(map16After))
         {

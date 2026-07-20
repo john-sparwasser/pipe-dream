@@ -41,6 +41,9 @@ public class EditorApp : App
     private int selectedMap16 = 0x100;
     private bool levelDirty;
     private Map16Grid? baseGrid;     // object-engine output before edits, to diff against on save
+    private ushort[]? bgImage;       // layer-2 background image (BG def indices), else null
+    private uint[][]? bgCache;       // composed BG Map16 tiles for the background image
+    private Map16Grid? layer2Grid;   // layer-2 object layer, else null
     private string saveStatus = "";
     private const float Zoom = 2f;   // on-screen px per source px for picker + canvas
 
@@ -241,7 +244,7 @@ public class EditorApp : App
         if (tileCache is null || grid is null) return;
         try
         {
-            var (img, W, H) = Map16.ComposeLevel(tileCache, backdropColor, grid);
+            var (img, W, H) = Map16.ComposeLevel(tileCache, backdropColor, grid, bgImage, bgCache, layer2Grid);
             levelTex = new Texture(GraphicsDevice, W, H, MemoryMarshal.AsBytes(img.AsSpan()));
             levelPxW = W; levelPxH = H;
         }
@@ -471,6 +474,11 @@ public class EditorApp : App
             baseGrid = grid?.Clone();          // snapshot to diff edits against on save
             tileCache = rom is not null && level is not null ? Map16.ComposeAll(rom, level.Header, levelNum) : null;
             backdropColor = rom is not null && level is not null ? Palette.Load(rom, level.Header, levelNum).Rgba[0] : 0;
+            // Layer 2: background image or object layer, drawn behind layer 1.
+            bgImage = rom is not null && level is not null ? Level.DecodeBgImage(rom, levelNum) : null;
+            bgCache = bgImage is not null ? Map16.ComposeAllBg(rom!, level!.Header, levelNum) : null;
+            var l2objs = rom is not null && level is not null ? Level.ParseLayer2(rom, levelNum) : null;
+            layer2Grid = l2objs is not null ? ObjectEngine.Render(rom!, level!.Header, l2objs) : null;
             BuildMap16Sheet();
             BuildLevelCanvas();
         }

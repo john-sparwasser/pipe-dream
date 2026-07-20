@@ -107,13 +107,60 @@ public sealed class Level
     {
         int ptr = rom.Layer1Pointer(number);
         int fo = rom.FileOffset(ptr);
+        var header = new LevelHeader(rom.Data.AsSpan(fo, 5));
+        var objs = ParseObjects(rom, fo + 5, out bool empty);
+        return new Level(number, ptr, header, objs, empty);
+    }
+
+    /// <summary>
+    /// Layer-2 object list, or null when layer 2 is a background image (bank $FF pointer).
+    /// The stream has its own 5-byte header copy which the game skips ($0583FB).
+    /// </summary>
+    public static List<LevelObject>? ParseLayer2(Rom rom, int number)
+    {
+        if (rom.Layer2IsBackground(number)) return null;
+        int ptr = rom.Layer2Pointer(number);
+        return ParseObjects(rom, rom.FileOffset(ptr) + 5, out _);
+    }
+
+    /// <summary>
+    /// Layer-2 background image: 0x400 BG Map16 def indices (32 rows × 32 cols, two 16-wide
+    /// screens), or null when layer 2 is object data. RLE at $0C:(ptr&FFFF) (CONTRACT §10):
+    /// cmd bit7 = run of next byte, else literal copy; FF FF ends; high/page byte = 0 or 1
+    /// (ptr low16 >= 0xE8FF → page 1). Buffer initialized to tile 0x25.
+    /// </summary>
+    public static ushort[]? DecodeBgImage(Rom rom, int number)
+    {
+        if (!rom.Layer2IsBackground(number)) return null;
+        int lo16 = rom.Layer2Pointer(number) & 0xFFFF;
+        int page = lo16 >= 0xE8FF ? 1 : 0;
+        var tiles = new ushort[0x400];
+        Array.Fill(tiles, (ushort)((page << 8) | 0x25));
+        int p = rom.FileOffset(0x0C0000 | lo16), o = 0;
+        while (o < 0x400 && p + 1 < rom.Data.Length)
+        {
+            int cmd = rom.Data[p++];
+            if (cmd == 0xFF && rom.Data[p] == 0xFF) break;
+            int count = (cmd & 0x7F) + 1;
+            if ((cmd & 0x80) != 0)
+            {
+                byte b = rom.Data[p++];
+                for (int i = 0; i < count && o < 0x400; i++) tiles[o++] = (ushort)((page << 8) | b);
+            }
+            else
+            {
+                for (int i = 0; i < count && o < 0x400; i++) tiles[o++] = (ushort)((page << 8) | rom.Data[p++]);
+            }
+        }
+        return tiles;
+    }
+
+    private static List<LevelObject> ParseObjects(Rom rom, int p, out bool empty)
+    {
         var data = rom.Data;
-
-        var header = new LevelHeader(data.AsSpan(fo, 5));
-        int p = fo + 5;
-
+        int fo = p - 5;
         var objs = new List<LevelObject>();
-        bool empty = data[p] == 0xFF;
+        empty = data[p] == 0xFF;
         bool dm16Rom = rom.HasDm16Hijack;        // obj# 0x23/0x27 are DM16 when installed
         int screen = 0;                          // ROM zeroes $1928 at layer-1 start
         // Safety cap: a level can't exceed its own bank; stop at 0xFF or a sane bound.
@@ -167,7 +214,7 @@ public sealed class Level
             }
             objs.Add(new LevelObject(newScreen, number2, screen, xNib, y, b3, extra, dm16, dm16Page, dm16ExtX, dm16ExtH));
         }
-        return new Level(number, ptr, header, objs, empty);
+        return objs;
     }
 
     /// <summary>
