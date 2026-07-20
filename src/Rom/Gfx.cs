@@ -85,6 +85,11 @@ public static class Gfx
                         ? DecodeTile(anim2, srcAddr - 0x2000, 4)
                     : null;
                 if (px is null) return;
+                OverlayPx(vramTile, px);
+            }
+
+            void OverlayPx(int vramTile, byte[] px)
+            {
                 int s = (vramTile >> 7) & 3, t = vramTile & 0x7F;
                 if (t < slots[s].Length) slots[s][t] = px;
             }
@@ -98,8 +103,11 @@ public static class Gfx
                 if (behavior >= 2) animId += rom.ReadByte(0x05B98B + (tileset & 0x0F));
                 // behavior 1 = POW-dependent: editor shows the inactive state (id unchanged)
                 int srcAddr = rom.ReadValue(0x05B999 + animId * 8 + (phase & 3) * 2, 2);
-                if (dest == 0x800)                                       // split slot ($00A3DA)
+                if (dest == 0x800)
                 {
+                    // Berry slot ($00A3DA split): tiles 80/81 then 90/91. The 4 phase
+                    // pointers land in Mario's 4bpp sheet (Yoshi berry-eat tiles, wobble
+                    // frames pre-stored incl. the mirrored one) — no transform needed.
                     Overlay(0x80, srcAddr); Overlay(0x81, srcAddr + 0x20);
                     Overlay(0x90, srcAddr + 0x40); Overlay(0x91, srcAddr + 0x60);
                 }

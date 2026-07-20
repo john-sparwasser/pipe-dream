@@ -93,9 +93,9 @@ public static class Map16
     /// Compose a full level canvas: backdrop, then layer 2 (background image or object
     /// layer), then the layer-1 grid. Markers render magenta.
     /// </summary>
-    public static (uint[] px, int w, int h) ComposeLevel(Rom rom, LevelHeader h, Map16Grid grid, int level = -1)
+    public static (uint[] px, int w, int h) ComposeLevel(Rom rom, LevelHeader h, Map16Grid grid, int level = -1, int animPhase = 0)
     {
-        var cache = ComposeAll(rom, h, level);
+        var cache = ComposeAll(rom, h, level, animPhase);
         uint backdrop = Palette.Load(rom, h, level).Rgba[0];
         // Horizontal modes show 27 rows (16x27 screens); rows 27-31 exist in the object
         // grid but the game never displays them. Vertical modes keep the full grid.

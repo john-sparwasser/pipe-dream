@@ -27,6 +27,10 @@ class Program
         if (gi >= 0)
             return GfxSheet(args, gi);
 
+        int bi = Array.IndexOf(args, "--blobsheet");
+        if (bi >= 0)
+            return BlobSheet(args, bi);
+
         using var app = new EditorApp();
         app.Run();
         return 0;
@@ -43,6 +47,28 @@ class Program
         var (px, w, h) = Gfx.TileSheet(data, bpp, pal, 0x0A);
         Png.Write(args[gi + 3], px, w, h);
         Console.WriteLine($"wrote {args[gi + 3]}: GFX{file:X2}, {data.Length / Gfx.TileBytes(bpp)} tiles {bpp}bpp");
+        return 0;
+    }
+
+    // --blobsheet <rom> <snesHex> <bpp> <out.png> : debug — decompress a blob and sheet it.
+    private static int BlobSheet(string[] args, int bi)
+    {
+        var rom = Rom.Load(args[bi + 1]);
+        var data = Gfx.Lz2Decompress(rom.Data, rom.FileOffset(Convert.ToInt32(args[bi + 2], 16)));
+        int bpp = int.Parse(args[bi + 3]);
+        var pal = Palette.Load(rom, Level.Parse(rom, 0x106).Header);
+        var (px, w, h) = Gfx.TileSheet(data, bpp, pal, 0x02);
+        int scale = int.TryParse(args.ElementAtOrDefault(bi + 5), out var sc) ? sc : 1;
+        if (scale > 1)
+        {
+            var big = new uint[w * scale * h * scale];
+            for (int y = 0; y < h * scale; y++)
+                for (int x = 0; x < w * scale; x++)
+                    big[y * w * scale + x] = px[(y / scale) * w + (x / scale)];
+            px = big; w *= scale; h *= scale;
+        }
+        Png.Write(args[bi + 4], px, w, h);
+        Console.WriteLine($"wrote {args[bi + 4]}: {data.Length / Gfx.TileBytes(bpp)} tiles {bpp}bpp");
         return 0;
     }
 
@@ -103,7 +129,8 @@ class Program
         var rom = Rom.Load(romPath);
         var lv = Level.Parse(rom, level);
         var grid = ObjectEngine.Render(rom, lv);
-        var (px, w, h) = Map16.ComposeLevel(rom, lv.Header, grid, level);
+        int phase = int.TryParse(args.ElementAtOrDefault(ri + 5), out var ph) ? ph & 3 : 0;
+        var (px, w, h) = Map16.ComposeLevel(rom, lv.Header, grid, level, phase);
         SpriteData.Parse(rom, level).DrawOverlay(px, w, h);
 
         if (cropW > 0 && cropW * 16 < w)
