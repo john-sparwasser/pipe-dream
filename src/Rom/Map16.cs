@@ -63,7 +63,7 @@ public static class Map16
     {
         var defPtr = BuildDefPointers(rom, h.Tileset);
         var fg = Gfx.FgTiles.Load(rom, h.Tileset, level, animPhase);   // bypass + animation phase
-        var pal = Palette.Load(rom, h, level);              //             + LM custom palette
+        var pal = Palette.Load(rom, h, level, animPhase);   //             + LM custom palette
         var tiles = new uint[rom.Map16TileCount][];         // 0x200, + LM extended pages (§7a)
         for (int t = 0; t < FgTiles; t++)
             tiles[t] = Compose(Definition(rom, defPtr, t), fg.Fetch, pal);
@@ -76,7 +76,7 @@ public static class Map16
     public static uint[][] ComposeAllBg(Rom rom, LevelHeader h, int level = -1, int animPhase = 0)
     {
         var fg = Gfx.FgTiles.Load(rom, h.Tileset, level, animPhase);
-        var pal = Palette.Load(rom, h, level);
+        var pal = Palette.Load(rom, h, level, animPhase);
         var tiles = new uint[0x200][];
         for (int t = 0; t < 0x200; t++)
         {

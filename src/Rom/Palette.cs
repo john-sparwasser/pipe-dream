@@ -16,10 +16,15 @@ public sealed class Palette
     // Row-offset selector table $00ABD3 (indexed by a palette-setting nibble).
     private const int Abd3 = 0x00ABD3;
 
-    public static Palette Load(Rom rom, LevelHeader h, int level = -1)
+    public static Palette Load(Rom rom, LevelHeader h, int level = -1, int animPhase = 0)
     {
         var p = new Palette();
         var cg = p.Bgr;
+
+        // Global palette exanimation ($00A418): CGRAM color 0x64 (row 6 color 4) is
+        // rewritten every 4 frames from MorePalettes ($00B60C) — the gold/white glint.
+        // Our 4 display phases (8 frames each) sample byte offsets 0/4/8/12 of the cycle.
+        ushort Glint() => (ushort)rom.ReadValue(0x00B60C + ((animPhase & 3) * 4), 2);
 
         // LM per-level custom palette (CONTRACT §7e): a full CGRAM image replaces the
         // vanilla assembly entirely; word 0 of the blob is the back-area color.
@@ -27,6 +32,7 @@ public sealed class Palette
         {
             Array.Copy(colors, cg, 256);
             cg[0] = back;
+            cg[0x64] = Glint();                            // NMI overwrite applies regardless
             for (int i = 0; i < 256; i++) p.Rgba[i] = ToRgba(cg[i]);
             return p;
         }
@@ -61,6 +67,7 @@ public sealed class Palette
         Load(0x02, 0x00B0B0 + Off(h.BgPalette), 6, 2); // BG colors 2-7, palettes 0-1
         Load(0x29, 0x00B674, 7, 3);                    // colors 9-F, object palettes 2-4
         Load(0x99, 0x00B674, 7, 3);                    // colors 9-F, sprite palettes 9-B
+        cg[0x64] = Glint();
 
         for (int i = 0; i < 256; i++) p.Rgba[i] = ToRgba(cg[i]);
         return p;

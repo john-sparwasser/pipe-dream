@@ -580,3 +580,11 @@ init). Enter via the full chain ($05801E: BG clear + decode + LoadLevel, RTL exi
 GameMode >= 0x22 to skip sprite init) and capture $6B/$6E per screen with a CPU write
 hook, then extraction needs no table knowledge at all. Until then LM ROMs use the ported
 engine (hand-written handlers, kept as fallback).
+
+### 12c. Global palette exanimation  [CONFIRMED + IMPLEMENTED]
+
+The animation NMI tail ($00A418) rewrites **CGRAM color 0x64** (palette row 6, color 4)
+every 4 frames from `MorePalettes` ($00B60C): 8 BGR555 words, byte offset
+`(frame & 0x1C) >> 1` — a gold→white glint cycle (02DF 035F 27FF 5FFF 73FF 5FFF 27FF 035F).
+Applied in Palette.Load per display phase (offsets 0/4/8/12), including on top of LM
+custom palettes (the NMI write happens regardless).
