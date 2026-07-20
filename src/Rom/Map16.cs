@@ -97,7 +97,10 @@ public static class Map16
     {
         var cache = ComposeAll(rom, h, level);
         uint backdrop = Palette.Load(rom, h, level).Rgba[0];
-        int W = grid.Width * 16, H = grid.Height * 16;
+        // Horizontal modes show 27 rows (16x27 screens); rows 27-31 exist in the object
+        // grid but the game never displays them. Vertical modes keep the full grid.
+        int rows = rom.IsVerticalMode(h.LevelMode) ? grid.Height : Math.Min(27, grid.Height);
+        int W = grid.Width * 16, H = rows * 16;
         var img = new uint[W * H];
         Array.Fill(img, backdrop);
 
@@ -108,10 +111,10 @@ public static class Map16
         }
         else if (level >= 0 && Level.ParseLayer2(rom, level) is { } l2objs)
         {
-            DrawGrid(img, W, ObjectEngine.Render(rom, h, l2objs), cache);
+            DrawGrid(img, W, H, ObjectEngine.Render(rom, h, l2objs), cache);
         }
 
-        DrawGrid(img, W, grid, cache);
+        DrawGrid(img, W, H, grid, cache);
         return (img, W, H);
     }
 
@@ -137,9 +140,9 @@ public static class Map16
     }
 
     /// <summary>Draw a Map16 grid onto an existing canvas (transparent pixels leave it).</summary>
-    public static void DrawGrid(uint[] img, int W, Map16Grid grid, uint[][] cache)
+    public static void DrawGrid(uint[] img, int W, int H, Map16Grid grid, uint[][] cache)
     {
-        for (int cy = 0; cy < grid.Height; cy++)
+        for (int cy = 0; cy < Math.Min(grid.Height, H / 16); cy++)
             for (int cx = 0; cx < grid.Width; cx++)
             {
                 int t = grid.Get(cx, cy);
@@ -157,14 +160,15 @@ public static class Map16
 
     /// <summary>Compose a level canvas from precomputed caches (fast; for live edits).</summary>
     public static (uint[] px, int w, int h) ComposeLevel(uint[][] cache, uint backdrop, Map16Grid grid,
-        ushort[]? bgImg = null, uint[][]? bgCache = null, Map16Grid? l2 = null)
+        ushort[]? bgImg = null, uint[][]? bgCache = null, Map16Grid? l2 = null, int visibleRows = 27)
     {
-        int W = grid.Width * 16, H = grid.Height * 16;
+        int rows = Math.Min(visibleRows, grid.Height);
+        int W = grid.Width * 16, H = rows * 16;
         var img = new uint[W * H];
         Array.Fill(img, backdrop);
         if (bgImg is not null && bgCache is not null) DrawBgImage(img, W, H, grid.Width, bgImg, bgCache);
-        else if (l2 is not null) DrawGrid(img, W, l2, cache);
-        DrawGrid(img, W, grid, cache);
+        else if (l2 is not null) DrawGrid(img, W, H, l2, cache);
+        DrawGrid(img, W, H, grid, cache);
         return (img, W, H);
     }
 

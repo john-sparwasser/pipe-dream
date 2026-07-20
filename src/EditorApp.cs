@@ -250,7 +250,9 @@ public class EditorApp : App
         if (tileCache is null || grid is null) return;
         try
         {
-            var (img, W, H) = Map16.ComposeLevel(tileCache, backdropColor, grid, bgImage, bgCache, layer2Grid);
+            int visRows = rom is not null && level is not null && rom.IsVerticalMode(level.Header.LevelMode)
+                ? grid.Height : 27;
+            var (img, W, H) = Map16.ComposeLevel(tileCache, backdropColor, grid, bgImage, bgCache, layer2Grid, visRows);
             if (showSprites) sprites?.DrawOverlay(img, W, H);
             levelTex = new Texture(GraphicsDevice, W, H, MemoryMarshal.AsBytes(img.AsSpan()));
             levelPxW = W; levelPxH = H;

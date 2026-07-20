@@ -163,6 +163,9 @@ public sealed class Rom
         return -1;
     }
 
+    /// <summary>True if a level mode is vertical (VerticalTable $058417, bit 0).</summary>
+    public bool IsVerticalMode(int levelMode) => (ReadByte(0x058417 + (levelMode & 0x1F)) & 1) != 0;
+
     // Level pointer tables (CONTRACT §3), all in bank $05.
     public const int Layer1TableSnes = 0x05E000; // 3 bytes/level
     public const int Layer2TableSnes = 0x05E600; // 3 bytes/level
