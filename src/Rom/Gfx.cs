@@ -63,17 +63,29 @@ public static class Gfx
         /// </summary>
         private void OverlayAnimatedTiles(Rom rom, int tileset, int phase)
         {
-            int src32 = (rom.ReadByte(0x00B890) << 16) | rom.ReadValue(0x00B88B, 2);
-            byte[] anim;
-            try { anim = Lz2Decompress(rom.Data, rom.FileOffset(src32)); }
-            catch { return; }
-            int tiles = anim.Length / 24;
-
-            void Overlay(int vramTile, int srcTile)
+            // Two boot-time blobs ($00B888/$00B8D7, operands read per-ROM):
+            // blob1 (vanilla $08BFC0): 3bpp, converted to occupy $7E7D00-$7EACFF.
+            // blob2 (vanilla $088000): raw 4bpp at $7E4400-$7E7CFF (berries & friends).
+            int bank = rom.ReadByte(0x00B890) << 16;
+            byte[] anim1, anim2;
+            try
             {
-                if (srcTile < 0 || srcTile >= tiles) return;
+                anim1 = Lz2Decompress(rom.Data, rom.FileOffset(bank | rom.ReadValue(0x00B88B, 2)));
+                anim2 = Lz2Decompress(rom.Data, rom.FileOffset(bank | rom.ReadValue(0x00B8D8, 2)));
+            }
+            catch { return; }
+
+            void Overlay(int vramTile, int srcAddr)
+            {
+                byte[]? px =
+                    srcAddr >= 0x7D00 && (srcAddr - 0x7D00) / 0x20 * 24 + 24 <= anim1.Length
+                        ? DecodeTile(anim1, (srcAddr - 0x7D00) / 0x20 * 24, 3)
+                    : srcAddr >= 0x4400 && srcAddr - 0x4400 + 0x20 <= anim2.Length
+                        ? DecodeTile(anim2, srcAddr - 0x4400, 4)
+                    : null;
+                if (px is null) return;
                 int s = (vramTile >> 7) & 3, t = vramTile & 0x7F;
-                if (t < slots[s].Length) slots[s][t] = DecodeTile(anim, srcTile * 24, 3);
+                if (t < slots[s].Length) slots[s][t] = px;
             }
 
             for (int id = 0; id < 24; id++)
@@ -85,16 +97,14 @@ public static class Gfx
                 if (behavior >= 2) animId += rom.ReadByte(0x05B98B + (tileset & 0x0F));
                 // behavior 1 = POW-dependent: editor shows the inactive state (id unchanged)
                 int srcAddr = rom.ReadValue(0x05B999 + animId * 8 + (phase & 3) * 2, 2);
-                if (srcAddr < 0x7D00) continue;                          // berry/other RAM: n/a
-                int srcTile = (srcAddr - 0x7D00) / 0x20;
                 if (dest == 0x800)                                       // split slot ($00A3DA)
                 {
-                    Overlay(0x80, srcTile); Overlay(0x81, srcTile + 1);
-                    Overlay(0x90, srcTile + 2); Overlay(0x91, srcTile + 3);
+                    Overlay(0x80, srcAddr); Overlay(0x81, srcAddr + 0x20);
+                    Overlay(0x90, srcAddr + 0x40); Overlay(0x91, srcAddr + 0x60);
                 }
                 else
                 {
-                    for (int k = 0; k < 4; k++) Overlay(dest / 16 + k, srcTile + k);
+                    for (int k = 0; k < 4; k++) Overlay(dest / 16 + k, srcAddr + k * 0x20);
                 }
             }
         }

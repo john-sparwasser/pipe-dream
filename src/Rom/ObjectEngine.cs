@@ -146,6 +146,12 @@ public static class ObjectEngine
                     case 0x0DB2CA:                              // Yoshi coin (top + bottom)
                         g.Set(ax, ay, 0x02D); g.Set(ax, ay + 1, 0x02E);
                         break;
+                    case 0x0DA71B:                              // big bush stamp (9x5)
+                        BushStamp(g, ax, ay, 9, 5, ReadTable(rom, 0x0DA6EE, 45));
+                        break;
+                    case 0x0DA760:                              // small bush stamp (6x4)
+                        BushStamp(g, ax, ay, 6, 4, ReadTable(rom, 0x0DA748, 24));
+                        break;
                     case 0x0DA7E7:                              // 2x2 block (DATA_0DA7E3)
                     {
                         var t4 = ReadTable(rom, 0x0DA7E3, 4);
@@ -404,6 +410,26 @@ public static class ObjectEngine
     {
         int dispatcher = rom.ReadValue(0x0DA41E + (tileset & 0x0F) * 3, 3);
         return rom.ReadValue(dispatcher + 0x0A + (obj - 1) * 3, 3);
+    }
+
+    // $0DA71B/$0DA760 bushes: stamp with blend rules ($0DA78D) — sky tiles (0x25) skipped;
+    // edge tiles (0x49-0x53) morph when overlapping an existing bush: +1 over body (0x49),
+    // +2 over another edge.
+    private static void BushStamp(Map16Grid g, int ax, int ay, int w, int h, int[] stamp)
+    {
+        for (int i = 0; i < w * h; i++)
+        {
+            int t = stamp[i];
+            if (t == 0x25) continue;
+            int x = ax + i % w, y = ay + i / w;
+            if (t is >= 0x49 and < 0x54)
+            {
+                int under = g.Get(x, y);
+                if (under == 0x49) t += 1;
+                else if (under != 0x25 && under != Map16Grid.Empty) t += 2;
+            }
+            g.Set(x, y, t);
+        }
     }
 
     // Rectangle fill helper (used by several ported handlers).

@@ -552,3 +552,11 @@ NMI consumer $00A3A4: 0x80 bytes (4 tiles) per slot; dest word $0800 is special-
 into two 0x40 transfers at $0800 and $0900 (tiles 0x80,0x81,0x90,0x91).
 Sources below $7D00 (e.g. id 5, berries) come from other RAM — skipped (rare).
 Implemented: Gfx.FgTiles.OverlayAnimatedTiles — frame-0 tiles overlaid at load.
+
+### 12b. Second animated blob — berries etc.  [CONFIRMED + IMPLEMENTED]
+
+$00B8D7 (fall-through after the GFX32 conversion): a second blob decompresses from
+bank:(operand at $00B8D8) — vanilla $088000 — to $7E4400. It is stored RAW 4bpp (0x5D00
+bytes). Load order means the DMA-visible RAM is: $4400-$7CFF = blob2 (4bpp, berries at
+id 5's $6D80+), $7D00-$ACFF = converted blob1 (3bpp source). Overlay resolves sources
+>= $7D00 from blob1 as 3bpp, else >= $4400 from blob2 as 4bpp.
