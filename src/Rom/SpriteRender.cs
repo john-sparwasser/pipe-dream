@@ -16,6 +16,7 @@ public static class SpriteRender
             var cpu = new Cpu65816(rom);
             var r = cpu.Ram7E;
             for (int i = 0; i < 0x200; i += 4) r[0x201 + i] = 0xF0;   // OAM Y offscreen
+            Array.Fill(r, (byte)0x02, 0x460, 0x80);                    // OAM_TileSize: default 16x16
 
             int wx = (cellX >= 0 ? cellX : s.AbsoluteX) * 16, wy = (cellY >= 0 ? cellY : s.Y) * 16;
             int bx = Math.Max(0, wx - 0x40), by = Math.Max(0, wy - 0x40);
@@ -39,12 +40,12 @@ public static class SpriteRender
             {
                 int y = r[0x201 + i * 4];
                 if (y >= 0xE0) continue;
-                int hi = (r[0x420 + i / 4] >> ((i & 3) * 2)) & 3;
-                int x = r[0x200 + i * 4] | ((hi & 1) << 8);
+                // Sprites write per-entry size/X-high to OAM_TileSize ($0460); the packed
+                // $0420 table is only built at frame end, which runs outside our capture.
+                int sz = r[0x460 + i];
+                int x = r[0x200 + i * 4] | ((sz & 1) << 8);
                 int tile = r[0x202 + i * 4], attr = r[0x203 + i * 4];
-                // The frame-init that seeds OAM size bits runs outside our capture; SMW
-                // sprite tiles are almost all 16x16, so default Big unless proven 8x8.
-                list.Add(new Oam(x + bx, y + by, tile | ((attr & 1) << 8), attr, true));
+                list.Add(new Oam(x + bx, y + by, tile | ((attr & 1) << 8), attr, (sz & 2) != 0));
             }
             return list.Count is > 0 and < 40 ? list : null;
         }
