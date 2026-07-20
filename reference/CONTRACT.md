@@ -476,8 +476,9 @@ to 0. Only loaded when the header's level mode is a layer-2 mode (not in
 {0,0A,0C,0D,0E,11,1E}) — the editor just renders it whenever present.
 
 Bank == $FF → **background image** ($05803B): data at `$0C:(ptr&FFFF)` (all vanilla BGs in
-bank $0C), decoded by the RLE at $058126 into a 0x400-tile map (two 16-wide × 32-tall
-screens, repeating horizontally):
+bank $0C), decoded by the RLE at $058126 into a tile map of two 16-wide × **27-tall**
+screens (0x1B0 tiles/screen — same screen stride as the layer-1 tilemap planes; a 0x200
+stride shows the 2nd screen shifted up 5 tiles), repeating horizontally:
 ```
 cmd  = byte;  cmd==FF && next==FF → end
 bit7 set: run  — next byte repeated (cmd&0x7F)+1 times
