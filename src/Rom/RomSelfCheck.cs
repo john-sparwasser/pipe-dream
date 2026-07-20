@@ -223,6 +223,34 @@ public static class RomSelfCheck
             int afo = ar.FileOffset(al.DataPointer);
             Check("DM16 level re-encodes byte-identical",
                   enc.AsSpan().SequenceEqual(ar.Data.AsSpan(afo, enc.Length)));
+
+            Console.WriteLine("In-app save (merge DM16 edit on a mid screen + reload):");
+            var sr = Rom.Load(afterRom);
+            var sl = Level.Parse(sr, 0x105);
+            int targetScreen = sl.Objects[sl.Objects.Count / 2].Screen;   // a screen with objects
+            var newObj = LevelObject.MakeDm16(0x110, targetScreen, 4, 6);
+            var merged = new List<LevelObject>();
+            for (int i = 0; i < sl.Objects.Count; i++)
+            {
+                merged.Add(sl.Objects[i]);
+                int next = i + 1 < sl.Objects.Count ? sl.Objects[i + 1].Screen : -1;
+                if (sl.Objects[i].Screen == targetScreen && sl.Objects[i].Screen != next) merged.Add(newObj);
+            }
+            var sd = sl.Encode(sr, merged);
+            sr.ExpandTo(0x200000);
+            sr.SetLayer1Pointer(0x105, sr.AllocateRats(sd));
+            string stmp = Path.Combine(Path.GetTempPath(), "pd_inapp_save.smc");
+            sr.SaveAs(stmp);
+            var sre = Rom.Load(stmp);
+            var srl = Level.Parse(sre, 0x105);
+            var newPlaced = srl.Objects.Where(o => o.IsDm16 && o.Dm16Tile == 0x110).ToList();
+            Console.WriteLine($"    target screen {targetScreen}; placed tile 0x110 -> " +
+                string.Join(" ", newPlaced.Select(o => $"scr{o.Screen}@({o.AbsoluteX},{o.Y})")));
+            Check("new DM16 tile landed on the target screen",
+                  newPlaced.Count == 1 && newPlaced[0].Screen == targetScreen);
+            Check("all original objects preserved",
+                  srl.Objects.Count == sl.Objects.Count + 1);
+            File.Delete(stmp);
         }
 
         Console.WriteLine(fails == 0 ? "\nALL CHECKS PASSED" : $"\n{fails} CHECK(S) FAILED");

@@ -40,6 +40,8 @@ public class EditorApp : App
     private uint backdropColor;
     private int selectedMap16 = 0x100;
     private bool levelDirty;
+    private Map16Grid? baseGrid;     // object-engine output before edits, to diff against on save
+    private string saveStatus = "";
     private const float Zoom = 2f;   // on-screen px per source px for picker + canvas
 
     public EditorApp() : base(new AppConfig
@@ -104,6 +106,13 @@ public class EditorApp : App
                 {
                     LoadRom(@"C:\SMW\Projects\ShaoBase\base.smc");
                 }
+                if (ImGui.MenuItem("Open DM16 test ROM…"))
+                {
+                    LoadRom(@"C:\SMW\Projects\.resources\after.smc");
+                }
+                ImGui.Separator();
+                if (ImGui.MenuItem("Save DM16 edits to ROM copy", rom is not null && level is not null))
+                    SaveEdits();
                 ImGui.Separator();
                 if (ImGui.MenuItem("Exit")) Exit();
                 ImGui.EndMenu();
@@ -144,6 +153,7 @@ public class EditorApp : App
         ImGui.Begin("Level Render");
         if (levelTex is null || grid is null) { ImGui.TextDisabled("No level rendered."); ImGui.End(); return; }
         ImGui.Text($"Level 0x{levelNum:X3} — left-click: place 0x{selectedMap16:X3}   right-click: erase");
+        if (saveStatus.Length > 0) ImGui.TextDisabled(saveStatus);
         if (ImGui.BeginChild("lvlcanvas", System.Numerics.Vector2.Zero, 0,
                 ImGuiWindowFlags.HorizontalScrollbar))
         {
@@ -167,6 +177,59 @@ public class EditorApp : App
             ImGui.EndChild();
         }
         ImGui.End();
+    }
+
+    // Write the current grid edits back to a ROM copy as Direct Map16 objects.
+    private void SaveEdits()
+    {
+        if (rom is null || level is null || grid is null || baseGrid is null) return;
+        if (!rom.HasDm16Hijack) { saveStatus = "ROM lacks LM Direct Map16 ASM — open a ROM saved by LM."; return; }
+
+        // Collect changed, non-empty cells as DM16 objects grouped by screen.
+        var byScreen = new Dictionary<int, List<LevelObject>>();
+        int edits = 0;
+        for (int y = 0; y < grid.Height; y++)
+            for (int x = 0; x < grid.Width; x++)
+            {
+                int t = grid.Get(x, y);
+                if (t == baseGrid.Get(x, y)) continue;
+                if (t == Map16Grid.Empty || (t & ObjectEngine.Marker) != 0) continue;   // erase/marker: skip (v1)
+                int screen = x / 16;
+                var o = LevelObject.MakeDm16(t, screen, x % 16, y);
+                if (!byScreen.TryGetValue(screen, out var lst)) byScreen[screen] = lst = new();
+                lst.Add(o);
+                edits++;
+            }
+        if (edits == 0) { saveStatus = "no edits to save"; return; }
+
+        // Merge into the original object list: insert each screen's DM16 objects right after
+        // that screen's last original object (keeps the original new-screen flags valid).
+        var merged = new List<LevelObject>();
+        var placed = new HashSet<int>();
+        var objs = level.Objects;
+        for (int i = 0; i < objs.Count; i++)
+        {
+            merged.Add(objs[i]);
+            int next = i + 1 < objs.Count ? objs[i + 1].Screen : -1;
+            if (objs[i].Screen != next && byScreen.TryGetValue(objs[i].Screen, out var lst))
+            { merged.AddRange(lst); placed.Add(objs[i].Screen); }
+        }
+        int skipped = byScreen.Where(kv => !placed.Contains(kv.Key)).Sum(kv => kv.Value.Count);
+
+        try
+        {
+            byte[] data = level.Encode(rom, merged);
+            int addr;
+            try { addr = rom.AllocateRats(data); }
+            catch { rom.ExpandTo(Math.Min(0x400000, Math.Max(0x200000, rom.ActualRomSize * 2))); addr = rom.AllocateRats(data); }
+            rom.SetLayer1Pointer(levelNum, addr);
+            string outp = System.IO.Path.ChangeExtension(loadedRomPath, ".edited.smc");
+            rom.SaveAs(outp);
+            baseGrid = grid.Clone();   // committed: new baseline
+            saveStatus = $"saved {edits} edits -> {System.IO.Path.GetFileName(outp)}" +
+                         (skipped > 0 ? $"  ({skipped} on empty screens skipped)" : "");
+        }
+        catch (Exception e) { saveStatus = "save failed: " + e.Message; }
     }
 
     private void BuildLevelCanvas()
@@ -402,6 +465,7 @@ public class EditorApp : App
         {
             level = rom is null ? null : Level.Parse(rom, levelNum);
             grid = rom is not null && level is not null ? ObjectEngine.Render(rom, level) : null;
+            baseGrid = grid?.Clone();          // snapshot to diff edits against on save
             tileCache = rom is not null && level is not null ? Map16.ComposeAll(rom, level.Header) : null;
             backdropColor = rom is not null && level is not null ? Palette.Load(rom, level.Header).Rgba[0] : 0;
             BuildMap16Sheet();

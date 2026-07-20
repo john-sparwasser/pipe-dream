@@ -26,6 +26,13 @@ public sealed class Map16Grid
         foreach (var t in Tiles) if (t != Empty) c++;
         return c;
     }
+
+    public Map16Grid Clone()
+    {
+        var g = new Map16Grid(Width, Height);
+        Array.Copy(Tiles, g.Tiles, Tiles.Length);
+        return g;
+    }
 }
 
 /// <summary>
