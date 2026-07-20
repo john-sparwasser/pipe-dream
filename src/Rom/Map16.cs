@@ -55,6 +55,32 @@ public static class Map16
         return ptr;
     }
 
+    /// <summary>
+    /// Compose all 512 FG Map16 tiles into one RGBA sheet (cols tiles wide, 16px each) using
+    /// the level's tileset GFX + palette. This is the composed tile-picker/preview image.
+    /// </summary>
+    public static (uint[] px, int w, int h) ComposeSheet(Rom rom, LevelHeader h, int cols = 16)
+    {
+        var defPtr = BuildDefPointers(rom, h.Tileset);
+        var fg = Gfx.FgTiles.Load(rom, h.Tileset);
+        var pal = Palette.Load(rom, h);
+        int rows = (FgTiles + cols - 1) / cols;
+        int w = cols * 16, ht = rows * 16;
+        var sheet = new uint[w * ht];
+        for (int t = 0; t < FgTiles; t++)
+        {
+            var img = Compose(Definition(rom, defPtr, t), fg.Fetch, pal);
+            int ox = (t % cols) * 16, oy = (t / cols) * 16;
+            for (int y = 0; y < 16; y++)
+                for (int x = 0; x < 16; x++)
+                {
+                    uint c = img[y * 16 + x];
+                    sheet[(oy + y) * w + (ox + x)] = c == 0 ? 0xFF303030u : c;   // grey = transparent
+                }
+        }
+        return (sheet, w, ht);
+    }
+
     /// <summary>The 4 words (TL, BL, TR, BR) of a Map16 tile.</summary>
     public static Word[] Definition(Rom rom, int[] defPtr, int tile)
     {

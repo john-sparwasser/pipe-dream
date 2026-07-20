@@ -22,6 +22,42 @@ public static class Gfx
 
     public static int TileBytes(int bpp) => bpp * 8;   // 2bpp=16, 3bpp=24, 4bpp=32
 
+    public const int ObjectGfxList = 0x00A92B;         // FG/BG GFX file list, indexed by tileset*4
+
+    /// <summary>
+    /// The FG 8×8 tile source for a level's tileset. SMW loads 4 GFX files into VRAM word
+    /// addresses $0000/$0800/$1000/$1800 (DATA_00A9D6), so a Map16 word's tile number maps to
+    /// slot = tile>>7, file = OBJECTGFXLIST[tileset*4 + slot] (see PrepLoadFGBG / $00AA22).
+    /// Vanilla FG GFX are 3bpp. This resolves a tile number to its 64 palette-index pixels.
+    /// </summary>
+    public sealed class FgTiles
+    {
+        private static readonly byte[] Blank = new byte[64];
+        private readonly byte[][][] slots = new byte[4][][];
+
+        public static FgTiles Load(Rom rom, int tileset)
+        {
+            var f = new FgTiles();
+            for (int s = 0; s < 4; s++)
+            {
+                int file = rom.Data[rom.FileOffset(ObjectGfxList) + tileset * 4 + s];
+                var data = DecompressFile(rom, file);
+                int tb = TileBytes(3), n = data.Length / tb;
+                var tiles = new byte[n][];
+                for (int t = 0; t < n; t++) tiles[t] = DecodeTile(data, t * tb, 3);
+                f.slots[s] = tiles;
+            }
+            return f;
+        }
+
+        public byte[] Fetch(int tileNum)
+        {
+            int s = (tileNum >> 7) & 3, t = tileNum & 0x7F;
+            var arr = slots[s];
+            return t < arr.Length ? arr[t] : Blank;
+        }
+    }
+
     /// <summary>
     /// Render a decompressed GFX file as an RGBA tile sheet (cols tiles wide) using one
     /// palette row. Color index 0 is transparent (shown as dark grey so tiles are visible).

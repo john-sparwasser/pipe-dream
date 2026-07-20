@@ -163,6 +163,14 @@ public static class RomSelfCheck
             Console.WriteLine($"    {distinct} distinct 8x8 tile numbers referenced across 512 Map16 tiles");
             Check("Map16 words reference sane 8x8 tiles (<0x400)", allWords.All(t => t < 0x400));
             Check("Map16 defs have variety (not blank)", distinct > 50);
+
+            Console.WriteLine("Map16 composition (real pixels):");
+            var (sheet, sw, sh) = Map16.ComposeSheet(r, lv.Header);
+            int colored = sheet.Count(p => p != 0xFF303030u);
+            int distinctColors = sheet.Where(p => p != 0xFF303030u).Distinct().Count();
+            Console.WriteLine($"    sheet {sw}x{sh}, {colored} colored px, {distinctColors} distinct colors");
+            Check("composed sheet has real pixels", colored > 5000);
+            Check("composed sheet uses many palette colors", distinctColors > 8);
         }
 
         Console.WriteLine(fails == 0 ? "\nALL CHECKS PASSED" : $"\n{fails} CHECK(S) FAILED");

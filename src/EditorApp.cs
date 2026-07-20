@@ -27,6 +27,10 @@ public class EditorApp : App
     private int gfxW, gfxH, gfxFile, gfxBpp = 3, gfxPalRow = 2;
     private (int, int, int, int) gfxKey = (-1, -1, -1, -1);
 
+    // Composed Map16 sheet
+    private Texture? map16Tex;
+    private int map16W, map16H;
+
     public EditorApp() : base(new AppConfig
     {
         ApplicationName = "PipeDream",
@@ -114,8 +118,36 @@ public class EditorApp : App
 
         DrawLevelPanel();
         DrawMap16Panel();
+        DrawMap16Sheet();
         DrawGfxViewer();
         DrawLevelSchematic();
+    }
+
+    // The composed Map16 tile sheet — real SNES graphics for this level's tileset.
+    private void DrawMap16Sheet()
+    {
+        ImGui.Begin("Map16 Tiles");
+        if (map16Tex is null) { ImGui.TextDisabled("No level."); ImGui.End(); return; }
+        ImGui.Text("Composed FG Map16 tiles (16 per row). This is the tile-picker source.");
+        if (ImGui.BeginChild("m16sheet", System.Numerics.Vector2.Zero, 0, ImGuiWindowFlags.HorizontalScrollbar))
+        {
+            ImGui.Image(imgui!.GetTextureID(map16Tex), new Vector2(map16W * 2f, map16H * 2f));
+            ImGui.EndChild();
+        }
+        ImGui.End();
+    }
+
+    private void BuildMap16Sheet()
+    {
+        map16Tex?.Dispose(); map16Tex = null;
+        if (rom is null || level is null) return;
+        try
+        {
+            var (px, w, h) = Map16.ComposeSheet(rom, level.Header);
+            map16Tex = new Texture(GraphicsDevice, w, h, MemoryMarshal.AsBytes(px.AsSpan()));
+            map16W = w; map16H = h;
+        }
+        catch { map16Tex?.Dispose(); map16Tex = null; }
     }
 
     // Renders a GFX file as a palette-colored 8x8 tile sheet — real SNES pixels via the
@@ -300,6 +332,7 @@ public class EditorApp : App
         {
             level = rom is null ? null : Level.Parse(rom, levelNum);
             grid = rom is not null && level is not null ? ObjectEngine.Render(rom, level) : null;
+            BuildMap16Sheet();
         }
         catch { level = null; grid = null; }
     }
