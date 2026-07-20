@@ -13,7 +13,7 @@ public readonly struct LevelHeader
     public readonly int SpriteSet;       // byte2 bits0-3
     public readonly int Music;           // byte2 bits4-6
     public readonly int Layer3Priority;  // byte2 bit7
-    public readonly int Time;            // byte3 bits5-7 (TimerTable index)
+    public readonly int Time;            // byte3 bits6-7 (TimerTable index, $05857B)
     public readonly int SpritePalette;   // byte3 bits3-5
     public readonly int FgPalette;       // byte3 bits0-2
     public readonly int Tileset;         // byte4 bits0-3  <-- drives object rendering dispatch
@@ -30,7 +30,7 @@ public readonly struct LevelHeader
         SpriteSet = b2 & 0x0F;
         Music = (b2 >> 4) & 0x07;
         Layer3Priority = b2 >> 7;
-        Time = b3 >> 5;
+        Time = b3 >> 6;
         SpritePalette = (b3 >> 3) & 0x07;
         FgPalette = b3 & 0x07;
         Tileset = b4 & 0x0F;

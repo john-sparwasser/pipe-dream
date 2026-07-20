@@ -428,13 +428,34 @@ public class EditorApp : App
         if (level is null) { ImGui.End(); return; }
 
         var h = level.Header;
-        ImGui.Text($"Layer1 @ ${level.DataPointer:X6}   tileset {h.Tileset}   mode {h.LevelMode}   " +
-                   $"screens {h.Screens}");
-        ImGui.Text($"palettes: FG {h.FgPalette}  BG {h.BgPalette}  sprite {h.SpritePalette}  " +
-                   $"back {h.BackAreaColor}   music {h.Music}   sprite-set {h.SpriteSet}");
-        ImGui.Text($"Layer 2 @ ${rom.Layer2Pointer(levelNum):X6}" +
+        ImGui.Text($"Layer1 @ ${level.DataPointer:X6}   Layer 2 @ ${rom.Layer2Pointer(levelNum):X6}" +
                    (rom.Layer2IsBackground(levelNum) ? " (background)" : " (objects)") +
                    $"   Sprites @ ${rom.SpritePointer(levelNum):X6}");
+        // Header fields, labeled like Lunar Magic's dialogs for side-by-side comparison.
+        if (ImGui.CollapsingHeader("Level header (LM naming)", ImGuiTreeNodeFlags.DefaultOpen))
+        {
+            ImGui.Text($"# of screens: {h.Screens:X2}    Level mode: {h.LevelMode:X2}    " +
+                       $"FG/BG GFX (tileset): {h.Tileset:X}");
+            ImGui.Text($"BG palette: {h.BgPalette}   FG palette: {h.FgPalette}   " +
+                       $"Sprite palette: {h.SpritePalette}   Back area color: {h.BackAreaColor}");
+            ImGui.Text($"Music: {h.Music}   Sprite GFX set: {h.SpriteSet:X}   Time: {h.Time}   " +
+                       $"Item memory: {h.ItemMemory}   V-scroll: {h.ScrollSetting}   L3 prio: {h.Layer3Priority}");
+            if (sprites is not null)
+                ImGui.Text($"Sprite memory: {sprites.SpriteMemory:X2}   Buoyancy: {sprites.Buoyancy}");
+            // Resolved GFX files per slot, like LM's "GFX index in header" dialog (FG1=14 …).
+            var byp = rom.LmGfxBypass(levelNum);
+            int[] slots = new int[4];
+            for (int s = 0; s < 4; s++)
+                slots[s] = rom.Data[rom.FileOffset(Gfx.ObjectGfxList) + h.Tileset * 4 + s];
+            if (byp is not null)
+            {
+                int[] w = { 7, 6, 5, 4 };            // FG1, FG2, BG1, FG3 record words
+                for (int s = 0; s < 4; s++)
+                    if ((byp[w[s]] & 0xFFF) != 0x7F) slots[s] = byp[w[s]] & 0xFFF;
+            }
+            ImGui.Text($"GFX files: FG1={slots[0]:X2} FG2={slots[1]:X2} BG1={slots[2]:X2} FG3={slots[3]:X2}" +
+                       (byp is not null ? "  (Super GFX Bypass ON)" : ""));
+        }
         ImGui.Separator();
         ImGui.Text($"{level.Objects.Count} objects" + (level.Empty ? "  (empty level)" : ""));
 
