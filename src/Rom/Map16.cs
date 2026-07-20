@@ -162,6 +162,19 @@ public static class Map16
         return (sheet, w, ht);
     }
 
+    /// <summary>
+    /// The 4 words (TL, BL, TR, BR) of an extended Map16 tile (>= 0x200) from LM's expanded
+    /// table: def(tile) = LmMap16Base + (tile - 0x200) * 8. Caller must ensure rom.LmMap16Base >= 0.
+    /// </summary>
+    public static Word[] LmExtendedDef(Rom rom, int tile)
+    {
+        int fo = rom.FileOffset(rom.LmMap16Base + (tile - 0x200) * 8);
+        var w = new Word[4];
+        for (int i = 0; i < 4; i++)
+            w[i] = new Word((ushort)(rom.Data[fo + i * 2] | (rom.Data[fo + i * 2 + 1] << 8)));
+        return w;
+    }
+
     /// <summary>The 4 words (TL, BL, TR, BR) of a Map16 tile.</summary>
     public static Word[] Definition(Rom rom, int[] defPtr, int tile)
     {

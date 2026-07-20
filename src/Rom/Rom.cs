@@ -34,6 +34,22 @@ public sealed class Rom
     /// </summary>
     public bool HasDm16Hijack => ReadValue(0x0DA4BB, 3) != 0x0DB3E3;
 
+    /// <summary>
+    /// SNES address of LM's extended Map16 definition data (tiles >= 0x200), or -1 if not an
+    /// LM-expanded ROM. LM stores the table's RATS-tag address at $02C2E1; data follows the tag.
+    /// </summary>
+    public int LmMap16Base
+    {
+        get
+        {
+            int ptr = ReadValue(0x02C2E1, 3);
+            int fo = FileOffset(ptr);
+            if (fo < 0 || fo + 8 > Data.Length) return -1;
+            bool star = Data[fo] == 0x53 && Data[fo + 1] == 0x54 && Data[fo + 2] == 0x41 && Data[fo + 3] == 0x52;
+            return star ? ptr + 8 : -1;    // data starts after the 8-byte RATS tag
+        }
+    }
+
     // Level pointer tables (CONTRACT §3), all in bank $05.
     public const int Layer1TableSnes = 0x05E000; // 3 bytes/level
     public const int Layer2TableSnes = 0x05E600; // 3 bytes/level

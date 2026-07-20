@@ -210,6 +210,22 @@ public static class RomSelfCheck
             File.Delete(tmp);
         }
 
+        string map16After = @"C:\SMW\Projects\.resources\map16_after.smc";
+        if (File.Exists(map16After))
+        {
+            Console.WriteLine("LM extended Map16 def read (map16_after.smc, tile 0x300):");
+            var mr = Rom.Load(map16After);
+            Console.WriteLine($"    LmMap16Base = ${mr.LmMap16Base:X6}");
+            Check("LM extended Map16 table detected", mr.LmMap16Base > 0);
+            var d = Map16.LmExtendedDef(mr, 0x300);
+            Console.WriteLine($"    tile 0x300 = TL {d[0].Raw:X4} BL {d[1].Raw:X4} TR {d[2].Raw:X4} BR {d[3].Raw:X4}");
+            Check("tile 0x300 def matches the edit (DA/DB/DC/DD, pal 0/1/2/3)",
+                  d[0].Raw == 0x00DA && d[1].Raw == 0x08DC && d[2].Raw == 0x04DB && d[3].Raw == 0x0CDD);
+            Check("corner tiles/palettes decode right",
+                  d[0].Tile == 0xDA && d[0].Palette == 0 && d[2].Tile == 0xDB && d[2].Palette == 1 &&
+                  d[1].Tile == 0xDC && d[1].Palette == 2 && d[3].Tile == 0xDD && d[3].Palette == 3);
+        }
+
         string afterRom = @"C:\SMW\Projects\.resources\after.smc";
         if (File.Exists(afterRom))
         {

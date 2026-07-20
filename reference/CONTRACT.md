@@ -281,3 +281,21 @@ SMW vs DogsOfWar/ShaoBase:
 or do a controlled diff: change one Map16 tile's 8×8 in LM, save before/after, diff) to find
 the 8-byte-def table + its index; then read GFX via LM's per-level GFX/ExGFX list (LM also
 relocates/adds those). The vanilla-path renderer already works for clean ROMs.
+
+### 7a. LM extended Map16 table  [CONFIRMED via controlled diff]
+
+Decoded by editing one Map16 tile (0x300) in LM and diffing before/after:
+- LM stores the **extended Map16 definitions (tiles >= 0x200)** in a RATS block; its address
+  is held at SNES **`$02C2E1`** (and `$049371`) — `$108000` in the test ROMs (data at
+  `$108008`, after the 8-byte tag). Read it per-ROM (don't hardcode): `Rom.LmMap16Base`.
+- Index: `def(tile) = LmMap16Base + (tile - 0x200) * 8`, 8 bytes = 4 words **TL, BL, TR, BR**.
+- Word layout confirmed = §5: tile low-10 bits, palette bits 10-12, priority 13, Xflip 14,
+  Yflip 15. (Edit 0x300 = `00DA 08DC 04DB 0CDD` → tiles DA/DC/DB/DD, palettes 0/2/1/3.)
+- Unused extended tiles are a blank fill (`1004`×4). Tiles **< 0x200** still use the
+  vanilla/tileset path (LM's handler splits on `CMP #$0200`); the tileset-specific page-1
+  (0x100-0x1FF) custom table is not yet located (needs a second controlled edit on a 0x1xx tile).
+- The 2-byte-per-tile table at `$118000` is the acts-like/remap (identity by default).
+
+**Still needed to render LM hacks fully:** (1) feed extended defs into the tile cache/render;
+(2) LM per-level GFX + ExGFX so the 8x8 tiles those defs reference decode correctly;
+(3) the page-1 tileset-specific custom table.
