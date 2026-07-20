@@ -20,3 +20,4 @@ reference/lm-help/
 # Editor / UI state
 imgui.ini
 *.user
+*.png
