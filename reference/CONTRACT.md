@@ -257,3 +257,27 @@ port of `$00B8DE`, Map16 assembly = the real work (`CODE_0581FB` per-page logic)
 object engine (§4a/§4b, ~60 handlers) remains the largest piece. For LM-edited ROMs, the
 Map16/GFX/palette all shift to LM's expanded tables, which is a separate (often simpler,
 contiguous) read path worth handling explicitly.
+
+---
+
+## 7. Lunar Magic read path (edited 2MB ROMs)  [PARTIAL — entry points located]
+
+The vanilla read path (§1–6) works on clean ROMs. LM-edited ROMs relocate/expand
+Map16 + GFX, so rendering them needs LM's tables. Entry points found by diffing clean
+SMW vs DogsOfWar/ShaoBase:
+
+- **Map16 lookup hijack**: LM patches the Map16→8×8 consumer at `$00C17A` with
+  `JSL $06F5D0` (vanilla was `REP #$20`). `TilesetMAP16Loc` ($058000) is left unchanged
+  (vestigial).
+- `$06F5D0`: remaps the tile through a table at **`$118000`** (2 bytes/tile, identity by
+  default = tile→tile), then `JML $00F545`.
+- `$00F545`: the gameplay **acts-like** handler (operates on `$1693`), NOT the graphics defs.
+- **Graphics defs**: LM stores the actual 16×16 definitions (8 bytes = 4 words TL/BL/TR/BR,
+  §5) in RATS-protected blocks — `STAR` tags seen at `$100000` and `$120000`. The precise
+  structure (offset tables → the 8-byte-per-tile block, per LM's `.map16` layout in
+  `reference/lm-help/html/info_map16_file_format.htm`) is not yet decoded.
+
+**Remaining to render LM hacks:** decode LM's in-ROM Map16 structure (fully trace `$06F5D0`,
+or do a controlled diff: change one Map16 tile's 8×8 in LM, save before/after, diff) to find
+the 8-byte-def table + its index; then read GFX via LM's per-level GFX/ExGFX list (LM also
+relocates/adds those). The vanilla-path renderer already works for clean ROMs.
