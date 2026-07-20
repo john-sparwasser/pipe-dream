@@ -46,10 +46,91 @@ public static class ObjectEngine
     // Object-number bit distinguishing a not-yet-implemented placeholder from a real tile.
     public const int Marker = 0x8000;
 
+    /// <summary>
+    /// Expand a level's object stream by EXECUTING the ROM's own loader + handlers
+    /// (`LoadLevelData` $0585FF) in a small 65816 interpreter, then reading back the
+    /// tilemap planes. Tiles are correct by construction for every object, every tileset,
+    /// and LM's custom handlers. Falls back to the hand-ported engine on emulation failure.
+    /// </summary>
     public static Map16Grid Render(Rom rom, Level level)
-        => Render(rom, level.Header, level.Objects);
+    {
+        try { return RenderEmulated(rom, level.Header, level.DataPointer, layer: 0); }
+        catch { return RenderPorted(rom, level.Header, level.Objects); }
+    }
 
-    public static Map16Grid Render(Rom rom, LevelHeader header, IReadOnlyList<LevelObject> objects)
+    /// <summary>Layer-2 object stream via the same emulation ($1933 = 1).</summary>
+    public static Map16Grid? RenderLayer2(Rom rom, LevelHeader header, int levelNum)
+    {
+        if (rom.Layer2IsBackground(levelNum)) return null;
+        try { return RenderEmulated(rom, header, rom.Layer2Pointer(levelNum), layer: 1); }
+        catch
+        {
+            var objs = Level.ParseLayer2(rom, levelNum);
+            return objs is null ? null : RenderPorted(rom, header, objs);
+        }
+    }
+
+    public static Cpu65816? LastCpu;    // debug hook
+
+    public static Map16Grid RenderEmulated(Rom rom, LevelHeader header, int dataPtrSnes, int layer)
+    {
+        var cpu = new Cpu65816(rom);
+        LastCpu = cpu;
+        // Tilemap init as at $058074: low planes 0x25, high planes 0x00.
+        Array.Fill(cpu.Ram7E, (byte)0x25, 0xC800, 0x3800);
+
+        void W(int addr, byte v) => cpu.Ram7E[addr] = v;
+        int data = dataPtrSnes + 5;                       // past the 5-byte header copy
+        W(0x65, (byte)data); W(0x66, (byte)(data >> 8)); W(0x67, (byte)(data >> 16));
+        W(0x1925, (byte)header.LevelMode);
+        W(0x1931, (byte)header.Tileset);
+        W(0x1930, (byte)header.BgPalette);
+        W(0x192B, (byte)header.SpriteSet);
+        W(0x5B, rom.ReadByte(0x058417 + (header.LevelMode & 0x1F)));   // VerticalTable
+        W(0x1933, (byte)layer);
+
+        if (rom.ReadByte(data) != 0xFF)                   // empty level: nothing to run
+            cpu.CallNear(0x05_85FF);
+
+        // Plane bases come from the same tables the loader used ($00BEA8/$00BEAC → per-mode
+        // screen tables of 24-bit addresses, 3 bytes per screen).
+        int mode = header.LevelMode & 0x1F;
+        int lowTbl = rom.ReadValue(0x00BEA8 + layer * 2, 2);
+        int highTbl = rom.ReadValue(0x00BEAC + layer * 2, 2);
+        int lowScr = rom.ReadValue(lowTbl + mode * 2, 2);
+        int highScr = rom.ReadValue(highTbl + mode * 2, 2);
+        // LM-saved ROMs patch the loader and rebuild plane pointers at runtime — these
+        // static tables are dead there. Bail to the ported engine until we capture the
+        // pointers from the emulation itself (see CONTRACT §13 TODO).
+        if ((rom.ReadValue(lowScr, 3) >> 16) is not (0x7E or 0x7F))
+            throw new InvalidOperationException("plane tables not vanilla (LM-patched loader)");
+
+        bool vertical = rom.IsVerticalMode(header.LevelMode);
+        int screens = Math.Max(1, header.Screens);
+        var g = new Map16Grid(vertical ? 32 : screens * 16, vertical ? screens * 16 : 32);
+
+        byte Ram(int bank, int addr) => bank == 0x7F ? cpu.Ram7F[addr & 0xFFFF] : cpu.Ram7E[addr & 0xFFFF];
+        for (int s = 0; s < screens; s++)
+        {
+            int lo = rom.ReadValue(lowScr + s * 3, 3);
+            int hi = rom.ReadValue(highScr + s * 3, 3);
+            for (int i = 0; i < 0x200; i++)
+            {
+                int half = i >> 8, pos = i & 0xFF;
+                int y = half * 16 + (pos >> 4), x = pos & 0x0F;
+                if (y >= 27 && !vertical) continue;        // screens are 16x27
+                int cx = vertical ? (s % 2) * 16 + x : s * 16 + x;
+                int cy = vertical ? (s / 2) * 16 + y : y;  // vertical: screens stack in pairs
+                if (half == 1 && (i & 0xFF) >= 0xB0 && !vertical) continue;
+                int tile = Ram(lo >> 16, lo + (half << 8) + pos)
+                         | (Ram(hi >> 16, hi + (half << 8) + pos) << 8);
+                g.Set(cx, cy, tile);
+            }
+        }
+        return g;
+    }
+
+    public static Map16Grid RenderPorted(Rom rom, LevelHeader header, IReadOnlyList<LevelObject> objects)
     {
         int w = Math.Max(16, header.Screens * 16);
         var g = new Map16Grid(w, 32);

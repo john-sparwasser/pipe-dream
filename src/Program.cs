@@ -78,6 +78,8 @@ class Program
         var rom = Rom.Load(args[mi + 1]);
         int level = Convert.ToInt32(args[mi + 2], 16);
         var lv = Level.Parse(rom, level);
+        try { ObjectEngine.RenderEmulated(rom, lv.Header, lv.DataPointer, 0); Console.WriteLine("engine: emulated"); }
+        catch (Exception e) { Console.WriteLine($"engine: ported fallback ({e.Message})"); }
         var grid = ObjectEngine.Render(rom, lv);
         var markers = new Dictionary<int, int>();
         for (int i = 0; i < grid.Tiles.Length; i++)

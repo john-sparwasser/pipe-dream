@@ -561,3 +561,22 @@ without advancing $00, so blob2 lands over blob1's spent 3bpp source. It is stor
 4bpp (0x5D00 bytes): DMA-visible RAM = $2000-$7CFF blob2 (berries at id 5's $6D80 =
 offset 0x4D80), $7D00-$ACFF converted blob1. Overlay resolves >= $7D00 from blob1 as
 3bpp, else >= $2000 from blob2 as 4bpp.
+
+## 13. Object expansion via emulation  [IMPLEMENTED — vanilla-layout ROMs]
+
+Instead of hand-porting every bank-0D handler, the editor EXECUTES the ROM's own
+`LoadLevelData` ($0585FF) in a small 65816 interpreter (src/Rom/Cpu65816.cs): RAM banks
+$7E/$7F emulated, low-RAM mirror for banks 00-3F/80-BF, ROM via LoROM map, PPU writes
+ignored. Setup: planes filled 0x25/0x00, $65-$67 = layer data (+5), $1925/$1931/$1930/
+$192B from the header, $5B from VerticalTable, $1933 = layer. Result read back through
+the loader's own plane tables ($00BEA8/$00BEAC → per-mode screen tables, 3-byte base per
+screen; screen layout = rows 0-15 at +0x000, rows 16-26 at +0x100).
+Tiles are exact for every object/tileset by construction (slopes, mud edges, context
+blends — all previous approximations retired on this path).
+
+**TODO (LM-saved ROMs)**: LM patches the loader and rebuilds plane pointers at runtime
+(static tables dead; observed screen-0 low plane at $7E:0000 when entered without LM's
+init). Enter via the full chain ($05801E: BG clear + decode + LoadLevel, RTL exit,
+GameMode >= 0x22 to skip sprite init) and capture $6B/$6E per screen with a CPU write
+hook, then extraction needs no table knowledge at all. Until then LM ROMs use the ported
+engine (hand-written handlers, kept as fallback).

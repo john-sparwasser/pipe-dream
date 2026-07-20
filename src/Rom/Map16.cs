@@ -109,9 +109,9 @@ public static class Map16
             var bgCache = ComposeAllBg(rom, h, level, animPhase);
             DrawBgImage(img, W, H, grid.Width, bgImg, bgCache);
         }
-        else if (level >= 0 && Level.ParseLayer2(rom, level) is { } l2objs)
+        else if (level >= 0 && ObjectEngine.RenderLayer2(rom, h, level) is { } l2grid)
         {
-            DrawGrid(img, W, H, ObjectEngine.Render(rom, h, l2objs), cache);
+            DrawGrid(img, W, H, l2grid, cache);
         }
 
         DrawGrid(img, W, H, grid, cache);

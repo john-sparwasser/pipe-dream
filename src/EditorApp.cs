@@ -472,8 +472,8 @@ public class EditorApp : App
                     bgCaches[p] = Map16.ComposeAllBg(rom!, level!.Header, levelNum, p);
             }
             else bgCaches = null;
-            var l2objs = rom is not null && level is not null ? Level.ParseLayer2(rom, levelNum) : null;
-            layer2Grid = l2objs is not null ? ObjectEngine.Render(rom!, level!.Header, l2objs) : null;
+            layer2Grid = rom is not null && level is not null
+                ? ObjectEngine.RenderLayer2(rom, level.Header, levelNum) : null;
             sprites = rom is not null && level is not null ? SpriteData.Parse(rom, levelNum) : null;
             BuildMap16Sheet();
             BuildLevelCanvas();
