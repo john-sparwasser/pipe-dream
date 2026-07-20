@@ -27,16 +27,17 @@ public class EditorApp : App
     private int gfxW, gfxH, gfxFile, gfxBpp = 3, gfxPalRow = 2;
     private (int, int, int, int) gfxKey = (-1, -1, -1, -1);
 
-    // Composed Map16 sheet
-    private Texture? map16Tex;
+    // Composed Map16 sheet + level canvas, one texture per animation phase (CONTRACT §12).
+    private readonly Texture?[] map16Texs = new Texture?[4];
     private int map16W, map16H;
-
-    // Composed level canvas
-    private Texture? levelTex;
+    private readonly Texture?[] levelTexs = new Texture?[4];
     private int levelPxW, levelPxH;
+    private bool animateTiles = true;
+    // Current animation phase: the game advances every 8 frames at 60fps (~133 ms).
+    private int AnimPhase => animateTiles ? (int)(ImGui.GetTime() / 0.1333) & 3 : 0;
 
     // Edit state
-    private uint[][]? tileCache;     // 512 composed 16x16 tiles for the current tileset
+    private uint[][][]? tileCaches;  // [phase][map16 tile] composed 16x16 tiles
     private uint backdropColor;
     private int selectedMap16 = 0x100;
     private bool levelDirty;
@@ -155,6 +156,8 @@ public class EditorApp : App
             {
                 if (ImGui.MenuItem("Sprite overlay", "", showSprites))
                 { showSprites = !showSprites; levelDirty = true; }
+                if (ImGui.MenuItem("Animate tiles", "", animateTiles))
+                    animateTiles = !animateTiles;
                 ImGui.EndMenu();
             }
             ImGui.EndMainMenuBar();
@@ -200,7 +203,7 @@ public class EditorApp : App
     private void DrawLevelCanvas()
     {
         ImGui.Begin("Level Render");
-        if (levelTex is null || grid is null) { ImGui.TextDisabled("No level rendered."); ImGui.End(); return; }
+        if (levelTexs[0] is null || grid is null) { ImGui.TextDisabled("No level rendered."); ImGui.End(); return; }
         ImGui.Text($"Level 0x{levelNum:X3} — left-click: place 0x{selectedMap16:X3}   right-click: erase");
         if (saveStatus.Length > 0) ImGui.TextDisabled(saveStatus);
         // Horizontal levels scroll left/right with the wheel (Shift+wheel = vertical);
@@ -223,7 +226,7 @@ public class EditorApp : App
             }
             SnapCursorToPixel();
             var origin = ImGui.GetCursorScreenPos();
-            ImGui.Image(imgui!.GetTextureID(levelTex), new Vector2(levelPxW * z, levelPxH * z));
+            ImGui.Image(imgui!.GetTextureID(levelTexs[AnimPhase] ?? levelTexs[0]!), new Vector2(levelPxW * z, levelPxH * z));
             float cs = 16 * z;
             if (ImGui.IsItemHovered())
             {
@@ -340,32 +343,35 @@ public class EditorApp : App
 
     private void BuildLevelCanvas()
     {
-        levelTex?.Dispose(); levelTex = null;
-        if (tileCache is null || grid is null) return;
+        for (int p = 0; p < 4; p++) { levelTexs[p]?.Dispose(); levelTexs[p] = null; }
+        if (tileCaches is null || grid is null) return;
         try
         {
             int visRows = rom is not null && level is not null && rom.IsVerticalMode(level.Header.LevelMode)
                 ? grid.Height : 27;
-            var (img, W, H) = Map16.ComposeLevel(tileCache, backdropColor, grid, bgImage, bgCache, layer2Grid, visRows);
-            if (showSprites) sprites?.DrawOverlay(img, W, H);
-            levelTex = new Texture(GraphicsDevice, W, H, MemoryMarshal.AsBytes(img.AsSpan()));
-            levelPxW = W; levelPxH = H;
+            for (int p = 0; p < 4; p++)
+            {
+                var (img, W, H) = Map16.ComposeLevel(tileCaches[p], backdropColor, grid, bgImage, bgCache, layer2Grid, visRows);
+                if (showSprites) sprites?.DrawOverlay(img, W, H);
+                levelTexs[p] = new Texture(GraphicsDevice, W, H, MemoryMarshal.AsBytes(img.AsSpan()));
+                levelPxW = W; levelPxH = H;
+            }
         }
-        catch { levelTex?.Dispose(); levelTex = null; }
+        catch { for (int p = 0; p < 4; p++) { levelTexs[p]?.Dispose(); levelTexs[p] = null; } }
     }
 
     // The composed Map16 tile sheet — real SNES graphics for this level's tileset.
     private void DrawMap16Sheet()
     {
         ImGui.Begin("Map16 Tiles");
-        if (map16Tex is null) { ImGui.TextDisabled("No level."); ImGui.End(); return; }
+        if (map16Texs[0] is null) { ImGui.TextDisabled("No level."); ImGui.End(); return; }
         ImGui.Text($"Selected: 0x{selectedMap16:X3}   (click a tile to pick it, then paint on the level)");
         if (ImGui.BeginChild("m16sheet", System.Numerics.Vector2.Zero, 0, ImGuiWindowFlags.HorizontalScrollbar))
         {
             SnapCursorToPixel();
             var origin = ImGui.GetCursorScreenPos();
             float pz = SnappedZoom(Zoom);
-            ImGui.Image(imgui!.GetTextureID(map16Tex), new Vector2(map16W * pz, map16H * pz));
+            ImGui.Image(imgui!.GetTextureID(map16Texs[AnimPhase] ?? map16Texs[0]!), new Vector2(map16W * pz, map16H * pz));
             float ts = 16 * pz;
             if (ImGui.IsItemHovered() && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
             {
@@ -383,15 +389,18 @@ public class EditorApp : App
 
     private void BuildMap16Sheet()
     {
-        map16Tex?.Dispose(); map16Tex = null;
-        if (tileCache is null) return;
+        for (int p = 0; p < 4; p++) { map16Texs[p]?.Dispose(); map16Texs[p] = null; }
+        if (tileCaches is null) return;
         try
         {
-            var (px, w, h) = Map16.ComposeSheet(tileCache);
-            map16Tex = new Texture(GraphicsDevice, w, h, MemoryMarshal.AsBytes(px.AsSpan()));
-            map16W = w; map16H = h;
+            for (int p = 0; p < 4; p++)
+            {
+                var (px, w, h) = Map16.ComposeSheet(tileCaches[p]);
+                map16Texs[p] = new Texture(GraphicsDevice, w, h, MemoryMarshal.AsBytes(px.AsSpan()));
+                map16W = w; map16H = h;
+            }
         }
-        catch { map16Tex?.Dispose(); map16Tex = null; }
+        catch { for (int p = 0; p < 4; p++) { map16Texs[p]?.Dispose(); map16Texs[p] = null; } }
     }
 
     // Renders a GFX file as a palette-colored 8x8 tile sheet — real SNES pixels via the
@@ -525,7 +534,13 @@ public class EditorApp : App
             grid = rom is not null && level is not null ? ObjectEngine.Render(rom, level) : null;
             baseGrid = grid?.Clone();          // snapshot to diff edits against on save
             undoStack.Clear(); redoStack.Clear(); currentStroke = new();   // new grid = new history
-            tileCache = rom is not null && level is not null ? Map16.ComposeAll(rom, level.Header, levelNum) : null;
+            if (rom is not null && level is not null)
+            {
+                tileCaches = new uint[4][][];
+                for (int p = 0; p < 4; p++)
+                    tileCaches[p] = Map16.ComposeAll(rom, level.Header, levelNum, p);
+            }
+            else tileCaches = null;
             backdropColor = rom is not null && level is not null ? Palette.Load(rom, level.Header, levelNum).Rgba[0] : 0;
             // Layer 2: background image or object layer, drawn behind layer 1.
             bgImage = rom is not null && level is not null ? Level.DecodeBgImage(rom, levelNum) : null;
@@ -536,7 +551,7 @@ public class EditorApp : App
             BuildMap16Sheet();
             BuildLevelCanvas();
         }
-        catch { level = null; grid = null; tileCache = null; }
+        catch { level = null; grid = null; tileCaches = null; }
     }
 
     private void LoadRom(string path)

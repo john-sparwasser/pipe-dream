@@ -61,7 +61,7 @@ public static class Gfx
         /// 3bpp; the game's 4bpp conversion zero-fills plane 3, so source tile index =
         /// (addr - 0x7D00)/0x20 into the 3bpp data (24 bytes/tile).
         /// </summary>
-        private void OverlayAnimatedTiles(Rom rom, int tileset)
+        private void OverlayAnimatedTiles(Rom rom, int tileset, int phase)
         {
             int src32 = (rom.ReadByte(0x00B890) << 16) | rom.ReadValue(0x00B88B, 2);
             byte[] anim;
@@ -84,7 +84,7 @@ public static class Gfx
                 int animId = id;
                 if (behavior >= 2) animId += rom.ReadByte(0x05B98B + (tileset & 0x0F));
                 // behavior 1 = POW-dependent: editor shows the inactive state (id unchanged)
-                int srcAddr = rom.ReadValue(0x05B999 + animId * 8, 2);   // phase 0 = LM's view
+                int srcAddr = rom.ReadValue(0x05B999 + animId * 8 + (phase & 3) * 2, 2);
                 if (srcAddr < 0x7D00) continue;                          // berry/other RAM: n/a
                 int srcTile = (srcAddr - 0x7D00) / 0x20;
                 if (dest == 0x800)                                       // split slot ($00A3DA)
@@ -99,7 +99,7 @@ public static class Gfx
             }
         }
 
-        public static FgTiles Load(Rom rom, int tileset, int level = -1)
+        public static FgTiles Load(Rom rom, int tileset, int level = -1, int animPhase = 0)
         {
             var bypass = level >= 0 ? rom.LmGfxBypass(level) : null;
             var f = new FgTiles();
@@ -120,7 +120,7 @@ public static class Gfx
                 for (int t = 0; t < n; t++) tiles[t] = DecodeTile(data, t * tb, bpp);
                 f.slots[s] = tiles;
             }
-            f.OverlayAnimatedTiles(rom, tileset);   // frame-0 animated tiles (CONTRACT §12)
+            f.OverlayAnimatedTiles(rom, tileset, animPhase);   // animated tiles (CONTRACT §12)
             return f;
         }
 
