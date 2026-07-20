@@ -202,6 +202,11 @@ public static class RomSelfCheck
             Console.WriteLine($"    reloaded: ptr ${re.Layer1Pointer(0x105):X6}, {yi2b.Objects.Count} objects (was {origCount})");
             Check("reloaded level has same object count", yi2b.Objects.Count == origCount);
             Check("reloaded RATS tag is valid", re.EnumerateRats().Any());
+            // checksum: SaveAs fixed it; verify chk + complement == 0xFFFF and chk matches a resum
+            long resum = 0; int rh = re.HeaderOffset, rsz = re.ActualRomSize;
+            for (int i = 0; i < rsz; i++) resum += re.Data[rh + i];
+            Check("saved ROM checksum + complement == 0xFFFF", (re.Checksum ^ re.ChecksumComplement) == 0xFFFF);
+            Check("saved ROM checksum matches byte sum", re.Checksum == (int)(resum & 0xFFFF));
             File.Delete(tmp);
         }
 

@@ -184,7 +184,24 @@ public sealed class Rom
         Data[fo] = (byte)snes; Data[fo + 1] = (byte)(snes >> 8); Data[fo + 2] = (byte)(snes >> 16);
     }
 
-    public void SaveAs(string path) => File.WriteAllBytes(path, Data);
+    /// <summary>
+    /// Recompute and write the SNES checksum ($FFDE) + complement ($FFDC). Assumes a
+    /// power-of-two ROM size (our expanded ROMs are 1/2/4 MB). The placeholder-invariant
+    /// trick: checksum computed with checksum=0/complement=0xFFFF equals the final sum.
+    /// </summary>
+    public void FixChecksum()
+    {
+        int h = HeaderOffset, size = ActualRomSize;
+        Data[0x7FDC + h] = 0xFF; Data[0x7FDD + h] = 0xFF;   // complement placeholder
+        Data[0x7FDE + h] = 0x00; Data[0x7FDF + h] = 0x00;   // checksum placeholder
+        long sum = 0;
+        for (int i = 0; i < size; i++) sum += Data[h + i];
+        int chk = (int)(sum & 0xFFFF), comp = chk ^ 0xFFFF;
+        Data[0x7FDE + h] = (byte)chk; Data[0x7FDF + h] = (byte)(chk >> 8);
+        Data[0x7FDC + h] = (byte)comp; Data[0x7FDD + h] = (byte)(comp >> 8);
+    }
+
+    public void SaveAs(string path) { FixChecksum(); File.WriteAllBytes(path, Data); }
 
     /// <summary>Human-readable map-mode name for the UI.</summary>
     public string MapModeName => MapMode switch
