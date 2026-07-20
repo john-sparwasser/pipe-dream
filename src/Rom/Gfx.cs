@@ -23,6 +23,33 @@ public static class Gfx
     public static int TileBytes(int bpp) => bpp * 8;   // 2bpp=16, 3bpp=24, 4bpp=32
 
     /// <summary>
+    /// Render a decompressed GFX file as an RGBA tile sheet (cols tiles wide) using one
+    /// palette row. Color index 0 is transparent (shown as dark grey so tiles are visible).
+    /// Returns pixels (row-major RGBA) and dimensions.
+    /// </summary>
+    public static (uint[] px, int w, int h) TileSheet(byte[] gfx, int bpp, Palette pal, int palRow, int cols = 16)
+    {
+        int tb = TileBytes(bpp);
+        int tiles = Math.Max(1, gfx.Length / tb);
+        int rows = (tiles + cols - 1) / cols;
+        int w = cols * 8, h = rows * 8;
+        var px = new uint[w * h];
+        int baseColor = (palRow & 0x0F) * 16;
+        for (int t = 0; t < tiles; t++)
+        {
+            var tile = DecodeTile(gfx, t * tb, bpp);
+            int ox = (t % cols) * 8, oy = (t / cols) * 8;
+            for (int y = 0; y < 8; y++)
+                for (int x = 0; x < 8; x++)
+                {
+                    int idx = tile[y * 8 + x];
+                    px[(oy + y) * w + (ox + x)] = idx == 0 ? 0xFF303030u : pal.Rgba[baseColor + idx];
+                }
+        }
+        return (px, w, h);
+    }
+
+    /// <summary>
     /// Decode one 8×8 SNES planar tile at <paramref name="off"/> to 64 palette indices
     /// (row-major, 0..2^bpp-1). Planes 0/1 are row-interleaved in the first 16 bytes; 3bpp
     /// adds one plane-2 byte per row; 4bpp adds planes 2/3 row-interleaved.

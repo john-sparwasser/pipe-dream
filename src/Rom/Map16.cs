@@ -1,0 +1,96 @@
+namespace PipeDream;
+
+/// <summary>
+/// Map16 tile definitions + composition. A Map16 tile (16×16) = 4 SNES tilemap words in
+/// TL/BL/TR/BR order (CONTRACT.md §5, confirmed via consumer $00C17C). The vanilla per-tile
+/// definition pointer table is assembled by CODE_0581FB from a per-tile bitmap ($0581BB)
+/// selecting a tileset-specific region (TilesetMAP16Loc[tileset]) or a shared region ($8000),
+/// both in bank $0D. Definitions live at bank $0D (confirmed empirically).
+///
+/// NOTE: composing correct pixels also needs the VRAM/GFX-slot mapping (which GFX file backs
+/// each 8×8 tile number) — not yet implemented, so Compose takes a caller-supplied tile source.
+/// </summary>
+public static class Map16
+{
+    public const int FgTiles = 0x200;
+
+    /// <summary>A decoded SNES tilemap word.</summary>
+    public readonly struct Word(ushort raw)
+    {
+        public readonly ushort Raw = raw;
+        public int Tile => Raw & 0x3FF;
+        public int Palette => (Raw >> 10) & 0x07;
+        public bool Priority => (Raw & 0x2000) != 0;
+        public bool FlipX => (Raw & 0x4000) != 0;
+        public bool FlipY => (Raw & 0x8000) != 0;
+    }
+
+    /// <summary>Build tile# → 8-byte-definition SNES address (bank $0D) for a tileset.</summary>
+    public static int[] BuildDefPointers(Rom rom, int tileset)
+    {
+        var ptr = new int[FgTiles];
+        int bitmapFo = rom.FileOffset(0x0581BB);
+        int pTileset = rom.ReadValue(0x058000 + tileset * 2, 2);  // TilesetMAP16Loc[tileset]
+        int pShared = 0x8000;
+        int t = 0;
+        for (int by = 0; by < 0x40; by++)
+        {
+            int bits = rom.Data[bitmapFo + by];
+            for (int b = 0; b < 8; b++)
+            {
+                bool shared = (bits & 0x80) != 0;   // ASL -> carry = top bit; set = shared region
+                bits = (bits << 1) & 0xFF;
+                if (shared) { ptr[t] = 0x0D0000 | pShared; pShared += 8; }
+                else { ptr[t] = 0x0D0000 | pTileset; pTileset += 8; }
+                t++;
+            }
+        }
+        // Tileset 0/7: animated status tiles override tiles 0x1C4-0x1C7 and 0x1EC-0x1EF.
+        if (tileset == 0 || tileset == 7)
+        {
+            int q = 0x8A70;
+            foreach (int baseTile in new[] { 0x1C4, 0x1EC })
+                for (int k = 0; k < 4; k++) { ptr[baseTile + k] = 0x0D0000 | q; q += 8; }
+        }
+        return ptr;
+    }
+
+    /// <summary>The 4 words (TL, BL, TR, BR) of a Map16 tile.</summary>
+    public static Word[] Definition(Rom rom, int[] defPtr, int tile)
+    {
+        int snes = defPtr[tile & (FgTiles - 1)];
+        int fo = rom.FileOffset(snes);
+        var w = new Word[4];
+        for (int i = 0; i < 4; i++)
+            w[i] = new Word((ushort)(rom.Data[fo + i * 2] | (rom.Data[fo + i * 2 + 1] << 8)));
+        return w;
+    }
+
+    /// <summary>
+    /// Compose a 16×16 RGBA image for a Map16 tile. <paramref name="fetch8"/> returns the 64
+    /// palette-index pixels of an 8×8 VRAM tile by number; <paramref name="pal"/> is the level
+    /// palette. Applies each quadrant word's palette row and H/V flip.
+    /// </summary>
+    public static uint[] Compose(Word[] words, Func<int, byte[]> fetch8, Palette pal)
+    {
+        var img = new uint[16 * 16];
+        // quadrant screen offsets, matching word order TL, BL, TR, BR
+        (int ox, int oy)[] q = { (0, 0), (0, 8), (8, 0), (8, 8) };
+        for (int i = 0; i < 4; i++)
+        {
+            var w = words[i];
+            var src = fetch8(w.Tile);
+            int baseColor = w.Palette * 16;
+            for (int y = 0; y < 8; y++)
+                for (int x = 0; x < 8; x++)
+                {
+                    int sx = w.FlipX ? 7 - x : x;
+                    int sy = w.FlipY ? 7 - y : y;
+                    int idx = src[sy * 8 + sx];
+                    uint rgba = idx == 0 ? 0u : pal.Rgba[baseColor + idx]; // color 0 transparent
+                    img[(q[i].oy + y) * 16 + (q[i].ox + x)] = rgba;
+                }
+        }
+        return img;
+    }
+}

@@ -143,6 +143,26 @@ public static class RomSelfCheck
                 string.Join(" ", Enumerable.Range(0x20, 8).Select(i => $"{pal.Bgr[i]:X4}")));
             Check("palette has many colors set", nonzero > 40);
             Check("all RGBA fully opaque", pal.Rgba.All(c => (c >> 24) == 0xFF));
+
+            Console.WriteLine("Tile sheet render (GFX00, 3bpp, pal row 2):");
+            var (px, w, h) = Gfx.TileSheet(g0, 3, pal, 2);
+            int lit = px.Count(p => p != 0xFF303030u);
+            Console.WriteLine($"    sheet {w}x{h}, {lit} non-background pixels");
+            Check("tile sheet has expected size (128 wide)", w == 128 && h > 0);
+            Check("tile sheet has colored pixels", lit > 100);
+
+            Console.WriteLine("Map16 definitions (YI2 tileset):");
+            var defPtr = Map16.BuildDefPointers(r, lv.Header.Tileset);
+            var allWords = new List<int>();
+            for (int t = 0; t < Map16.FgTiles; t++)
+                foreach (var wd in Map16.Definition(r, defPtr, t)) allWords.Add(wd.Tile);
+            int distinct = allWords.Distinct().Count();
+            var sample = Map16.Definition(r, defPtr, 0x100);
+            Console.WriteLine($"    tile 0x100 words: " +
+                string.Join(" ", sample.Select(x => $"{x.Raw:X4}(t{x.Tile:X3}p{x.Palette})")));
+            Console.WriteLine($"    {distinct} distinct 8x8 tile numbers referenced across 512 Map16 tiles");
+            Check("Map16 words reference sane 8x8 tiles (<0x400)", allWords.All(t => t < 0x400));
+            Check("Map16 defs have variety (not blank)", distinct > 50);
         }
 
         Console.WriteLine(fails == 0 ? "\nALL CHECKS PASSED" : $"\n{fails} CHECK(S) FAILED");

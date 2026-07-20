@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Runtime.InteropServices;
 using Foster.Framework;
 using ImGuiNET;
 
@@ -20,6 +21,11 @@ public class EditorApp : App
     private int levelNum = 0x105;   // Yoshi's Island 2
     private Level? level;
     private Map16Grid? grid;
+
+    // GFX viewer state
+    private Texture? gfxTex;
+    private int gfxW, gfxH, gfxFile, gfxBpp = 3, gfxPalRow = 2;
+    private (int, int, int, int) gfxKey = (-1, -1, -1, -1);
 
     public EditorApp() : base(new AppConfig
     {
@@ -108,7 +114,40 @@ public class EditorApp : App
 
         DrawLevelPanel();
         DrawMap16Panel();
+        DrawGfxViewer();
         DrawLevelSchematic();
+    }
+
+    // Renders a GFX file as a palette-colored 8x8 tile sheet — real SNES pixels via the
+    // decompress → decode → palette → Foster texture path.
+    private void DrawGfxViewer()
+    {
+        ImGui.Begin("GFX Viewer");
+        if (rom is null) { ImGui.TextDisabled("No ROM."); ImGui.End(); return; }
+        ImGui.SetNextItemWidth(90);
+        ImGui.InputInt($"file (0x{gfxFile:X2})", ref gfxFile); gfxFile = Math.Clamp(gfxFile, 0, Gfx.Count - 1);
+        ImGui.SameLine(); ImGui.SetNextItemWidth(80); ImGui.InputInt("bpp", ref gfxBpp); gfxBpp = Math.Clamp(gfxBpp, 2, 4);
+        ImGui.SameLine(); ImGui.SetNextItemWidth(80); ImGui.InputInt("pal", ref gfxPalRow); gfxPalRow = Math.Clamp(gfxPalRow, 0, 15);
+
+        var key = (gfxFile, gfxBpp, gfxPalRow, levelNum);
+        if (key != gfxKey) { gfxKey = key; BuildGfxTexture(); }
+        if (gfxTex is not null)
+            ImGui.Image(imgui!.GetTextureID(gfxTex), new Vector2(gfxW * 3f, gfxH * 3f));
+        ImGui.End();
+    }
+
+    private void BuildGfxTexture()
+    {
+        try
+        {
+            var gfx = Gfx.DecompressFile(rom!, gfxFile);
+            var pal = Palette.Load(rom!, level?.Header ?? default);
+            var (px, w, h) = Gfx.TileSheet(gfx, gfxBpp, pal, gfxPalRow);
+            gfxTex?.Dispose();
+            gfxTex = new Texture(GraphicsDevice, w, h, MemoryMarshal.AsBytes(px.AsSpan()));
+            gfxW = w; gfxH = h;
+        }
+        catch { gfxTex?.Dispose(); gfxTex = null; }
     }
 
     // Schematic view: each object drawn as a box at (screen*16+x, y), sized by width/height.
