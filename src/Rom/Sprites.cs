@@ -9,17 +9,11 @@ public readonly record struct Sprite(int Screen, int XNibble, int Y, int Extra, 
     public bool IsScrollCommand => Number >= 0xE7;
 
     /// <summary>
-    /// Cell position honoring the level orientation. Vertical levels re-purpose the fields
-    /// ($02A95B): screen counts Y-bands (extended by the y bit and the EXTRA bits — "extra
-    /// bits are stored in Y position"), and the 's' bit is X's 5th bit (right half).
+    /// Cell position honoring the level orientation. Vertical levels use the same decode
+    /// "with X and Y coords swapped" ($02A943): the Y field becomes the X cell (0-31) and
+    /// the screen walk (our AbsoluteX) runs down the level.
     /// </summary>
-    public (int X, int Y) Cell(bool vertical)
-    {
-        if (!vertical) return (AbsoluteX, Y);
-        int x = (Screen & 0x10) | XNibble;
-        int yScreen = (Screen & 0x0F) | ((Y >> 4) << 4) | (Extra << 5);
-        return (x, yScreen * 16 + (Y & 0x0F));
-    }
+    public (int X, int Y) Cell(bool vertical) => vertical ? (Y, AbsoluteX) : (AbsoluteX, Y);
 }
 
 /// <summary>A level's sprite list + header byte (memory setting / buoyancy).</summary>
