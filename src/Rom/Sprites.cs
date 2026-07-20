@@ -7,6 +7,19 @@ public readonly record struct Sprite(int Screen, int XNibble, int Y, int Extra, 
     public int AbsoluteX => Screen * 16 + XNibble;
     /// <summary>Numbers >= 0xE7 are scroll commands, not real sprites ($02A866).</summary>
     public bool IsScrollCommand => Number >= 0xE7;
+
+    /// <summary>
+    /// Cell position honoring the level orientation. Vertical levels re-purpose the fields
+    /// ($02A95B): screen counts Y-bands (extended by the y bit and the EXTRA bits — "extra
+    /// bits are stored in Y position"), and the 's' bit is X's 5th bit (right half).
+    /// </summary>
+    public (int X, int Y) Cell(bool vertical)
+    {
+        if (!vertical) return (AbsoluteX, Y);
+        int x = (Screen & 0x10) | XNibble;
+        int yScreen = (Screen & 0x0F) | ((Y >> 4) << 4) | (Extra << 5);
+        return (x, yScreen * 16 + (Y & 0x0F));
+    }
 }
 
 /// <summary>A level's sprite list + header byte (memory setting / buoyancy).</summary>
@@ -92,15 +105,17 @@ public sealed class SpriteData
             try { sp = SpriteRender.LoadSpTiles(rom, header.Value, level); pal = Palette.Load(rom, header.Value, level); }
             catch { sp = null; }
         }
+        bool vert = rom is not null && header is not null && rom.IsVerticalMode(header.Value.LevelMode);
         foreach (var s in Sprites)
         {
+            var (cx, cy) = s.Cell(vert);
             if (sp is not null && pal is not null && !s.IsScrollCommand
-                && SpriteRender.Capture(rom!, s) is { } oam)
+                && SpriteRender.Capture(rom!, s, cx, cy) is { } oam)
             {
                 SpriteRender.Draw(img, W, H, oam, sp, pal);
                 continue;
             }
-            int px = s.AbsoluteX * 16, py = s.Y * 16;
+            int px = cx * 16, py = cy * 16;
             if (px < 0 || py < 0 || px + 16 > W || py + 16 > H) continue;
             uint border = s.IsScrollCommand ? 0xFF00A0FFu : 0xFF00C000u;   // ABGR: orange / green
             for (int y = 0; y < 16; y++)

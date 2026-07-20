@@ -9,7 +9,7 @@ public static class SpriteRender
 {
     public readonly record struct Oam(int X, int Y, int Tile, int Attr, bool Big);
 
-    public static List<Oam>? Capture(Rom rom, Sprite s)
+    public static List<Oam>? Capture(Rom rom, Sprite s, int cellX = -1, int cellY = -1)
     {
         try
         {
@@ -17,7 +17,7 @@ public static class SpriteRender
             var r = cpu.Ram7E;
             for (int i = 0; i < 0x200; i += 4) r[0x201 + i] = 0xF0;   // OAM Y offscreen
 
-            int wx = s.AbsoluteX * 16, wy = s.Y * 16;
+            int wx = (cellX >= 0 ? cellX : s.AbsoluteX) * 16, wy = (cellY >= 0 ? cellY : s.Y) * 16;
             int bx = Math.Max(0, wx - 0x40), by = Math.Max(0, wy - 0x40);
             r[0x1A] = (byte)bx; r[0x1B] = (byte)(bx >> 8);            // screen boundary X
             r[0x1C] = (byte)by; r[0x1D] = (byte)(by >> 8);
