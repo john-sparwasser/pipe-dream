@@ -44,6 +44,8 @@ public class EditorApp : App
     private ushort[]? bgImage;       // layer-2 background image (BG def indices), else null
     private uint[][]? bgCache;       // composed BG Map16 tiles for the background image
     private Map16Grid? layer2Grid;   // layer-2 object layer, else null
+    private SpriteData? sprites;     // sprite list for the overlay
+    private bool showSprites = true;
     private string saveStatus = "";
     private const float Zoom = 2f;   // on-screen px per source px for picker + canvas
 
@@ -118,6 +120,12 @@ public class EditorApp : App
                     SaveEdits();
                 ImGui.Separator();
                 if (ImGui.MenuItem("Exit")) Exit();
+                ImGui.EndMenu();
+            }
+            if (ImGui.BeginMenu("View"))
+            {
+                if (ImGui.MenuItem("Sprite overlay", "", showSprites))
+                { showSprites = !showSprites; levelDirty = true; }
                 ImGui.EndMenu();
             }
             ImGui.EndMainMenuBar();
@@ -245,6 +253,7 @@ public class EditorApp : App
         try
         {
             var (img, W, H) = Map16.ComposeLevel(tileCache, backdropColor, grid, bgImage, bgCache, layer2Grid);
+            if (showSprites) sprites?.DrawOverlay(img, W, H);
             levelTex = new Texture(GraphicsDevice, W, H, MemoryMarshal.AsBytes(img.AsSpan()));
             levelPxW = W; levelPxH = H;
         }
@@ -479,6 +488,7 @@ public class EditorApp : App
             bgCache = bgImage is not null ? Map16.ComposeAllBg(rom!, level!.Header, levelNum) : null;
             var l2objs = rom is not null && level is not null ? Level.ParseLayer2(rom, levelNum) : null;
             layer2Grid = l2objs is not null ? ObjectEngine.Render(rom!, level!.Header, l2objs) : null;
+            sprites = rom is not null && level is not null ? SpriteData.Parse(rom, levelNum) : null;
             BuildMap16Sheet();
             BuildLevelCanvas();
         }

@@ -489,3 +489,23 @@ Buffer initialized to tile 0x25. High/page byte for ALL tiles = 0, or 1 when
 Readers: Level.ParseLayer2 / Level.DecodeBgImage / Map16.ComposeAllBg; ComposeLevel draws
 backdrop → layer 2 → layer 1. (Layer-2 vertical positioning/scroll modes not modeled; BG
 drawn from y=0.)
+
+## 11. Sprites  [CONFIRMED from disassembly + LM ASM trace]
+
+Pointer table §3 ($05EC00, 2 B/level, bank fixed $07). Stream ($05D8F9 + $02A82C):
+```
+header    1 byte   bits5-0 = sprite memory ($1692), bits7-6 = buoyancy ($190E)
+entry     3 bytes  b1 = YYYYEEsy  (Y = (y<<4)|YYYY, EE = extra bits, s = screen bit4)
+                   b2 = XXXXSSSS  (X nibble within screen, screen = (s<<4)|SSSS)
+                   b3 = sprite number (>= 0xE7 → scroll command, $02A866)
+0xFF      terminator (lead byte)
+```
+**LM/PIXI extra bytes**: LM hijacks the sprite-advance (vanilla `INY INY INX` at $02A846 →
+JML into LM's relocatable code bank). Entry size = byte table at
+**sizeBase + (EE<<8 | sprite#)** (0x400 bytes, per-ROM; includes the 3 base bytes; vanilla
+entries = 3, customs 4-13). Locate per-ROM via signature
+`4A 4A 29 03 EB C8 C8 B7 CE 88 88 08 C2 10 DA AA 98 18 7F <base:3>` (Rom.LmSpriteSizeBase;
+absent in clean/juz ROMs → fixed 3). Sizes MUST be honored or the stream desyncs (DoW).
+Readers: SpriteData.Parse/Encode (byte-identical round-trip incl. extra bytes);
+SpriteData.DrawOverlay renders badge markers (green = sprite, orange = scroll command).
+Sprite GFX rendering (real tiles per sprite) is out of scope for now.

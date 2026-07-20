@@ -221,6 +221,37 @@ public static class RomSelfCheck
             Check("BG-image level has no layer-2 objects", l2 is null);
         }
 
+        {
+            Console.WriteLine("Sprites (CONTRACT §11):");
+            var rs = Rom.Load(CleanRom);
+            var sd = SpriteData.Parse(rs, 0x105);
+            Console.WriteLine($"    YI2: {sd.Sprites.Count} sprites, memory {sd.SpriteMemory}, buoyancy {sd.Buoyancy}");
+            Check("YI2 has a sane sprite count", sd.Sprites.Count is > 10 and < 120);
+            Check("all sprite screens/Y in range",
+                  sd.Sprites.All(s => s.Screen < 0x20 && s.Y < 0x20));
+            int sfo = rs.FileOffset(rs.SpritePointer(0x105));
+            byte[] senc = sd.Encode();
+            Check("sprite data re-encodes byte-identical",
+                  senc.AsSpan().SequenceEqual(rs.Data.AsSpan(sfo, senc.Length)));
+
+            string dow = @"C:\SMW\Projects\DogsOfWar\dogs_of_war-backup.smc";
+            if (File.Exists(dow))
+            {
+                var dr = Rom.Load(dow);
+                Check("DoW sprite size table located", dr.LmSpriteSizeBase > 0);
+                var ds = SpriteData.Parse(dr, 0x101);
+                Console.WriteLine($"    DoW 101: {ds.Sprites.Count} sprites, " +
+                                  $"{ds.Sprites.Count(s => s.ExtraBytes is not null)} with extra bytes");
+                Check("DoW 101 sprites parse in range (extra-byte sizes honored)",
+                      ds.Sprites.Count is > 0 and < 400 &&
+                      ds.Sprites.Count(s => s.IsScrollCommand) < ds.Sprites.Count / 4);
+                int dfo = dr.FileOffset(dr.SpritePointer(0x101));
+                byte[] denc = ds.Encode();
+                Check("DoW sprite data re-encodes byte-identical",
+                      denc.AsSpan().SequenceEqual(dr.Data.AsSpan(dfo, denc.Length)));
+            }
+        }
+
         string map16After = @"C:\SMW\Projects\.resources\map16_after.smc";
         if (File.Exists(map16After))
         {

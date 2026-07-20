@@ -62,7 +62,16 @@ public sealed class Rom
     // operands; the surrounding code bytes are stable across ROMs, the operands are not.
     // Each base is found once by signature scan and cached (-2 = not scanned yet).
 
-    private int lmActsAsBase = -2, lmGfxBypassBase = -2, lmExGfxBase = -2;
+    private int lmActsAsBase = -2, lmGfxBypassBase = -2, lmExGfxBase = -2, lmSpriteSizeBase = -2;
+
+    /// <summary>
+    /// Base of LM's sprite entry-size table (0x400 bytes, byte size per (extraBits&lt;&lt;8)|sprite#,
+    /// includes the 3 base bytes), or -1 = vanilla 3-byte entries. Located via the LDA long,X
+    /// operand in LM's sprite-advance hijack (CONTRACT §11).
+    /// </summary>
+    public int LmSpriteSizeBase => lmSpriteSizeBase != -2 ? lmSpriteSizeBase
+        : lmSpriteSizeBase = ScanOperand([0x4A, 0x4A, 0x29, 0x03, 0xEB, 0xC8, 0xC8, 0xB7, 0xCE, 0x88, 0x88,
+                                          0x08, 0xC2, 0x10, 0xDA, 0xAA, 0x98, 0x18, 0x7F], []);
 
     /// <summary>Base of LM's acts-like table, or -1 (from the remap reader in LM's $06F5D0 code).</summary>
     public int LmActsAsBase => lmActsAsBase != -2 ? lmActsAsBase
