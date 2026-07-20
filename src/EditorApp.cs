@@ -203,12 +203,26 @@ public class EditorApp : App
         if (levelTex is null || grid is null) { ImGui.TextDisabled("No level rendered."); ImGui.End(); return; }
         ImGui.Text($"Level 0x{levelNum:X3} — left-click: place 0x{selectedMap16:X3}   right-click: erase");
         if (saveStatus.Length > 0) ImGui.TextDisabled(saveStatus);
-        if (ImGui.BeginChild("lvlcanvas", System.Numerics.Vector2.Zero, 0,
-                ImGuiWindowFlags.HorizontalScrollbar))
+        // Horizontal levels scroll left/right with the wheel (Shift+wheel = vertical);
+        // vertical levels keep the default up/down wheel.
+        bool verticalLvl = rom is not null && level is not null && rom.IsVerticalMode(level.Header.LevelMode);
+        var canvasFlags = ImGuiWindowFlags.HorizontalScrollbar |
+                          (verticalLvl ? 0 : ImGuiWindowFlags.NoScrollWithMouse);
+        if (ImGui.BeginChild("lvlcanvas", System.Numerics.Vector2.Zero, 0, canvasFlags))
         {
+            float z = SnappedZoom(CanvasZoom);
+            if (!verticalLvl && ImGui.IsWindowHovered())
+            {
+                float wheel = ImGui.GetIO().MouseWheel;
+                if (wheel != 0)
+                {
+                    float step = wheel * 64 * z;
+                    if (ImGui.GetIO().KeyShift) ImGui.SetScrollY(ImGui.GetScrollY() - step);
+                    else ImGui.SetScrollX(ImGui.GetScrollX() - step);
+                }
+            }
             SnapCursorToPixel();
             var origin = ImGui.GetCursorScreenPos();
-            float z = SnappedZoom(CanvasZoom);
             ImGui.Image(imgui!.GetTextureID(levelTex), new Vector2(levelPxW * z, levelPxH * z));
             float cs = 16 * z;
             if (ImGui.IsItemHovered())
