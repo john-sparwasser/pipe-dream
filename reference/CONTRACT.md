@@ -510,3 +510,32 @@ absent in clean/juz ROMs → fixed 3). Sizes MUST be honored or the stream desyn
 Readers: SpriteData.Parse/Encode (byte-identical round-trip incl. extra bytes);
 SpriteData.DrawOverlay renders badge markers (green = sprite, orange = scroll command).
 Sprite GFX rendering (real tiles per sprite) is out of scope for now.
+
+## 12. Tile animations — the header-dependent Map16 appearance  [DECODED, overlay not yet implemented]
+
+Why some Map16 tiles look different per header (LM: "The FG/BG index also alters which
+animated tiles are used"): 8x8 VRAM tiles in the ranges below are re-uploaded EVERY FRAME
+by NMI DMA; their static content in the GFX files is placeholder (e.g. the 'COIN' text seen
+in DoW renders). LM displays animation frame 0. Decoded from `CODE_05BB39` (bank 05):
+
+- Per frame: group = frame&7, phase = (frame&0x18)>>3 (0-3). Each group drives 3 DMA slots.
+- **VRAM dests**: word table `$05B93B + group*6` (3 words) → each slot uploads **4
+  consecutive 8x8 tiles** (0x80 bytes 4bpp) at word/16. Groups 0-6 cover 8x8 tiles
+  0x40-0x83, 0xDA-0xDD, 0xEA-0xED (dest 0 = slot unused).
+- **Animation id** = group*3+slot, modified by behavior byte `$05B96B[group*3+slot]`:
+  0 = as-is; 1 = POW-dependent (`$05B97D`, +0x26 when POW active — editor: inactive);
+  else **+= `$05B98B[tileset]`** ← the header-dependent part
+  (offsets per tileset 0-D: 0,5,10,15,20,20,25,20,10,20,0,5,0,20).
+- **Frame source**: `AnimatedTileData` ($05B999)[id*8 + phase*2] = 16-bit RAM address in
+  bank $7E of the 0x80-byte 4bpp source block. Frame 0 (= LM's static view) = first word.
+  Observed source range $6D80-$AC20.
+- Map16 DEFS also animate for non-0/7 tilesets: CODE_0581FB leaves tiles 0x1C4-7/0x1EC-F
+  def-animated via source list $05E55E ($05E5C8 + static defs $0D8A70 for tilesets 0/7 —
+  already ported); anim def frames written per-frame elsewhere (targets cached $1430/$1431).
+
+**REMAINING (next session)**: the $7E source-buffer layout. GFX32/33 are NOT in the vanilla
+pointer tables ($00B992 stride is 0x32; no `LDY #$32/33 : JSL $00BA28` exists) — find their
+loader/pointers + the 3bpp→4bpp-to-RAM conversion that fills $7E:6D80-$AC20, OR calibrate
+empirically: decompress GFX33, locate coin/turn-block frames visually (`--gfxsheet`), solve
+the base from id0 srcs (9500/9700/9900/9B00) and id3 (9D80..A380). Then overlay frame-0
+tiles into FgTiles at compose time. LM bypass AN2 slot (§7d w0) replaces GFX33 for customs.

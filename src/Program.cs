@@ -23,8 +23,26 @@ class Program
         if (mi >= 0)
             return DumpMarkers(args, mi);
 
+        int gi = Array.IndexOf(args, "--gfxsheet");
+        if (gi >= 0)
+            return GfxSheet(args, gi);
+
         using var app = new EditorApp();
         app.Run();
+        return 0;
+    }
+
+    // --gfxsheet <rom> <fileHex> <out.png> : debug — render a GFX file as a tile sheet.
+    private static int GfxSheet(string[] args, int gi)
+    {
+        var rom = Rom.Load(args[gi + 1]);
+        int file = Convert.ToInt32(args[gi + 2], 16);
+        var data = Gfx.DecompressFile(rom, file);
+        int bpp = data.Length >= 0x1000 ? 4 : 3;
+        var pal = Palette.Load(rom, Level.Parse(rom, 0x105).Header);
+        var (px, w, h) = Gfx.TileSheet(data, bpp, pal, 0x0A);
+        Png.Write(args[gi + 3], px, w, h);
+        Console.WriteLine($"wrote {args[gi + 3]}: GFX{file:X2}, {data.Length / Gfx.TileBytes(bpp)} tiles {bpp}bpp");
         return 0;
     }
 
