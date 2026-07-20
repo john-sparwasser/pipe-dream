@@ -153,6 +153,13 @@ public static class ObjectEngine
                         g.Set(ax, ay + 1, t4[2]); g.Set(ax + 1, ay + 1, t4[3]);
                         break;
                     }
+                    case 0x0DA673:                              // purple triangle L/R: top + 1EB below
+                        g.Set(ax, ay, 0x100 | ReadTable(rom, 0x0DA671, 2)[(ext - 0x44) & 1]);
+                        g.Set(ax, ay + 1, 0x1EB);
+                        break;
+                    case 0x0DDA57:                              // lava/mud top-right corner: tile 1FE
+                        g.Set(ax, ay, 0x1FE);
+                        break;
                     case 0x0DE1B0:                              // LM secondary exit: no tiles
                     case 0x0DE1E0:                              // LM screen jump (0x03): no tiles
                         break;
@@ -284,6 +291,95 @@ public static class ObjectEngine
                 case 0x0DD1A5:                                  // vertical log
                     Column(g, ax, ay, b3 >> 4, 0x15C, 0x15D, 0x15E, repeatBottom: false);
                     break;
+                case 0x0DDAC8:                                  // mud/lava column: top + repeated mid
+                {
+                    int t = b3 & 0x01;
+                    g.Set(ax, ay, ReadTable(rom, 0x0DDAC4, 2)[t] | 0x100);
+                    for (int i = 1; i <= (b3 >> 4) + 1; i++)
+                        g.Set(ax, ay + i, ReadTable(rom, 0x0DDAC6, 2)[t] | 0x100);
+                    break;
+                }
+                case 0x0DE135:                                  // framed box: L/M/R per row kind
+                {
+                    int bw = (b3 & 0x0F) + 1, bh = b3 >> 4;
+                    int[] lt = ReadTable(rom, 0x0DE12C, 3), md = ReadTable(rom, 0x0DE12F, 3), rt = ReadTable(rom, 0x0DE132, 3);
+                    for (int r = 0; r <= bh; r++)
+                    {
+                        int k = r == 0 ? 0 : r == bh ? 2 : 1;
+                        for (int i = 0; i < bw; i++)
+                        {
+                            int tile = i == 0 ? lt[k] : i == bw - 1 ? md[k] : md[k];
+                            g.Set(ax + i, ay + r, (i == bw - 1 && bw > 1 ? rt[k] : tile) | 0x100);
+                        }
+                        if (bw == 1) g.Set(ax, ay + r, rt[k] | 0x100);
+                    }
+                    break;
+                }
+                case 0x0DDCEA:                                  // upside-down ledge: dirt + 14E bottom
+                {
+                    int uw = (b3 & 0x0F) + 1, uh = b3 >> 4;
+                    Fill(g, ax, ay, uw, Math.Max(0, uh - 1), 0x165);
+                    Fill(g, ax, ay + Math.Max(0, uh - 1), uw, 1, 0x14E);
+                    break;
+                }
+                case 0x0DDD2E:                                  // solid edge column: uppers + bottom
+                {
+                    int et = b3 & 0x03, eh = b3 >> 4;
+                    for (int i = 0; i < eh; i++)
+                        g.Set(ax, ay + i, ReadTable(rom, 0x0DDD26, 4)[et] | 0x100);
+                    g.Set(ax, ay + eh, ReadTable(rom, 0x0DDD2A, 4)[et] | 0x100);
+                    break;
+                }
+                case 0x0DDD5C:                                  // solid dirt: rect of 0x165
+                    Fill(g, ax, ay, (b3 & 0x0F) + 1, (b3 >> 4) + 1, 0x165);
+                    break;
+                case 0x0DDAF2:                                  // mud/lava slopes — approx like Slope
+                {
+                    // ponytail: geometry approximated (surface + fill); refine against LM.
+                    int rows = (b3 >> 4) + 1, sub = b3 & 0x03;
+                    bool rightS = sub >= 2, steep = (sub & 1) != 0;
+                    int step = steep ? 1 : 2;
+                    for (int r = 0; r < rows; r++)
+                    {
+                        int y = ay + r, xs = ax + (rightS ? r * step : -r * step);
+                        if (steep)
+                        {
+                            g.Set(xs, y, rightS ? 0x1D7 : 0x1D6);
+                            g.Set(xs, y + 1, rightS ? 0x1FE : 0x1FD);
+                        }
+                        else
+                        {
+                            g.Set(xs, y, rightS ? 0x1D4 : 0x1D2);
+                            g.Set(xs + 1, y, rightS ? 0x1D5 : 0x1D3);
+                        }
+                        // fill toward the mound side
+                        if (rightS) for (int x = ax; x < xs; x++) g.Set(x, y, 0x1FF);
+                        else for (int x = xs + 2; x <= ax + 1; x++) g.Set(x, y, 0x1FF);
+                    }
+                    break;
+                }
+                case 0x0DDCA9:                                  // mud/lava rect (0x3A top row / 0x3B plain)
+                {
+                    int mw = (b3 & 0x0F) + 1, mh = b3 >> 4;
+                    if (n == 0x3A) { Fill(g, ax, ay, mw, 1, 0x159); Fill(g, ax, ay + 1, mw, mh, 0x1FF); }
+                    else Fill(g, ax, ay, mw, mh + 1, 0x1FF);
+                    break;
+                }
+                case 0x0DDD87:                                  // very steep slopes — approx like Slope
+                {
+                    // ponytail: vertical-stripe geometry approximated; refine against LM.
+                    int sw = b3 & 0x0F;
+                    bool right = ((b3 >> 4) & 1) != 0;
+                    int top = right ? 0x1CC : 0x1CA, mid = right ? 0x1CD : 0x1CB;
+                    for (int i = 0; i <= sw; i++)
+                    {
+                        int x = ax + i, ty = ay + 2 * (right ? i : sw - i);
+                        g.Set(x, ty, top);
+                        g.Set(x, ty + 1, mid);
+                        for (int yy = ty + 2; yy <= ay + 2 * sw + 1; yy++) g.Set(x, yy, 0x1FF);
+                    }
+                    break;
+                }
                 case 0x0DD24E:                                  // log bridge: log row + page-1 0E row
                 {
                     int[] lb = ReadTable(rom, 0x0DD24C, 2);
