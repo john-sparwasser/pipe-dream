@@ -152,10 +152,8 @@ public class EditorApp : App
 
         DrawLevelPanel();
         DrawLevelCanvas();
-        DrawMap16Panel();
         DrawMap16Sheet();
         DrawGfxViewer();
-        DrawLevelSchematic();
     }
 
     // The composed level: the Map16 grid rendered with real tile graphics.
@@ -332,80 +330,6 @@ public class EditorApp : App
 
     // Schematic view: each object drawn as a box at (screen*16+x, y), sized by width/height.
     // Not the real tiles (that needs the object engine + GFX) — a structural map of the parse.
-    private void DrawLevelSchematic()
-    {
-        ImGui.Begin("Level Map (schematic)");
-        if (level is null) { ImGui.TextDisabled("No level."); ImGui.End(); return; }
-
-        const float S = 7f;                       // pixels per 16x16 tile
-        float w = (level.Header.Screens * 16 + 1) * S;
-        float hgt = 32 * S;
-        ImGui.Text("standard objects = filled boxes (color by #); extended = yellow dots; screen exits = red");
-        if (ImGui.BeginChild("canvas", System.Numerics.Vector2.Zero, 0,
-                ImGuiWindowFlags.HorizontalScrollbar))
-        {
-            var dl = ImGui.GetWindowDrawList();
-            var origin = ImGui.GetCursorScreenPos();
-            ImGui.Dummy(new System.Numerics.Vector2(w, hgt));
-
-            // screen boundaries every 16 tiles
-            for (int sx = 0; sx <= level.Header.Screens; sx++)
-            {
-                float x = origin.X + sx * 16 * S;
-                dl.AddLine(new(x, origin.Y), new(x, origin.Y + hgt), 0x33FFFFFF);
-            }
-
-            foreach (var o in level.Objects)
-            {
-                float x = origin.X + o.AbsoluteX * S;
-                float y = origin.Y + o.Y * S;
-                if (o.IsScreenExit)
-                {
-                    dl.AddRectFilled(new(x, y), new(x + S, y + hgt), 0x400000FF);
-                    dl.AddCircleFilled(new(x + S / 2, origin.Y + 4), 3, 0xFF0000FF);
-                }
-                else if (o.Extended)
-                {
-                    dl.AddCircleFilled(new(x + S / 2, y + S / 2), 2.5f, 0xFF00FFFF);
-                }
-                else
-                {
-                    uint col = ObjColor(o.Number);
-                    dl.AddRectFilled(new(x, y), new(x + o.Width * S, y + o.Height * S), col);
-                    dl.AddRect(new(x, y), new(x + o.Width * S, y + o.Height * S), 0x40000000);
-                }
-            }
-            ImGui.EndChild();
-        }
-        ImGui.End();
-    }
-
-    private static uint ObjColor(int n)
-    {
-        // deterministic pastel from object number
-        float hf = (n * 0.6180339887f) % 1f;
-        var (r, g, b) = HsvToRgb(hf, 0.55f, 0.85f);
-        return 0xC0000000u | ((uint)b << 16) | ((uint)g << 8) | r;
-    }
-
-    private static (byte, byte, byte) HsvToRgb(float h, float s, float v)
-    {
-        float i = MathF.Floor(h * 6);
-        float f = h * 6 - i;
-        float p = v * (1 - s), q = v * (1 - f * s), t = v * (1 - (1 - f) * s);
-        float r, g, b;
-        switch (((int)i) % 6)
-        {
-            case 0: r = v; g = t; b = p; break;
-            case 1: r = q; g = v; b = p; break;
-            case 2: r = p; g = v; b = t; break;
-            case 3: r = p; g = q; b = v; break;
-            case 4: r = t; g = p; b = v; break;
-            default: r = v; g = p; b = q; break;
-        }
-        return ((byte)(r * 255), (byte)(g * 255), (byte)(b * 255));
-    }
-
     private void DrawLevelPanel()
     {
         ImGui.Begin("Level");
@@ -514,43 +438,6 @@ public class EditorApp : App
             BuildLevelCanvas();
         }
         catch { level = null; grid = null; tileCache = null; }
-    }
-
-    // Map16 grid: each expanded tile drawn as a cell colored by its Map16 index.
-    // Not real GFX yet — proves the object engine fills the tilemap. Markers = unported handlers.
-    private void DrawMap16Panel()
-    {
-        ImGui.Begin("Level Map (Map16)");
-        if (grid is null) { ImGui.TextDisabled("No level."); ImGui.End(); return; }
-        int real = 0, mark = 0;
-        foreach (var t in grid.Tiles)
-            if (t != Map16Grid.Empty) { if ((t & ObjectEngine.Marker) != 0) mark++; else real++; }
-        ImGui.Text($"{real} tiles placed, {mark} unimplemented (magenta)");
-        const float S = 7f;
-        if (ImGui.BeginChild("m16canvas", System.Numerics.Vector2.Zero, 0, ImGuiWindowFlags.HorizontalScrollbar))
-        {
-            var dl = ImGui.GetWindowDrawList();
-            var o = ImGui.GetCursorScreenPos();
-            ImGui.Dummy(new System.Numerics.Vector2(grid.Width * S, grid.Height * S));
-            for (int y = 0; y < grid.Height; y++)
-                for (int x = 0; x < grid.Width; x++)
-                {
-                    int t = grid.Get(x, y);
-                    if (t == Map16Grid.Empty) continue;
-                    uint col = (t & ObjectEngine.Marker) != 0 ? 0xFFFF00FFu : TileColor(t & 0x3FFF);
-                    dl.AddRectFilled(new(o.X + x * S, o.Y + y * S),
-                                     new(o.X + x * S + S - 0.5f, o.Y + y * S + S - 0.5f), col);
-                }
-            ImGui.EndChild();
-        }
-        ImGui.End();
-    }
-
-    private static uint TileColor(int tile)
-    {
-        float hf = (tile * 0.6180339887f) % 1f;
-        var (r, g, b) = HsvToRgb(hf, 0.5f, tile < 0x100 ? 0.9f : 0.6f);
-        return 0xFF000000u | ((uint)b << 16) | ((uint)g << 8) | r;
     }
 
     private void LoadRom(string path)
