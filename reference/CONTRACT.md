@@ -556,7 +556,8 @@ Implemented: Gfx.FgTiles.OverlayAnimatedTiles — frame-0 tiles overlaid at load
 ### 12b. Second animated blob — berries etc.  [CONFIRMED + IMPLEMENTED]
 
 $00B8D7 (fall-through after the GFX32 conversion): a second blob decompresses from
-bank:(operand at $00B8D8) — vanilla $088000 — to $7E4400. It is stored RAW 4bpp (0x5D00
-bytes). Load order means the DMA-visible RAM is: $4400-$7CFF = blob2 (4bpp, berries at
-id 5's $6D80+), $7D00-$ACFF = converted blob1 (3bpp source). Overlay resolves sources
->= $7D00 from blob1 as 3bpp, else >= $4400 from blob2 as 4bpp.
+bank:(operand at $00B8D8) — vanilla $088000 — to $7E2000 — the decompressor writes via [$00],Y
+without advancing $00, so blob2 lands over blob1's spent 3bpp source. It is stored RAW
+4bpp (0x5D00 bytes): DMA-visible RAM = $2000-$7CFF blob2 (berries at id 5's $6D80 =
+offset 0x4D80), $7D00-$ACFF converted blob1. Overlay resolves >= $7D00 from blob1 as
+3bpp, else >= $2000 from blob2 as 4bpp.

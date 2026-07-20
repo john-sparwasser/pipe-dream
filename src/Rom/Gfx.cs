@@ -65,7 +65,8 @@ public static class Gfx
         {
             // Two boot-time blobs ($00B888/$00B8D7, operands read per-ROM):
             // blob1 (vanilla $08BFC0): 3bpp, converted to occupy $7E7D00-$7EACFF.
-            // blob2 (vanilla $088000): raw 4bpp at $7E4400-$7E7CFF (berries & friends).
+            // blob2 (vanilla $088000): raw 4bpp at $7E2000-$7E7CFF — the decompressor writes
+            // via [$00],Y without advancing $00, so it lands over blob1's spent 3bpp source.
             int bank = rom.ReadByte(0x00B890) << 16;
             byte[] anim1, anim2;
             try
@@ -80,8 +81,8 @@ public static class Gfx
                 byte[]? px =
                     srcAddr >= 0x7D00 && (srcAddr - 0x7D00) / 0x20 * 24 + 24 <= anim1.Length
                         ? DecodeTile(anim1, (srcAddr - 0x7D00) / 0x20 * 24, 3)
-                    : srcAddr >= 0x4400 && srcAddr - 0x4400 + 0x20 <= anim2.Length
-                        ? DecodeTile(anim2, srcAddr - 0x4400, 4)
+                    : srcAddr >= 0x2000 && srcAddr - 0x2000 + 0x20 <= anim2.Length
+                        ? DecodeTile(anim2, srcAddr - 0x2000, 4)
                     : null;
                 if (px is null) return;
                 int s = (vramTile >> 7) & 3, t = vramTile & 0x7F;
