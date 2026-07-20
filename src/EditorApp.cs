@@ -27,6 +27,11 @@ public class EditorApp : App
     private int gfxW, gfxH, gfxFile, gfxBpp = 3, gfxPalRow = 2;
     private (int, int, int, int) gfxKey = (-1, -1, -1, -1);
 
+    // "Level GFX" popup: the 8 GFX files this level loads into VRAM, as tile sheets.
+    private bool showLevelGfx;
+    private readonly List<(string label, Texture tex, int w, int h)> levelGfx = new();
+    private int levelGfxKey = -1;
+
     // Composed Map16 sheet + level canvas, one texture per animation phase (CONTRACT §12).
     private readonly Texture?[] map16Texs = new Texture?[4];
     private int map16W, map16H;
@@ -197,6 +202,7 @@ public class EditorApp : App
         DrawLevelCanvas();
         DrawMap16Sheet();
         DrawGfxViewer();
+        DrawLevelGfx();
     }
 
     // The composed level: the Map16 grid rendered with real tile graphics.
@@ -212,6 +218,8 @@ public class EditorApp : App
         }
         ImGui.SameLine();
         if (ImGui.Button("Reload")) ParseLevel();
+        ImGui.SameLine();
+        if (ImGui.Button("GFX")) showLevelGfx = !showLevelGfx;
         if (levelTexs[0] is null || grid is null) { ImGui.TextDisabled("No level rendered."); ImGui.End(); return; }
         ImGui.SameLine();
         ImGui.Text($"—  left-click: place 0x{selectedMap16:X3}   right-click: erase");
@@ -432,6 +440,66 @@ public class EditorApp : App
         ImGui.End();
     }
 
+    // The GFX files loaded into VRAM for the current level: 4 FG/BG + 4 sprite slots,
+    // resolved through the tileset lists and the Super GFX Bypass, as decoded tile sheets.
+    private void DrawLevelGfx()
+    {
+        if (!showLevelGfx) return;
+        if (!ImGui.Begin("Level GFX", ref showLevelGfx)) { ImGui.End(); return; }
+        if (rom is null || level is null) { ImGui.TextDisabled("No level."); ImGui.End(); return; }
+
+        if (levelGfxKey != levelNum) { levelGfxKey = levelNum; BuildLevelGfx(); }
+        foreach (var (label, tex, w, h) in levelGfx)
+        {
+            ImGui.Text(label);
+            ImGui.Image(imgui!.GetTextureID(tex), new Vector2(w * 2f, h * 2f));
+            ImGui.Separator();
+        }
+        ImGui.End();
+    }
+
+    private void BuildLevelGfx()
+    {
+        foreach (var e in levelGfx) e.tex.Dispose();
+        levelGfx.Clear();
+        if (rom is null || level is null) return;
+        var h = level.Header;
+        var pal = Palette.Load(rom, h, levelNum);
+        var byp = rom.LmGfxBypass(levelNum);
+
+        // (name, GFXLIST base, list index, palette row for the preview, bypass record word)
+        var slots = new (string name, int listBase, int idx, int palRow, int bypWord)[]
+        {
+            ("FG1", Gfx.ObjectGfxList, h.Tileset * 4 + 0, 2, 7),
+            ("FG2", Gfx.ObjectGfxList, h.Tileset * 4 + 1, 2, 6),
+            ("BG1", Gfx.ObjectGfxList, h.Tileset * 4 + 2, 0, 5),
+            ("FG3", Gfx.ObjectGfxList, h.Tileset * 4 + 3, 2, 4),
+            ("SP1", 0x00A8C3, h.SpriteSet * 4 + 0, 8, 11),
+            ("SP2", 0x00A8C3, h.SpriteSet * 4 + 1, 8, 10),
+            ("SP3", 0x00A8C3, h.SpriteSet * 4 + 2, 8, 9),
+            ("SP4", 0x00A8C3, h.SpriteSet * 4 + 3, 8, 8),
+        };
+        foreach (var s in slots)
+        {
+            int file = rom.Data[rom.FileOffset(s.listBase) + s.idx];
+            bool bypassed = byp is not null && (byp[s.bypWord] & 0xFFF) != 0x7F;
+            if (bypassed) file = byp![s.bypWord] & 0xFFF;
+            int src = Gfx.SourceSnes(rom, file);
+            if (src < 0) { levelGfx.Add(($"{s.name} = {file:X2} (empty)", MakeBlank(), 8, 8)); continue; }
+            try
+            {
+                var data = Gfx.Lz2Decompress(rom.Data, rom.FileOffset(src));
+                int bpp = data.Length >= 0x1000 ? 4 : 3;
+                var (px, w, ht) = Gfx.TileSheet(data, bpp, pal, s.palRow);
+                levelGfx.Add(($"{s.name} = GFX{file:X2}{(bypassed ? " (bypass)" : "")}, {bpp}bpp",
+                              new Texture(GraphicsDevice, w, ht, MemoryMarshal.AsBytes(px.AsSpan())), w, ht));
+            }
+            catch { levelGfx.Add(($"{s.name} = {file:X2} (decode failed)", MakeBlank(), 8, 8)); }
+        }
+    }
+
+    private Texture MakeBlank() => new(GraphicsDevice, 8, 8, new byte[8 * 8 * 4]);
+
     private void BuildGfxTexture()
     {
         try
@@ -456,6 +524,7 @@ public class EditorApp : App
             grid = rom is not null && level is not null ? ObjectEngine.Render(rom, level) : null;
             baseGrid = grid?.Clone();          // snapshot to diff edits against on save
             undoStack.Clear(); redoStack.Clear(); currentStroke = new();   // new grid = new history
+            levelGfxKey = -1;                                              // refresh Level GFX window
             if (rom is not null && level is not null)
             {
                 tileCaches = new uint[4][][];
