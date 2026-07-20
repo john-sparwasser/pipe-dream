@@ -47,7 +47,8 @@ public class EditorApp : App
     private SpriteData? sprites;     // sprite list for the overlay
     private bool showSprites = true;
     private string saveStatus = "";
-    private const float Zoom = 2f;   // on-screen px per source px for picker + canvas
+    private const float Zoom = 2f;        // on-screen px per source px for the tile picker
+    private const float CanvasZoom = 1f;  // level canvas (native size)
 
     public EditorApp() : base(new AppConfig
     {
@@ -167,8 +168,8 @@ public class EditorApp : App
                 ImGuiWindowFlags.HorizontalScrollbar))
         {
             var origin = ImGui.GetCursorScreenPos();
-            ImGui.Image(imgui!.GetTextureID(levelTex), new Vector2(levelPxW * Zoom, levelPxH * Zoom));
-            float cs = 16 * Zoom;
+            ImGui.Image(imgui!.GetTextureID(levelTex), new Vector2(levelPxW * CanvasZoom, levelPxH * CanvasZoom));
+            float cs = 16 * CanvasZoom;
             if (ImGui.IsItemHovered())
             {
                 var m = ImGui.GetMousePos();
