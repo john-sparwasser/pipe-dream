@@ -46,6 +46,11 @@ public class EditorApp : App
     private Map16Grid? layer2Grid;   // layer-2 object layer, else null
     private SpriteData? sprites;     // sprite list for the overlay
     private bool showSprites = true;
+
+    // Undo/redo: each entry is one paint stroke (all cells changed during one mouse-down).
+    private readonly List<List<(int x, int y, ushort before, ushort after)>> undoStack = new();
+    private readonly List<List<(int x, int y, ushort before, ushort after)>> redoStack = new();
+    private List<(int x, int y, ushort before, ushort after)> currentStroke = new();
     private string saveStatus = "";
     private const float Zoom = 2f;        // on-screen px per source px for the tile picker
     private const float CanvasZoom = 1f;  // level canvas (native size)
@@ -140,6 +145,12 @@ public class EditorApp : App
                 if (ImGui.MenuItem("Exit")) Exit();
                 ImGui.EndMenu();
             }
+            if (ImGui.BeginMenu("Edit"))
+            {
+                if (ImGui.MenuItem("Undo", "Ctrl+Z", false, undoStack.Count > 0 || currentStroke.Count > 0)) Undo();
+                if (ImGui.MenuItem("Redo", "Ctrl+Shift+Z", false, redoStack.Count > 0)) Redo();
+                ImGui.EndMenu();
+            }
             if (ImGui.BeginMenu("View"))
             {
                 if (ImGui.MenuItem("Sprite overlay", "", showSprites))
@@ -147,6 +158,17 @@ public class EditorApp : App
                 ImGui.EndMenu();
             }
             ImGui.EndMainMenuBar();
+        }
+
+        // A paint stroke ends when neither paint button is held.
+        if (currentStroke.Count > 0 &&
+            !ImGui.IsMouseDown(ImGuiMouseButton.Left) && !ImGui.IsMouseDown(ImGuiMouseButton.Right))
+            CommitStroke();
+
+        var io = ImGui.GetIO();
+        if (io.KeyCtrl && !io.WantTextInput && ImGui.IsKeyPressed(ImGuiKey.Z, true))
+        {
+            if (io.KeyShift) Redo(); else Undo();
         }
 
         ImGui.Begin("ROM Info");
@@ -195,10 +217,8 @@ public class EditorApp : App
                 int cx = (int)((m.X - origin.X) / cs), cy = (int)((m.Y - origin.Y) / cs);
                 if (cx >= 0 && cx < grid.Width && cy >= 0 && cy < grid.Height)
                 {
-                    if (ImGui.IsMouseDown(ImGuiMouseButton.Left) && grid.Get(cx, cy) != selectedMap16)
-                    { grid.Set(cx, cy, selectedMap16); levelDirty = true; }
-                    else if (ImGui.IsMouseDown(ImGuiMouseButton.Right) && grid.Get(cx, cy) != Map16Grid.Empty)
-                    { grid.Set(cx, cy, Map16Grid.Empty); levelDirty = true; }
+                    if (ImGui.IsMouseDown(ImGuiMouseButton.Left)) PaintCell(cx, cy, selectedMap16);
+                    else if (ImGui.IsMouseDown(ImGuiMouseButton.Right)) PaintCell(cx, cy, Map16Grid.Empty);
                     var tl = new Vector2(origin.X + cx * cs, origin.Y + cy * cs);
                     ImGui.GetWindowDrawList().AddRect(tl, new Vector2(tl.X + cs, tl.Y + cs), 0xFFFFFFFF, 0, 0, 1.5f);
                 }
@@ -206,6 +226,46 @@ public class EditorApp : App
             ImGui.EndChild();
         }
         ImGui.End();
+    }
+
+    private void PaintCell(int x, int y, int tile)
+    {
+        int before = grid!.Get(x, y);
+        if (before == tile) return;
+        currentStroke.Add((x, y, (ushort)before, (ushort)tile));
+        grid.Set(x, y, tile);
+        levelDirty = true;
+    }
+
+    // A stroke ends when no paint button is held; committing makes it one undo step.
+    private void CommitStroke()
+    {
+        if (currentStroke.Count == 0) return;
+        undoStack.Add(currentStroke);
+        if (undoStack.Count > 256) undoStack.RemoveAt(0);
+        currentStroke = new();
+        redoStack.Clear();
+    }
+
+    private void Undo()
+    {
+        CommitStroke();
+        if (undoStack.Count == 0 || grid is null) return;
+        var s = undoStack[^1];
+        undoStack.RemoveAt(undoStack.Count - 1);
+        for (int i = s.Count - 1; i >= 0; i--) grid.Set(s[i].x, s[i].y, s[i].before);
+        redoStack.Add(s);
+        levelDirty = true;
+    }
+
+    private void Redo()
+    {
+        if (redoStack.Count == 0 || grid is null) return;
+        var s = redoStack[^1];
+        redoStack.RemoveAt(redoStack.Count - 1);
+        foreach (var (x, y, _, after) in s) grid.Set(x, y, after);
+        undoStack.Add(s);
+        levelDirty = true;
     }
 
     // Write the current grid edits back to a ROM copy as Direct Map16 objects.
@@ -450,6 +510,7 @@ public class EditorApp : App
             level = rom is null ? null : Level.Parse(rom, levelNum);
             grid = rom is not null && level is not null ? ObjectEngine.Render(rom, level) : null;
             baseGrid = grid?.Clone();          // snapshot to diff edits against on save
+            undoStack.Clear(); redoStack.Clear(); currentStroke = new();   // new grid = new history
             tileCache = rom is not null && level is not null ? Map16.ComposeAll(rom, level.Header, levelNum) : null;
             backdropColor = rom is not null && level is not null ? Palette.Load(rom, level.Header, levelNum).Rgba[0] : 0;
             // Layer 2: background image or object layer, drawn behind layer 1.
