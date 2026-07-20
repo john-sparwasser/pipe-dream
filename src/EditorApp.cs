@@ -43,7 +43,7 @@ public class EditorApp : App
     private bool levelDirty;
     private Map16Grid? baseGrid;     // object-engine output before edits, to diff against on save
     private ushort[]? bgImage;       // layer-2 background image (BG def indices), else null
-    private uint[][]? bgCache;       // composed BG Map16 tiles for the background image
+    private uint[][][]? bgCaches;    // [phase] composed BG Map16 tiles for the background image
     private Map16Grid? layer2Grid;   // layer-2 object layer, else null
     private SpriteData? sprites;     // sprite list for the overlay
     private bool showSprites = true;
@@ -361,7 +361,7 @@ public class EditorApp : App
                 ? grid.Height : 27;
             for (int p = 0; p < 4; p++)
             {
-                var (img, W, H) = Map16.ComposeLevel(tileCaches[p], backdropColor, grid, bgImage, bgCache, layer2Grid, visRows);
+                var (img, W, H) = Map16.ComposeLevel(tileCaches[p], backdropColor, grid, bgImage, bgCaches?[p], layer2Grid, visRows);
                 if (showSprites) sprites?.DrawOverlay(img, W, H);
                 levelTexs[p] = new Texture(GraphicsDevice, W, H, MemoryMarshal.AsBytes(img.AsSpan()));
                 levelPxW = W; levelPxH = H;
@@ -465,7 +465,13 @@ public class EditorApp : App
             backdropColor = rom is not null && level is not null ? Palette.Load(rom, level.Header, levelNum).Rgba[0] : 0;
             // Layer 2: background image or object layer, drawn behind layer 1.
             bgImage = rom is not null && level is not null ? Level.DecodeBgImage(rom, levelNum) : null;
-            bgCache = bgImage is not null ? Map16.ComposeAllBg(rom!, level!.Header, levelNum) : null;
+            if (bgImage is not null)
+            {
+                bgCaches = new uint[4][][];
+                for (int p = 0; p < 4; p++)
+                    bgCaches[p] = Map16.ComposeAllBg(rom!, level!.Header, levelNum, p);
+            }
+            else bgCaches = null;
             var l2objs = rom is not null && level is not null ? Level.ParseLayer2(rom, levelNum) : null;
             layer2Grid = l2objs is not null ? ObjectEngine.Render(rom!, level!.Header, l2objs) : null;
             sprites = rom is not null && level is not null ? SpriteData.Parse(rom, levelNum) : null;

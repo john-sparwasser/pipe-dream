@@ -73,9 +73,9 @@ public static class Map16
     }
 
     /// <summary>Compose the 0x200 BG Map16 tiles (defs at fixed $0D9100 + idx*8, CONTRACT §10).</summary>
-    public static uint[][] ComposeAllBg(Rom rom, LevelHeader h, int level = -1)
+    public static uint[][] ComposeAllBg(Rom rom, LevelHeader h, int level = -1, int animPhase = 0)
     {
-        var fg = Gfx.FgTiles.Load(rom, h.Tileset, level);
+        var fg = Gfx.FgTiles.Load(rom, h.Tileset, level, animPhase);
         var pal = Palette.Load(rom, h, level);
         var tiles = new uint[0x200][];
         for (int t = 0; t < 0x200; t++)
@@ -106,7 +106,7 @@ public static class Map16
 
         if (level >= 0 && Level.DecodeBgImage(rom, level) is { } bgImg)
         {
-            var bgCache = ComposeAllBg(rom, h, level);
+            var bgCache = ComposeAllBg(rom, h, level, animPhase);
             DrawBgImage(img, W, H, grid.Width, bgImg, bgCache);
         }
         else if (level >= 0 && Level.ParseLayer2(rom, level) is { } l2objs)
