@@ -175,12 +175,14 @@ public static class Map16
     /// <summary>Compose the 512-tile picker sheet from a precomputed cache.</summary>
     public static (uint[] px, int w, int h) ComposeSheet(uint[][] cache, int cols = 16)
     {
-        int rows = (FgTiles + cols - 1) / cols;
+        int count = cache.Length;                        // 0x200 + LM extended pages
+        int rows = (count + cols - 1) / cols;
         int w = cols * 16, ht = rows * 16;
         var sheet = new uint[w * ht];
-        for (int t = 0; t < FgTiles; t++)
+        for (int t = 0; t < count; t++)
         {
             var img = cache[t];
+            if (img is null) continue;
             int ox = (t % cols) * 16, oy = (t / cols) * 16;
             for (int y = 0; y < 16; y++)
                 for (int x = 0; x < 16; x++)

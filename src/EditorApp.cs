@@ -58,7 +58,8 @@ public class EditorApp : App
     private readonly List<List<(int x, int y, ushort before, ushort after)>> redoStack = new();
     private List<(int x, int y, ushort before, ushort after)> currentStroke = new();
     private string saveStatus = "";
-    private const float Zoom = 2f;        // on-screen px per source px for the tile picker
+    private const float Zoom = 2f;        // on-screen px per source px (GFX viewer)
+    private const float Map16Zoom = 1f;   // tile picker (16px tiles at native size)
     private const float CanvasZoom = 1f;  // level canvas (native size)
 
     // The UI runs at ImGuiLayer.Scale (BaseScale x display scale), so a zoom of 1 unit may be
@@ -389,17 +390,17 @@ public class EditorApp : App
         {
             SnapCursorToPixel();
             var origin = ImGui.GetCursorScreenPos();
-            float pz = SnappedZoom(Zoom);
+            float pz = SnappedZoom(Map16Zoom);
             ImGui.Image(imgui!.GetTextureID(map16Texs[AnimPhase] ?? map16Texs[0]!), new Vector2(map16W * pz, map16H * pz));
             float ts = 16 * pz;
+            int tileCount = tileCaches?[0].Length ?? Map16.FgTiles;
             if (ImGui.IsItemHovered() && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
             {
                 var m = ImGui.GetMousePos();
                 int idx = (int)((m.Y - origin.Y) / ts) * 16 + (int)((m.X - origin.X) / ts);
-                if (idx >= 0 && idx < Map16.FgTiles) selectedMap16 = idx;
+                if (idx >= 0 && idx < tileCount) selectedMap16 = idx;
             }
-            int sc = selectedMap16 & 0x1FF;
-            var stl = new Vector2(origin.X + (sc % 16) * ts, origin.Y + (sc / 16) * ts);
+            var stl = new Vector2(origin.X + (selectedMap16 % 16) * ts, origin.Y + (selectedMap16 / 16) * ts);
             ImGui.GetWindowDrawList().AddRect(stl, new Vector2(stl.X + ts, stl.Y + ts), 0xFF00FFFF, 0, 0, 2f);
             ImGui.EndChild();
         }
