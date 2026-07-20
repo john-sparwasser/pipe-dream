@@ -124,16 +124,17 @@ public sealed class Level
     }
 
     /// <summary>
-    /// Layer-2 background image: 0x400 BG Map16 def indices (32 rows × 32 cols, two 16-wide
-    /// screens), or null when layer 2 is object data. RLE at $0C:(ptr&FFFF) (CONTRACT §10):
-    /// cmd bit7 = run of next byte, else literal copy; FF FF ends; high/page byte = 0 or 1
-    /// (ptr low16 >= 0xE8FF → page 1). Buffer initialized to tile 0x25.
+    /// Layer-2 background image: BG Map16 def indices (two 16x27 screens), or null when
+    /// layer 2 is object data. RLE at $0C:(ptr&FFFF) (CONTRACT §10): cmd bit7 = run of next
+    /// byte, else literal copy; FF FF ends; high/page byte = 0 or 1 — page 1 when ptr
+    /// low16 >= 0xE8FE INCLUSIVE (`CPX #$E8FE : BCC` at $058046; the disasm comment says
+    /// $E8FF and is off by one — level 0x10A sits exactly on 0xE8FE). Buffer init = tile 0x25.
     /// </summary>
     public static ushort[]? DecodeBgImage(Rom rom, int number)
     {
         if (!rom.Layer2IsBackground(number)) return null;
         int lo16 = rom.Layer2Pointer(number) & 0xFFFF;
-        int page = lo16 >= 0xE8FF ? 1 : 0;
+        int page = lo16 >= 0xE8FE ? 1 : 0;
         var tiles = new ushort[0x400];
         Array.Fill(tiles, (ushort)((page << 8) | 0x25));
         int p = rom.FileOffset(0x0C0000 | lo16), o = 0;
