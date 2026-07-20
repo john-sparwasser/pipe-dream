@@ -80,13 +80,26 @@ public sealed class SpriteData
     }
 
     /// <summary>
-    /// Draw sprite badges onto a composed level canvas: a tinted 16x16 cell with a border
-    /// (green = sprite, orange = scroll command) and the sprite number in hex.
+    /// Draw sprites with their real graphics (OAM capture via emulation, CONTRACT §14);
+    /// badge markers for scroll commands and sprites whose routines can't be captured.
     /// </summary>
-    public void DrawOverlay(uint[] img, int W, int H)
+    public void DrawOverlay(uint[] img, int W, int H, Rom? rom = null, LevelHeader? header = null, int level = -1)
     {
+        byte[][]? sp = null;
+        Palette? pal = null;
+        if (rom is not null && header is not null)
+        {
+            try { sp = SpriteRender.LoadSpTiles(rom, header.Value, level); pal = Palette.Load(rom, header.Value, level); }
+            catch { sp = null; }
+        }
         foreach (var s in Sprites)
         {
+            if (sp is not null && pal is not null && !s.IsScrollCommand
+                && SpriteRender.Capture(rom!, s) is { } oam)
+            {
+                SpriteRender.Draw(img, W, H, oam, sp, pal);
+                continue;
+            }
             int px = s.AbsoluteX * 16, py = s.Y * 16;
             if (px < 0 || py < 0 || px + 16 > W || py + 16 > H) continue;
             uint border = s.IsScrollCommand ? 0xFF00A0FFu : 0xFF00C000u;   // ABGR: orange / green

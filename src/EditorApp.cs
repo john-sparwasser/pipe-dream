@@ -362,7 +362,8 @@ public class EditorApp : App
             for (int p = 0; p < 4; p++)
             {
                 var (img, W, H) = Map16.ComposeLevel(tileCaches[p], backdropColor, grid, bgImage, bgCaches?[p], layer2Grid, visRows);
-                if (showSprites) sprites?.DrawOverlay(img, W, H);
+                if (showSprites && rom is not null && level is not null)
+                    sprites?.DrawOverlay(img, W, H, rom, level.Header, levelNum);
                 levelTexs[p] = new Texture(GraphicsDevice, W, H, MemoryMarshal.AsBytes(img.AsSpan()));
                 levelPxW = W; levelPxH = H;
             }

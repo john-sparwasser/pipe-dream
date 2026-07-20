@@ -588,3 +588,17 @@ every 4 frames from `MorePalettes` ($00B60C): 8 BGR555 words, byte offset
 `(frame & 0x1C) >> 1` — a gold→white glint cycle (02DF 035F 27FF 5FFF 73FF 5FFF 27FF 035F).
 Applied in Palette.Load per display phase (offsets 0/4/8/12), including on top of LM
 custom palettes (the NMI write happens regardless).
+
+## 14. Sprite graphics via OAM capture  [IMPLEMENTED v1]
+
+No unified sprite→tile table exists; each sprite's look comes from its graphics routine.
+The editor runs `CallSpriteInit` ($018172) + one `CallSpriteMain` ($0185C3) frame per
+sprite in the CPU interpreter (slot 0 seeded: $9E num, $E4/$14E0 + $D8/$14D4 position,
+$14C8=8, $15EA=$30 OAM index, $64 priority, $187B extra bits, screen boundary $1A/$1C
+near the sprite, Mario parked far away) and captures OAM ($0200 low table, $0420 hi).
+Tiles resolve through SP1-4 (SPRITEGFXLIST $00A8C3 / bypass words 11-8), palettes = CGRAM
+rows 8-F, 16x16 assembly T/T+1/T+16/T+17 with flip-quadrant swap; entries draw in reverse
+OAM order. Failures/scroll commands keep badge markers.
+KNOWN v1 gaps: OAM size bits default to 16x16 (frame-init runs outside capture — real 8x8
+tiles like hammers draw doubled); single frame 0 pose; per-sprite RAM quirks may misdraw
+exotic sprites (they fall back to badges only if the routine crashes).

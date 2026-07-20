@@ -93,6 +93,9 @@ public sealed class Cpu65816(Rom rom)
         return (mask == 0xFF ? Read(b, a) : Read16(b, a)) & mask;
     }
 
+    /// <summary>Preset the X register (e.g. the sprite slot index) before a call.</summary>
+    public void PresetX(int v) => X = v & 0xFF;
+
     /// <summary>Run a JSR to <paramref name="entrySnes"/> until its top-level RTS. Throws on overrun.</summary>
     public void CallNear(int entrySnes, int maxInstructions = 30_000_000)
     {
