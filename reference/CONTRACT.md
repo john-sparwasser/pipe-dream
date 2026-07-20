@@ -327,3 +327,19 @@ SP1-4=2E/2F/30/31, AN2=01):
   FG1=0x12 FG2=0x1A FG3=0x05 BG1=0x33 BG2=0x21 BG3=0x08 SP1=0x30 SP2=0x1F SP3=0x0C SP4=0x25.
 - Then: locate LM ExGFX pointer table + data (set one slot to an ExGFX file like 0x100, diff),
   and integrate into the renderer (FG slots -> VRAM -> tile decode).
+
+### 7c (confirmed). GFX bypass record layout
+
+2nd diff with distinct per-slot values decoded the 0x20-byte (16-word) record:
+```
+w0-3  : constant (2B 2A 29 28 default) - not the bypass slots (separate field, TBD)
+w4    : AN2 (animated GFX 2), bit15 = enabled     w10 : FG2
+w5    : AN1 (animated GFX 1)                       w11 : FG1
+w6    : BG3      w7 : BG2      w8 : FG3            w12 : SP4 (bits15-13 flags)
+w9    : BG1                                        w13 : SP3   w14 : SP2   w15 : SP1
+```
+Each word 16-bit (ExGFX-capable); low byte = GFX/ExGFX file #; 0x7F = slot uses tileset default.
+Level 0x105 record at SNES $10CDA0 (gfx_after.smc); records 0x20/level; sub-table base ~$10AD00
+(tentative: rec = base + level*0x20). Still to do: map named slots -> the 4 FG VRAM regions the
+renderer uses (tiles 0x000-0x1FF), locate ExGFX pointer+data (diff a slot set to ExGFX 0x100),
+then wire GFX into the LM render path.
