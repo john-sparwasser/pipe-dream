@@ -50,6 +50,23 @@ public class EditorApp : App
     private const float Zoom = 2f;        // on-screen px per source px for the tile picker
     private const float CanvasZoom = 1f;  // level canvas (native size)
 
+    // The UI runs at ImGuiLayer.Scale (BaseScale x display scale), so a zoom of 1 unit may be
+    // a fractional number of physical pixels (e.g. 2.5 at 125% Windows scaling) — that
+    // resampling is visible on pixel art. Snap so texel -> physical pixels is an integer,
+    // and anchor draws on whole physical pixels.
+    private float SnappedZoom(float desired)
+    {
+        float s = imgui!.Scale;
+        return MathF.Max(1f, MathF.Round(desired * s)) / s;
+    }
+
+    private void SnapCursorToPixel()
+    {
+        float s = imgui!.Scale;
+        var p = ImGui.GetCursorScreenPos();
+        ImGui.SetCursorScreenPos(new Vector2(MathF.Floor(p.X * s) / s, MathF.Floor(p.Y * s) / s));
+    }
+
     public EditorApp() : base(new AppConfig
     {
         ApplicationName = "PipeDream",
@@ -167,9 +184,11 @@ public class EditorApp : App
         if (ImGui.BeginChild("lvlcanvas", System.Numerics.Vector2.Zero, 0,
                 ImGuiWindowFlags.HorizontalScrollbar))
         {
+            SnapCursorToPixel();
             var origin = ImGui.GetCursorScreenPos();
-            ImGui.Image(imgui!.GetTextureID(levelTex), new Vector2(levelPxW * CanvasZoom, levelPxH * CanvasZoom));
-            float cs = 16 * CanvasZoom;
+            float z = SnappedZoom(CanvasZoom);
+            ImGui.Image(imgui!.GetTextureID(levelTex), new Vector2(levelPxW * z, levelPxH * z));
+            float cs = 16 * z;
             if (ImGui.IsItemHovered())
             {
                 var m = ImGui.GetMousePos();
@@ -269,9 +288,11 @@ public class EditorApp : App
         ImGui.Text($"Selected: 0x{selectedMap16:X3}   (click a tile to pick it, then paint on the level)");
         if (ImGui.BeginChild("m16sheet", System.Numerics.Vector2.Zero, 0, ImGuiWindowFlags.HorizontalScrollbar))
         {
+            SnapCursorToPixel();
             var origin = ImGui.GetCursorScreenPos();
-            ImGui.Image(imgui!.GetTextureID(map16Tex), new Vector2(map16W * Zoom, map16H * Zoom));
-            float ts = 16 * Zoom;
+            float pz = SnappedZoom(Zoom);
+            ImGui.Image(imgui!.GetTextureID(map16Tex), new Vector2(map16W * pz, map16H * pz));
+            float ts = 16 * pz;
             if (ImGui.IsItemHovered() && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
             {
                 var m = ImGui.GetMousePos();

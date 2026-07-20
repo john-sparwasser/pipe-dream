@@ -350,7 +350,14 @@ public class ImGuiLayer : IDisposable
                 {
                     int textureIndex = cmd->TextureId.ToInt32();
                     if (textureIndex < boundTextures.Count)
-                        material.Fragment.Samplers[0] = new(boundTextures[textureIndex], new());
+                    {
+                        // Pixel-art textures (level canvas, tile sheets) must sample
+                        // nearest-neighbor; only the font atlas keeps linear filtering.
+                        var tex = boundTextures[textureIndex];
+                        var filter = tex == fontTexture ? TextureFilter.Linear : TextureFilter.Nearest;
+                        material.Fragment.Samplers[0] = new(tex, new TextureSampler(filter,
+                            TextureWrap.Clamp, TextureWrap.Clamp));
+                    }
 
                     pass.VertexOffset = (int)(cmd->VtxOffset + globalVtxOffset);
                     pass.IndexOffset = (int)(cmd->IdxOffset + globalIdxOffset);
