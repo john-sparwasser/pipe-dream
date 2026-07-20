@@ -80,11 +80,6 @@ class Program
         var lv = Level.Parse(rom, level);
         try { ObjectEngine.RenderEmulated(rom, lv.Header, lv.DataPointer, 0); Console.WriteLine("engine: emulated"); }
         catch (Exception e) { Console.WriteLine($"engine: ported fallback ({e.Message})"); }
-        foreach (var sp in SpriteData.Parse(rom, level).Sprites.Take(4))
-            Console.WriteLine($"  sprite {sp.Number:X2} @({sp.AbsoluteX},{sp.Y}): " +
-                (SpriteRender.Capture(rom, sp) is { } oam
-                    ? string.Join(" ", oam.Take(5).Select(o => $"t{o.Tile:X3}@({o.X},{o.Y})a{o.Attr:X2}" + (o.Big ? "B" : "")))
-                    : "no capture"));
         var grid = ObjectEngine.Render(rom, lv);
         var markers = new Dictionary<int, int>();
         for (int i = 0; i < grid.Tiles.Length; i++)

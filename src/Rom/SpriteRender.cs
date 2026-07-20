@@ -42,9 +42,10 @@ public static class SpriteRender
             {
                 int y = r[0x201 + i * 4];
                 if (y >= 0xE0) continue;
-                // Sprites write per-entry size/X-high to OAM_TileSize ($0460); the packed
-                // $0420 table is only built at frame end, which runs outside our capture.
-                int sz = r[0x460 + i];
+                // OAM_TileSize ($0460) is written per drawn tile by the finisher, indexed by
+                // SprOAMIndex >> 2 (the same granularity as the hardware high-OAM table) —
+                // i.e. one byte per 4-byte OAM slot. bit1 = 16x16, bit0 = X high.
+                int sz = r[0x460 + (i >> 2)];
                 int x = r[0x200 + i * 4] | ((sz & 1) << 8);
                 int tile = r[0x202 + i * 4], attr = r[0x203 + i * 4];
                 list.Add(new Oam(x + bx, y + by, tile | ((attr & 1) << 8), attr, (sz & 2) != 0));
