@@ -299,3 +299,16 @@ Decoded by editing one Map16 tile (0x300) in LM and diffing before/after:
 **Still needed to render LM hacks fully:** (1) feed extended defs into the tile cache/render;
 (2) LM per-level GFX + ExGFX so the 8x8 tiles those defs reference decode correctly;
 (3) the page-1 tileset-specific custom table.
+
+### 7b. Page-1 (tileset-specific) Map16 + acts-like  [CONFIRMED via 2nd diff]
+
+Editing tile 0x166 (copy of 0x300) with acts-as 0x130:
+- Page-1 tiles (0x100-0x1FF) are **tileset-specific and written back into the vanilla bank-$0D
+  table in place** (tile 0x166 -> $0D90C0 for tileset 7). So the vanilla reader
+  (`BuildDefPointers` + `Definition`) reads LM's page-1 edits with NO new code.
+- **Acts-like** (behavior/hitbox) is a separate 2-byte-per-tile table at **$118000**:
+  `actsAs(tile) = word[$118000 + tile*2]` (identity for unedited; 0x166 -> 0x130). `Rom.ActsAs`.
+
+Map16 READ side is now complete for LM hacks: <0x200 vanilla bank-$0D (reads edits in place),
+>=0x200 LM extended table ($02C2E1->base), acts-like $118000. Remaining for rendering LM hacks:
+LM per-level GFX + ExGFX (so referenced 8x8 tiles decode), then feed >=0x200 into the cache.

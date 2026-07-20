@@ -224,6 +224,15 @@ public static class RomSelfCheck
             Check("corner tiles/palettes decode right",
                   d[0].Tile == 0xDA && d[0].Palette == 0 && d[2].Tile == 0xDB && d[2].Palette == 1 &&
                   d[1].Tile == 0xDC && d[1].Palette == 2 && d[3].Tile == 0xDD && d[3].Palette == 3);
+
+            // Page-1 tileset-specific tile 0x166 (same edit, tileset 7) via the vanilla reader.
+            var defPtr = Map16.BuildDefPointers(mr, 7);
+            var d166 = Map16.Definition(mr, defPtr, 0x166);
+            Console.WriteLine($"    tile 0x166 (vanilla path) = TL {d166[0].Raw:X4} BL {d166[1].Raw:X4} " +
+                              $"TR {d166[2].Raw:X4} BR {d166[3].Raw:X4};  acts-as = 0x{mr.ActsAs(0x166):X3}");
+            Check("page-1 tile 0x166 def matches the edit (in vanilla bank-0D table)",
+                  d166[0].Raw == 0x00DA && d166[1].Raw == 0x08DC && d166[2].Raw == 0x04DB && d166[3].Raw == 0x0CDD);
+            Check("acts-as table: 0x166 acts as 0x130", mr.ActsAs(0x166) == 0x130);
         }
 
         string afterRom = @"C:\SMW\Projects\.resources\after.smc";

@@ -50,6 +50,9 @@ public sealed class Rom
         }
     }
 
+    /// <summary>LM's acts-like table ($118000, 2 bytes/tile): the behavior tile a Map16 tile acts as.</summary>
+    public int ActsAs(int tile) => LmMap16Base < 0 ? tile : ReadValue(0x118000 + tile * 2, 2);
+
     // Level pointer tables (CONTRACT §3), all in bank $05.
     public const int Layer1TableSnes = 0x05E000; // 3 bytes/level
     public const int Layer2TableSnes = 0x05E600; // 3 bytes/level
