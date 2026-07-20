@@ -266,6 +266,19 @@ public static class RomSelfCheck
             Check("FgTiles.Load(level) applies the bypass (tiles differ from default)", differs);
         }
 
+        string shaoRom = @"C:\SMW\Projects\ShaoBase\base.smc";
+        if (File.Exists(shaoRom))
+        {
+            Console.WriteLine("LM extended defs via $06F540 constants (ShaoBase, CONTRACT §7a-rev):");
+            var sh = Rom.Load(shaoRom);
+            var (imm, bank) = sh.LmMap16Defs;
+            Console.WriteLine($"    defs = ${bank:X2}:{imm:X4} + tile*8, tileCount = 0x{sh.Map16TileCount:X}");
+            Check("ShaoBase extended def region found ($158274)", bank == 0x15 && imm == 0x8274);
+            var d279 = Map16.LmExtendedDef(sh, 0x279);
+            Check("tile 0x279 def is the real ground block (not FF filler)",
+                  d279[0].Raw == 0x1206 && d279[1].Raw == 0x1216 && d279[2].Raw == 0x1207 && d279[3].Raw == 0x1217);
+        }
+
         string dowRom = @"C:\SMW\Projects\DogsOfWar\dogs_of_war-backup.smc";
         if (File.Exists(dowRom))
         {
@@ -314,6 +327,9 @@ public static class RomSelfCheck
             var tiles = dm.Select(o => o.Dm16Tile).ToHashSet();
             Check("decoded tiles include 0x100/0x101/0x200/0x201/0x202",
                   new[] { 0x100, 0x101, 0x200, 0x201, 0x202 }.All(tiles.Contains));
+            var agrid = ObjectEngine.Render(ar, al);
+            Check("DM16 tiles land in the render grid (not markers)",
+                  agrid.Get(2, 5) == 0x100 && agrid.Get(9, 5) == 0x200);
             byte[] enc = al.Encode(ar);
             int afo = ar.FileOffset(al.DataPointer);
             Check("DM16 level re-encodes byte-identical",

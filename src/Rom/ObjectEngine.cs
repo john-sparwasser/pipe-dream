@@ -71,6 +71,14 @@ public static class ObjectEngine
             if (o.IsScreenExit) continue;                       // no tiles
             int ax = o.AbsoluteX, ay = o.Y;
 
+            if (o.IsDm16)                                       // LM Direct Map16: w×h of one tile
+            {
+                for (int dy = 0; dy < o.Height; dy++)
+                    for (int dx = 0; dx < o.Width; dx++)
+                        g.Set(ax + dx, ay + dy, o.Dm16Tile);
+                continue;
+            }
+
             if (o.Extended)
             {
                 int ext = o.ExtendedNumber;

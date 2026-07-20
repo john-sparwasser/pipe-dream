@@ -282,7 +282,30 @@ or do a controlled diff: change one Map16 tile's 8×8 in LM, save before/after, 
 the 8-byte-def table + its index; then read GFX via LM's per-level GFX/ExGFX list (LM also
 relocates/adds those). The vanilla-path renderer already works for clean ROMs.
 
-### 7a. LM extended Map16 table  [CONFIRMED via controlled diff]
+### 7a-rev. LM extended Map16 defs — CORRECTED CONTRACT  [CONFIRMED on 7 ROMs]
+
+**The §7a formula below ($02C2E1 → RATS block, linear (tile-0x200)*8) is a coincidence that
+holds only for map16_after.smc** — in ShaoBase the $02C2E1 block is a stale FF-filled
+allocation while the game reads defs from $158274. The real contract, from the in-game
+consumer (LM's Map16-lookup hijack, identical code in every LM ROM):
+
+- `$00C17A` = `JSL $06F5D0` (detector: byte $00C17A == 0x22, operand $06F5D0).
+- `$06F5D0` → piecewise def-pointer math at **fixed $06F540**. Entry A = tile*2:
+  - tile < 0x200 → vanilla RAM table $0FBE path (our BuildDefPointers equivalent);
+    def bank = $0D, or a per-ROM bank for LM custom tilesets ($1930 >= 0x1000).
+  - tile 0x200-0xFFF → **def = bank:(imm + tile*8)** where `imm` = 16-bit ADC operand at
+    fixed **$06F553** and `bank` = high byte of LDY operand at **$06F556**
+    (`69 imm16 A0 bank<<8` at $06F552). bank == 0 → no extended defs installed.
+    Observed: map16_after $10:7008 (≡ the old $108008+(t-0x200)*8), DoW $14:7000,
+    ShaoBase/BigEye $15:8274/$15:CB42, juz $10:DE94, after/gfx_after $00:F000 (= none).
+  - tile >= 0x1000 → fallback blank regions (ADC #$8000/#$FFFF/#$7FFF, bank 0) +
+    a tileset-specific path at $06F578 gated by a per-ROM CMP constant (0 = disabled in
+    all sampled ROMs). Not implemented; cap tileCount at min(0x1000, (0x10000-imm)/8).
+- Unedited tiles in the region read FF → def FFFF×4 (renders as t3FF pal7 flips); levels
+  don't reference them. LM's .s16 export stores such tiles as zeros.
+- Reader: `Rom.LmMap16Defs` (imm, bank), `Rom.Map16TileCount`, `Map16.LmExtendedDef`.
+
+### 7a. LM extended Map16 table  [SUPERSEDED by 7a-rev — kept for the diff history]
 
 Decoded by editing one Map16 tile (0x300) in LM and diffing before/after:
 - LM stores the **extended Map16 definitions (tiles >= 0x200)** in a RATS block; its address

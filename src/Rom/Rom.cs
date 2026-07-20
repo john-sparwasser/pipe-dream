@@ -35,20 +35,24 @@ public sealed class Rom
     public bool HasDm16Hijack => ReadValue(0x0DA4BB, 3) != 0x0DB3E3;
 
     /// <summary>
-    /// SNES address of LM's extended Map16 definition data (tiles >= 0x200), or -1 if not an
-    /// LM-expanded ROM. LM stores the table's RATS-tag address at $02C2E1; data follows the tag.
+    /// LM extended Map16 defs (tiles 0x200-0xFFF), decoded from LM's Map16-lookup hijack:
+    /// $00C17A = JSL $06F5D0 → piecewise pointer math at fixed $06F540, whose 0x200-0xFFF
+    /// branch is `ADC #imm : LDY #bank<<8` at fixed $06F552 (CONTRACT §7a-rev).
+    /// def(tile) = bank:(imm + tile*8). Returns (imm, bank), bank 0 = no extended defs.
+    /// NOTE: the RATS pointer at $02C2E1 is NOT reliable (points at a stale block in ShaoBase).
     /// </summary>
-    public int LmMap16Base
+    public (int Imm, int Bank) LmMap16Defs
     {
         get
         {
-            int ptr = ReadValue(0x02C2E1, 3);
-            int fo = FileOffset(ptr);
-            if (fo < 0 || fo + 8 > Data.Length) return -1;
-            bool star = Data[fo] == 0x53 && Data[fo + 1] == 0x54 && Data[fo + 2] == 0x41 && Data[fo + 3] == 0x52;
-            return star ? ptr + 8 : -1;    // data starts after the 8-byte RATS tag
+            if (ReadByte(0x00C17A) != 0x22 || ReadValue(0x00C17B, 3) != 0x06F5D0) return (0, 0);
+            if (ReadByte(0x06F552) != 0x69 || ReadByte(0x06F555) != 0xA0) return (0, 0);
+            return (ReadValue(0x06F553, 2), ReadValue(0x06F556, 2) >> 8);
         }
     }
+
+    /// <summary>Kept for callers that just need a presence check: >= 0 when extended defs exist.</summary>
+    public int LmMap16Base => LmMap16Defs.Bank == 0 ? -1 : (LmMap16Defs.Bank << 16) | LmMap16Defs.Imm;
 
     /// <summary>LM's acts-like table (2 bytes/tile, per-ROM location): the behavior tile a Map16 tile acts as.</summary>
     public int ActsAs(int tile) => LmActsAsBase < 0 ? tile : ReadValue(LmActsAsBase + tile * 2, 2);
@@ -86,6 +90,19 @@ public sealed class Rom
         var w = new ushort[16];
         for (int i = 0; i < 16; i++) w[i] = (ushort)(Data[fo + i * 2] | (Data[fo + i * 2 + 1] << 8));
         return (w[0] & 0x8000) != 0 ? w : null;
+    }
+
+    /// <summary>
+    /// Total Map16 tile count: 0x200 vanilla; with LM extended defs, up to 0x1000 (the hijack's
+    /// 0x200-0xFFF region), clipped where imm + tile*8 would wrap past the bank.
+    /// </summary>
+    public int Map16TileCount
+    {
+        get
+        {
+            var (imm, bank) = LmMap16Defs;
+            return bank == 0 ? 0x200 : Math.Min(0x1000, (0x10000 - imm) / 8);
+        }
     }
 
     /// <summary>True if LM's palette engine is installed: a JML hook at $0095E9 replaces the

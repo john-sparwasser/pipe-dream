@@ -64,9 +64,11 @@ public static class Map16
         var defPtr = BuildDefPointers(rom, h.Tileset);
         var fg = Gfx.FgTiles.Load(rom, h.Tileset, level);   // level >= 0 → LM GFX bypass honored
         var pal = Palette.Load(rom, h, level);              //             + LM custom palette
-        var tiles = new uint[FgTiles][];
+        var tiles = new uint[rom.Map16TileCount][];         // 0x200, + LM extended pages (§7a)
         for (int t = 0; t < FgTiles; t++)
             tiles[t] = Compose(Definition(rom, defPtr, t), fg.Fetch, pal);
+        for (int t = FgTiles; t < tiles.Length; t++)
+            tiles[t] = Compose(LmExtendedDef(rom, t), fg.Fetch, pal);
         return tiles;
     }
 
@@ -86,7 +88,7 @@ public static class Map16
             {
                 int t = grid.Get(cx, cy);
                 if (t == Map16Grid.Empty) continue;
-                uint[]? tile = (t & ObjectEngine.Marker) != 0 ? null : cache[t & (FgTiles - 1)];
+                uint[]? tile = (t & ObjectEngine.Marker) != 0 || t >= cache.Length ? null : cache[t];
                 for (int y = 0; y < 16; y++)
                     for (int x = 0; x < 16; x++)
                     {
@@ -109,7 +111,7 @@ public static class Map16
             {
                 int t = grid.Get(cx, cy);
                 if (t == Map16Grid.Empty) continue;
-                uint[]? tile = (t & ObjectEngine.Marker) != 0 ? null : cache[t & (FgTiles - 1)];
+                uint[]? tile = (t & ObjectEngine.Marker) != 0 || t >= cache.Length ? null : cache[t];
                 for (int y = 0; y < 16; y++)
                     for (int x = 0; x < 16; x++)
                     {
@@ -163,12 +165,14 @@ public static class Map16
     }
 
     /// <summary>
-    /// The 4 words (TL, BL, TR, BR) of an extended Map16 tile (>= 0x200) from LM's expanded
-    /// table: def(tile) = LmMap16Base + (tile - 0x200) * 8. Caller must ensure rom.LmMap16Base >= 0.
+    /// The 4 words (TL, BL, TR, BR) of an extended Map16 tile (0x200-0xFFF) from LM's def
+    /// region: def(tile) = bank:(imm + tile*8) (CONTRACT §7a-rev). Caller must ensure
+    /// rom.LmMap16Base >= 0 and tile &lt; rom.Map16TileCount.
     /// </summary>
     public static Word[] LmExtendedDef(Rom rom, int tile)
     {
-        int fo = rom.FileOffset(rom.LmMap16Base + (tile - 0x200) * 8);
+        var (imm, bank) = rom.LmMap16Defs;
+        int fo = rom.FileOffset((bank << 16) | (imm + tile * 8));
         var w = new Word[4];
         for (int i = 0; i < 4; i++)
             w[i] = new Word((ushort)(rom.Data[fo + i * 2] | (rom.Data[fo + i * 2 + 1] << 8)));

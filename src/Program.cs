@@ -15,8 +15,33 @@ class Program
         if (wi >= 0)
             return WriteDm16(args, wi);
 
+        int di = Array.IndexOf(args, "--dumpcell");
+        if (di >= 0)
+            return DumpCell(args, di);
+
         using var app = new EditorApp();
         app.Run();
+        return 0;
+    }
+
+    // --dumpcell <rom> <levelHex> <cx> <cy> : debug — grid value + Map16 def words for a cell.
+    private static int DumpCell(string[] args, int di)
+    {
+        var rom = Rom.Load(args[di + 1]);
+        int level = Convert.ToInt32(args[di + 2], 16);
+        int cx = int.Parse(args[di + 3]), cy = int.Parse(args[di + 4]);
+        var lv = Level.Parse(rom, level);
+        var grid = ObjectEngine.Render(rom, lv);
+        int t = grid.Get(cx, cy);
+        Console.WriteLine($"cell ({cx},{cy}) = 0x{t:X4}" +
+                          ((t & ObjectEngine.Marker) != 0 ? " (MARKER)" : ""));
+        if (t == Map16Grid.Empty || (t & ObjectEngine.Marker) != 0) return 0;
+        var words = t >= Map16.FgTiles
+            ? Map16.LmExtendedDef(rom, t)
+            : Map16.Definition(rom, Map16.BuildDefPointers(rom, lv.Header.Tileset), t);
+        foreach (var (w, q) in words.Zip(new[] { "TL", "BL", "TR", "BR" }))
+            Console.WriteLine($"  {q}: raw {w.Raw:X4}  8x8 tile {w.Tile:X3} pal {w.Palette} " +
+                              $"prio {(w.Priority ? 1 : 0)} flip {(w.FlipX ? "X" : "")}{(w.FlipY ? "Y" : "")}");
         return 0;
     }
 
