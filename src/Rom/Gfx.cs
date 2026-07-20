@@ -55,6 +55,50 @@ public static class Gfx
         // Bypass record words for VRAM slots 0-3: FG1=w7, FG2=w6, BG1=w5, FG3=w4 (CONTRACT §7d).
         private static readonly int[] BypassSlotWord = [7, 6, 5, 4];
 
+        /// <summary>
+        /// Overlay animation frame 0 onto the loaded slots (CONTRACT §12) — what LM displays.
+        /// GFX32+33 sit at a fixed pointer (operands at $00B88B/$00B890, vanilla $08BFC0),
+        /// 3bpp; the game's 4bpp conversion zero-fills plane 3, so source tile index =
+        /// (addr - 0x7D00)/0x20 into the 3bpp data (24 bytes/tile).
+        /// </summary>
+        private void OverlayAnimatedTiles(Rom rom, int tileset)
+        {
+            int src32 = (rom.ReadByte(0x00B890) << 16) | rom.ReadValue(0x00B88B, 2);
+            byte[] anim;
+            try { anim = Lz2Decompress(rom.Data, rom.FileOffset(src32)); }
+            catch { return; }
+            int tiles = anim.Length / 24;
+
+            void Overlay(int vramTile, int srcTile)
+            {
+                if (srcTile < 0 || srcTile >= tiles) return;
+                int s = (vramTile >> 7) & 3, t = vramTile & 0x7F;
+                if (t < slots[s].Length) slots[s][t] = DecodeTile(anim, srcTile * 24, 3);
+            }
+
+            for (int id = 0; id < 24; id++)
+            {
+                int dest = rom.ReadValue(0x05B93B + id * 2, 2);
+                if (dest == 0) continue;
+                int behavior = rom.ReadByte(0x05B96B + id);
+                int animId = id;
+                if (behavior >= 2) animId += rom.ReadByte(0x05B98B + (tileset & 0x0F));
+                // behavior 1 = POW-dependent: editor shows the inactive state (id unchanged)
+                int srcAddr = rom.ReadValue(0x05B999 + animId * 8, 2);   // phase 0 = LM's view
+                if (srcAddr < 0x7D00) continue;                          // berry/other RAM: n/a
+                int srcTile = (srcAddr - 0x7D00) / 0x20;
+                if (dest == 0x800)                                       // split slot ($00A3DA)
+                {
+                    Overlay(0x80, srcTile); Overlay(0x81, srcTile + 1);
+                    Overlay(0x90, srcTile + 2); Overlay(0x91, srcTile + 3);
+                }
+                else
+                {
+                    for (int k = 0; k < 4; k++) Overlay(dest / 16 + k, srcTile + k);
+                }
+            }
+        }
+
         public static FgTiles Load(Rom rom, int tileset, int level = -1)
         {
             var bypass = level >= 0 ? rom.LmGfxBypass(level) : null;
@@ -76,6 +120,7 @@ public static class Gfx
                 for (int t = 0; t < n; t++) tiles[t] = DecodeTile(data, t * tb, bpp);
                 f.slots[s] = tiles;
             }
+            f.OverlayAnimatedTiles(rom, tileset);   // frame-0 animated tiles (CONTRACT §12)
             return f;
         }
 

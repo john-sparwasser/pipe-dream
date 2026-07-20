@@ -539,3 +539,16 @@ loader/pointers + the 3bpp→4bpp-to-RAM conversion that fills $7E:6D80-$AC20, O
 empirically: decompress GFX33, locate coin/turn-block frames visually (`--gfxsheet`), solve
 the base from id0 srcs (9500/9700/9900/9B00) and id3 (9D80..A380). Then overlay frame-0
 tiles into FgTiles at compose time. LM bypass AN2 slot (§7d w0) replaces GFX33 for customs.
+
+### 12a. RESOLVED: the animated-GFX buffer  [CONFIRMED + IMPLEMENTED]
+
+`CODE_00B888`: GFX32+33 are NOT in the pointer tables — they decompress from a fixed
+pointer whose operands live at **$00B88B (16-bit) / $00B890 (bank)** (vanilla `$08BFC0`;
+read per-ROM — LM repoints it when Mario/animated GFX are edited). Decompressed 3bpp
+(0x2400 bytes) to $7E2000, then expanded 3bpp→4bpp backwards to occupy
+**$7E7D00-$7EACFF**. The expansion zero-fills plane 3, so an AnimatedTileData address A
+maps to 3bpp source tile `(A - 0x7D00)/0x20` (24 bytes/tile) — no 4bpp step needed.
+NMI consumer $00A3A4: 0x80 bytes (4 tiles) per slot; dest word $0800 is special-cased
+into two 0x40 transfers at $0800 and $0900 (tiles 0x80,0x81,0x90,0x91).
+Sources below $7D00 (e.g. id 5, berries) come from other RAM — skipped (rare).
+Implemented: Gfx.FgTiles.OverlayAnimatedTiles — frame-0 tiles overlaid at load.
