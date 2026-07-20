@@ -193,9 +193,10 @@ public class EditorApp : App
             {
                 int t = grid.Get(x, y);
                 if (t == baseGrid.Get(x, y)) continue;
-                if (t == Map16Grid.Empty || (t & ObjectEngine.Marker) != 0) continue;   // erase/marker: skip (v1)
+                if ((t & ObjectEngine.Marker) != 0) continue;             // marker: skip
+                int place = t == Map16Grid.Empty ? 0x025 : t;             // erase = blank sky tile
                 int screen = x / 16;
-                var o = LevelObject.MakeDm16(t, screen, x % 16, y);
+                var o = LevelObject.MakeDm16(place, screen, x % 16, y);
                 if (!byScreen.TryGetValue(screen, out var lst)) byScreen[screen] = lst = new();
                 lst.Add(o);
                 edits++;

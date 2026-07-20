@@ -362,6 +362,33 @@ public static class RomSelfCheck
             Check("all original objects preserved",
                   srl.Objects.Count == sl.Objects.Count + 1);
             File.Delete(stmp);
+
+            Console.WriteLine("Erase-on-save (blank sky tile 0x025 overwrites an original cell):");
+            var er = Rom.Load(afterRom);
+            var el = Level.Parse(er, 0x105);
+            var eg = ObjectEngine.Render(er, el);
+            int ex = -1, ey = -1;                       // first real tile on screen 0
+            for (int y = 0; y < eg.Height && ex < 0; y++)
+                for (int x = 0; x < 16 && ex < 0; x++)
+                    if (eg.Get(x, y) != Map16Grid.Empty && (eg.Get(x, y) & ObjectEngine.Marker) == 0)
+                    { ex = x; ey = y; }
+            var emerged = new List<LevelObject>();
+            for (int i = 0; i < el.Objects.Count; i++)
+            {
+                emerged.Add(el.Objects[i]);
+                int next = i + 1 < el.Objects.Count ? el.Objects[i + 1].Screen : -1;
+                if (el.Objects[i].Screen == 0 && next != 0)
+                    emerged.Add(LevelObject.MakeDm16(0x025, 0, ex, ey));
+            }
+            er.ExpandTo(0x200000);
+            er.SetLayer1Pointer(0x105, er.AllocateRats(el.Encode(er, emerged)));
+            string etmp = Path.Combine(Path.GetTempPath(), "pd_erase_save.smc");
+            er.SaveAs(etmp);
+            var ere = Rom.Load(etmp);
+            var egrid = ObjectEngine.Render(ere, Level.Parse(ere, 0x105));
+            Console.WriteLine($"    erased cell ({ex},{ey}): was 0x{eg.Get(ex, ey):X3}, now 0x{egrid.Get(ex, ey):X3}");
+            Check("erased cell reads back as blank sky 0x025", egrid.Get(ex, ey) == 0x025);
+            File.Delete(etmp);
         }
 
         Console.WriteLine(fails == 0 ? "\nALL CHECKS PASSED" : $"\n{fails} CHECK(S) FAILED");
