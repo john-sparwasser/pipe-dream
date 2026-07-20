@@ -35,6 +35,13 @@ public class EditorApp : App
     private Texture? levelTex;
     private int levelPxW, levelPxH;
 
+    // Edit state
+    private uint[][]? tileCache;     // 512 composed 16x16 tiles for the current tileset
+    private uint backdropColor;
+    private int selectedMap16 = 0x100;
+    private bool levelDirty;
+    private const float Zoom = 2f;   // on-screen px per source px for picker + canvas
+
     public EditorApp() : base(new AppConfig
     {
         ApplicationName = "PipeDream",
@@ -64,6 +71,9 @@ public class EditorApp : App
     protected override void Update()
     {
         if (imgui is null) return;
+
+        // Apply pending edits before layout so we never dispose a texture mid-frame.
+        if (levelDirty) { BuildLevelCanvas(); levelDirty = false; }
 
         imgui.BeginLayout();
         DrawUI();
@@ -132,12 +142,28 @@ public class EditorApp : App
     private void DrawLevelCanvas()
     {
         ImGui.Begin("Level Render");
-        if (levelTex is null) { ImGui.TextDisabled("No level rendered."); ImGui.End(); return; }
-        ImGui.Text($"Level 0x{levelNum:X3} — {levelPxW}x{levelPxH}px");
+        if (levelTex is null || grid is null) { ImGui.TextDisabled("No level rendered."); ImGui.End(); return; }
+        ImGui.Text($"Level 0x{levelNum:X3} — left-click: place 0x{selectedMap16:X3}   right-click: erase");
         if (ImGui.BeginChild("lvlcanvas", System.Numerics.Vector2.Zero, 0,
                 ImGuiWindowFlags.HorizontalScrollbar))
         {
-            ImGui.Image(imgui!.GetTextureID(levelTex), new Vector2(levelPxW * 2f, levelPxH * 2f));
+            var origin = ImGui.GetCursorScreenPos();
+            ImGui.Image(imgui!.GetTextureID(levelTex), new Vector2(levelPxW * Zoom, levelPxH * Zoom));
+            float cs = 16 * Zoom;
+            if (ImGui.IsItemHovered())
+            {
+                var m = ImGui.GetMousePos();
+                int cx = (int)((m.X - origin.X) / cs), cy = (int)((m.Y - origin.Y) / cs);
+                if (cx >= 0 && cx < grid.Width && cy >= 0 && cy < grid.Height)
+                {
+                    if (ImGui.IsMouseDown(ImGuiMouseButton.Left) && grid.Get(cx, cy) != selectedMap16)
+                    { grid.Set(cx, cy, selectedMap16); levelDirty = true; }
+                    else if (ImGui.IsMouseDown(ImGuiMouseButton.Right) && grid.Get(cx, cy) != Map16Grid.Empty)
+                    { grid.Set(cx, cy, Map16Grid.Empty); levelDirty = true; }
+                    var tl = new Vector2(origin.X + cx * cs, origin.Y + cy * cs);
+                    ImGui.GetWindowDrawList().AddRect(tl, new Vector2(tl.X + cs, tl.Y + cs), 0xFFFFFFFF, 0, 0, 1.5f);
+                }
+            }
             ImGui.EndChild();
         }
         ImGui.End();
@@ -146,10 +172,10 @@ public class EditorApp : App
     private void BuildLevelCanvas()
     {
         levelTex?.Dispose(); levelTex = null;
-        if (rom is null || level is null || grid is null) return;
+        if (tileCache is null || grid is null) return;
         try
         {
-            var (img, W, H) = Map16.ComposeLevel(rom, level.Header, grid);
+            var (img, W, H) = Map16.ComposeLevel(tileCache, backdropColor, grid);
             levelTex = new Texture(GraphicsDevice, W, H, MemoryMarshal.AsBytes(img.AsSpan()));
             levelPxW = W; levelPxH = H;
         }
@@ -161,10 +187,21 @@ public class EditorApp : App
     {
         ImGui.Begin("Map16 Tiles");
         if (map16Tex is null) { ImGui.TextDisabled("No level."); ImGui.End(); return; }
-        ImGui.Text("Composed FG Map16 tiles (16 per row). This is the tile-picker source.");
+        ImGui.Text($"Selected: 0x{selectedMap16:X3}   (click a tile to pick it, then paint on the level)");
         if (ImGui.BeginChild("m16sheet", System.Numerics.Vector2.Zero, 0, ImGuiWindowFlags.HorizontalScrollbar))
         {
-            ImGui.Image(imgui!.GetTextureID(map16Tex), new Vector2(map16W * 2f, map16H * 2f));
+            var origin = ImGui.GetCursorScreenPos();
+            ImGui.Image(imgui!.GetTextureID(map16Tex), new Vector2(map16W * Zoom, map16H * Zoom));
+            float ts = 16 * Zoom;
+            if (ImGui.IsItemHovered() && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+            {
+                var m = ImGui.GetMousePos();
+                int idx = (int)((m.Y - origin.Y) / ts) * 16 + (int)((m.X - origin.X) / ts);
+                if (idx >= 0 && idx < Map16.FgTiles) selectedMap16 = idx;
+            }
+            int sc = selectedMap16 & 0x1FF;
+            var stl = new Vector2(origin.X + (sc % 16) * ts, origin.Y + (sc / 16) * ts);
+            ImGui.GetWindowDrawList().AddRect(stl, new Vector2(stl.X + ts, stl.Y + ts), 0xFF00FFFF, 0, 0, 2f);
             ImGui.EndChild();
         }
         ImGui.End();
@@ -173,10 +210,10 @@ public class EditorApp : App
     private void BuildMap16Sheet()
     {
         map16Tex?.Dispose(); map16Tex = null;
-        if (rom is null || level is null) return;
+        if (tileCache is null) return;
         try
         {
-            var (px, w, h) = Map16.ComposeSheet(rom, level.Header);
+            var (px, w, h) = Map16.ComposeSheet(tileCache);
             map16Tex = new Texture(GraphicsDevice, w, h, MemoryMarshal.AsBytes(px.AsSpan()));
             map16W = w; map16H = h;
         }
@@ -365,10 +402,12 @@ public class EditorApp : App
         {
             level = rom is null ? null : Level.Parse(rom, levelNum);
             grid = rom is not null && level is not null ? ObjectEngine.Render(rom, level) : null;
+            tileCache = rom is not null && level is not null ? Map16.ComposeAll(rom, level.Header) : null;
+            backdropColor = rom is not null && level is not null ? Palette.Load(rom, level.Header).Rgba[0] : 0;
             BuildMap16Sheet();
             BuildLevelCanvas();
         }
-        catch { level = null; grid = null; }
+        catch { level = null; grid = null; tileCache = null; }
     }
 
     // Map16 grid: each expanded tile drawn as a cell colored by its Map16 index.

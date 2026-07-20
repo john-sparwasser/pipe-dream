@@ -98,6 +98,49 @@ public static class Map16
         return (img, W, H);
     }
 
+    /// <summary>Compose a level canvas from a precomputed tile cache (fast; for live edits).</summary>
+    public static (uint[] px, int w, int h) ComposeLevel(uint[][] cache, uint backdrop, Map16Grid grid)
+    {
+        int W = grid.Width * 16, H = grid.Height * 16;
+        var img = new uint[W * H];
+        Array.Fill(img, backdrop);
+        for (int cy = 0; cy < grid.Height; cy++)
+            for (int cx = 0; cx < grid.Width; cx++)
+            {
+                int t = grid.Get(cx, cy);
+                if (t == Map16Grid.Empty) continue;
+                uint[]? tile = (t & ObjectEngine.Marker) != 0 ? null : cache[t & (FgTiles - 1)];
+                for (int y = 0; y < 16; y++)
+                    for (int x = 0; x < 16; x++)
+                    {
+                        uint c = tile is null ? 0xFFFF00FFu : tile[y * 16 + x];
+                        if (c == 0) continue;
+                        img[(cy * 16 + y) * W + (cx * 16 + x)] = c;
+                    }
+            }
+        return (img, W, H);
+    }
+
+    /// <summary>Compose the 512-tile picker sheet from a precomputed cache.</summary>
+    public static (uint[] px, int w, int h) ComposeSheet(uint[][] cache, int cols = 16)
+    {
+        int rows = (FgTiles + cols - 1) / cols;
+        int w = cols * 16, ht = rows * 16;
+        var sheet = new uint[w * ht];
+        for (int t = 0; t < FgTiles; t++)
+        {
+            var img = cache[t];
+            int ox = (t % cols) * 16, oy = (t / cols) * 16;
+            for (int y = 0; y < 16; y++)
+                for (int x = 0; x < 16; x++)
+                {
+                    uint c = img[y * 16 + x];
+                    sheet[(oy + y) * w + (ox + x)] = c == 0 ? 0xFF303030u : c;
+                }
+        }
+        return (sheet, w, ht);
+    }
+
     /// <summary>Compose all 512 FG Map16 tiles into one RGBA sheet (cols wide, 16px each).</summary>
     public static (uint[] px, int w, int h) ComposeSheet(Rom rom, LevelHeader h, int cols = 16)
     {
