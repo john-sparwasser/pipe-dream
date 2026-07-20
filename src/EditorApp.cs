@@ -193,7 +193,7 @@ public class EditorApp : App
         }
         ImGui.End();
 
-        DrawLevelPanel();
+
         DrawLevelCanvas();
         DrawMap16Sheet();
         DrawGfxViewer();
@@ -202,9 +202,19 @@ public class EditorApp : App
     // The composed level: the Map16 grid rendered with real tile graphics.
     private void DrawLevelCanvas()
     {
-        ImGui.Begin("Level Render");
+        ImGui.Begin("Level");
+        if (rom is null) { ImGui.TextDisabled("No ROM loaded."); ImGui.End(); return; }
+        ImGui.SetNextItemWidth(120);
+        if (ImGui.InputInt($"Level (0x{levelNum:X3})", ref levelNum))
+        {
+            levelNum = Math.Clamp(levelNum, 0, Rom.LevelCount - 1);
+            ParseLevel();
+        }
+        ImGui.SameLine();
+        if (ImGui.Button("Reload")) ParseLevel();
         if (levelTexs[0] is null || grid is null) { ImGui.TextDisabled("No level rendered."); ImGui.End(); return; }
-        ImGui.Text($"Level 0x{levelNum:X3} — left-click: place 0x{selectedMap16:X3}   right-click: erase");
+        ImGui.SameLine();
+        ImGui.Text($"—  left-click: place 0x{selectedMap16:X3}   right-click: erase");
         if (saveStatus.Length > 0) ImGui.TextDisabled(saveStatus);
         // Horizontal levels scroll left/right with the wheel (Shift+wheel = vertical);
         // vertical levels keep the default up/down wheel.
@@ -437,95 +447,6 @@ public class EditorApp : App
 
     // Schematic view: each object drawn as a box at (screen*16+x, y), sized by width/height.
     // Not the real tiles (that needs the object engine + GFX) — a structural map of the parse.
-    private void DrawLevelPanel()
-    {
-        ImGui.Begin("Level");
-        if (rom is null)
-        {
-            ImGui.TextDisabled("No ROM loaded.");
-            ImGui.End();
-            return;
-        }
-
-        ImGui.SetNextItemWidth(120);
-        if (ImGui.InputInt($"Level (0x{levelNum:X3})", ref levelNum))
-        {
-            levelNum = Math.Clamp(levelNum, 0, Rom.LevelCount - 1);
-            ParseLevel();
-        }
-        ImGui.SameLine();
-        if (ImGui.Button("Reload")) ParseLevel();
-
-        if (level is null) { ImGui.End(); return; }
-
-        var h = level.Header;
-        ImGui.Text($"Layer1 @ ${level.DataPointer:X6}   Layer 2 @ ${rom.Layer2Pointer(levelNum):X6}" +
-                   (rom.Layer2IsBackground(levelNum) ? " (background)" : " (objects)") +
-                   $"   Sprites @ ${rom.SpritePointer(levelNum):X6}");
-        // Header fields, labeled like Lunar Magic's dialogs for side-by-side comparison.
-        if (ImGui.CollapsingHeader("Level header (LM naming)", ImGuiTreeNodeFlags.DefaultOpen))
-        {
-            ImGui.Text($"# of screens: {h.Screens:X2}    Level mode: {h.LevelMode:X2}    " +
-                       $"FG/BG GFX (tileset): {h.Tileset:X}");
-            ImGui.Text($"BG palette: {h.BgPalette}   FG palette: {h.FgPalette}   " +
-                       $"Sprite palette: {h.SpritePalette}   Back area color: {h.BackAreaColor}");
-            ImGui.Text($"Music: {h.Music}   Sprite GFX set: {h.SpriteSet:X}   Time: {h.Time}   " +
-                       $"Item memory: {h.ItemMemory}   V-scroll: {h.ScrollSetting}   L3 prio: {h.Layer3Priority}");
-            if (sprites is not null)
-                ImGui.Text($"Sprite memory: {sprites.SpriteMemory:X2}   Buoyancy: {sprites.Buoyancy}");
-            // Resolved GFX files per slot, like LM's "GFX index in header" dialog (FG1=14 …).
-            var byp = rom.LmGfxBypass(levelNum);
-            int[] slots = new int[4];
-            for (int s = 0; s < 4; s++)
-                slots[s] = rom.Data[rom.FileOffset(Gfx.ObjectGfxList) + h.Tileset * 4 + s];
-            if (byp is not null)
-            {
-                int[] w = { 7, 6, 5, 4 };            // FG1, FG2, BG1, FG3 record words
-                for (int s = 0; s < 4; s++)
-                    if ((byp[w[s]] & 0xFFF) != 0x7F) slots[s] = byp[w[s]] & 0xFFF;
-            }
-            ImGui.Text($"GFX files: FG1={slots[0]:X2} FG2={slots[1]:X2} BG1={slots[2]:X2} FG3={slots[3]:X2}" +
-                       (byp is not null ? "  (Super GFX Bypass ON)" : ""));
-        }
-        ImGui.Separator();
-        ImGui.Text($"{level.Objects.Count} objects" + (level.Empty ? "  (empty level)" : ""));
-
-        if (ImGui.BeginChild("objlist"))
-        {
-            if (ImGui.BeginTable("objs", 6,
-                ImGuiTableFlags.RowBg | ImGuiTableFlags.Borders | ImGuiTableFlags.ScrollY))
-            {
-                ImGui.TableSetupColumn("#");
-                ImGui.TableSetupColumn("obj");
-                ImGui.TableSetupColumn("scr");
-                ImGui.TableSetupColumn("x");
-                ImGui.TableSetupColumn("y");
-                ImGui.TableSetupColumn("info");
-                ImGui.TableSetupScrollFreeze(0, 1);
-                ImGui.TableHeadersRow();
-                int i = 0;
-                foreach (var o in level.Objects)
-                {
-                    ImGui.TableNextRow();
-                    ImGui.TableNextColumn(); ImGui.Text((i++).ToString());
-                    ImGui.TableNextColumn(); ImGui.Text(o.Extended ? "ext" : $"{o.Number:X2}");
-                    ImGui.TableNextColumn(); ImGui.Text($"{o.Screen:X2}");
-                    ImGui.TableNextColumn(); ImGui.Text($"{o.XNibble:X}");
-                    ImGui.TableNextColumn(); ImGui.Text($"{o.Y:X2}");
-                    ImGui.TableNextColumn();
-                    string info = o.IsScreenExit ? $"screen exit → {o.ExtraByte:X2}"
-                        : o.Extended ? $"ext obj {o.ExtendedNumber:X2}"
-                        : $"{o.Width}x{o.Height} (b3={o.Byte3:X2})";
-                    if (o.NewScreen) info = "[new screen] " + info;
-                    ImGui.Text(info);
-                }
-                ImGui.EndTable();
-            }
-            ImGui.EndChild();
-        }
-        ImGui.End();
-    }
-
     private void ParseLevel()
     {
         try
