@@ -16,10 +16,20 @@ public sealed class Palette
     // Row-offset selector table $00ABD3 (indexed by a palette-setting nibble).
     private const int Abd3 = 0x00ABD3;
 
-    public static Palette Load(Rom rom, LevelHeader h)
+    public static Palette Load(Rom rom, LevelHeader h, int level = -1)
     {
         var p = new Palette();
         var cg = p.Bgr;
+
+        // LM per-level custom palette (CONTRACT §7e): a full CGRAM image replaces the
+        // vanilla assembly entirely; word 0 of the blob is the back-area color.
+        if (level >= 0 && rom.LmCustomPalette(level) is (var back, var colors))
+        {
+            Array.Copy(colors, cg, 256);
+            cg[0] = back;
+            for (int i = 0; i < 256; i++) p.Rgba[i] = ToRgba(cg[i]);
+            return p;
+        }
 
         void Fill(int destColor, ushort val, int rows)
         {

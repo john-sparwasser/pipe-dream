@@ -63,7 +63,7 @@ public static class Map16
     {
         var defPtr = BuildDefPointers(rom, h.Tileset);
         var fg = Gfx.FgTiles.Load(rom, h.Tileset, level);   // level >= 0 → LM GFX bypass honored
-        var pal = Palette.Load(rom, h);
+        var pal = Palette.Load(rom, h, level);              //             + LM custom palette
         var tiles = new uint[FgTiles][];
         for (int t = 0; t < FgTiles; t++)
             tiles[t] = Compose(Definition(rom, defPtr, t), fg.Fetch, pal);
@@ -77,7 +77,7 @@ public static class Map16
     public static (uint[] px, int w, int h) ComposeLevel(Rom rom, LevelHeader h, Map16Grid grid, int level = -1)
     {
         var cache = ComposeAll(rom, h, level);
-        uint backdrop = Palette.Load(rom, h).Rgba[0];
+        uint backdrop = Palette.Load(rom, h, level).Rgba[0];
         int W = grid.Width * 16, H = grid.Height * 16;
         var img = new uint[W * H];
         Array.Fill(img, backdrop);

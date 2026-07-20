@@ -88,6 +88,34 @@ public sealed class Rom
         return (w[0] & 0x8000) != 0 ? w : null;
     }
 
+    /// <summary>True if LM's palette engine is installed: a JML hook at $0095E9 replaces the
+    /// vanilla JSR UploadSpriteGFX / JSR LoadPalette pair (CONTRACT §7e).</summary>
+    public bool HasLmPaletteHook => ReadByte(0x0095E9) == 0x5C;
+
+    /// <summary>LM per-level custom palette pointer table (3 bytes/level, fixed address §7e).</summary>
+    public const int LmPaletteTable = 0x0EF600;
+
+    /// <summary>
+    /// LM custom palette for a level, or null if none. The pointer table entry (0/0xFFFFFF =
+    /// none) leads to a RATS-tagged 0x202-byte blob: word 0 = back-area color, then 256
+    /// BGR555 words — a full CGRAM image (each row's color 0 is stored as 0/transparent).
+    /// </summary>
+    public (ushort Back, ushort[] Colors)? LmCustomPalette(int level)
+    {
+        if (!HasLmPaletteHook) return null;      // vanilla ROMs have unrelated data at $0EF600
+        int ptr = ReadValue(LmPaletteTable + level * 3, 3);
+        if (ptr == 0 || ptr == 0xFFFFFF) return null;
+        int fo = FileOffset(ptr);
+        if (fo < 8 || fo + 0x202 > Data.Length) return null;
+        if (Data[fo - 8] != 'S' || Data[fo - 7] != 'T' || Data[fo - 6] != 'A' || Data[fo - 5] != 'R')
+            return null;
+        ushort back = (ushort)(Data[fo] | (Data[fo + 1] << 8));
+        var colors = new ushort[256];
+        for (int i = 0; i < 256; i++)
+            colors[i] = (ushort)(Data[fo + 2 + i * 2] | (Data[fo + 3 + i * 2] << 8));
+        return (back, colors);
+    }
+
     /// <summary>
     /// Find the little-endian 3-byte operand that sits between <paramref name="prefix"/> and
     /// <paramref name="suffix"/> code bytes (-1 in prefix = wildcard). Returns -1 if not found.

@@ -266,6 +266,29 @@ public static class RomSelfCheck
             Check("FgTiles.Load(level) applies the bypass (tiles differ from default)", differs);
         }
 
+        string dowRom = @"C:\SMW\Projects\DogsOfWar\dogs_of_war-backup.smc";
+        if (File.Exists(dowRom))
+        {
+            Console.WriteLine("LM custom palettes (DogsOfWar, CONTRACT §7e):");
+            var dr = Rom.Load(dowRom);
+            Check("palette hook detected (JML at $0095E9)", dr.HasLmPaletteHook);
+            var cp = dr.LmCustomPalette(0x107);
+            Check("level 0x107 has a custom palette", cp is not null);
+            Check("level 0x105 has none (vanilla path)", dr.LmCustomPalette(0x105) is null);
+            if (cp is (var back, var colors))
+            {
+                Console.WriteLine($"    back=${back:X4} c1=${colors[1]:X4} c0x21=${colors[0x21]:X4}");
+                Check("row color-0 slots stored as 0", Enumerable.Range(0, 16).All(r => colors[r * 16] == 0));
+                Check("palette has real colors", colors.Count(c => c != 0) > 64);
+                var lp = Palette.Load(dr, Level.Parse(dr, 0x107).Header, 0x107);
+                Check("Palette.Load(level) uses the custom palette", lp.Bgr[0] == back && lp.Bgr[1] == colors[1]);
+            }
+            // vanilla ROM guard: $0EF600 holds unrelated data there, hook check must gate it
+            var vr = Rom.Load(CleanRom);
+            Check("clean ROM: no palette hook, no custom palettes",
+                  !vr.HasLmPaletteHook && vr.LmCustomPalette(0x107) is null);
+        }
+
         string juzRom = @"C:\SMW\Projects\juz\SMW.smc";
         if (File.Exists(juzRom))
         {

@@ -467,7 +467,7 @@ public class EditorApp : App
             grid = rom is not null && level is not null ? ObjectEngine.Render(rom, level) : null;
             baseGrid = grid?.Clone();          // snapshot to diff edits against on save
             tileCache = rom is not null && level is not null ? Map16.ComposeAll(rom, level.Header, levelNum) : null;
-            backdropColor = rom is not null && level is not null ? Palette.Load(rom, level.Header).Rgba[0] : 0;
+            backdropColor = rom is not null && level is not null ? Palette.Load(rom, level.Header, levelNum).Rgba[0] : 0;
             BuildMap16Sheet();
             BuildLevelCanvas();
         }

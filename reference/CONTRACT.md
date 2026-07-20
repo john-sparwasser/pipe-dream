@@ -386,3 +386,26 @@ BG1→slot2 ($1000, 0x100-17F), FG3→slot3 ($1800, 0x180-1FF). I.e. renderer FG
 
 Tooling: `tools/dis65816.py <rom> <snesHex> [count]` — minimal 65816 disassembler used for
 the trace.
+
+### 7e. LM per-level custom palettes  [CONFIRMED via .pal cross-check, 3 hacks]
+
+LM leaves `LoadPalette` ($00ABED) and all vanilla color tables untouched. Its palette engine
+hooks the caller: vanilla `$0095E9: JSR UploadSpriteGFX : JSR LoadPalette` becomes
+`JML $0EFC50 : JSR LoadPalette : JML $0EFC80` — **byte $0095E9 == 0x5C is the
+palette-engine-installed detector** (present in DogsOfWar/ShaoBase/BigEye; absent in
+juz/gfx_after/vanilla). The hooks save/restore $7E2000 (LM's relocated CGRAM staging buffer)
+around the vanilla loads; the custom palette itself is applied from ROM data:
+
+- **Pointer table at fixed `$0EF600`** (bank-$0E twin of the ExGFX table's $0FF600):
+  3 bytes/level, 0x200 entries. `0x000000` or `0xFFFFFF` = level has no custom palette
+  (vanilla assembly applies). Every non-zero entry in all 3 hacks points at a valid RATS blob.
+- Entry → RATS `STAR` tag + 0x202 bytes of data: **word 0 = back-area color**, then
+  **256 BGR555 words = a complete CGRAM image** (replaces the whole vanilla §6c assembly).
+  Each row's color 0 is stored as 0 (transparent in-engine).
+- Cross-checked against LM's own `.pal` exports (RGB888, 0x300 bytes): ROM words ==
+  `(b>>3)<<10|(g>>3)<<5|(r>>3)` of the .pal triplets for all colors except the 16 row-0
+  slots (zeroed in ROM) — DogsOfWar levels 0x107/0x115.
+- Reader: `Rom.LmCustomPalette(level)`, applied by `Palette.Load(rom, header, level)`.
+
+NOTE while investigating: DoW level 0x105 has NO custom palette and no bypass record — its
+washed-out render is expected (mostly-empty level slot), not a palette bug.
