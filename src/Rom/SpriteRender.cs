@@ -16,7 +16,9 @@ public static class SpriteRender
             var cpu = new Cpu65816(rom);
             var r = cpu.Ram7E;
             for (int i = 0; i < 0x200; i += 4) r[0x201 + i] = 0xF0;   // OAM Y offscreen
-            Array.Fill(r, (byte)0x02, 0x460, 0x80);                    // OAM_TileSize: default 16x16
+            // OAM_TileSize default 8x8: the draw finisher ($01B7F0) writes $02 for the 16x16
+            // tiles a sprite actually draws; unwritten entries must stay a single 8x8 tile,
+            // else a large default draws 3 garbage neighbour tiles.
 
             int wx = (cellX >= 0 ? cellX : s.AbsoluteX) * 16, wy = (cellY >= 0 ? cellY : s.Y) * 16;
             int bx = Math.Max(0, wx - 0x40), by = Math.Max(0, wy - 0x40);
