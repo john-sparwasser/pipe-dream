@@ -59,10 +59,10 @@ public static class Map16
     /// Compose every FG Map16 tile (512) into its own 16×16 RGBA image — a reusable cache for
     /// both the tile sheet and the level canvas. Color 0 stays transparent (0 alpha).
     /// </summary>
-    public static uint[][] ComposeAll(Rom rom, LevelHeader h)
+    public static uint[][] ComposeAll(Rom rom, LevelHeader h, int level = -1)
     {
         var defPtr = BuildDefPointers(rom, h.Tileset);
-        var fg = Gfx.FgTiles.Load(rom, h.Tileset);
+        var fg = Gfx.FgTiles.Load(rom, h.Tileset, level);   // level >= 0 → LM GFX bypass honored
         var pal = Palette.Load(rom, h);
         var tiles = new uint[FgTiles][];
         for (int t = 0; t < FgTiles; t++)
@@ -74,9 +74,9 @@ public static class Map16
     /// Compose a full level canvas: the object-engine Map16 grid rendered with real tiles.
     /// Empty cells get the backdrop color; unimplemented-handler markers render magenta.
     /// </summary>
-    public static (uint[] px, int w, int h) ComposeLevel(Rom rom, LevelHeader h, Map16Grid grid)
+    public static (uint[] px, int w, int h) ComposeLevel(Rom rom, LevelHeader h, Map16Grid grid, int level = -1)
     {
-        var cache = ComposeAll(rom, h);
+        var cache = ComposeAll(rom, h, level);
         uint backdrop = Palette.Load(rom, h).Rgba[0];
         int W = grid.Width * 16, H = grid.Height * 16;
         var img = new uint[W * H];

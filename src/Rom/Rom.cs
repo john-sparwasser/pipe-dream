@@ -50,8 +50,64 @@ public sealed class Rom
         }
     }
 
-    /// <summary>LM's acts-like table ($118000, 2 bytes/tile): the behavior tile a Map16 tile acts as.</summary>
-    public int ActsAs(int tile) => LmMap16Base < 0 ? tile : ReadValue(0x118000 + tile * 2, 2);
+    /// <summary>LM's acts-like table (2 bytes/tile, per-ROM location): the behavior tile a Map16 tile acts as.</summary>
+    public int ActsAs(int tile) => LmActsAsBase < 0 ? tile : ReadValue(LmActsAsBase + tile * 2, 2);
+
+    // --- LM expanded-table bases (CONTRACT §7d) -----------------------------
+    // LM bakes the addresses of its expanded tables into its inserted ASM as LDA long,X
+    // operands; the surrounding code bytes are stable across ROMs, the operands are not.
+    // Each base is found once by signature scan and cached (-2 = not scanned yet).
+
+    private int lmActsAsBase = -2, lmGfxBypassBase = -2, lmExGfxBase = -2;
+
+    /// <summary>Base of LM's acts-like table, or -1 (from the remap reader in LM's $06F5D0 code).</summary>
+    public int LmActsAsBase => lmActsAsBase != -2 ? lmActsAsBase
+        : lmActsAsBase = ScanOperand([0xA8, 0x0A, 0xAA, 0x30, -1, 0xBF], [0xC9, 0x00, 0x02]);
+
+    /// <summary>Base of LM's per-level GFX bypass table (0x20 bytes/level), or -1.</summary>
+    public int LmGfxBypassBase => lmGfxBypassBase != -2 ? lmGfxBypassBase
+        : lmGfxBypassBase = ScanOperand([0xA5, 0xFE, 0xF0, -1, 0x3A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0xAA, 0xBF], []);
+
+    /// <summary>Base of LM's ExGFX 0x100+ pointer table (3 bytes/file), or -1.</summary>
+    public int LmExGfxBase => lmExGfxBase != -2 ? lmExGfxBase
+        : lmExGfxBase = ScanOperand([0x38, 0xE9, 0x00, 0x01, 0x85, 0x8A, 0x0A, 0x18, 0x65, 0x8A, 0xAA, 0xBF], []);
+
+    /// <summary>
+    /// Per-level Super GFX Bypass record (16 words), or null if the hack is absent or the
+    /// record is disabled. w0=AN2 (bit15 = bypass enabled), w1=AN1, w2=BG3, w3=BG2, w4=FG3,
+    /// w5=BG1, w6=FG2, w7=FG1, w8-11=SP4..SP1. Slot value &amp; 0xFFF = GFX/ExGFX file#,
+    /// 0x7F = slot uses the tileset default.
+    /// </summary>
+    public ushort[]? LmGfxBypass(int level)
+    {
+        if (LmGfxBypassBase < 0) return null;
+        int fo = FileOffset(LmGfxBypassBase + level * 0x20);
+        if (fo < 0 || fo + 0x20 > Data.Length) return null;
+        var w = new ushort[16];
+        for (int i = 0; i < 16; i++) w[i] = (ushort)(Data[fo + i * 2] | (Data[fo + i * 2 + 1] << 8));
+        return (w[0] & 0x8000) != 0 ? w : null;
+    }
+
+    /// <summary>
+    /// Find the little-endian 3-byte operand that sits between <paramref name="prefix"/> and
+    /// <paramref name="suffix"/> code bytes (-1 in prefix = wildcard). Returns -1 if not found.
+    /// </summary>
+    private int ScanOperand(int[] prefix, byte[] suffix)
+    {
+        int end = Data.Length - prefix.Length - 3 - suffix.Length;
+        for (int i = HeaderOffset; i <= end; i++)
+        {
+            bool ok = true;
+            for (int j = 0; j < prefix.Length && ok; j++)
+                ok = prefix[j] < 0 || Data[i + j] == prefix[j];
+            for (int j = 0; j < suffix.Length && ok; j++)
+                ok = Data[i + prefix.Length + 3 + j] == suffix[j];
+            if (!ok) continue;
+            int p = i + prefix.Length;
+            return Data[p] | (Data[p + 1] << 8) | (Data[p + 2] << 16);
+        }
+        return -1;
+    }
 
     // Level pointer tables (CONTRACT §3), all in bank $05.
     public const int Layer1TableSnes = 0x05E000; // 3 bytes/level

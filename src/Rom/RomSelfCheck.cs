@@ -235,6 +235,48 @@ public static class RomSelfCheck
             Check("acts-as table: 0x166 acts as 0x130", mr.ActsAs(0x166) == 0x130);
         }
 
+        string gfxAfter = @"C:\SMW\Projects\.resources\gfx_after.smc";
+        if (File.Exists(gfxAfter))
+        {
+            Console.WriteLine("LM Super GFX Bypass read (gfx_after.smc, level 0x105, CONTRACT §7d):");
+            var gr = Rom.Load(gfxAfter);
+            Console.WriteLine($"    bypassBase = ${gr.LmGfxBypassBase:X6}  exGfxBase = ${gr.LmExGfxBase:X6}  actsAsBase = ${gr.LmActsAsBase:X6}");
+            Check("bypass table located by signature", gr.LmGfxBypassBase == 0x10AD08);
+            Check("ExGFX 0x100+ table located by signature", gr.LmExGfxBase == 0x108008);
+            Check("acts-like table located by signature", gr.LmActsAsBase == 0x118000);
+            var rec = gr.LmGfxBypass(0x105);
+            Check("level 0x105 bypass record enabled", rec is not null);
+            if (rec is not null)
+            {
+                Console.WriteLine($"    FG1={rec[7] & 0xFFF:X2} FG2={rec[6] & 0xFFF:X2} BG1={rec[5] & 0xFFF:X2} FG3={rec[4] & 0xFFF:X2} " +
+                                  $"BG2={rec[3] & 0xFFF:X2} BG3={rec[2] & 0xFFF:X2} SP1={rec[11] & 0xFFF:X2} AN2={rec[0] & 0xFFF:X2}");
+                Check("record slots match the LM edit (FG1=12 FG2=1A BG1=33 FG3=05)",
+                      (rec[7] & 0xFFF) == 0x12 && (rec[6] & 0xFFF) == 0x1A &&
+                      (rec[5] & 0xFFF) == 0x33 && (rec[4] & 0xFFF) == 0x05);
+                Check("sprite/AN2 slots match (SP1=30 SP2=1F SP3=0C SP4=25 AN2=08 BG2=21 BG3=08)",
+                      (rec[11] & 0xFFF) == 0x30 && (rec[10] & 0xFFF) == 0x1F && (rec[9] & 0xFFF) == 0x0C &&
+                      (rec[8] & 0xFFF) == 0x25 && (rec[0] & 0xFFF) == 0x08 &&
+                      (rec[3] & 0xFFF) == 0x21 && (rec[2] & 0xFFF) == 0x08);
+            }
+            // Renderer honors the bypass: FG tiles for level 0x105 must differ from tileset default.
+            var lvh = Level.Parse(gr, 0x105).Header;
+            var defTiles = Gfx.FgTiles.Load(gr, lvh.Tileset);
+            var bypTiles = Gfx.FgTiles.Load(gr, lvh.Tileset, 0x105);
+            bool differs = Enumerable.Range(0, 0x200).Any(t => !defTiles.Fetch(t).SequenceEqual(bypTiles.Fetch(t)));
+            Check("FgTiles.Load(level) applies the bypass (tiles differ from default)", differs);
+        }
+
+        string juzRom = @"C:\SMW\Projects\juz\SMW.smc";
+        if (File.Exists(juzRom))
+        {
+            // Regression: these tables move per-ROM; juz's ExGFX table sits where other ROMs
+            // keep acts-like ($118000), which the old hardcoded reader misread.
+            var jr = Rom.Load(juzRom);
+            Console.WriteLine($"LM table bases in juz: bypass=${jr.LmGfxBypassBase:X6} exGfx=${jr.LmExGfxBase:X6} actsAs=${jr.LmActsAsBase:X6}");
+            Check("juz acts-like base found per-ROM ($128000)", jr.LmActsAsBase == 0x128000);
+            Check("juz ExGFX base found per-ROM ($118000)", jr.LmExGfxBase == 0x118000);
+        }
+
         string afterRom = @"C:\SMW\Projects\.resources\after.smc";
         if (File.Exists(afterRom))
         {

@@ -31,7 +31,7 @@ class Program
         var rom = Rom.Load(romPath);
         var lv = Level.Parse(rom, level);
         var grid = ObjectEngine.Render(rom, lv);
-        var (px, w, h) = Map16.ComposeLevel(rom, lv.Header, grid);
+        var (px, w, h) = Map16.ComposeLevel(rom, lv.Header, grid, level);
 
         if (cropW > 0 && cropW * 16 < w)
         {

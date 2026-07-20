@@ -343,3 +343,46 @@ Level 0x105 record at SNES $10CDA0 (gfx_after.smc); records 0x20/level; sub-tabl
 (tentative: rec = base + level*0x20). Still to do: map named slots -> the 4 FG VRAM regions the
 renderer uses (tiles 0x000-0x1FF), locate ExGFX pointer+data (diff a slot set to ExGFX 0x100),
 then wire GFX into the LM render path.
+
+### 7d. GFX bypass + ExGFX — COMPLETE READ CONTRACT  [CONFIRMED via ASM trace, validated on 4 hacks]
+
+Traced LM's installed loader in gfx_after.smc (no further LM round-trips needed). LM hooks the
+vanilla level-GFX loader: `$00AA50` = `JSL $0FF780` (22 80 F7 0F — identical in DogsOfWar,
+ShaoBase, BigEye, juz → **bypass-installed detector**); a decompress call at $00AA6C is
+redirected $00BA28 → $0FF160.
+
+**Record fetch** (`$0FF7F0`): `LDA $FE(=level+1) : BEQ off : DEC : ASL x5 : TAX :
+LDA $10AD08,X` → **record = tableBase + level\*0x20**, tableBase baked into the BF operand
+(per-ROM: $12AD08 DogsOfWar, $10AD08 ShaoBase/BigEye, $11AD00 juz). Locate per-ROM by
+signature scan: `A5 FE F0 ?? 3A 0A 0A 0A 0A 0A AA BF <base:3>`.
+Record long-ptr cached at $7FC006/8; enabled-flag byte at $7FC009 (0x42 = enabled).
+
+**True record layout** (starts 8 bytes AFTER the §7c-observed offset; the "constant 2B 2A 29 28"
+words are the previous record's tail): 16 words:
+```
+w0 = AN2 (bit15 = BYPASS ENABLED flag)   w1 = AN1
+w2 = BG3   w3 = BG2   w4 = FG3   w5 = BG1   w6 = FG2   w7 = FG1
+w8 = SP4   w9 = SP3   w10 = SP2   w11 = SP1   w12-15 = tail (TBD, constant)
+```
+So level-0x105's record in gfx_after.smc = $10CDA8, not $10CDA0.
+
+**Named slot → VRAM/renderer mapping** (from LM help level_change_graphics.htm "FG1=14" +
+OBJECTGFXLIST): FG1→slot0 ($0000, 8x8 tiles 0x000-07F), FG2→slot1 ($0800, 0x080-0FF),
+BG1→slot2 ($1000, 0x100-17F), FG3→slot3 ($1800, 0x180-1FF). I.e. renderer FG files =
+[w7, w6, w5, w4] = [FG1, FG2, BG1, FG3], replacing OBJECTGFXLIST[tileset*4+0..3].
+
+**File# → data resolver** (`$0FF903`, slot word AND #$0FFF):
+- 0x00-0x33: vanilla ptr tables $00B992/B9C4/B9F6 (unchanged).
+- 0x7F: slot skipped (keep tileset default / don't load).
+- 0x80-0xFF: 3-byte ptr at **$0FF600 + (n&0x7F)*3** (fixed address, all 4 hacks).
+- 0x100-0xFFF: 3-byte ptr at **exgfxBase + (n-0x100)*3**, exgfxBase baked per-ROM
+  ($128008 DogsOfWar, $108008 ShaoBase/BigEye/gfx_after, $118000 juz). Signature scan:
+  `38 E9 00 01 85 8A 0A 18 65 8A AA BF <base:3>`.
+- All pointers → LC_LZ2-compressed GFX (loader tail JMLs into vanilla decompressor $00BA47
+  with $8A-8C = pointer). 0x000000/0xFFFFFF entry = file not inserted.
+- GFX file = 0x80 tiles; ExGFX may be 3bpp (0x80*24 = 0xC00 decompressed) or 4bpp
+  (0x80*32 = 0x1000). Pick bpp from decompressed length, as we already do for vanilla files.
+  (AN2 is special: up to 0xD0 tiles / 0x1A00 bytes 4bpp — not needed for FG rendering.)
+
+Tooling: `tools/dis65816.py <rom> <snesHex> [count]` — minimal 65816 disassembler used for
+the trace.

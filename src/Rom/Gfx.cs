@@ -8,13 +8,30 @@ public static class Gfx
 {
     public const int PtrLow = 0x00B992, PtrHigh = 0x00B9C4, PtrBank = 0x00B9F6, Count = 0x32;
 
-    /// <summary>24-bit SNES source address of a compressed GFX file (vanilla tables).</summary>
+    /// <summary>LM's ExGFX 0x80-0xFF pointer table (3 bytes/file) — fixed address (CONTRACT §7d).</summary>
+    public const int ExGfx80Table = 0x0FF600;
+
+    /// <summary>
+    /// 24-bit SNES source address of a compressed GFX/ExGFX file, or -1 (0x7F = skip slot,
+    /// or ExGFX file not inserted). 0x00-0x33 vanilla tables; 0x80-0xFF LM table at $0FF600;
+    /// 0x100+ LM table located per-ROM (CONTRACT §7d).
+    /// </summary>
     public static int SourceSnes(Rom rom, int file)
     {
-        int lo = rom.Data[rom.FileOffset(PtrLow) + file];
-        int hi = rom.Data[rom.FileOffset(PtrHigh) + file];
-        int bk = rom.Data[rom.FileOffset(PtrBank) + file];
-        return (bk << 16) | (hi << 8) | lo;
+        if (file < Count)
+        {
+            int lo = rom.Data[rom.FileOffset(PtrLow) + file];
+            int hi = rom.Data[rom.FileOffset(PtrHigh) + file];
+            int bk = rom.Data[rom.FileOffset(PtrBank) + file];
+            return (bk << 16) | (hi << 8) | lo;
+        }
+        int ptr = file switch
+        {
+            < 0x80 => -1,                                                    // 0x32-0x7F invalid/skip
+            < 0x100 => rom.ReadValue(ExGfx80Table + (file - 0x80) * 3, 3),
+            _ => rom.LmExGfxBase < 0 ? -1 : rom.ReadValue(rom.LmExGfxBase + (file - 0x100) * 3, 3),
+        };
+        return ptr <= 0 || ptr == 0xFFFFFF ? -1 : ptr;
     }
 
     public static byte[] DecompressFile(Rom rom, int file)
@@ -35,16 +52,28 @@ public static class Gfx
         private static readonly byte[] Blank = new byte[64];
         private readonly byte[][][] slots = new byte[4][][];
 
-        public static FgTiles Load(Rom rom, int tileset)
+        // Bypass record words for VRAM slots 0-3: FG1=w7, FG2=w6, BG1=w5, FG3=w4 (CONTRACT §7d).
+        private static readonly int[] BypassSlotWord = [7, 6, 5, 4];
+
+        public static FgTiles Load(Rom rom, int tileset, int level = -1)
         {
+            var bypass = level >= 0 ? rom.LmGfxBypass(level) : null;
             var f = new FgTiles();
             for (int s = 0; s < 4; s++)
             {
                 int file = rom.Data[rom.FileOffset(ObjectGfxList) + tileset * 4 + s];
-                var data = DecompressFile(rom, file);
-                int tb = TileBytes(3), n = data.Length / tb;
+                if (bypass is not null && (bypass[BypassSlotWord[s]] & 0xFFF) != 0x7F)
+                    file = bypass[BypassSlotWord[s]] & 0xFFF;
+                int src = SourceSnes(rom, file);
+                if (src < 0) { f.slots[s] = []; continue; }        // skipped / not inserted → blank
+                byte[] data;
+                try { data = Lz2Decompress(rom.Data, rom.FileOffset(src)); }
+                catch { f.slots[s] = []; continue; }               // bad pointer/data → blank, don't crash
+
+                int bpp = data.Length >= 0x1000 ? 4 : 3;           // ExGFX may be 4bpp; vanilla FG 3bpp
+                int tb = TileBytes(bpp), n = data.Length / tb;
                 var tiles = new byte[n][];
-                for (int t = 0; t < n; t++) tiles[t] = DecodeTile(data, t * tb, 3);
+                for (int t = 0; t < n; t++) tiles[t] = DecodeTile(data, t * tb, bpp);
                 f.slots[s] = tiles;
             }
             return f;
