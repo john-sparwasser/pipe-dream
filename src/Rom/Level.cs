@@ -118,4 +118,26 @@ public sealed class Level
         }
         return new Level(number, ptr, header, objs, empty);
     }
+
+    /// <summary>
+    /// Re-encode the header + object list back to the raw Layer-1 byte stream (the exact
+    /// inverse of <see cref="Parse"/>). Header bytes are copied verbatim from the ROM (we
+    /// don't yet re-derive header fields); objects re-emit their 3 bytes (+1 for screen exits),
+    /// terminated by 0xFF. Verified by round-trip against the original bytes.
+    /// </summary>
+    public byte[] Encode(Rom rom)
+    {
+        int fo = rom.FileOffset(DataPointer);
+        var outb = new List<byte>(Objects.Count * 3 + 8);
+        outb.AddRange(rom.Data.AsSpan(fo, 5).ToArray());   // header (verbatim)
+        foreach (var o in Objects)
+        {
+            byte b1 = (byte)((o.NewScreen ? 0x80 : 0) | ((o.Number & 0x30) << 1) | (o.Y & 0x1F));
+            byte b2 = (byte)(((o.Number & 0x0F) << 4) | (o.XNibble & 0x0F));
+            outb.Add(b1); outb.Add(b2); outb.Add((byte)o.Byte3);
+            if (o.IsScreenExit && o.ExtraByte >= 0) outb.Add((byte)o.ExtraByte);
+        }
+        outb.Add(0xFF);
+        return outb.ToArray();
+    }
 }

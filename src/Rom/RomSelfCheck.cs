@@ -171,6 +171,38 @@ public static class RomSelfCheck
             Console.WriteLine($"    sheet {sw}x{sh}, {colored} colored px, {distinctColors} distinct colors");
             Check("composed sheet has real pixels", colored > 5000);
             Check("composed sheet uses many palette colors", distinctColors > 8);
+
+            Console.WriteLine("Object-stream re-encode (round-trip):");
+            int mism = 0, tested = 0;
+            foreach (int ln in new[] { 0x105, 0x106, 0x101, 0x102, 0x104, 0x1C0 })
+            {
+                var l = Level.Parse(r, ln);
+                if (l.Empty) continue;
+                tested++;
+                byte[] enc = l.Encode(r);
+                int fo = r.FileOffset(l.DataPointer);
+                var orig = r.Data.AsSpan(fo, enc.Length).ToArray();
+                if (!enc.AsSpan().SequenceEqual(orig)) { mism++; Console.WriteLine($"    level 0x{ln:X3}: MISMATCH ({enc.Length} bytes)"); }
+            }
+            Console.WriteLine($"    round-tripped {tested} levels, {mism} mismatches");
+            Check("object stream re-encodes byte-identical", mism == 0 && tested > 0);
+
+            Console.WriteLine("Save path (expand + RATS + repoint + reload):");
+            var wr = Rom.Load(CleanRom);             // fresh copy to mutate
+            var yi2 = Level.Parse(wr, 0x105);
+            int origCount = yi2.Objects.Count;
+            wr.ExpandTo(0x200000);                   // expand to 2MB
+            int newAddr = wr.AllocateRats(yi2.Encode(wr));
+            wr.SetLayer1Pointer(0x105, newAddr);
+            string tmp = Path.Combine(Path.GetTempPath(), "pd_save_test.smc");
+            wr.SaveAs(tmp);
+            var re = Rom.Load(tmp);
+            Check("saved pointer relocated to expanded space", re.Layer1Pointer(0x105) >= 0x080000);
+            var yi2b = Level.Parse(re, 0x105);
+            Console.WriteLine($"    reloaded: ptr ${re.Layer1Pointer(0x105):X6}, {yi2b.Objects.Count} objects (was {origCount})");
+            Check("reloaded level has same object count", yi2b.Objects.Count == origCount);
+            Check("reloaded RATS tag is valid", re.EnumerateRats().Any());
+            File.Delete(tmp);
         }
 
         Console.WriteLine(fails == 0 ? "\nALL CHECKS PASSED" : $"\n{fails} CHECK(S) FAILED");

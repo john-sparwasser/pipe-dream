@@ -9,7 +9,7 @@ namespace PipeDream;
 /// </summary>
 public sealed class Rom
 {
-    public readonly byte[] Data;      // raw file bytes (includes copier header if present)
+    public byte[] Data;               // raw file bytes (includes copier header if present)
     public readonly int HeaderOffset; // 0x200 if a 512-byte copier header is present, else 0
 
     // Parsed SNES internal header (CONTRACT §1).
@@ -122,6 +122,62 @@ public sealed class Rom
             pc++;
         }
     }
+
+    // --- Writing (save path) ------------------------------------------------
+
+    /// <summary>Grow the ROM to <paramref name="romBytes"/> (zero-filled) and update the size code.</summary>
+    public void ExpandTo(int romBytes)
+    {
+        int want = romBytes + HeaderOffset;
+        if (Data.Length >= want) return;
+        var n = new byte[want];
+        Array.Copy(Data, n, Data.Length);
+        Data = n;
+        int kb = romBytes / 1024, code = 0;
+        while ((1 << code) < kb) code++;
+        Data[0x7FD7 + HeaderOffset] = (byte)code;
+    }
+
+    /// <summary>First free run of <paramref name="need"/> bytes in expanded space (PC ≥ 0x80000), skipping valid RATs.</summary>
+    public int FindFreeSpace(int need)
+    {
+        int end = Data.Length - HeaderOffset;
+        for (int p = 0x80000; p + need <= end;)
+        {
+            int fo = p + HeaderOffset;
+            if (Data[fo] == 0x53 && Data[fo + 1] == 0x54 && Data[fo + 2] == 0x41 && Data[fo + 3] == 0x52)
+            {
+                int sz = Data[fo + 4] | (Data[fo + 5] << 8), inv = Data[fo + 6] | (Data[fo + 7] << 8);
+                if ((sz ^ inv) == 0xFFFF) { p += 8 + sz + 1; continue; }
+            }
+            bool ok = true;
+            for (int i = 0; i < need; i++)
+                if (Data[fo + i] != 0) { ok = false; p += i + 1; break; }
+            if (ok) return p;
+        }
+        throw new InvalidOperationException("no free space (expand the ROM first)");
+    }
+
+    /// <summary>Write a RATS-protected block and return the SNES address of the data (after the tag).</summary>
+    public int AllocateRats(byte[] data)
+    {
+        int pc = FindFreeSpace(8 + data.Length), fo = pc + HeaderOffset;
+        Data[fo] = 0x53; Data[fo + 1] = 0x54; Data[fo + 2] = 0x41; Data[fo + 3] = 0x52;   // "STAR"
+        int sm1 = data.Length - 1;
+        Data[fo + 4] = (byte)sm1; Data[fo + 5] = (byte)(sm1 >> 8);
+        int invv = sm1 ^ 0xFFFF;
+        Data[fo + 6] = (byte)invv; Data[fo + 7] = (byte)(invv >> 8);
+        Array.Copy(data, 0, Data, fo + 8, data.Length);
+        return PcToSnes(pc + 8);
+    }
+
+    public void SetLayer1Pointer(int level, int snes)
+    {
+        int fo = FileOffset(Layer1TableSnes + level * 3);
+        Data[fo] = (byte)snes; Data[fo + 1] = (byte)(snes >> 8); Data[fo + 2] = (byte)(snes >> 16);
+    }
+
+    public void SaveAs(string path) => File.WriteAllBytes(path, Data);
 
     /// <summary>Human-readable map-mode name for the UI.</summary>
     public string MapModeName => MapMode switch
