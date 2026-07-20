@@ -205,6 +205,26 @@ public static class RomSelfCheck
             File.Delete(tmp);
         }
 
+        string afterRom = @"C:\SMW\Projects\.resources\after.smc";
+        if (File.Exists(afterRom))
+        {
+            Console.WriteLine("Direct Map16 parse + round-trip (after.smc, level 0x105):");
+            var ar = Rom.Load(afterRom);
+            Check("DM16 hijack detected", ar.HasDm16Hijack);
+            var al = Level.Parse(ar, 0x105);
+            var dm = al.Objects.Where(o => o.IsDm16).ToList();
+            Console.WriteLine("    DM16 objects: " + string.Join(" ",
+                dm.Select(o => $"0x{o.Dm16Tile:X3}@({o.AbsoluteX},{o.Y})")));
+            Check("found the placed DM16 tiles", dm.Count >= 5);
+            var tiles = dm.Select(o => o.Dm16Tile).ToHashSet();
+            Check("decoded tiles include 0x100/0x101/0x200/0x201/0x202",
+                  new[] { 0x100, 0x101, 0x200, 0x201, 0x202 }.All(tiles.Contains));
+            byte[] enc = al.Encode(ar);
+            int afo = ar.FileOffset(al.DataPointer);
+            Check("DM16 level re-encodes byte-identical",
+                  enc.AsSpan().SequenceEqual(ar.Data.AsSpan(afo, enc.Length)));
+        }
+
         Console.WriteLine(fails == 0 ? "\nALL CHECKS PASSED" : $"\n{fails} CHECK(S) FAILED");
         return fails == 0 ? 0 : 1;
     }

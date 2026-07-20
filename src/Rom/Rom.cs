@@ -27,6 +27,13 @@ public sealed class Rom
     public int ActualRomSize => Data.Length - HeaderOffset;
     public bool IsLoRom => (MapMode & 0x01) == 0; // 0x20 LoROM / 0x21 HiROM
 
+    /// <summary>
+    /// True if LM's Direct Map16 ASM is installed. LM repurposes the reserved object slots
+    /// 0x23/0x27 by repointing their handlers away from the vanilla placeholder $0DB3E3
+    /// (handler table entry for obj 0x23 is at $0DA4BB).
+    /// </summary>
+    public bool HasDm16Hijack => ReadValue(0x0DA4BB, 3) != 0x0DB3E3;
+
     // Level pointer tables (CONTRACT §3), all in bank $05.
     public const int Layer1TableSnes = 0x05E000; // 3 bytes/level
     public const int Layer2TableSnes = 0x05E600; // 3 bytes/level

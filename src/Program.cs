@@ -11,6 +11,10 @@ class Program
         if (ri >= 0)
             return RenderLevel(args, ri);
 
+        int wi = Array.IndexOf(args, "--writedm16");
+        if (wi >= 0)
+            return WriteDm16(args, wi);
+
         using var app = new EditorApp();
         app.Run();
         return 0;
@@ -39,6 +43,46 @@ class Program
         }
         Png.Write(outPath, px, w, h);
         Console.WriteLine($"wrote {outPath}: {w}x{h}, level 0x{level:X3}, tileset {lv.Header.Tileset}");
+        return 0;
+    }
+
+    // --writedm16 <rom> <levelHex> <out> : inject known Direct-Map16 test tiles and save,
+    // so the result can be opened in Lunar Magic to verify the encoding round-trips.
+    private static int WriteDm16(string[] args, int wi)
+    {
+        string romPath = args.ElementAtOrDefault(wi + 1) ?? @"C:\SMW\Projects\.resources\after.smc";
+        int level = Convert.ToInt32(args.ElementAtOrDefault(wi + 2) ?? "105", 16);
+        string outPath = args.ElementAtOrDefault(wi + 3) ?? @"C:\SMW\Projects\.resources\test_dm16.smc";
+
+        var rom = Rom.Load(romPath);
+        if (!rom.HasDm16Hijack)
+        {
+            Console.WriteLine("ERROR: ROM lacks the LM Direct Map16 ASM — open/save it in LM once first.");
+            return 1;
+        }
+        var lv = Level.Parse(rom, level);
+
+        // Two known test placements in empty sky (screen 0): Form A (0x105) and Form B (0x205).
+        var added = new[]
+        {
+            LevelObject.MakeDm16(0x105, screen: 0, xNib: 2, y: 8),
+            LevelObject.MakeDm16(0x205, screen: 0, xNib: 5, y: 8),
+        };
+        var newObjs = added.Concat(lv.Objects).ToList();
+
+        byte[] data = lv.Encode(rom, newObjs);
+        if (rom.ActualRomSize < 0x180000) rom.ExpandTo(0x200000);
+        int addr = rom.AllocateRats(data);
+        rom.SetLayer1Pointer(level, addr);
+        rom.SaveAs(outPath);
+        Console.WriteLine($"wrote {outPath}: level 0x{level:X3}, added DM16 tiles " +
+                          "0x105 @ (2,8) [Form A] and 0x205 @ (5,8) [Form B]; pointer -> $" + addr.ToString("X6"));
+
+        // verify by reloading + re-parsing
+        var re = Rom.Load(outPath);
+        var rl = Level.Parse(re, level);
+        var dm = rl.Objects.Where(o => o.IsDm16 && (o.Dm16Tile == 0x105 || o.Dm16Tile == 0x205)).ToList();
+        Console.WriteLine("reload check: " + string.Join(" ", dm.Select(o => $"0x{o.Dm16Tile:X3}@({o.AbsoluteX},{o.Y})")));
         return 0;
     }
 }
