@@ -117,11 +117,21 @@ public static class ObjectEngine
             for (int i = 0; i < 0x200; i++)
             {
                 int half = i >> 8, pos = i & 0xFF;
-                int y = half * 16 + (pos >> 4), x = pos & 0x0F;
-                if (y >= 27 && !vertical) continue;        // screens are 16x27
-                int cx = vertical ? (s % 2) * 16 + x : s * 16 + x;
-                int cy = vertical ? (s / 2) * 16 + y : y;  // vertical: screens stack in pairs
-                if (half == 1 && (i & 0xFF) >= 0xB0 && !vertical) continue;
+                int rx = pos & 0x0F, ry = pos >> 4;
+                int cx, cy;
+                if (vertical)
+                {
+                    // Vertical: screen = a 16-row band; +0x100 = the RIGHT 16 columns
+                    // (loader: "high coordinate" INC $6C = right half, $0585BD swap).
+                    cx = half * 16 + rx;
+                    cy = s * 16 + ry;
+                }
+                else
+                {
+                    int y = half * 16 + ry;
+                    if (y >= 27) continue;                 // screens are 16x27
+                    cx = s * 16 + rx; cy = y;
+                }
                 int tile = Ram(lo >> 16, lo + (half << 8) + pos)
                          | (Ram(hi >> 16, hi + (half << 8) + pos) << 8);
                 g.Set(cx, cy, tile);
