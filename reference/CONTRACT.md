@@ -312,3 +312,18 @@ Editing tile 0x166 (copy of 0x300) with acts-as 0x130:
 Map16 READ side is now complete for LM hacks: <0x200 vanilla bank-$0D (reads edits in place),
 >=0x200 LM extended table ($02C2E1->base), acts-like $118000. Remaining for rendering LM hacks:
 LM per-level GFX + ExGFX (so referenced 8x8 tiles decode), then feed >=0x200 into the cache.
+
+### 7c. LM per-level GFX bypass  [PARTIAL — located, layout not confirmed]
+
+Controlled diff (level 0x105 Super GFX Bypass set to FG1-3=28/29/2A, BG1-3=2B/2C/2D,
+SP1-4=2E/2F/30/31, AN2=01):
+- LM stores per-level GFX assignments as fixed **0x20-byte records (16 x 16-bit words)** in its
+  expanded data region (edited record for level 0x105 at SNES **$10CDA0** in gfx_after.smc).
+  Entries are 16-bit (ExGFX-capable). Sentinels: **0x7F = slot off/use tileset default**,
+  0xFFFF = end/unused; some words carry high-bit flags (AN2 had 0x8000, SP4 0xE000).
+- NOT yet confirmed: exact word->slot order, table base + per-level index. The ascending test
+  values (a) collided with the $118000 identity table (false positive) and (b) can't
+  disambiguate slot order. REDO with DISTINCT non-sequential per-slot values, e.g.
+  FG1=0x12 FG2=0x1A FG3=0x05 BG1=0x33 BG2=0x21 BG3=0x08 SP1=0x30 SP2=0x1F SP3=0x0C SP4=0x25.
+- Then: locate LM ExGFX pointer table + data (set one slot to an ExGFX file like 0x100, diff),
+  and integrate into the renderer (FG slots -> VRAM -> tile decode).
