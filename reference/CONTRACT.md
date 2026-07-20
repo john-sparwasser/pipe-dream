@@ -432,3 +432,38 @@ around the vanilla loads; the custom palette itself is applied from ROM data:
 
 NOTE while investigating: DoW level 0x105 has NO custom palette and no bypass record — its
 washed-out render is expected (mostly-empty level slot), not a palette bug.
+
+## 9. Object engine — full dispatch contract  [CONFIRMED from disassembly + LM ASM traces]
+
+### 9a. Tileset dispatch
+`$0DA41E + tileset*3` → per-tileset dispatcher (5 distinct: Normal $0DA44B for tilesets
+0/7/C, Castle $0DC190, Rope $0DCD90 for 2/6/8, Underground $0DD990 for 3/9/A/B/E,
+Ghost/SP $0DE890 for 4/5/D). Per-object handler table = dispatcher + 0xA, entry (obj-1)*3.
+Handlers are SHARED across tilesets (theming comes from per-tileset Map16 defs), so the
+editor dispatches on handler ADDRESS (ObjectEngine.Handler). ~30 vanilla handlers ported;
+remaining exotic per-tileset ones fall back to magenta markers.
+
+### 9b. Extended-object dispatch
+ONE global table `$0DA10F + ext#*3` (0x00-0xFF; dispatcher $0DA106). Ported by address:
+$0DA57B/$0DA64D single-tile (DATA_0DA548[ext-0x10], page 1 when idx >= 0x13), $0DA68E
+midway bar (035 at x-1 + 038), $0DCE94 line-guides 0x51-54, $0DCEA6/$0DCEC0/$0DDA80
+vertical pairs, $0DDA68 deco 0x75-7B.
+
+### 9c. Screen jumps (parse-critical)
+Vanilla ext 0x01 ($0DA53D): screen := b1 & 0x1F (the Y bits). LM ext 0x03 ($0DE1E0):
+screen := b2. Screen sequences are therefore NON-MONOTONIC; anything that walks "screen
+boundaries" (save-merge) must handle repeated screens.
+
+### 9d. LM reserved objects 0x22/0x23/0x26/0x27/0x28/0x29 (all 5 tileset tables repointed
+identically; vanilla had placeholder $0DB3E3)
+- 0x22 → $0DF08A: Direct Map16 page-0 form — 4 bytes (b1,b2,size,tileLow), tile = 0x000|low.
+- 0x23 → $0DF08E: DM16 page-1 Form A (4 bytes) — as §8.
+- 0x26 → $0DF130: no-tile directive (pokes $0DDA; music-related).
+- 0x27 → $0DF150 / 0x29 → $0DFF50 (BG pages, +0x40): VARIABLE LENGTH —
+  b1,b2,size,pageByte,tileLow (5 bytes) + 1 run byte if pageByte bit7 + 1 height-override
+  byte if bits7+6. bit7 also switches width to (size & 0x7F). Obj 0x29 writes the LAYER-2
+  plane (no layer-1 tiles).
+- 0x28 → $0DF160: no-tile directive (entrance/position, $0F31-33).
+- LM ext obj 0x02 ($0DE1B0): secondary exit — consumes 2 EXTRA stream bytes (exit word).
+Parse lengths must match exactly or the whole object stream desyncs (DoW builds levels
+almost entirely from extended 0x27 forms).

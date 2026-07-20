@@ -19,8 +19,37 @@ class Program
         if (di >= 0)
             return DumpCell(args, di);
 
+        int mi = Array.IndexOf(args, "--markers");
+        if (mi >= 0)
+            return DumpMarkers(args, mi);
+
         using var app = new EditorApp();
         app.Run();
+        return 0;
+    }
+
+    // --markers <rom> <levelHex> : debug — which object numbers still render as markers.
+    private static int DumpMarkers(string[] args, int mi)
+    {
+        var rom = Rom.Load(args[mi + 1]);
+        int level = Convert.ToInt32(args[mi + 2], 16);
+        var lv = Level.Parse(rom, level);
+        var grid = ObjectEngine.Render(rom, lv);
+        var markers = new Dictionary<int, int>();
+        for (int i = 0; i < grid.Tiles.Length; i++)
+            if (grid.Tiles[i] != Map16Grid.Empty && (grid.Tiles[i] & ObjectEngine.Marker) != 0)
+                markers[grid.Tiles[i] & 0xFF] = markers.GetValueOrDefault(grid.Tiles[i] & 0xFF) + 1;
+        var objCounts = lv.Objects.Where(o => !o.IsScreenExit && !o.IsDm16)
+            .GroupBy(o => (o.Extended, Num: o.Extended ? o.ExtendedNumber : o.Number))
+            .ToDictionary(g => g.Key, g => g.Count());
+        Console.WriteLine($"level 0x{level:X3}: {lv.Objects.Count} objects, tileset {lv.Header.Tileset}");
+        foreach (var (num, cells) in markers.OrderByDescending(kv => kv.Value))
+        {
+            int std = objCounts.GetValueOrDefault((false, num));
+            int ext = objCounts.GetValueOrDefault((true, num));
+            string h = std > 0 ? $"  handler ${ObjectEngine.Handler(rom, lv.Header.Tileset, num):X6}" : "";
+            Console.WriteLine($"  marker obj 0x{num:X2}: {cells} cells  (std x{std}, ext x{ext}){h}");
+        }
         return 0;
     }
 

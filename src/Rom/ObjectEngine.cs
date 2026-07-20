@@ -63,6 +63,21 @@ public static class ObjectEngine
         int[] pipeTL = ReadTable(rom, 0x0DAA12, 5);    // vertical-pipe top-cap tiles (by type)
         int[] pipeTR = ReadTable(rom, 0x0DAA17, 5);
         int[] rope = ReadTable(rom, 0x0DB3BB, 2);      // rope/cloud tiles (by type)
+        int[] hpEnd = ReadTable(rom, 0x0DAAA4, 8);     // horizontal pipe end tiles (type*2+row)
+        int[] hpMid = ReadTable(rom, 0x0DAAAC, 8);     // horizontal pipe middle tiles
+        int[] netV = ReadTable(rom, 0x0DB49C, 2);      // net vertical edge tiles (by type)
+        int[] netVT = ReadTable(rom, 0x0DB4D5, 2);     // ... when joining a top edge (tile 0x08)
+        int[] netVB = ReadTable(rom, 0x0DB4D7, 2);     // ... when joining a bottom edge (tile 0x0E)
+        int[] swTile = ReadTable(rom, 0x0DB91A, 2);    // switch block tiles (blue, red)
+        int[] trunkT = ReadTable(rom, 0x0DB962, 2);    // small trunk top tiles (by type)
+        int[] trunkB = ReadTable(rom, 0x0DB964, 2);    // small trunk lower tiles
+        int[] fedgeT = ReadTable(rom, 0x0DBA44, 4);    // forest edge top tiles (by type)
+        int[] fedgeB = ReadTable(rom, 0x0DBA48, 4);    // forest edge body tiles
+        int[] treeTop = ReadTable(rom, 0x0DBA7C, 96);  // forest tree top 16x6 stamp
+        int[] plantL = ReadTable(rom, 0x0DD1CB, 4);    // plant-on-column left tiles (by type)
+        int[] plantR = ReadTable(rom, 0x0DD1CF, 4);    // plant-on-column right tiles
+        int[] colTile = ReadTable(rom, 0x0DD1D3, 6);   // column body tiles (cycled pairs)
+        int[] brTiles = ReadTable(rom, 0x0DB42B, 2);   // obj 0x1C top/bottom tiles
         int[] mwTop = ReadTable(rom, 0x0DB212, 3), mwMid = ReadTable(rom, 0x0DB215, 3), mwBot = ReadTable(rom, 0x0DB218, 3);
         int[] glTop = ReadTable(rom, 0x0DB21B, 3), glMid = ReadTable(rom, 0x0DB21E, 3), glBot = ReadTable(rom, 0x0DB221, 3);
 
@@ -73,8 +88,13 @@ public static class ObjectEngine
 
             if (o.IsDm16)                                       // LM Direct Map16: w×h of one tile
             {
-                for (int dy = 0; dy < o.Height; dy++)
-                    for (int dx = 0; dx < o.Width; dx++)
+                if (o.Number == 0x29) continue;                 // BG-page form: layer 2, no L1 tiles
+                // Extended form (page bit7): 7-bit width from the size byte; bits 7+6 add a
+                // height-override byte. ponytail: ExtX run semantics approximated as plain w×h.
+                int dw = o.Dm16ExtX >= 0 ? (o.Byte3 & 0x7F) + 1 : o.Width;
+                int dh = o.Dm16ExtH >= 0 ? o.Dm16ExtH + 1 : o.Height;
+                for (int dy = 0; dy < dh; dy++)
+                    for (int dx = 0; dx < dw; dx++)
                         g.Set(ax + dx, ay + dy, o.Dm16Tile);
                 continue;
             }
@@ -83,18 +103,55 @@ public static class ObjectEngine
             {
                 int ext = o.ExtendedNumber;
                 if (ext == 0x01) continue;                      // screen jump: no tiles
-                int idx = ext - 0x10;
-                if (idx >= 0 && idx < single.Length)
-                    g.Set(ax, ay, single[idx] | (idx >= 0x13 ? 0x100 : 0));   // $0DA5B1 page rule
-                else
-                    g.Set(ax, ay, Marker | ext);
+                // Dispatch by handler address from the global ext-object table ($0DA10F).
+                switch (rom.ReadValue(0x0DA10F + ext * 3, 3))
+                {
+                    case 0x0DA57B or 0x0DA64D:                  // single tile via DATA_0DA548
+                    {
+                        int idx = ext - 0x10;
+                        if (idx >= 0 && idx < single.Length)
+                            g.Set(ax, ay, single[idx] | (idx >= 0x13 ? 0x100 : 0)); // $0DA5B1 page rule
+                        else
+                            g.Set(ax, ay, Marker | ext);
+                        break;
+                    }
+                    case 0x0DA68E:                              // midway point bar
+                        g.Set(ax - 1, ay, 0x035); g.Set(ax, ay, 0x038);
+                        break;
+                    case 0x0DCE94:                              // rope line-guide tiles (0x51-0x54)
+                        g.Set(ax, ay, ReadTable(rom, 0x0DCE90, 4)[(ext - 0x51) & 3]);
+                        break;
+                    case 0x0DCEA6:                              // canvas 1: vertical pair 84/85
+                        g.Set(ax, ay, 0x084); g.Set(ax, ay + 1, 0x085);
+                        break;
+                    case 0x0DCEC0:                              // line-guide end: pair 96/97
+                        g.Set(ax, ay, 0x096); g.Set(ax, ay + 1, 0x097);
+                        break;
+                    case 0x0DDA68:                              // underground deco (0x75-0x7B)
+                        g.Set(ax, ay, ReadTable(rom, 0x0DDA61, 7)[(ext - 0x75) % 7]);
+                        break;
+                    case 0x0DDA80:                              // canvas 2-4: vertical pairs
+                        g.Set(ax, ay, ReadTable(rom, 0x0DDA7A, 3)[(ext - 0x7C) % 3]);
+                        g.Set(ax, ay + 1, ReadTable(rom, 0x0DDA7D, 3)[(ext - 0x7C) % 3]);
+                        break;
+                    case 0x0DE1B0:                              // LM secondary exit: no tiles
+                    case 0x0DE1E0:                              // LM screen jump (0x03): no tiles
+                        break;
+                    default:
+                        g.Set(ax, ay, Marker | ext);
+                        break;
+                }
                 continue;
             }
 
             int n = o.Number, b3 = o.Byte3;
-            switch (n)
+            // Tileset-aware dispatch, exactly like the ROM: tileset dispatcher pointer at
+            // $0DA41E + tileset*3, per-object handler table at dispatcher+0xA, entry (n-1)*3.
+            // Handlers are shared across tilesets (theming comes from the Map16 defs), so we
+            // key the port on the handler address.
+            switch (Handler(rom, level.Header.Tileset, n))
             {
-                case >= 1 and <= 0x0E:                          // rectangle family ($0DA8C3)
+                case 0x0DA8C3:                                  // rectangle family
                 {
                     int i = n - 1, tile = rect[i] | (i >= 7 ? 0x100 : 0);
                     for (int dy = 0; dy < o.Height; dy++)
@@ -102,42 +159,122 @@ public static class ObjectEngine
                             g.Set(ax + dx, ay + dy, tile);
                     break;
                 }
-                case 0x14:                                      // ground ledge ($0DB1D4)
+                case 0x0DB1D4:                                  // ground ledge
                     GroundLedge(g, ax, ay, b3 & 0x0F, b3 >> 4);
                     break;
-                case 0x21:                                      // long ground ledge ($0DB1C8)
+                case 0x0DB1C8:                                  // long ground ledge (obj 0x21)
                     GroundLedge(g, ax, ay, b3, 2);
                     break;
-                case 0x13:                                      // ledge edges ($0DB075)
+                case 0x0DB075:                                  // ledge edges
                     LedgeEdge(g, ax, ay, b3 & 0x0F, b3 >> 4, ledTop, ledMid, ledBot);
                     break;
-                case 0x3F:                                      // bushes ($0DB5B7)
+                case 0x0DB5B7:                                  // bushes
                     Bush(g, ax, ay, b3 & 0x0F, b3 >> 4, bushL, bushM, bushR);
                     break;
-                case 0x0F:                                      // vertical pipes ($0DAA26)
+                case 0x0DAA26:                                  // vertical pipes
                     VertPipe(g, ax, ay, b3 & 0x0F, b3 >> 4, pipeTL, pipeTR);
                     break;
-                case 0x17:                                      // rope/clouds ($0DB3BD)
+                case 0x0DB3BD:                                  // rope/clouds
                 {
                     int t = Math.Min(b3 >> 4, rope.Length - 1);
                     for (int i = 0; i <= (b3 & 0x0F); i++) g.Set(ax + i, ay, rope[t] | 0x100);
                     break;
                 }
-                case 0x1F:                                      // vertical pipe/bone/log ($0DB51F)
+                case 0x0DB51F:                                  // vertical pipe/bone/log
                     VertBoneLog(g, ax, ay, b3 >> 4);
                     break;
-                case 0x15:                                      // midway/goal point ($0DB224)
+                case 0x0DB224:                                  // midway/goal point
                     MidwayGoal(g, ax, ay, b3 >> 4, (b3 & 0x0F) != 0,
                                mwTop, mwMid, mwBot, glTop, glMid, glBot);
                     break;
-                case 0x12:                                      // slopes ($0DAB3E) — approx
+                case 0x0DAB3E:                                  // slopes — approx
                     Slope(g, ax, ay, b3);
                     break;
-                case 0x39:                                      // diagonal pipe ($0DB73F) — approx
+                case 0x0DB73F:                                  // diagonal pipe — approx
                     DiagStair(g, ax, ay, b3, ledge: false);
                     break;
-                case 0x3A:                                      // diagonal ledge ($0DB7AA) — approx
+                case 0x0DB7AA:                                  // diagonal ledge — approx
                     DiagStair(g, ax, ay, b3, ledge: true);
+                    break;
+                case 0x0DAAB4:                                  // horizontal pipes
+                    HorizPipe(g, ax, ay, b3 & 0x0F, b3 >> 4, hpEnd, hpMid);
+                    break;
+                case 0x0DAB0D:                                  // bullet shooter
+                    Column(g, ax, ay, b3 >> 4, 0x141, 0x142, 0x143, repeatBottom: true);
+                    break;
+                case 0x0DB336:                                  // invisible coin blocks (item memory ignored)
+                    Fill(g, ax, ay, (b3 & 0x0F) + 1, (b3 >> 4) + 1, 0x02C);
+                    break;
+                case 0x0DB42D:                                  // 2-row strip: top page-0 / bottom page-1
+                    Fill(g, ax, ay, (b3 & 0x0F) + 1, 1, brTiles[0]);
+                    Fill(g, ax, ay + 1, (b3 & 0x0F) + 1, 1, brTiles[1] | 0x100);
+                    break;
+                case 0x0DB461:                                  // net rectangle: body rows + bottom row
+                    Fill(g, ax, ay, (b3 & 0x0F) + 1, b3 >> 4, 0x00B);
+                    Fill(g, ax, ay + (b3 >> 4), (b3 & 0x0F) + 1, 1, 0x00E);
+                    break;
+                case 0x0DB49E:                                  // net vertical edge (context-adjusted ends)
+                    NetVertEdge(g, ax, ay, b3 & 0x01, b3 >> 4, netV, netVT, netVB);
+                    break;
+                case 0x0DB547:                                  // horizontal rope
+                    HorizStrip(g, ax, ay, b3 & 0x0F, 0x156, 0x157, 0x158);
+                    break;
+                case 0x0DB916:                                  // blue switch blocks
+                    Fill(g, ax, ay, (b3 & 0x0F) + 1, (b3 >> 4) + 1, swTile[0]);
+                    break;
+                case 0x0DB91E:                                  // red switch blocks
+                    Fill(g, ax, ay, (b3 & 0x0F) + 1, (b3 >> 4) + 1, swTile[1]);
+                    break;
+                case 0x0DB966:                                  // small tree trunk (alternating 16x32)
+                    for (int i = 0; i <= (b3 >> 4); i++)
+                        g.Set(ax, ay + i, (i % 2 == 0 ? trunkT : trunkB)[b3 & 0x01]);
+                    break;
+                case 0x0DB9C0:                                  // large tree trunk (2 wide, row pairs)
+                    LargeTrunk(g, ax, ay, b3 >> 4);
+                    break;
+                case 0x0DBA0A:                                  // forest ledge: top row 0x10E + dirt
+                    Fill(g, ax, ay, (b3 & 0x0F) + 1, 1, 0x10E);
+                    Fill(g, ax, ay + 1, (b3 & 0x0F) + 1, b3 >> 4, 0x0B8);
+                    break;
+                case 0x0DBA4C:                                  // forest left/right/top edge
+                {
+                    int t = (b3 & 0x0F) < 4 ? b3 & 0x0F : 0;
+                    g.Set(ax, ay, fedgeT[t] | 0x100);
+                    for (int i = 1; i <= (b3 >> 4) + 1; i++)
+                        g.Set(ax, ay + i, fedgeB[t] | (t < 2 ? 0x100 : 0));
+                    break;
+                }
+                case 0x0DBADC:                                  // forest tree top: 16x6 stamp per screen
+                    for (int r = 0; r <= b3; r++)
+                        for (int i = 0; i < 96; i++)
+                            g.Set(ax + r * 16 + i % 16, ay + i / 16, treeTop[i]);
+                    break;
+                case 0x0DBB2C:                                  // ice-blue vertical pipe (2 wide)
+                    for (int i = 0; i <= (b3 >> 4); i++)
+                    {
+                        g.Set(ax, ay + i, (i == 0 ? 0x161 : 0x163));
+                        g.Set(ax + 1, ay + i, (i == 0 ? 0x162 : 0x164));
+                    }
+                    break;
+                case 0x0DBB63:                                  // ice-blue turn tiles = rect family idx 0x0E
+                    Fill(g, ax, ay, o.Width, o.Height, rect[0x0E] | 0x100);
+                    break;
+                case 0x0DD1D9:                                  // plants on columns
+                    PlantColumn(g, ax, ay, b3 & 0x03, b3 >> 4, plantL, plantR, colTile);
+                    break;
+                case 0x0DD1A5:                                  // vertical log
+                    Column(g, ax, ay, b3 >> 4, 0x15C, 0x15D, 0x15E, repeatBottom: false);
+                    break;
+                case 0x0DD24E:                                  // log bridge: log row + page-1 0E row
+                {
+                    int[] lb = ReadTable(rom, 0x0DD24C, 2);
+                    Fill(g, ax, ay, (b3 & 0x0F) + 1, 1, lb[0]);
+                    Fill(g, ax, ay + 1, (b3 & 0x0F) + 1, 1, lb[1] | 0x100);
+                    break;
+                }
+                case 0x0DB3E3:                                  // vanilla placeholder: no tiles
+                case 0x0DF130:                                  // LM obj 0x26 directive (no tiles)
+                case 0x0DF160:                                  // LM obj 0x28 directive (no tiles)
                     break;
                 default:                                        // handler not ported yet
                     g.Set(ax, ay, Marker | n);
@@ -145,6 +282,111 @@ public static class ObjectEngine
             }
         }
         return g;
+    }
+
+    /// <summary>Handler address for an object in a tileset, from the ROM's dispatch tables.</summary>
+    public static int Handler(Rom rom, int tileset, int obj)
+    {
+        int dispatcher = rom.ReadValue(0x0DA41E + (tileset & 0x0F) * 3, 3);
+        return rom.ReadValue(dispatcher + 0x0A + (obj - 1) * 3, 3);
+    }
+
+    // Rectangle fill helper (used by several ported handlers).
+    private static void Fill(Map16Grid g, int ax, int ay, int w, int h, int tile)
+    {
+        for (int dy = 0; dy < h; dy++)
+            for (int dx = 0; dx < w; dx++)
+                g.Set(ax + dx, ay + dy, tile);
+    }
+
+    // $0DAAB4: horizontal pipes — 2 rows; types 0/1 have the end cap on the left, 2/3 on the
+    // right; tables indexed type*2 + row. All tiles page 1.
+    private static void HorizPipe(Map16Grid g, int ax, int ay, int w0, int type, int[] end, int[] mid)
+    {
+        for (int row = 0; row < 2; row++)
+        {
+            int x = ((type & 3) * 2 + row) & 7;
+            for (int i = 0; i <= w0; i++)
+            {
+                bool isEnd = type < 2 ? i == 0 : i == w0;
+                g.Set(ax + i, ay + row, (isEnd ? end[x] : mid[x]) | 0x100);
+            }
+        }
+    }
+
+    // Vertical strip: top + middles + bottom (repeatBottom: bottom tile repeats to the end,
+    // like the bullet shooter; else a single bottom cap, like the vertical log). All page 1.
+    private static void Column(Map16Grid g, int ax, int ay, int h, int top, int midT, int bot, bool repeatBottom)
+    {
+        for (int i = 0; i <= h; i++)
+        {
+            int t = i == 0 ? top : repeatBottom ? (i == 1 ? midT : bot) : i == h ? bot : midT;
+            g.Set(ax, ay + i, t);
+        }
+    }
+
+    // $0DB547-style 3-part horizontal strip (left/mid/right), page 1 tiles passed complete.
+    private static void HorizStrip(Map16Grid g, int ax, int ay, int w0, int left, int mid, int right)
+    {
+        for (int i = 0; i <= w0; i++)
+            g.Set(ax + i, ay, i == 0 ? left : i == w0 ? right : mid);
+    }
+
+    // $0DB49E: net vertical edge — a column of net[type]; the end tiles morph when they land
+    // on a net top edge (tile 0x08) or bottom edge (0x0E). Page 0.
+    private static void NetVertEdge(Map16Grid g, int ax, int ay, int type, int h,
+                                    int[] baseT, int[] joinTop, int[] joinBot)
+    {
+        int rows = Math.Max(h, 1);
+        for (int i = 0; i <= rows; i++)
+        {
+            int t = baseT[type];
+            if (i == 0 || i == rows)
+            {
+                int under = g.Get(ax, ay + i);
+                if (under == 0x008) t = joinTop[type];
+                else if (under == 0x00E) t = joinBot[type];
+            }
+            g.Set(ax, ay + i, t);
+        }
+    }
+
+    // $0DB9C0: large tree trunk — 2-wide, alternating row pairs (0B9,0BA)/(0BB,0BC); the
+    // (0B9,0BA) row becomes page-1 (10B,10C) when placed onto a forest ledge top (0x10E).
+    private static void LargeTrunk(Map16Grid g, int ax, int ay, int h)
+    {
+        int y = ay, left = h;
+        while (true)
+        {
+            bool onLedge = g.Get(ax, y) == 0x10E;
+            g.Set(ax, y, onLedge ? 0x10B : 0x0B9);
+            g.Set(ax + 1, y, onLedge ? 0x10C : 0x0BA);
+            y++;
+            if (--left < 0) break;
+            g.Set(ax, y, 0x0BB);
+            g.Set(ax + 1, y, 0x0BC);
+            y++;
+            if (--left < 0) break;
+        }
+    }
+
+    // $0DD1D9: plants on columns — plant pair, then column top (15F,160), then body pairs
+    // cycling (161,162)/(163,164)/(165,166).
+    private static void PlantColumn(Map16Grid g, int ax, int ay, int type, int h,
+                                    int[] plantL, int[] plantR, int[] col)
+    {
+        g.Set(ax, ay, plantL[type]);
+        g.Set(ax + 1, ay, plantR[type]);
+        if (h == 0) return;
+        g.Set(ax, ay + 1, 0x15F);
+        g.Set(ax + 1, ay + 1, 0x160);
+        int k = 0;
+        for (int i = 2; i <= h; i++)
+        {
+            g.Set(ax, ay + i, col[k] | 0x100);
+            g.Set(ax + 1, ay + i, col[k + 1] | 0x100);
+            k = (k + 2) % 6;
+        }
     }
 
     // $0DB1D4: grass top row (tile 0x100) + `height` dirt rows (tile 0x03F), width+1 wide.

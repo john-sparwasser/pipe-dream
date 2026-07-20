@@ -341,11 +341,13 @@ public static class RomSelfCheck
             int targetScreen = sl.Objects[sl.Objects.Count / 2].Screen;   // a screen with objects
             var newObj = LevelObject.MakeDm16(0x110, targetScreen, 4, 6);
             var merged = new List<LevelObject>();
+            bool inserted = false;                              // screens can repeat (jumps)
             for (int i = 0; i < sl.Objects.Count; i++)
             {
                 merged.Add(sl.Objects[i]);
                 int next = i + 1 < sl.Objects.Count ? sl.Objects[i + 1].Screen : -1;
-                if (sl.Objects[i].Screen == targetScreen && sl.Objects[i].Screen != next) merged.Add(newObj);
+                if (!inserted && sl.Objects[i].Screen == targetScreen && sl.Objects[i].Screen != next)
+                { merged.Add(newObj); inserted = true; }
             }
             var sd = sl.Encode(sr, merged);
             sr.ExpandTo(0x200000);

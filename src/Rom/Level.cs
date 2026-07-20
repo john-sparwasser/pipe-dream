@@ -51,6 +51,10 @@ public readonly struct LevelObject
     public readonly int Byte3;       // raw settings byte (= size for DM16)
     public readonly int ExtraByte;   // 4th byte for screen exits, else -1
     public readonly int Dm16Tile;    // Direct-Map16 tile number, else -1
+    // Extended DM16 forms (obj 0x27/0x29 with page-byte bits 6-7 set, CONTRACT §8):
+    public readonly int Dm16Page;    // raw page byte (-1 = simple/none)
+    public readonly int Dm16ExtX;    // extra run byte (page bit7), -1 = absent
+    public readonly int Dm16ExtH;    // height-override byte (page bits 6+7), -1 = absent
     // For standard (rectangle-family) objects; other families reinterpret Byte3.
     public int Width => (Byte3 & 0x0F) + 1;
     public int Height => (Byte3 >> 4) + 1;
@@ -61,16 +65,19 @@ public readonly struct LevelObject
     // Direct Map16: LM object # 0x23 (Form A, page 1) or 0x27 (Form B, any page).
     public bool IsDm16 => Dm16Tile >= 0;
 
-    public LevelObject(bool newScreen, int number, int screen, int xNibble, int y, int b3, int extra, int dm16 = -1)
+    public LevelObject(bool newScreen, int number, int screen, int xNibble, int y, int b3, int extra, int dm16 = -1,
+                       int dm16Page = -1, int dm16ExtX = -1, int dm16ExtH = -1)
     {
         NewScreen = newScreen; Number = number; Screen = screen;
         XNibble = xNibble; Y = y; Byte3 = b3; ExtraByte = extra; Dm16Tile = dm16; Extended = number == 0;
+        Dm16Page = dm16Page; Dm16ExtX = dm16ExtX; Dm16ExtH = dm16ExtH;
     }
 
     /// <summary>Create a Direct Map16 object placing <paramref name="tile"/> at a cell.</summary>
     public static LevelObject MakeDm16(int tile, int screen, int xNib, int y, int w = 1, int h = 1, bool newScreen = false)
     {
-        int num = tile is >= 0x100 and <= 0x1FF ? 0x23 : 0x27;   // Form A page-1, else Form B
+        // Page-0 Form (obj 0x22), page-1 Form A (0x23), or general Form B (0x27).
+        int num = tile <= 0xFF ? 0x22 : tile <= 0x1FF ? 0x23 : 0x27;
         int size = ((h - 1) << 4) | (w - 1);
         return new LevelObject(newScreen, num, screen, xNib, y, size, -1, tile);
     }
@@ -119,26 +126,46 @@ public sealed class Level
             bool newScreen = (b1 & 0x80) != 0;
             if (newScreen) screen++;             // ROM: $1928 += 1 on the flag
             int number2 = ((b1 & 0x60) >> 1) | (b2 >> 4);
+            // Screen jumps retarget the counter for all following objects:
+            // vanilla ext 0x01 ($0DA53D): screen = Y bits; LM ext 0x03 ($0DE1E0): screen = b2.
+            if (number2 == 0 && b3 == 0x01) screen = b1 & 0x1F;
+            else if (dm16Rom && number2 == 0 && b3 == 0x03) screen = b2;
             int y = b1 & 0x1F;
             int xNib = b2 & 0x0F;
             p += 3;
-            int extra = -1, dm16 = -1;
+            int extra = -1, dm16 = -1, dm16Page = -1, dm16ExtX = -1, dm16ExtH = -1;
             if (number2 == 0 && b3 == 0x00)
             {
                 // Screen exit (extended object 0x00): reads a 4th byte ($0DA512 does $65 += 1).
                 extra = p < data.Length ? data[p] : -1; p += 1;
+            }
+            else if (dm16Rom && number2 == 0 && b3 == 0x02)
+            {
+                // LM secondary exit (ext obj 0x02, handler $0DE1B0): 2 extra bytes = exit word.
+                extra = p + 1 < data.Length ? data[p] | (data[p + 1] << 8) : 0; p += 2;
+            }
+            else if (dm16Rom && number2 == 0x22)
+            {
+                // DM16 page-0 form: 1 extra byte = tile low, tile = 0x000 | low ($0DF08A).
+                dm16 = p < data.Length ? data[p] : 0; p += 1;
             }
             else if (dm16Rom && number2 == 0x23)
             {
                 // DM16 Form A (page-1 tile): 1 extra byte = tile low, tile = 0x100 | low.
                 dm16 = 0x100 | (p < data.Length ? data[p] : 0); p += 1;
             }
-            else if (dm16Rom && number2 == 0x27)
+            else if (dm16Rom && (number2 == 0x27 || number2 == 0x29))
             {
-                // DM16 Form B (any page): 2 extra bytes = tile high, low.
-                dm16 = (p + 1 < data.Length ? (data[p] << 8) | data[p + 1] : 0); p += 2;
+                // DM16 Form B ($0DF150) / BG form ($0DFF50): page byte + tile low, plus
+                // page-bit-7 → run byte, page-bits-7+6 → height override (CONTRACT §8).
+                int pg = data[p], low = data[p + 1]; p += 2;
+                int page = (pg & 0x3F) | (number2 == 0x29 ? 0x40 : 0);
+                dm16 = (page << 8) | low;
+                dm16Page = pg;
+                if ((pg & 0x80) != 0) { dm16ExtX = data[p]; p += 1; }
+                if ((pg & 0xC0) == 0xC0) { dm16ExtH = data[p]; p += 1; }
             }
-            objs.Add(new LevelObject(newScreen, number2, screen, xNib, y, b3, extra, dm16));
+            objs.Add(new LevelObject(newScreen, number2, screen, xNib, y, b3, extra, dm16, dm16Page, dm16ExtX, dm16ExtH));
         }
         return new Level(number, ptr, header, objs, empty);
     }
@@ -165,17 +192,20 @@ public sealed class Level
     {
         if (o.IsDm16)
         {
-            byte db1 = (byte)((o.NewScreen ? 0x80 : 0) | 0x40 | (o.Y & 0x1F));
-            if (o.Number == 0x23)                          // Form A: page-1, 1 tile byte
+            // b1 carries object# bits 4-5 (<<1), b2 high nibble = object# low nibble.
+            byte db1 = (byte)((o.NewScreen ? 0x80 : 0) | ((o.Number & 0x30) << 1) | (o.Y & 0x1F));
+            byte db2 = (byte)(((o.Number & 0x0F) << 4) | (o.XNibble & 0x0F));
+            outb.Add(db1); outb.Add(db2); outb.Add((byte)o.Byte3);
+            if (o.Number is 0x22 or 0x23)                  // 1 tile byte (page fixed 0/1)
             {
-                outb.Add(db1); outb.Add((byte)(0x30 | (o.XNibble & 0x0F)));
-                outb.Add((byte)o.Byte3); outb.Add((byte)(o.Dm16Tile & 0xFF));
+                outb.Add((byte)(o.Dm16Tile & 0xFF));
             }
-            else                                           // Form B: any page, 2 tile bytes
+            else                                           // 0x27/0x29: page byte + low (+extras)
             {
-                outb.Add(db1); outb.Add((byte)(0x70 | (o.XNibble & 0x0F)));
-                outb.Add((byte)o.Byte3);
-                outb.Add((byte)((o.Dm16Tile >> 8) & 0xFF)); outb.Add((byte)(o.Dm16Tile & 0xFF));
+                outb.Add((byte)(o.Dm16Page >= 0 ? o.Dm16Page : (o.Dm16Tile >> 8) & 0x3F));
+                outb.Add((byte)(o.Dm16Tile & 0xFF));
+                if (o.Dm16ExtX >= 0) outb.Add((byte)o.Dm16ExtX);
+                if (o.Dm16ExtH >= 0) outb.Add((byte)o.Dm16ExtH);
             }
             return;
         }
@@ -183,5 +213,9 @@ public sealed class Level
         byte b2 = (byte)(((o.Number & 0x0F) << 4) | (o.XNibble & 0x0F));
         outb.Add(b1); outb.Add(b2); outb.Add((byte)o.Byte3);
         if (o.IsScreenExit && o.ExtraByte >= 0) outb.Add((byte)o.ExtraByte);
+        else if (o.Extended && o.Byte3 == 0x02 && o.ExtraByte >= 0)
+        {   // LM secondary exit: 2-byte exit word
+            outb.Add((byte)(o.ExtraByte & 0xFF)); outb.Add((byte)(o.ExtraByte >> 8));
+        }
     }
 }

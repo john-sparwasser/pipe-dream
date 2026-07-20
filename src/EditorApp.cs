@@ -212,7 +212,9 @@ public class EditorApp : App
         {
             merged.Add(objs[i]);
             int next = i + 1 < objs.Count ? objs[i + 1].Screen : -1;
-            if (objs[i].Screen != next && byScreen.TryGetValue(objs[i].Screen, out var lst))
+            // Screens can repeat (screen jumps): only insert at a screen's first boundary.
+            if (objs[i].Screen != next && !placed.Contains(objs[i].Screen) &&
+                byScreen.TryGetValue(objs[i].Screen, out var lst))
             { merged.AddRange(lst); placed.Add(objs[i].Screen); }
         }
         int skipped = byScreen.Where(kv => !placed.Contains(kv.Key)).Sum(kv => kv.Value.Count);
