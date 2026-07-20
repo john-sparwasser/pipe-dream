@@ -56,20 +56,58 @@ public static class Map16
     }
 
     /// <summary>
-    /// Compose all 512 FG Map16 tiles into one RGBA sheet (cols tiles wide, 16px each) using
-    /// the level's tileset GFX + palette. This is the composed tile-picker/preview image.
+    /// Compose every FG Map16 tile (512) into its own 16×16 RGBA image — a reusable cache for
+    /// both the tile sheet and the level canvas. Color 0 stays transparent (0 alpha).
     /// </summary>
-    public static (uint[] px, int w, int h) ComposeSheet(Rom rom, LevelHeader h, int cols = 16)
+    public static uint[][] ComposeAll(Rom rom, LevelHeader h)
     {
         var defPtr = BuildDefPointers(rom, h.Tileset);
         var fg = Gfx.FgTiles.Load(rom, h.Tileset);
         var pal = Palette.Load(rom, h);
+        var tiles = new uint[FgTiles][];
+        for (int t = 0; t < FgTiles; t++)
+            tiles[t] = Compose(Definition(rom, defPtr, t), fg.Fetch, pal);
+        return tiles;
+    }
+
+    /// <summary>
+    /// Compose a full level canvas: the object-engine Map16 grid rendered with real tiles.
+    /// Empty cells get the backdrop color; unimplemented-handler markers render magenta.
+    /// </summary>
+    public static (uint[] px, int w, int h) ComposeLevel(Rom rom, LevelHeader h, Map16Grid grid)
+    {
+        var cache = ComposeAll(rom, h);
+        uint backdrop = Palette.Load(rom, h).Rgba[0];
+        int W = grid.Width * 16, H = grid.Height * 16;
+        var img = new uint[W * H];
+        Array.Fill(img, backdrop);
+        for (int cy = 0; cy < grid.Height; cy++)
+            for (int cx = 0; cx < grid.Width; cx++)
+            {
+                int t = grid.Get(cx, cy);
+                if (t == Map16Grid.Empty) continue;
+                uint[]? tile = (t & ObjectEngine.Marker) != 0 ? null : cache[t & (FgTiles - 1)];
+                for (int y = 0; y < 16; y++)
+                    for (int x = 0; x < 16; x++)
+                    {
+                        uint c = tile is null ? 0xFFFF00FFu : tile[y * 16 + x];
+                        if (c == 0) continue;                   // transparent → keep backdrop
+                        img[(cy * 16 + y) * W + (cx * 16 + x)] = c;
+                    }
+            }
+        return (img, W, H);
+    }
+
+    /// <summary>Compose all 512 FG Map16 tiles into one RGBA sheet (cols wide, 16px each).</summary>
+    public static (uint[] px, int w, int h) ComposeSheet(Rom rom, LevelHeader h, int cols = 16)
+    {
+        var tilesImg = ComposeAll(rom, h);
         int rows = (FgTiles + cols - 1) / cols;
         int w = cols * 16, ht = rows * 16;
         var sheet = new uint[w * ht];
         for (int t = 0; t < FgTiles; t++)
         {
-            var img = Compose(Definition(rom, defPtr, t), fg.Fetch, pal);
+            var img = tilesImg[t];
             int ox = (t % cols) * 16, oy = (t / cols) * 16;
             for (int y = 0; y < 16; y++)
                 for (int x = 0; x < 16; x++)

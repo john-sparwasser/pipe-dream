@@ -31,6 +31,10 @@ public class EditorApp : App
     private Texture? map16Tex;
     private int map16W, map16H;
 
+    // Composed level canvas
+    private Texture? levelTex;
+    private int levelPxW, levelPxH;
+
     public EditorApp() : base(new AppConfig
     {
         ApplicationName = "PipeDream",
@@ -117,10 +121,39 @@ public class EditorApp : App
         ImGui.End();
 
         DrawLevelPanel();
+        DrawLevelCanvas();
         DrawMap16Panel();
         DrawMap16Sheet();
         DrawGfxViewer();
         DrawLevelSchematic();
+    }
+
+    // The composed level: the Map16 grid rendered with real tile graphics.
+    private void DrawLevelCanvas()
+    {
+        ImGui.Begin("Level Render");
+        if (levelTex is null) { ImGui.TextDisabled("No level rendered."); ImGui.End(); return; }
+        ImGui.Text($"Level 0x{levelNum:X3} — {levelPxW}x{levelPxH}px");
+        if (ImGui.BeginChild("lvlcanvas", System.Numerics.Vector2.Zero, 0,
+                ImGuiWindowFlags.HorizontalScrollbar))
+        {
+            ImGui.Image(imgui!.GetTextureID(levelTex), new Vector2(levelPxW * 2f, levelPxH * 2f));
+            ImGui.EndChild();
+        }
+        ImGui.End();
+    }
+
+    private void BuildLevelCanvas()
+    {
+        levelTex?.Dispose(); levelTex = null;
+        if (rom is null || level is null || grid is null) return;
+        try
+        {
+            var (img, W, H) = Map16.ComposeLevel(rom, level.Header, grid);
+            levelTex = new Texture(GraphicsDevice, W, H, MemoryMarshal.AsBytes(img.AsSpan()));
+            levelPxW = W; levelPxH = H;
+        }
+        catch { levelTex?.Dispose(); levelTex = null; }
     }
 
     // The composed Map16 tile sheet — real SNES graphics for this level's tileset.
@@ -333,6 +366,7 @@ public class EditorApp : App
             level = rom is null ? null : Level.Parse(rom, levelNum);
             grid = rom is not null && level is not null ? ObjectEngine.Render(rom, level) : null;
             BuildMap16Sheet();
+            BuildLevelCanvas();
         }
         catch { level = null; grid = null; }
     }
