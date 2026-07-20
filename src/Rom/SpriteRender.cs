@@ -37,14 +37,16 @@ public static class SpriteRender
             cpu.PresetX(0); cpu.CallNear(0x018172, 400_000);           // init
             cpu.PresetX(0); cpu.CallNear(0x0185C3, 400_000);           // main (draws OAM)
 
+            // Sprites write tiles to the $0300 OAM scratch (X,Y,tile,props per 4 bytes) with the
+            // X-high bit + tile size in OAM_TileSize $0460 (indexed slot>>2 — one byte per 4
+            // slots, hardware high-OAM granularity; bit1 = 16x16, bit0 = X high). By the time
+            // the sprite's frame returns, its finisher has mirrored $0300 → the DMA'd $0200
+            // (with off-screen culling), so we read the final tiles from $0200.
             var list = new List<Oam>();
             for (int i = 0; i < 0x80; i++)
             {
                 int y = r[0x201 + i * 4];
                 if (y >= 0xE0) continue;
-                // OAM_TileSize ($0460) is written per drawn tile by the finisher, indexed by
-                // SprOAMIndex >> 2 (the same granularity as the hardware high-OAM table) —
-                // i.e. one byte per 4-byte OAM slot. bit1 = 16x16, bit0 = X high.
                 int sz = r[0x460 + (i >> 2)];
                 int x = r[0x200 + i * 4] | ((sz & 1) << 8);
                 int tile = r[0x202 + i * 4], attr = r[0x203 + i * 4];

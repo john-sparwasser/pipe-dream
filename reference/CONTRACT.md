@@ -602,3 +602,17 @@ OAM order. Failures/scroll commands keep badge markers.
 KNOWN v1 gaps: OAM size bits default to 16x16 (frame-init runs outside capture — real 8x8
 tiles like hammers draw doubled); single frame 0 pose; per-sprite RAM quirks may misdraw
 exotic sprites (they fall back to badges only if the routine crashes).
+
+### 14a. Sprite OAM specifics  [from the sprite GFX tutorial, verified]
+
+- Sprite GFX routines write tiles to the **$0300** OAM scratch (per 4-byte slot: $0300 X,
+  $0301 Y, $0302 tile, $0303 YXPPCCCT props) with the X-high bit + tile size in
+  **OAM_TileSize $0460**, indexed **slot>>2** (one byte per 4 slots — the hardware high-OAM
+  granularity; bit1 = 16x16, bit0 = X high). The OAM finisher ($01B7B3, RTL) mirrors $0300 →
+  the DMA'd **$0200** with off-screen culling. We run one frame then read the final $0200
+  (reading $0300 post-frame yields nothing — the finisher has already consumed it).
+- **Priority**: earlier-drawn OAM tiles sit in FRONT of later ones regardless of the PP
+  priority bits (PP only orders sprites vs BG layers). We draw the captured list in reverse
+  so slot order wins — matches.
+- **Palette**: OAM CCC addresses only the SECOND half of CGRAM → sprite palettes are rows
+  8-F (colour base 0x80 + CCC*16).
