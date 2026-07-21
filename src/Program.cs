@@ -39,7 +39,8 @@ class Program
             File.WriteAllText(outp, SpriteDisplay.Generate(rom));
             var parsed = SpriteDisplay.Parse(File.ReadAllText(outp));
             Console.WriteLine($"wrote {outp}: {parsed.Count} sprite entries, " +
-                              $"{parsed.Values.Sum(v => v.Length)} OAM tiles");
+                              $"{parsed.Values.Sum(v => v.Oam.Length)} OAM tiles, " +
+                              $"{parsed.Values.Count(v => v.Req.Any(r => r.Length > 0))} with GFX requirements");
             return 0;
         }
 

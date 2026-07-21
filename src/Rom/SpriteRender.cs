@@ -135,16 +135,29 @@ public static class SpriteRender
         return oam?.Select(o => o with { X = o.X - 320, Y = o.Y - 320 }).ToList();
     }
 
-    /// <summary>Decoded SP-slot 8x8 tiles (512) for a sprite GFX set, honoring the bypass.</summary>
-    public static byte[][] LoadSpTiles(Rom rom, LevelHeader h, int level)
+    /// <summary>The 4 sprite GFX files (SP1-4) a level loads: SPRITEGFXLIST + bypass.</summary>
+    public static int[] ResolveSpFiles(Rom rom, LevelHeader h, int level)
     {
-        var tiles = new byte[0x200][];
+        var files = new int[4];
         var byp = level >= 0 ? rom.LmGfxBypass(level) : null;
         int[] w = { 11, 10, 9, 8 };                                    // SP1..SP4 record words
         for (int slot = 0; slot < 4; slot++)
         {
             int file = rom.ReadByte(0x00A8C3 + h.SpriteSet * 4 + slot);   // SPRITEGFXLIST
             if (byp is not null && (byp[w[slot]] & 0xFFF) != 0x7F) file = byp[w[slot]] & 0xFFF;
+            files[slot] = file;
+        }
+        return files;
+    }
+
+    /// <summary>Decoded SP-slot 8x8 tiles (512) for a sprite GFX set, honoring the bypass.</summary>
+    public static byte[][] LoadSpTiles(Rom rom, LevelHeader h, int level)
+    {
+        var tiles = new byte[0x200][];
+        var files = ResolveSpFiles(rom, h, level);
+        for (int slot = 0; slot < 4; slot++)
+        {
+            int file = files[slot];
             int src = Gfx.SourceSnes(rom, file);
             if (src < 0) continue;
             byte[] data;

@@ -9,18 +9,45 @@ namespace PipeDream;
 /// level-independent — pixels resolve per level through the SP GFX slots + palette
 /// (SpriteRender.Draw) — so lookups replace the 65816 capture everywhere a vanilla
 /// sprite is displayed. PIXI/custom sprites (extra bits >= 2) still use live capture.
+///
+/// Each entry also carries GFX REQUIREMENTS: for every SP slot the sprite's tiles
+/// touch, the set of files that can satisfy it — derived by scanning all 512 vanilla
+/// levels (a vanilla level displays its sprites correctly by definition, so the files
+/// loaded where a sprite appears are its compatibility set). IsLoaded() implements
+/// LM-style "only show sprites available with the current GFX" filtering.
 /// </summary>
 public static class SpriteDisplay
 {
-    private static Dictionary<int, SpriteRender.Oam[]>? table;
+    public sealed record Entry(SpriteRender.Oam[] Oam, int[][] Req);   // Req[slot] = allowed files ([] = none)
+
+    private static Dictionary<int, Entry>? table;
+
+    private static Dictionary<int, Entry> Table => table ??= LoadEmbedded();
+
+    /// <summary>All sprite numbers in the table, ascending (the insert catalog).</summary>
+    public static IEnumerable<int> Numbers => Table.Keys.OrderBy(n => n);
 
     public static bool TryGet(int number, out SpriteRender.Oam[] rel)
     {
-        table ??= LoadEmbedded();
-        return table.TryGetValue(number, out rel!);
+        bool ok = Table.TryGetValue(number, out var e);
+        rel = e?.Oam!;
+        return ok;
     }
 
-    private static Dictionary<int, SpriteRender.Oam[]> LoadEmbedded()
+    /// <summary>
+    /// True when the level's SP1-4 files satisfy every slot requirement the sprite has.
+    /// Sprites with no known requirements (never appear in a vanilla level) pass.
+    /// </summary>
+    public static bool IsLoaded(int number, int[] spFiles)
+    {
+        if (!Table.TryGetValue(number, out var e)) return true;
+        for (int slot = 0; slot < 4; slot++)
+            if (e.Req[slot].Length > 0 && !e.Req[slot].Contains(spFiles[slot]))
+                return false;
+        return true;
+    }
+
+    private static Dictionary<int, Entry> LoadEmbedded()
     {
         try
         {
@@ -32,30 +59,55 @@ public static class SpriteDisplay
         catch { return new(); }
     }
 
-    public static Dictionary<int, SpriteRender.Oam[]> Parse(string json)
+    public static Dictionary<int, Entry> Parse(string json)
     {
-        var result = new Dictionary<int, SpriteRender.Oam[]>();
+        var result = new Dictionary<int, Entry>();
         using var doc = JsonDocument.Parse(json);
         foreach (var p in doc.RootElement.GetProperty("sprites").EnumerateObject())
         {
             int num = Convert.ToInt32(p.Name, 16);
-            var list = new List<SpriteRender.Oam>();
-            foreach (var e in p.Value.EnumerateArray())
+            var oam = p.Value.GetProperty("oam").EnumerateArray().Select(e =>
             {
                 var v = e.EnumerateArray().Select(x => x.GetInt32()).ToArray();
-                list.Add(new SpriteRender.Oam(v[0], v[1], v[2], v[3], v[4] != 0));
-            }
-            result[num] = list.ToArray();
+                return new SpriteRender.Oam(v[0], v[1], v[2], v[3], v[4] != 0);
+            }).ToArray();
+            var req = new int[4][];
+            for (int slot = 0; slot < 4; slot++) req[slot] = Array.Empty<int>();
+            if (p.Value.TryGetProperty("req", out var rq))
+                foreach (var rp in rq.EnumerateObject())
+                    req[int.Parse(rp.Name)] = rp.Value.EnumerateArray().Select(x => x.GetInt32()).ToArray();
+            result[num] = new Entry(oam, req);
         }
         return result;
     }
 
-    /// <summary>Generate the JSON table from a ROM (canonical capture per sprite number).</summary>
+    /// <summary>Generate the JSON table from a clean ROM: canonical capture per sprite
+    /// number + slot/file requirements scanned from every level's sprite list.</summary>
     public static string Generate(Rom rom)
     {
+        // Which files sit in each SP slot wherever each sprite number appears.
+        var seen = new Dictionary<int, HashSet<int>[]>();
+        for (int lvl = 0; lvl < Rom.LevelCount; lvl++)
+        {
+            SpriteData sd; int[] files;
+            try
+            {
+                sd = SpriteData.Parse(rom, lvl);
+                files = SpriteRender.ResolveSpFiles(rom, Level.Parse(rom, lvl).Header, lvl);
+            }
+            catch { continue; }
+            foreach (var s in sd.Sprites)
+            {
+                if (s.IsScrollCommand) continue;
+                if (!seen.TryGetValue(s.Number, out var sets))
+                    seen[s.Number] = sets = new[] { new HashSet<int>(), new HashSet<int>(), new HashSet<int>(), new HashSet<int>() };
+                for (int slot = 0; slot < 4; slot++) sets[slot].Add(files[slot]);
+            }
+        }
+
         var sb = new System.Text.StringBuilder();
         sb.AppendLine("{");
-        sb.AppendLine("  \"_source\": \"generated by --gen-spritedisplay from a clean SMW ROM; entries are [dx, dy, tile, attr, big] cell-relative OAM (CONTRACT 14)\",");
+        sb.AppendLine("  \"_source\": \"generated by --gen-spritedisplay from a clean SMW ROM; oam = [dx, dy, tile, attr, big] cell-relative (CONTRACT 14); req = per-SP-slot allowed GFX files, from scanning where each sprite appears in vanilla levels\",");
         sb.AppendLine("  \"sprites\": {");
         var nums = Enumerable.Range(0x00, 0xC9).Concat(new[] { 0xDA, 0xDB, 0xDC, 0xDD, 0xDF });
         bool first = true;
@@ -66,7 +118,16 @@ public static class SpriteDisplay
             if (!first) sb.AppendLine(",");
             first = false;
             var entries = string.Join(", ", oam.Select(o => $"[{o.X},{o.Y},{o.Tile},{o.Attr},{(o.Big ? 1 : 0)}]"));
-            sb.Append($"    \"{n:X2}\": [{entries}]");
+            sb.Append($"    \"{n:X2}\": {{ \"oam\": [{entries}]");
+            // A slot is required only if the sprite's tiles actually touch it.
+            var usedSlots = oam.Select(o => (o.Tile & 0x1FF) >> 7).Distinct().ToHashSet();
+            if (seen.TryGetValue(n, out var sets))
+            {
+                var parts = usedSlots.Where(sl => sets[sl].Count > 0).OrderBy(sl => sl)
+                    .Select(sl => $"\"{sl}\": [{string.Join(",", sets[sl].OrderBy(f => f))}]").ToList();
+                if (parts.Count > 0) sb.Append($", \"req\": {{ {string.Join(", ", parts)} }}");
+            }
+            sb.Append(" }");
         }
         sb.AppendLine();
         sb.AppendLine("  }");
