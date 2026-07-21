@@ -121,16 +121,17 @@ public static class Map16
     }
 
     /// <summary>
-    /// Tile a decoded BG image across the canvas (repeats every 2 screens). Tilemap screens
-    /// are 16x27 tiles (0x1B0 bytes/screen, same as layer 1) — NOT 16x32.
+    /// Tile a decoded BG image across the canvas (repeats every 2 screens horizontally AND
+    /// every 27 rows vertically — vertical levels tile the same image down the level, as the
+    /// game does). Tilemap screens are 16x27 tiles (0x1B0 bytes/screen) — NOT 16x32.
     /// </summary>
     public static void DrawBgImage(uint[] img, int W, int H, int gridW, ushort[] bgImg, uint[][] bgCache)
     {
-        for (int cy = 0; cy < Math.Min(27, H / 16); cy++)
+        for (int cy = 0; cy < H / 16; cy++)
             for (int cx = 0; cx < gridW; cx++)
             {
                 int within = cx & 0x1F;                          // 2-screen horizontal repeat
-                int idx = bgImg[(within / 16) * 0x1B0 + cy * 16 + (within & 0x0F)];
+                int idx = bgImg[(within / 16) * 0x1B0 + (cy % 27) * 16 + (within & 0x0F)];
                 uint[] tile = bgCache[idx & 0x1FF];
                 for (int y = 0; y < 16; y++)
                     for (int x = 0; x < 16; x++)
