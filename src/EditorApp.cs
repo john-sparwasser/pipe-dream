@@ -6,9 +6,12 @@ using ImGuiNET;
 namespace PipeDream;
 
 /// <summary>
-/// Skeleton editor shell: a Foster window driving the ImGui backend. No ROM logic yet —
-/// this exists to prove the framework layer (window + ImGui render chain) works, so the
-/// ROM decode pipeline (see reference/CONTRACT.md) has something to render into.
+/// Editor shell. Layout paradigm: one MAIN VIEW fills the window (the level, by default),
+/// with a hideable LEFT PALETTE that feeds it — what you pick in the palette is what you
+/// paint in the main view. For the level view the palette tabs are Map16 (default),
+/// Sprites, and Objects. Future main views (background editor, layer 3 editor, Map16
+/// editor) will swap into the same main region. Auxiliary inspectors (ROM info, GFX
+/// viewers) are floating windows behind the File/View menus.
 /// </summary>
 public class EditorApp : App
 {
@@ -52,6 +55,13 @@ public class EditorApp : App
     private Map16Grid? layer2Grid;   // layer-2 object layer, else null
     private SpriteData? sprites;     // sprite list for the overlay
     private bool showSprites = true;
+
+    // Layout state
+    private bool paletteVisible = true;
+    private bool showRomInfo;
+    private bool showGfxViewer;
+    private int selectedSprite = -1;
+    private int selectedObject = -1;
 
     // Undo/redo: each entry is one paint stroke (all cells changed during one mouse-down).
     private readonly List<List<(int x, int y, ushort before, ushort after)>> undoStack = new();
@@ -125,9 +135,6 @@ public class EditorApp : App
 
     private void DrawUI()
     {
-        // Full-window dockspace so future panels (level canvas, Map16, palette, sprites) can dock.
-        ImGui.DockSpaceOverViewport(ImGui.GetMainViewport(), ImGuiDockNodeFlags.PassthruCentralNode);
-
         if (ImGui.BeginMainMenuBar())
         {
             if (ImGui.BeginMenu("File"))
@@ -149,6 +156,8 @@ public class EditorApp : App
                 if (ImGui.MenuItem("Save DM16 edits to ROM copy", rom is not null && level is not null))
                     SaveEdits();
                 ImGui.Separator();
+                if (ImGui.MenuItem("ROM Info", "", showRomInfo)) showRomInfo = !showRomInfo;
+                ImGui.Separator();
                 if (ImGui.MenuItem("Exit")) Exit();
                 ImGui.EndMenu();
             }
@@ -160,10 +169,15 @@ public class EditorApp : App
             }
             if (ImGui.BeginMenu("View"))
             {
+                if (ImGui.MenuItem("Palette", "", paletteVisible)) paletteVisible = !paletteVisible;
+                ImGui.Separator();
                 if (ImGui.MenuItem("Sprite overlay", "", showSprites))
                 { showSprites = !showSprites; levelDirty = true; }
                 if (ImGui.MenuItem("Animate tiles", "", animateTiles))
                     animateTiles = !animateTiles;
+                ImGui.Separator();
+                if (ImGui.MenuItem("GFX Viewer", "", showGfxViewer)) showGfxViewer = !showGfxViewer;
+                if (ImGui.MenuItem("Level GFX", "", showLevelGfx)) showLevelGfx = !showLevelGfx;
                 ImGui.EndMenu();
             }
             ImGui.EndMainMenuBar();
@@ -180,37 +194,55 @@ public class EditorApp : App
             if (io.KeyShift) Redo(); else Undo();
         }
 
-        ImGui.Begin("ROM Info");
-        if (rom is null)
-        {
-            ImGui.TextDisabled("No ROM loaded.");
-            ImGui.TextDisabled("File → Open ROM to begin.");
-        }
-        else
-        {
-            ImGui.Text($"File: {loadedRomPath}");
-            ImGui.Text($"Copier header: {(rom.HeaderOffset != 0 ? "yes (0x200)" : "no")}");
-            ImGui.Text($"Title: '{rom.Title}'");
-            ImGui.Text($"Map mode: {rom.MapModeName} (0x{rom.MapMode:X2})");
-            ImGui.Text($"ROM size: {rom.ActualRomSize / 1024} KB on disk, {rom.DeclaredRomSize / 1024} KB declared");
-            ImGui.Text($"Checksum: 0x{rom.Checksum:X4} (compl 0x{rom.ChecksumComplement:X4})");
-            ImGui.Separator();
-            ImGui.Text($"Valid RATS tags: {ratCount}");
-        }
-        ImGui.End();
-
-
-        DrawLevelCanvas();
-        DrawMap16Sheet();
-        DrawGfxViewer();
+        DrawMainLayout();
+        if (showRomInfo) DrawRomInfo();
+        if (showGfxViewer) DrawGfxViewer();
         DrawLevelGfx();
     }
 
-    // The composed level: the Map16 grid rendered with real tile graphics.
-    private void DrawLevelCanvas()
+    // Fixed shell: left palette (hideable, resizable) + main view fill the whole work area.
+    private void DrawMainLayout()
     {
-        ImGui.Begin("Level");
-        if (rom is null) { ImGui.TextDisabled("No ROM loaded."); ImGui.End(); return; }
+        var vp = ImGui.GetMainViewport();
+        ImGui.SetNextWindowPos(vp.WorkPos);
+        ImGui.SetNextWindowSize(vp.WorkSize);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 0);
+        ImGui.PushStyleVar(ImGuiStyleVar.WindowPadding, new Vector2(4, 4));
+        ImGui.Begin("##shell", ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize |
+                               ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoCollapse |
+                               ImGuiWindowFlags.NoBringToFrontOnFocus | ImGuiWindowFlags.NoNavFocus |
+                               ImGuiWindowFlags.NoDocking);
+        ImGui.PopStyleVar(2);
+        if (paletteVisible)
+        {
+            ImGui.BeginChild("palette", new Vector2(320, 0),
+                             ImGuiChildFlags.ResizeX | ImGuiChildFlags.Border);
+            DrawPalette();
+            ImGui.EndChild();
+            ImGui.SameLine();
+        }
+        ImGui.BeginChild("mainview");
+        DrawLevelView();
+        ImGui.EndChild();
+        ImGui.End();
+    }
+
+    // The left palette: pickers that feed the main view. Tabs per palette kind.
+    private void DrawPalette()
+    {
+        if (ImGui.BeginTabBar("palettetabs"))
+        {
+            if (ImGui.BeginTabItem("Map16")) { DrawMap16Tab(); ImGui.EndTabItem(); }
+            if (ImGui.BeginTabItem("Sprites")) { DrawSpritesTab(); ImGui.EndTabItem(); }
+            if (ImGui.BeginTabItem("Objects")) { DrawObjectsTab(); ImGui.EndTabItem(); }
+            ImGui.EndTabBar();
+        }
+    }
+
+    // The main view: the composed level (Map16 grid with real tile graphics).
+    private void DrawLevelView()
+    {
+        if (rom is null) { ImGui.TextDisabled("No ROM loaded.  File → Open ROM to begin."); return; }
         ImGui.SetNextItemWidth(120);
         if (ImGui.InputInt($"Level (0x{levelNum:X3})", ref levelNum))
         {
@@ -221,7 +253,7 @@ public class EditorApp : App
         if (ImGui.Button("Reload")) ParseLevel();
         ImGui.SameLine();
         if (ImGui.Button("GFX")) showLevelGfx = !showLevelGfx;
-        if (levelTexs[0] is null || grid is null) { ImGui.TextDisabled("No level rendered."); ImGui.End(); return; }
+        if (levelTexs[0] is null || grid is null) { ImGui.TextDisabled("No level rendered."); return; }
         ImGui.SameLine();
         ImGui.Text($"—  left-click: place 0x{selectedMap16:X3}   right-click: erase");
         if (saveStatus.Length > 0) ImGui.TextDisabled(saveStatus);
@@ -261,7 +293,6 @@ public class EditorApp : App
             }
             ImGui.EndChild();
         }
-        ImGui.End();
     }
 
     private void PaintCell(int x, int y, int tile)
@@ -380,12 +411,11 @@ public class EditorApp : App
         catch { for (int p = 0; p < 4; p++) { levelTexs[p]?.Dispose(); levelTexs[p] = null; } }
     }
 
-    // The composed Map16 tile sheet — real SNES graphics for this level's tileset.
-    private void DrawMap16Sheet()
+    // Map16 palette tab: the composed tile sheet; click a tile to pick the paint brush.
+    private void DrawMap16Tab()
     {
-        ImGui.Begin("Map16 Tiles");
-        if (map16Texs[0] is null) { ImGui.TextDisabled("No level."); ImGui.End(); return; }
-        ImGui.Text($"Selected: 0x{selectedMap16:X3}   (click a tile to pick it, then paint on the level)");
+        if (map16Texs[0] is null) { ImGui.TextDisabled("No level."); return; }
+        ImGui.Text($"Selected: 0x{selectedMap16:X3}");
         if (ImGui.BeginChild("m16sheet", System.Numerics.Vector2.Zero, 0, ImGuiWindowFlags.HorizontalScrollbar))
         {
             SnapCursorToPixel();
@@ -403,6 +433,73 @@ public class EditorApp : App
             var stl = new Vector2(origin.X + (selectedMap16 % 16) * ts, origin.Y + (selectedMap16 / 16) * ts);
             ImGui.GetWindowDrawList().AddRect(stl, new Vector2(stl.X + ts, stl.Y + ts), 0xFF00FFFF, 0, 0, 2f);
             ImGui.EndChild();
+        }
+    }
+
+    // Sprites palette tab: the level's sprite list. Selection is groundwork for sprite
+    // placement editing later; today it's an inspector.
+    private void DrawSpritesTab()
+    {
+        if (sprites is null) { ImGui.TextDisabled("No level."); return; }
+        ImGui.Text($"{sprites.Sprites.Count} sprites   memory {sprites.SpriteMemory}  buoyancy {sprites.Buoyancy}");
+        if (ImGui.BeginChild("sprlist"))
+        {
+            bool vert = rom is not null && level is not null && rom.IsVerticalMode(level.Header.LevelMode);
+            for (int i = 0; i < sprites.Sprites.Count; i++)
+            {
+                var s = sprites.Sprites[i];
+                var (cx, cy) = s.Cell(vert);
+                string kind = s.IsScrollCommand ? " (scroll cmd)" : s.Number >= 0xC9 ? " (special)" : "";
+                if (ImGui.Selectable($"{s.Number:X2}  at ({cx,3},{cy,2})  extra {s.Extra}{kind}###spr{i}",
+                                     selectedSprite == i))
+                    selectedSprite = i;
+            }
+            ImGui.EndChild();
+        }
+    }
+
+    // Objects palette tab: the level's parsed object list. Selection is groundwork for
+    // object editing later; today it's an inspector.
+    private void DrawObjectsTab()
+    {
+        if (level is null) { ImGui.TextDisabled("No level."); return; }
+        ImGui.Text($"{level.Objects.Count} objects   tileset {level.Header.Tileset}");
+        if (ImGui.BeginChild("objlist"))
+        {
+            for (int i = 0; i < level.Objects.Count; i++)
+            {
+                var o = level.Objects[i];
+                string label = o.IsScreenExit ? $"exit -> {(o.ExtraByte >= 0 ? $"{o.ExtraByte:X2}" : "?")}"
+                    : o.IsDm16 ? $"DM16 0x{o.Dm16Tile:X3}"
+                    : o.Extended ? $"ext {o.ExtendedNumber:X2}"
+                    : $"obj {o.Number:X2}";
+                if (ImGui.Selectable($"{label}  scr {o.Screen:X2} at ({o.AbsoluteX,3},{o.Y,2})###obj{i}",
+                                     selectedObject == i))
+                    selectedObject = i;
+            }
+            ImGui.EndChild();
+        }
+    }
+
+    // ROM inspector, reachable from File → ROM Info.
+    private void DrawRomInfo()
+    {
+        if (!ImGui.Begin("ROM Info", ref showRomInfo)) { ImGui.End(); return; }
+        if (rom is null)
+        {
+            ImGui.TextDisabled("No ROM loaded.");
+            ImGui.TextDisabled("File → Open ROM to begin.");
+        }
+        else
+        {
+            ImGui.Text($"File: {loadedRomPath}");
+            ImGui.Text($"Copier header: {(rom.HeaderOffset != 0 ? "yes (0x200)" : "no")}");
+            ImGui.Text($"Title: '{rom.Title}'");
+            ImGui.Text($"Map mode: {rom.MapModeName} (0x{rom.MapMode:X2})");
+            ImGui.Text($"ROM size: {rom.ActualRomSize / 1024} KB on disk, {rom.DeclaredRomSize / 1024} KB declared");
+            ImGui.Text($"Checksum: 0x{rom.Checksum:X4} (compl 0x{rom.ChecksumComplement:X4})");
+            ImGui.Separator();
+            ImGui.Text($"Valid RATS tags: {ratCount}");
         }
         ImGui.End();
     }
