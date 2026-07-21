@@ -51,6 +51,7 @@ public static class SpriteRender
 
             cpu.PresetX(0); cpu.CallLong(0x07F7D2, 400_000);           // InitSpriteTables: tweaker + palette RAM
             r[0x14C8] = (byte)(s.Number >= 0xDA ? 9 : 1);              // status: shells stationary, else init
+            cpu.PresetDbr(1);                                          // sprite engine runs with DBR=1
 
             // Run frames through HandleSprite ($018127): it dispatches on status $14C8 —
             // 1 → CallSpriteInit, 8 → CallSpriteMain, 9/A/B → the stunned/kicked/carried

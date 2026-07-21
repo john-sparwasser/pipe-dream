@@ -30,9 +30,15 @@ public sealed class Cpu65816(Rom rom)
         return 0;
     }
 
+    /// <summary>Debug: when set, logs (PC, addr, value) for writes to $0200-$04FF.</summary>
+    public List<(int Pc, int Addr, byte V)>? OamLog;
+
     private void Write(int bank, int addr, byte v)
     {
         bank &= 0xFF; addr &= 0xFFFF;
+        if (OamLog is not null && addr is >= 0x200 and < 0x500 &&
+            (bank == 0x7E || bank < 0x40 || (bank >= 0x80 && bank < 0xC0)))
+            OamLog.Add(((PBR << 16) | PC, addr, v));
         if (bank == 0x7E) Ram7E[addr] = v;
         else if (bank == 0x7F) Ram7F[addr] = v;
         else if (addr < 0x2000 && (bank < 0x40 || (bank >= 0x80 && bank < 0xC0))) Ram7E[addr] = v;
@@ -95,6 +101,10 @@ public sealed class Cpu65816(Rom rom)
 
     /// <summary>Preset the X register (e.g. the sprite slot index) before a call.</summary>
     public void PresetX(int v) => X = v & 0xFF;
+
+    /// <summary>Preset the data bank register. Bank-1 sprite code runs with DBR=1 in-game
+    /// (PHK/PLB in the sprite loop); absolute table reads (SprTilemap etc.) depend on it.</summary>
+    public void PresetDbr(int b) => DBR = b & 0xFF;
 
     /// <summary>Run a JSR to <paramref name="entrySnes"/> until its top-level RTS. Throws on overrun.</summary>
     public void CallNear(int entrySnes, int maxInstructions = 30_000_000)

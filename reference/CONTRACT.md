@@ -607,6 +607,12 @@ $1A/$1C near the sprite):
    position re-pinned; first frame that yields OAM tiles wins. A frame that overruns the
    instruction budget (wait loops, e.g. castle fireball init) is skipped, not fatal.
 
+**DBR**: the sprite engine runs with **data bank = 1** in-game (PHK/PLB in the bank-1
+sprite loop). Absolute table reads — `SprTilemap` $019B83, `SprTilemapOffset` $019C7F,
+every bank-1 tile/anim table — silently read bank-0 garbage with DBR=0, producing
+"close but wrong" tiles (koopas one-tiled, shells drawing GFX00's P-switch). Preset
+DBR=1 before HandleSprite frames.
+
 **Mario seeding**: `SubHorizPos`/`SubVertPos` ($01AD30/$01AD42) read Mario from the
 **$D1-$D4 mirrors**, not $94-$97 — seed both. Mario is parked at sprite X **-0x140**:
 truly LEFT (Banzai Bill's init self-erases when Mario is to its right, $01838B; matches
