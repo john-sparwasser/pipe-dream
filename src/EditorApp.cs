@@ -63,6 +63,16 @@ public class EditorApp : App
     private int selectedSprite = -1;
     private int selectedObject = -1;
 
+    // LM-style editing: left-click/drag selects (grabs the tiles under the cursor as the
+    // brush), right-click stamps the brush, Delete erases the selection, Esc toggles
+    // between Layer 1 and sprite selection modes.
+    private enum EditMode { Layer1, Sprites }
+    private EditMode editMode = EditMode.Layer1;
+    private ushort[] brushTiles = { 0x100 };
+    private int brushW = 1, brushH = 1;
+    private (int x, int y, int w, int h)? selRect;   // last grab, for highlight + Delete
+    private (int x, int y)? dragStart, dragEnd;      // left-drag rubber band (cells)
+
     // Palette editor: CGRAM index -> edited BGR555, applied over the ROM palette while
     // rendering. In-session only for now (no ROM save path yet); cleared on level change.
     private readonly Dictionary<int, ushort> palEdits = new();
@@ -201,6 +211,13 @@ public class EditorApp : App
         {
             if (io.KeyShift) Redo(); else Undo();
         }
+        // Esc cycles Layer 1 <-> sprite selection (unless it's closing a popup).
+        if (!io.WantTextInput && ImGui.IsKeyPressed(ImGuiKey.Escape) &&
+            !ImGui.IsPopupOpen("", ImGuiPopupFlags.AnyPopupId | ImGuiPopupFlags.AnyPopupLevel))
+        {
+            editMode = editMode == EditMode.Layer1 ? EditMode.Sprites : EditMode.Layer1;
+            dragStart = null;
+        }
 
         DrawMainLayout();
         if (showRomInfo) DrawRomInfo();
@@ -269,7 +286,9 @@ public class EditorApp : App
         if (ImGui.Button("GFX")) showLevelGfx = !showLevelGfx;
         if (levelTexs[0] is null || grid is null) { ImGui.TextDisabled("No level rendered."); return; }
         ImGui.SameLine();
-        ImGui.Text($"—  left-click: place 0x{selectedMap16:X3}   right-click: erase");
+        ImGui.Text(editMode == EditMode.Layer1
+            ? $"—  Layer 1:  left: select/grab ({brushW}x{brushH} brush)   right: stamp   Del: erase   Esc: sprites"
+            : "—  Sprites:  left: select sprite   Esc: layer 1");
         if (saveStatus.Length > 0) ImGui.TextDisabled(saveStatus);
         // Horizontal levels scroll left/right with the wheel (Shift+wheel = vertical);
         // vertical levels keep the default up/down wheel.
@@ -293,17 +312,69 @@ public class EditorApp : App
             var origin = ImGui.GetCursorScreenPos();
             ImGui.Image(imgui!.GetTextureID(levelTexs[AnimPhase] ?? levelTexs[0]!), new Vector2(levelPxW * z, levelPxH * z));
             float cs = 16 * z;
+            var dl = ImGui.GetWindowDrawList();
+
+            // Persistent highlights: last selection (yellow) / selected sprite (green).
+            if (editMode == EditMode.Layer1 && selRect is { } sr)
+                dl.AddRect(new Vector2(origin.X + sr.x * cs, origin.Y + sr.y * cs),
+                           new Vector2(origin.X + (sr.x + sr.w) * cs, origin.Y + (sr.y + sr.h) * cs),
+                           0xFF00FFFF, 0, 0, 1.5f);
+            if (editMode == EditMode.Sprites && sprites is not null &&
+                selectedSprite >= 0 && selectedSprite < sprites.Sprites.Count)
+            {
+                var (sx, sy) = sprites.Sprites[selectedSprite].Cell(verticalLvl);
+                dl.AddRect(new Vector2(origin.X + sx * cs, origin.Y + sy * cs),
+                           new Vector2(origin.X + (sx + 1) * cs, origin.Y + (sy + 1) * cs),
+                           0xFF00FF00, 0, 0, 2f);
+            }
+
             if (ImGui.IsItemHovered())
             {
                 var m = ImGui.GetMousePos();
                 int cx = (int)((m.X - origin.X) / cs), cy = (int)((m.Y - origin.Y) / cs);
                 if (cx >= 0 && cx < grid.Width && cy >= 0 && cy < grid.Height)
                 {
-                    if (ImGui.IsMouseDown(ImGuiMouseButton.Left)) PaintCell(cx, cy, selectedMap16);
-                    else if (ImGui.IsMouseDown(ImGuiMouseButton.Right)) PaintCell(cx, cy, Map16Grid.Empty);
+                    if (editMode == EditMode.Layer1)
+                    {
+                        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left)) dragStart = dragEnd = (cx, cy);
+                        if (dragStart is not null && ImGui.IsMouseDown(ImGuiMouseButton.Left)) dragEnd = (cx, cy);
+                        if (ImGui.IsMouseDown(ImGuiMouseButton.Right)) StampBrush(cx, cy);
+                    }
+                    else if (sprites is not null && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+                    {
+                        selectedSprite = -1;
+                        for (int i = 0; i < sprites.Sprites.Count; i++)
+                            if (sprites.Sprites[i].Cell(verticalLvl) == (cx, cy)) { selectedSprite = i; break; }
+                    }
                     var tl = new Vector2(origin.X + cx * cs, origin.Y + cy * cs);
-                    ImGui.GetWindowDrawList().AddRect(tl, new Vector2(tl.X + cs, tl.Y + cs), 0xFFFFFFFF, 0, 0, 1.5f);
+                    dl.AddRect(tl, new Vector2(tl.X + cs, tl.Y + cs), 0xFFFFFFFF, 0, 0, 1.5f);
                 }
+            }
+
+            // Rubber band while dragging; grab the region as the brush on release.
+            if (dragStart is { } d0 && dragEnd is { } d1)
+            {
+                var (rx, ry, rw, rh) = (Math.Min(d0.x, d1.x), Math.Min(d0.y, d1.y),
+                                        Math.Abs(d1.x - d0.x) + 1, Math.Abs(d1.y - d0.y) + 1);
+                if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
+                    dl.AddRect(new Vector2(origin.X + rx * cs, origin.Y + ry * cs),
+                               new Vector2(origin.X + (rx + rw) * cs, origin.Y + (ry + rh) * cs),
+                               0xFF00FFFF, 0, 0, 1.5f);
+                else
+                {
+                    GrabSelection(rx, ry, rw, rh);
+                    dragStart = dragEnd = null;
+                }
+            }
+
+            // Delete erases the selected region (one undo step).
+            if (editMode == EditMode.Layer1 && selRect is { } er &&
+                !ImGui.GetIO().WantTextInput && ImGui.IsKeyPressed(ImGuiKey.Delete))
+            {
+                for (int y = er.y; y < er.y + er.h; y++)
+                    for (int x = er.x; x < er.x + er.w; x++)
+                        PaintCell(x, y, Map16Grid.Empty);
+                CommitStroke();
             }
             ImGui.EndChild();
         }
@@ -316,6 +387,35 @@ public class EditorApp : App
         currentStroke.Add((x, y, (ushort)before, (ushort)tile));
         grid.Set(x, y, tile);
         levelDirty = true;
+    }
+
+    // Copy a level region into the brush (LM-style: what you select is what you stamp).
+    // A 1x1 grab also syncs the Map16 palette selection.
+    private void GrabSelection(int x, int y, int w, int h)
+    {
+        if (grid is null) return;
+        selRect = (x, y, w, h);
+        brushW = w; brushH = h;
+        brushTiles = new ushort[w * h];
+        for (int j = 0; j < h; j++)
+            for (int i = 0; i < w; i++)
+                brushTiles[j * w + i] = (ushort)grid.Get(x + i, y + j);
+        if (w == 1 && h == 1 && brushTiles[0] != Map16Grid.Empty && (brushTiles[0] & ObjectEngine.Marker) == 0)
+            selectedMap16 = brushTiles[0];
+    }
+
+    // Stamp the brush with its top-left at the given cell (empty brush cells erase,
+    // faithful to a copied region). Runs on right-drag; PaintCell dedups no-ops and the
+    // stroke system groups the whole drag into one undo step.
+    private void StampBrush(int cx, int cy)
+    {
+        if (grid is null) return;
+        for (int j = 0; j < brushH; j++)
+            for (int i = 0; i < brushW; i++)
+            {
+                int x = cx + i, y = cy + j;
+                if (x < grid.Width && y < grid.Height) PaintCell(x, y, brushTiles[j * brushW + i]);
+            }
     }
 
     // A stroke ends when no paint button is held; committing makes it one undo step.
@@ -442,7 +542,13 @@ public class EditorApp : App
             {
                 var m = ImGui.GetMousePos();
                 int idx = (int)((m.Y - origin.Y) / ts) * 16 + (int)((m.X - origin.X) / ts);
-                if (idx >= 0 && idx < tileCount) selectedMap16 = idx;
+                if (idx >= 0 && idx < tileCount)
+                {
+                    selectedMap16 = idx;
+                    brushTiles = new[] { (ushort)idx };    // palette pick = 1x1 brush
+                    brushW = brushH = 1;
+                    selRect = null;
+                }
             }
             var stl = new Vector2(origin.X + (selectedMap16 % 16) * ts, origin.Y + (selectedMap16 / 16) * ts);
             ImGui.GetWindowDrawList().AddRect(stl, new Vector2(stl.X + ts, stl.Y + ts), 0xFF00FFFF, 0, 0, 2f);
