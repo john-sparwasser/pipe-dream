@@ -42,7 +42,9 @@ public class EditorApp : App
     private int levelPxW, levelPxH;
     private bool animateTiles = true;
     // Current animation phase: the game advances every 8 frames at 60fps (~133 ms).
-    private int AnimPhase => animateTiles ? (int)(ImGui.GetTime() / 0.1333) & 3 : 0;
+    // Wall-clock based (NOT ImGui.GetTime) — this is read outside the ImGui layout
+    // window, where no ImGui context is current and igGetTime crashes.
+    private int AnimPhase => animateTiles ? (int)(Environment.TickCount64 / 133) & 3 : 0;
 
     // Edit state
     private uint[][][]? tileCaches;  // [phase][map16 tile] composed 16x16 tiles
