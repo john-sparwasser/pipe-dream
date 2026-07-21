@@ -55,25 +55,33 @@ public static class SpriteRender
 
             // Run frames through HandleSprite ($018127): it dispatches on status $14C8 —
             // 1 → CallSpriteInit, 8 → CallSpriteMain, 9/A/B → the stunned/kicked/carried
-            // handlers that draw carryables (POW, springboard, shells). Some sprites draw
-            // nothing on their first frames (Monty Moles hide underground), so step frames
-            // — position pinned to the spawn cell — until tiles appear.
+            // handlers that draw carryables (POW, springboard, shells). $0180D2 first each
+            // frame: it assigns the real OAM index and decrements the sprite timers (turn
+            // animation $15AC etc. — without it, poses freeze on transitional frames).
+            // Keep the LAST frame that drew tiles: first-frame poses are often transient
+            // (stay-on-ledge walkers flip direction on frame 1 because the on-ground flag
+            // is stale, $018B98 — the 8-frame turn image only settles after that). Facing
+            // is pinned left each frame ($157C=1) for LM's editor-pose convention.
             //
             // OAM buffer $0200-$03FF (X,Y,tile,props per 4 bytes; sprites use the $0300 half).
             // Size table $0420-$049F: ONE byte per tile — FinishOAMWriteRt ($01B7BB) LSRs the
             // $0300-relative byte offset twice and indexes $0460, i.e. $0420 + entry index.
             // bit1 = 16x16; bit0 = 9th X bit, set when the tile hangs off the LEFT edge.
-            var list = new List<Oam>();
-            for (int frame = 0; frame < 16 && list.Count == 0; frame++)
+            List<Oam>? last = null;
+            for (int frame = 0; frame < 16; frame++)
             {
                 for (int i = 0; i < 0x200; i += 4) r[0x201 + i] = 0xF0;   // OAM Y offscreen
                 r[0x13]++; r[0x14]++;                                      // frame counters
                 r[0xE4] = (byte)wx; r[0x14E0] = (byte)(wx >> 8);
                 r[0xD8] = (byte)wy; r[0x14D4] = (byte)(wy >> 8);
+                r[0x157C] = 1;                                             // face left
                 // A frame stuck in a wait loop (e.g. fireball init spinning on state we
                 // don't emulate) overruns the budget; later frames still draw fine.
+                try { cpu.PresetX(0); cpu.CallNear(0x0180D2, 400_000); }
+                catch (InvalidOperationException) { }
                 try { cpu.PresetX(0); cpu.CallNear(0x018127, 400_000); }
                 catch (InvalidOperationException) { }
+                var list = new List<Oam>();
                 for (int i = 0; i < 0x80; i++)
                 {
                     int y = r[0x201 + i * 4];
@@ -83,8 +91,9 @@ public static class SpriteRender
                     int tile = r[0x202 + i * 4], attr = r[0x203 + i * 4];
                     list.Add(new Oam(x + bx, y + by, tile | ((attr & 1) << 8), attr, (sz & 2) != 0));
                 }
+                if (list.Count is > 0 and < 40) last = list;
             }
-            return list.Count is > 0 and < 40 ? list : null;
+            return last;
         }
         catch { return null; }
     }
