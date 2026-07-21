@@ -93,38 +93,27 @@ public sealed class SpriteData
     public void DrawOverlay(uint[] img, int W, int H, Rom? rom = null, LevelHeader? header = null, int level = -1,
                             Palette? palOverride = null)
     {
-        byte[][]? sp = null;
-        Palette? pal = null;
-        if (rom is not null && header is not null)
-        {
-            try { sp = SpriteRender.LoadSpTiles(rom, header.Value, level); pal = palOverride ?? Palette.Load(rom, header.Value, level); }
-            catch { sp = null; }
-        }
-        bool vert = rom is not null && header is not null && rom.IsVerticalMode(header.Value.LevelMode);
-        foreach (var s in Sprites)
-        {
-            var (cx, cy) = s.Cell(vert);
-            if (sp is not null && pal is not null && !s.IsScrollCommand
-                && SpriteRender.Capture(rom!, s, cx, cy, vert) is { } oam)
+        if (rom is null || header is null) { foreach (var s in Sprites) DrawBadge(img, W, H, s, false); return; }
+        var ov = SpriteOverlay.Build(rom, this, header.Value, level);
+        ov.Draw(img, W, H, palOverride ?? Palette.Load(rom, header.Value, level));
+    }
+
+    /// <summary>Badge marker (bordered box + hex number) at the sprite's cell.</summary>
+    internal static void DrawBadge(uint[] img, int W, int H, Sprite s, bool vert)
+    {
+        var (cx, cy) = s.Cell(vert);
+        int px = cx * 16, py = cy * 16;
+        if (px < 0 || py < 0 || px + 16 > W || py + 16 > H) return;
+        uint border = s.IsScrollCommand ? 0xFF00A0FFu : 0xFF00C000u;   // ABGR: orange / green
+        for (int y = 0; y < 16; y++)
+            for (int x = 0; x < 16; x++)
             {
-                SpriteRender.Draw(img, W, H, oam, sp, pal);
-                continue;
+                int i = (py + y) * W + (px + x);
+                // solid dark interior (idempotent: cached overlays redraw onto live canvases)
+                img[i] = y == 0 || y == 15 || x == 0 || x == 15 ? border : 0xFF303030u;
             }
-            int px = cx * 16, py = cy * 16;
-            if (px < 0 || py < 0 || px + 16 > W || py + 16 > H) continue;
-            uint border = s.IsScrollCommand ? 0xFF00A0FFu : 0xFF00C000u;   // ABGR: orange / green
-            for (int y = 0; y < 16; y++)
-                for (int x = 0; x < 16; x++)
-                {
-                    int i = (py + y) * W + (px + x);
-                    if (y == 0 || y == 15 || x == 0 || x == 15) { img[i] = border; continue; }
-                    // darken interior for contrast
-                    uint c = img[i];
-                    img[i] = 0xFF000000u | ((c >> 1) & 0x7F7F7F);
-                }
-            DrawHex(img, W, px + 3, py + 5, (s.Number >> 4) & 0xF);
-            DrawHex(img, W, px + 8, py + 5, s.Number & 0xF);
-        }
+        DrawHex(img, W, px + 3, py + 5, (s.Number >> 4) & 0xF);
+        DrawHex(img, W, px + 8, py + 5, s.Number & 0xF);
     }
 
     private static void DrawHex(uint[] img, int W, int px, int py, int digit)
@@ -134,6 +123,45 @@ public sealed class SpriteData
             int bits = FontRows[digit * 6 + r];
             for (int c = 0; c < 4; c++)
                 if ((bits & (8 >> c)) != 0) img[(py + r) * W + px + c] = 0xFFFFFFFFu;
+        }
+    }
+}
+
+/// <summary>
+/// Cached sprite overlay: the expensive part (per-sprite 65816 OAM capture + SP tile
+/// decode) runs once in Build; Draw is cheap pixel blits, safe to repeat on a live
+/// canvas (used by the editor on every incremental repaint).
+/// </summary>
+public sealed class SpriteOverlay
+{
+    private readonly (Sprite s, List<SpriteRender.Oam>? oam)[] items;
+    private readonly byte[][]? sp;
+    private readonly bool vert;
+
+    private SpriteOverlay((Sprite, List<SpriteRender.Oam>?)[] items, byte[][]? sp, bool vert)
+    { this.items = items; this.sp = sp; this.vert = vert; }
+
+    public static SpriteOverlay Build(Rom rom, SpriteData sprites, LevelHeader h, int level)
+    {
+        byte[][]? sp = null;
+        try { sp = SpriteRender.LoadSpTiles(rom, h, level); } catch { }
+        bool vert = rom.IsVerticalMode(h.LevelMode);
+        var items = new (Sprite, List<SpriteRender.Oam>?)[sprites.Sprites.Count];
+        for (int i = 0; i < items.Length; i++)
+        {
+            var s = sprites.Sprites[i];
+            var (cx, cy) = s.Cell(vert);
+            items[i] = (s, sp is null || s.IsScrollCommand ? null : SpriteRender.Capture(rom, s, cx, cy, vert));
+        }
+        return new SpriteOverlay(items, sp, vert);
+    }
+
+    public void Draw(uint[] img, int W, int H, Palette pal)
+    {
+        foreach (var (s, oam) in items)
+        {
+            if (oam is not null && sp is not null) SpriteRender.Draw(img, W, H, oam, sp, pal);
+            else SpriteData.DrawBadge(img, W, H, s, vert);
         }
     }
 }

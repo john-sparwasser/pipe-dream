@@ -54,7 +54,16 @@ public class EditorApp : App
     private uint[][][]? bgCaches;    // [phase] composed BG Map16 tiles for the background image
     private Map16Grid? layer2Grid;   // layer-2 object layer, else null
     private SpriteData? sprites;     // sprite list for the overlay
+    private SpriteOverlay? spriteOverlay;   // cached OAM captures; Draw() is cheap blits
     private bool showSprites = true;
+
+    // Incremental canvas: the 4 phase images stay in memory; edits recompose only the
+    // dirty cells and re-upload via Texture.SetData (non-visible phases refresh lazily
+    // when the animation flips to them). canvasFull forces the full compose path.
+    private readonly uint[]?[] canvasImgs = new uint[4][];
+    private readonly bool[] canvasStale = new bool[4];
+    private readonly HashSet<(int x, int y)> dirtyCells = new();
+    private bool canvasFull = true;
 
     // Layout state
     private bool paletteVisible = true;
@@ -137,7 +146,13 @@ public class EditorApp : App
         if (imgui is null) return;
 
         // Apply pending edits before layout so we never dispose a texture mid-frame.
-        if (levelDirty) { BuildLevelCanvas(); levelDirty = false; }
+        if (levelDirty)
+        {
+            if (!canvasFull && dirtyCells.Count > 0 && canvasImgs[0] is not null) ApplyDirtyCells();
+            else BuildLevelCanvas();
+            levelDirty = false;
+        }
+        RefreshPhaseTex(AnimPhase);   // lazy re-upload when the animation reaches a stale phase
 
         imgui.BeginLayout();
         DrawUI();
@@ -191,7 +206,7 @@ public class EditorApp : App
                 if (ImGui.MenuItem("Palette", "", paletteVisible)) paletteVisible = !paletteVisible;
                 ImGui.Separator();
                 if (ImGui.MenuItem("Sprite overlay", "", showSprites))
-                { showSprites = !showSprites; levelDirty = true; }
+                { showSprites = !showSprites; canvasFull = true; levelDirty = true; }
                 if (ImGui.MenuItem("Animate tiles", "", animateTiles))
                     animateTiles = !animateTiles;
                 ImGui.Separator();
@@ -453,6 +468,7 @@ public class EditorApp : App
         if (before == tile) return;
         currentStroke.Add((x, y, (ushort)before, (ushort)tile));
         grid.Set(x, y, tile);
+        dirtyCells.Add((x, y));
         levelDirty = true;
     }
 
@@ -501,7 +517,7 @@ public class EditorApp : App
         if (undoStack.Count == 0 || grid is null) return;
         var s = undoStack[^1];
         undoStack.RemoveAt(undoStack.Count - 1);
-        for (int i = s.Count - 1; i >= 0; i--) grid.Set(s[i].x, s[i].y, s[i].before);
+        for (int i = s.Count - 1; i >= 0; i--) { grid.Set(s[i].x, s[i].y, s[i].before); dirtyCells.Add((s[i].x, s[i].y)); }
         redoStack.Add(s);
         levelDirty = true;
     }
@@ -511,7 +527,7 @@ public class EditorApp : App
         if (redoStack.Count == 0 || grid is null) return;
         var s = redoStack[^1];
         redoStack.RemoveAt(redoStack.Count - 1);
-        foreach (var (x, y, _, after) in s) grid.Set(x, y, after);
+        foreach (var (x, y, _, after) in s) { grid.Set(x, y, after); dirtyCells.Add((x, y)); }
         undoStack.Add(s);
         levelDirty = true;
     }
@@ -574,8 +590,8 @@ public class EditorApp : App
 
     private void BuildLevelCanvas()
     {
-        for (int p = 0; p < 4; p++) { levelTexs[p]?.Dispose(); levelTexs[p] = null; }
-        if (tileCaches is null || grid is null) return;
+        dirtyCells.Clear(); canvasFull = false;
+        if (tileCaches is null || grid is null) { DropCanvas(); return; }
         try
         {
             int visRows = rom is not null && level is not null && rom.IsVerticalMode(level.Header.LevelMode)
@@ -583,13 +599,78 @@ public class EditorApp : App
             for (int p = 0; p < 4; p++)
             {
                 var (img, W, H) = Map16.ComposeLevel(tileCaches[p], backdropColor, grid, bgImage, bgCaches?[p], layer2Grid, visRows);
-                if (showSprites && rom is not null && level is not null)
-                    sprites?.DrawOverlay(img, W, H, rom, level.Header, levelNum, EditedPalette(p));
-                levelTexs[p] = new Texture(GraphicsDevice, W, H, MemoryMarshal.AsBytes(img.AsSpan()));
+                if (showSprites) spriteOverlay?.Draw(img, W, H, EditedPalette(p)!);
+                canvasImgs[p] = img;
+                // Reuse the texture when the size matches — creating 4 large textures per
+                // edit is a big part of repaint latency.
+                if (levelTexs[p] is { } t && t.Width == W && t.Height == H) t.SetData<uint>(img);
+                else { levelTexs[p]?.Dispose(); levelTexs[p] = new Texture(GraphicsDevice, W, H, MemoryMarshal.AsBytes(img.AsSpan())); }
+                canvasStale[p] = false;
                 levelPxW = W; levelPxH = H;
             }
         }
-        catch { for (int p = 0; p < 4; p++) { levelTexs[p]?.Dispose(); levelTexs[p] = null; } }
+        catch { DropCanvas(); }
+    }
+
+    private void DropCanvas()
+    {
+        for (int p = 0; p < 4; p++) { levelTexs[p]?.Dispose(); levelTexs[p] = null; canvasImgs[p] = null; }
+    }
+
+    // Incremental repaint: recompose only the edited cells into the persistent phase
+    // images, re-blit the cached sprite overlay (idempotent), and upload the visible
+    // phase now — the other three refresh when the animation reaches them.
+    private void ApplyDirtyCells()
+    {
+        if (grid is null || tileCaches is null || canvasImgs[0] is null) { BuildLevelCanvas(); return; }
+        int W = levelPxW, H = levelPxH;
+        for (int p = 0; p < 4; p++)
+        {
+            var img = canvasImgs[p]!;
+            foreach (var (cx, cy) in dirtyCells) ComposeCellInto(img, W, H, tileCaches[p], p, cx, cy);
+            if (showSprites) spriteOverlay?.Draw(img, W, H, EditedPalette(p)!);
+            canvasStale[p] = true;
+        }
+        dirtyCells.Clear();
+        RefreshPhaseTex(AnimPhase);
+    }
+
+    private void RefreshPhaseTex(int p)
+    {
+        if (canvasStale[p] && levelTexs[p] is { } t && canvasImgs[p] is { } img)
+        { t.SetData<uint>(img); canvasStale[p] = false; }
+    }
+
+    // One cell of Map16.ComposeLevel's layering: backdrop → BG image (or layer 2) → layer 1.
+    private void ComposeCellInto(uint[] img, int W, int H, uint[][] cache, int phase, int cx, int cy)
+    {
+        int px = cx * 16, py = cy * 16;
+        if (px < 0 || py < 0 || px + 16 > W || py + 16 > H) return;
+        for (int y = 0; y < 16; y++)
+            for (int x = 0; x < 16; x++) img[(py + y) * W + (px + x)] = backdropColor;
+        if (bgImage is not null && bgCaches is not null)
+        {
+            int within = cx & 0x1F;                          // 2-screen horizontal repeat
+            int idx = bgImage[(within / 16) * 0x1B0 + (cy % 27) * 16 + (within & 0x0F)];
+            var t = bgCaches[phase][idx & 0x1FF];
+            for (int y = 0; y < 16; y++)
+                for (int x = 0; x < 16; x++)
+                { uint c = t[y * 16 + x]; if (c != 0) img[(py + y) * W + (px + x)] = c; }
+        }
+        else if (layer2Grid is not null) DrawCellTile(img, W, layer2Grid.Get(cx, cy), cache, px, py);
+        DrawCellTile(img, W, grid!.Get(cx, cy), cache, px, py);
+    }
+
+    private static void DrawCellTile(uint[] img, int W, int t, uint[][] cache, int px, int py)
+    {
+        if (t == Map16Grid.Empty) return;
+        uint[]? tile = (t & ObjectEngine.Marker) != 0 || t >= cache.Length ? null : cache[t];
+        for (int y = 0; y < 16; y++)
+            for (int x = 0; x < 16; x++)
+            {
+                uint c = tile is null ? 0xFFFF00FFu : tile[y * 16 + x];
+                if (c != 0) img[(py + y) * W + (px + x)] = c;
+            }
     }
 
     // Map16 palette tab: the composed tile sheet; click a tile to pick the paint brush.
@@ -902,6 +983,10 @@ public class EditorApp : App
             layer2Grid = rom is not null && level is not null
                 ? ObjectEngine.RenderLayer2(rom, level.Header, levelNum) : null;
             sprites = rom is not null && level is not null ? SpriteData.Parse(rom, levelNum) : null;
+            // Run the expensive OAM captures once per parse; repaints just re-blit.
+            spriteOverlay = rom is not null && level is not null && sprites is not null
+                ? SpriteOverlay.Build(rom, sprites, level.Header, levelNum) : null;
+            canvasFull = true;
             RebuildGraphics();
         }
         catch { level = null; grid = null; tileCaches = null; }
