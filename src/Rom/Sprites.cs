@@ -90,13 +90,14 @@ public sealed class SpriteData
     /// Draw sprites with their real graphics (OAM capture via emulation, CONTRACT §14);
     /// badge markers for scroll commands and sprites whose routines can't be captured.
     /// </summary>
-    public void DrawOverlay(uint[] img, int W, int H, Rom? rom = null, LevelHeader? header = null, int level = -1)
+    public void DrawOverlay(uint[] img, int W, int H, Rom? rom = null, LevelHeader? header = null, int level = -1,
+                            Palette? palOverride = null)
     {
         byte[][]? sp = null;
         Palette? pal = null;
         if (rom is not null && header is not null)
         {
-            try { sp = SpriteRender.LoadSpTiles(rom, header.Value, level); pal = Palette.Load(rom, header.Value, level); }
+            try { sp = SpriteRender.LoadSpTiles(rom, header.Value, level); pal = palOverride ?? Palette.Load(rom, header.Value, level); }
             catch { sp = null; }
         }
         bool vert = rom is not null && header is not null && rom.IsVerticalMode(header.Value.LevelMode);

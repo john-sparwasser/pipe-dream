@@ -63,6 +63,12 @@ public class EditorApp : App
     private int selectedSprite = -1;
     private int selectedObject = -1;
 
+    // Palette editor: CGRAM index -> edited BGR555, applied over the ROM palette while
+    // rendering. In-session only for now (no ROM save path yet); cleared on level change.
+    private readonly Dictionary<int, ushort> palEdits = new();
+    private int palEditsLevel = -1;
+    private int palDirtyRebuild = -1;   // swatch whose picker changed; rebuild when its popup closes
+
     // Undo/redo: each entry is one paint stroke (all cells changed during one mouse-down).
     private readonly List<List<(int x, int y, ushort before, ushort after)>> undoStack = new();
     private readonly List<List<(int x, int y, ushort before, ushort after)>> redoStack = new();
@@ -235,6 +241,7 @@ public class EditorApp : App
             if (ImGui.BeginTabItem("Map16")) { DrawMap16Tab(); ImGui.EndTabItem(); }
             if (ImGui.BeginTabItem("Sprites")) { DrawSpritesTab(); ImGui.EndTabItem(); }
             if (ImGui.BeginTabItem("Objects")) { DrawObjectsTab(); ImGui.EndTabItem(); }
+            if (ImGui.BeginTabItem("Palette")) { DrawPaletteTab(); ImGui.EndTabItem(); }
             ImGui.EndTabBar();
         }
     }
@@ -403,7 +410,7 @@ public class EditorApp : App
             {
                 var (img, W, H) = Map16.ComposeLevel(tileCaches[p], backdropColor, grid, bgImage, bgCaches?[p], layer2Grid, visRows);
                 if (showSprites && rom is not null && level is not null)
-                    sprites?.DrawOverlay(img, W, H, rom, level.Header, levelNum);
+                    sprites?.DrawOverlay(img, W, H, rom, level.Header, levelNum, EditedPalette(p));
                 levelTexs[p] = new Texture(GraphicsDevice, W, H, MemoryMarshal.AsBytes(img.AsSpan()));
                 levelPxW = W; levelPxH = H;
             }
@@ -479,6 +486,63 @@ public class EditorApp : App
             }
             ImGui.EndChild();
         }
+    }
+
+    // Palette tab: the level's 256-color CGRAM as a 16x16 swatch grid. Click a swatch to
+    // edit the color (quantized to SNES BGR555); the level re-renders when the picker
+    // closes. Edits are session-only until a save path exists (LM custom palette, §7e).
+    private void DrawPaletteTab()
+    {
+        if (rom is null || level is null) { ImGui.TextDisabled("No level."); return; }
+        var pal = EditedPalette(0)!;
+        ImGui.Text($"CGRAM — rows 0-7 BG/FG, 8-F sprites.  {palEdits.Count} edit(s)");
+        if (palEdits.Count > 0)
+        {
+            ImGui.SameLine();
+            if (ImGui.SmallButton("Reset")) { palEdits.Clear(); RebuildGraphics(); }
+        }
+        ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, new Vector2(2, 2));
+        float sw = MathF.Max(10, MathF.Floor((ImGui.GetContentRegionAvail().X - 15 * 2) / 16));
+        for (int i = 0; i < 256; i++)
+        {
+            if ((i & 15) != 0) ImGui.SameLine();
+            uint c = pal.Rgba[i];
+            var v = new Vector4((c & 0xFF) / 255f, ((c >> 8) & 0xFF) / 255f, ((c >> 16) & 0xFF) / 255f, 1f);
+            if (ImGui.ColorButton($"##pal{i}", v,
+                    ImGuiColorEditFlags.NoAlpha | ImGuiColorEditFlags.NoTooltip, new Vector2(sw, sw)))
+                ImGui.OpenPopup($"palpick{i}");
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip($"0x{i:X2}  row {i >> 4} color {i & 15}  BGR555 {pal.Bgr[i]:X4}" +
+                                 (palEdits.ContainsKey(i) ? "  (edited)" : ""));
+            if (ImGui.BeginPopup($"palpick{i}"))
+            {
+                var v3 = new Vector3(v.X, v.Y, v.Z);
+                if (ImGui.ColorPicker3($"0x{i:X2}##pick{i}", ref v3,
+                        ImGuiColorEditFlags.NoSidePreview | ImGuiColorEditFlags.NoSmallPreview))
+                {
+                    ushort bgr = (ushort)(((int)(v3.Z * 31 + .5f) << 10) |
+                                          ((int)(v3.Y * 31 + .5f) << 5) |
+                                           (int)(v3.X * 31 + .5f));
+                    if (pal.Bgr[i] != bgr) { palEdits[i] = bgr; palDirtyRebuild = i; }
+                }
+                ImGui.EndPopup();
+            }
+            else if (palDirtyRebuild == i)
+            {
+                palDirtyRebuild = -1;
+                RebuildGraphics();      // picker closed: re-render with the edited palette
+            }
+        }
+        ImGui.PopStyleVar();
+    }
+
+    // The level palette with the editor tab's session edits applied on top.
+    private Palette? EditedPalette(int phase)
+    {
+        if (rom is null || level is null) return null;
+        var p = Palette.Load(rom, level.Header, levelNum, phase);
+        foreach (var (i, c) in palEdits) { p.Bgr[i] = c; p.Rgba[i] = Palette.ToRgba(c); }
+        return p;
     }
 
     // ROM inspector, reachable from File → ROM Info.
@@ -623,30 +687,35 @@ public class EditorApp : App
             baseGrid = grid?.Clone();          // snapshot to diff edits against on save
             undoStack.Clear(); redoStack.Clear(); currentStroke = new();   // new grid = new history
             levelGfxKey = -1;                                              // refresh Level GFX window
-            if (rom is not null && level is not null)
-            {
-                tileCaches = new uint[4][][];
-                for (int p = 0; p < 4; p++)
-                    tileCaches[p] = Map16.ComposeAll(rom, level.Header, levelNum, p);
-            }
-            else tileCaches = null;
-            backdropColor = rom is not null && level is not null ? Palette.Load(rom, level.Header, levelNum).Rgba[0] : 0;
+            if (levelNum != palEditsLevel) { palEdits.Clear(); palEditsLevel = levelNum; }
             // Layer 2: background image or object layer, drawn behind layer 1.
             bgImage = rom is not null && level is not null ? Level.DecodeBgImage(rom, levelNum) : null;
-            if (bgImage is not null)
-            {
-                bgCaches = new uint[4][][];
-                for (int p = 0; p < 4; p++)
-                    bgCaches[p] = Map16.ComposeAllBg(rom!, level!.Header, levelNum, p);
-            }
-            else bgCaches = null;
             layer2Grid = rom is not null && level is not null
                 ? ObjectEngine.RenderLayer2(rom, level.Header, levelNum) : null;
             sprites = rom is not null && level is not null ? SpriteData.Parse(rom, levelNum) : null;
-            BuildMap16Sheet();
-            BuildLevelCanvas();
+            RebuildGraphics();
         }
         catch { level = null; grid = null; tileCaches = null; }
+    }
+
+    // Recompose everything palette-dependent (tile caches, sheet, canvas) without
+    // reparsing the level — so palette edits don't reset the grid or undo history.
+    private void RebuildGraphics()
+    {
+        if (rom is null || level is null) { tileCaches = null; bgCaches = null; return; }
+        tileCaches = new uint[4][][];
+        for (int p = 0; p < 4; p++)
+            tileCaches[p] = Map16.ComposeAll(rom, level.Header, levelNum, p, EditedPalette(p));
+        backdropColor = EditedPalette(0)!.Rgba[0];
+        if (bgImage is not null)
+        {
+            bgCaches = new uint[4][][];
+            for (int p = 0; p < 4; p++)
+                bgCaches[p] = Map16.ComposeAllBg(rom, level.Header, levelNum, p, EditedPalette(p));
+        }
+        else bgCaches = null;
+        BuildMap16Sheet();
+        BuildLevelCanvas();
     }
 
     private void LoadRom(string path)
