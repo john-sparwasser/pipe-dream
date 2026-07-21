@@ -736,7 +736,7 @@ public class EditorApp : App
                                 new Vector2(1, (float)(i + 1) / catNumbers.Length));
                     ImGui.SameLine();
                 }
-                if (ImGui.Selectable($"{num:X2}{(loaded ? "" : "  (GFX not loaded)")}###cat{num}",
+                if (ImGui.Selectable($"{num:X2}  {SpriteDisplay.NameOf(num)}{(loaded ? "" : "  (GFX not loaded)")}###cat{num}",
                                      selectedCatalog == num, ImGuiSelectableFlags.None, new Vector2(0, 32)))
                     selectedCatalog = num;
             }

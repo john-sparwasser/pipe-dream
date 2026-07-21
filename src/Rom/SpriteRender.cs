@@ -9,6 +9,9 @@ public static class SpriteRender
 {
     public readonly record struct Oam(int X, int Y, int Tile, int Attr, bool Big);
 
+    /// <summary>Tweaker $1662 (clipping) of the last Capture — generator side channel.</summary>
+    public static byte LastClip1662 { get; private set; }
+
     public static List<Oam>? Capture(Rom rom, Sprite s, int cellX = -1, int cellY = -1,
                                      bool vertical = false)
     {
@@ -73,6 +76,7 @@ public static class SpriteRender
             }
 
             cpu.PresetX(0); cpu.CallLong(0x07F7D2, 400_000);           // InitSpriteTables: tweaker + palette RAM
+            LastClip1662 = r[0x1662];                                  // clipping tweaker, for hitbox derivation
             r[0x14C8] = (byte)(s.Number >= 0xDA ? 9 : 1);              // status: shells stationary, else init
             cpu.PresetDbr(1);                                          // sprite engine runs with DBR=1
 
