@@ -355,8 +355,21 @@ public class EditorApp : App
                         for (int i = 0; i < sprites.Sprites.Count; i++)
                             if (sprites.Sprites[i].Cell(verticalLvl) == (cx, cy)) { selectedSprite = i; break; }
                     }
-                    var tl = new Vector2(origin.X + cx * cs, origin.Y + cy * cs);
-                    dl.AddRect(tl, new Vector2(tl.X + cs, tl.Y + cs), 0xFFFFFFFF, 0, 0, 1.5f);
+                    // Inside the selection: highlight it and show a hand cursor (it's grabbable).
+                    bool overSel = editMode == EditMode.Layer1 && selRect is { } hr &&
+                                   cx >= hr.x && cx < hr.x + hr.w && cy >= hr.y && cy < hr.y + hr.h;
+                    if (overSel && selRect is { } hr2)
+                    {
+                        ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+                        dl.AddRectFilled(new Vector2(origin.X + hr2.x * cs, origin.Y + hr2.y * cs),
+                                         new Vector2(origin.X + (hr2.x + hr2.w) * cs, origin.Y + (hr2.y + hr2.h) * cs),
+                                         0x3000FFFFu);
+                    }
+                    else
+                    {
+                        var tl = new Vector2(origin.X + cx * cs, origin.Y + cy * cs);
+                        dl.AddRect(tl, new Vector2(tl.X + cs, tl.Y + cs), 0xFFFFFFFF, 0, 0, 1.5f);
+                    }
                 }
             }
 
@@ -385,6 +398,7 @@ public class EditorApp : App
                 int dy = Math.Clamp(mr.y + cur.y - anchor.y, 0, grid.Height - mr.h);
                 if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
                 {
+                    ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
                     var sheetTex = map16Texs[AnimPhase] ?? map16Texs[0];
                     int tileCount = tileCaches?[0].Length ?? 0;
                     for (int j = 0; j < mr.h && sheetTex is not null; j++)

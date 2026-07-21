@@ -237,8 +237,35 @@ public class ImGuiLayer : IDisposable
     public void EndLayout()
     {
         Debug.Assert(ImGui.GetCurrentContext() == context);
+        ApplyMouseCursor();
         ImGui.Render();
         ImGui.SetCurrentContext(nint.Zero);
+    }
+
+    // Apply ImGui's requested cursor (SetMouseCursor / hovered widgets) to the OS cursor.
+    private readonly Dictionary<Cursor.SystemTypes, Cursor> cursorCache = new();
+    private ImGuiMouseCursor lastCursor = ImGuiMouseCursor.Arrow;
+
+    private void ApplyMouseCursor()
+    {
+        var want = ImGui.GetMouseCursor();
+        if (want == lastCursor) return;
+        lastCursor = want;
+        var sys = want switch
+        {
+            ImGuiMouseCursor.TextInput => Cursor.SystemTypes.Text,
+            ImGuiMouseCursor.ResizeAll => Cursor.SystemTypes.Move,
+            ImGuiMouseCursor.ResizeNS => Cursor.SystemTypes.ResizeVertical,
+            ImGuiMouseCursor.ResizeEW => Cursor.SystemTypes.ResizeHorizontal,
+            ImGuiMouseCursor.ResizeNESW => Cursor.SystemTypes.ResizeNESW,
+            ImGuiMouseCursor.ResizeNWSE => Cursor.SystemTypes.ResizeNWSE,
+            ImGuiMouseCursor.Hand => Cursor.SystemTypes.Pointer,
+            ImGuiMouseCursor.NotAllowed => Cursor.SystemTypes.NotAllowed,
+            _ => Cursor.SystemTypes.Default,
+        };
+        if (!cursorCache.TryGetValue(sys, out var cur))
+            cursorCache[sys] = cur = new Cursor(sys);
+        app.Window.SetMouseCursor(cur);
     }
 
     public bool BeginBatch(out Batcher batch, out Rect bounds)
@@ -386,6 +413,8 @@ public class ImGuiLayer : IDisposable
     public void Dispose()
     {
         GC.SuppressFinalize(this);
+        foreach (var c in cursorCache.Values) c.Dispose();
+        cursorCache.Clear();
         ImGui.DestroyContext(context);
     }
 }
