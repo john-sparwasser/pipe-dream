@@ -72,6 +72,7 @@ public class EditorApp : App
     private int brushW = 1, brushH = 1;
     private (int x, int y, int w, int h)? selRect;   // last grab, for highlight + Delete
     private (int x, int y)? dragStart, dragEnd;      // left-drag rubber band (cells)
+    private (int x, int y)? moveDrag;                // anchor cell: dragging the selection moves it
 
     // Palette editor: CGRAM index -> edited BGR555, applied over the ROM palette while
     // rendering. In-session only for now (no ROM save path yet); cleared on level change.
@@ -216,7 +217,7 @@ public class EditorApp : App
             !ImGui.IsPopupOpen("", ImGuiPopupFlags.AnyPopupId | ImGuiPopupFlags.AnyPopupLevel))
         {
             editMode = editMode == EditMode.Layer1 ? EditMode.Sprites : EditMode.Layer1;
-            dragStart = null;
+            dragStart = null; moveDrag = null;
         }
 
         DrawMainLayout();
@@ -287,7 +288,7 @@ public class EditorApp : App
         if (levelTexs[0] is null || grid is null) { ImGui.TextDisabled("No level rendered."); return; }
         ImGui.SameLine();
         ImGui.Text(editMode == EditMode.Layer1
-            ? $"—  Layer 1:  left: select/grab ({brushW}x{brushH} brush)   right: stamp   Del: erase   Esc: sprites"
+            ? $"—  Layer 1:  left: select/grab ({brushW}x{brushH})   drag selection: move   right: stamp   Del: erase   Esc: sprites"
             : "—  Sprites:  left: select sprite   Esc: layer 1");
         if (saveStatus.Length > 0) ImGui.TextDisabled(saveStatus);
         // Horizontal levels scroll left/right with the wheel (Shift+wheel = vertical);
@@ -336,8 +337,16 @@ public class EditorApp : App
                 {
                     if (editMode == EditMode.Layer1)
                     {
-                        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left)) dragStart = dragEnd = (cx, cy);
+                        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+                        {
+                            // Click inside the selection drags it (move); outside starts a new one.
+                            if (selRect is { } r && cx >= r.x && cx < r.x + r.w && cy >= r.y && cy < r.y + r.h)
+                                moveDrag = (cx, cy);
+                            else
+                                dragStart = dragEnd = (cx, cy);
+                        }
                         if (dragStart is not null && ImGui.IsMouseDown(ImGuiMouseButton.Left)) dragEnd = (cx, cy);
+                        if (moveDrag is not null && ImGui.IsMouseDown(ImGuiMouseButton.Left)) dragEnd = (cx, cy);
                         if (ImGui.IsMouseDown(ImGuiMouseButton.Right)) StampBrush(cx, cy);
                     }
                     else if (sprites is not null && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
@@ -364,6 +373,50 @@ public class EditorApp : App
                 {
                     GrabSelection(rx, ry, rw, rh);
                     dragStart = dragEnd = null;
+                }
+            }
+
+            // Selection move: dragging from inside the selection carries its contents —
+            // ghost tiles (drawn from the Map16 sheet texture) preview the drop; on
+            // release the source is erased and the region stamped as ONE undo step.
+            if (moveDrag is { } anchor && selRect is { } mr && dragEnd is { } cur)
+            {
+                int dx = Math.Clamp(mr.x + cur.x - anchor.x, 0, grid.Width - mr.w);
+                int dy = Math.Clamp(mr.y + cur.y - anchor.y, 0, grid.Height - mr.h);
+                if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
+                {
+                    var sheetTex = map16Texs[AnimPhase] ?? map16Texs[0];
+                    int tileCount = tileCaches?[0].Length ?? 0;
+                    for (int j = 0; j < mr.h && sheetTex is not null; j++)
+                        for (int i = 0; i < mr.w; i++)
+                        {
+                            int t = brushTiles[j * mr.w + i];
+                            if (t == Map16Grid.Empty || (t & ObjectEngine.Marker) != 0 || t >= tileCount)
+                                continue;
+                            var p0 = new Vector2(origin.X + (dx + i) * cs, origin.Y + (dy + j) * cs);
+                            var uv0 = new Vector2((t % 16) * 16f / map16W, (t / 16) * 16f / map16H);
+                            var uv1 = new Vector2(uv0.X + 16f / map16W, uv0.Y + 16f / map16H);
+                            dl.AddImage(imgui!.GetTextureID(sheetTex), p0,
+                                        new Vector2(p0.X + cs, p0.Y + cs), uv0, uv1, 0xC0FFFFFFu);
+                        }
+                    dl.AddRect(new Vector2(origin.X + dx * cs, origin.Y + dy * cs),
+                               new Vector2(origin.X + (dx + mr.w) * cs, origin.Y + (dy + mr.h) * cs),
+                               0xFF00FFFF, 0, 0, 1.5f);
+                }
+                else
+                {
+                    if (dx != mr.x || dy != mr.y)
+                    {
+                        for (int y = mr.y; y < mr.y + mr.h; y++)
+                            for (int x = mr.x; x < mr.x + mr.w; x++)
+                                PaintCell(x, y, Map16Grid.Empty);
+                        for (int j = 0; j < mr.h; j++)
+                            for (int i = 0; i < mr.w; i++)
+                                PaintCell(dx + i, dy + j, brushTiles[j * mr.w + i]);
+                        CommitStroke();
+                        selRect = (dx, dy, mr.w, mr.h);
+                    }
+                    moveDrag = null; dragEnd = null;
                 }
             }
 
