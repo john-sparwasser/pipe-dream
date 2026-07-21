@@ -9,7 +9,8 @@ public static class SpriteRender
 {
     public readonly record struct Oam(int X, int Y, int Tile, int Attr, bool Big);
 
-    public static List<Oam>? Capture(Rom rom, Sprite s, int cellX = -1, int cellY = -1)
+    public static List<Oam>? Capture(Rom rom, Sprite s, int cellX = -1, int cellY = -1,
+                                     bool vertical = false)
     {
         // Sprite-list number classes ($02A866-$02A8D8): C9-CA shooters, CB-D9 generators,
         // DE/E0-E6 multi-sprite specials, E7+ scroll commands — none are in the 00-C8
@@ -49,6 +50,28 @@ public static class SpriteRender
             r[0x187B] = (byte)s.Extra;                                 // LM extra bits
             r[0x190F] = 0; r[0x9D] = 0;                                // sprites not locked
 
+            // Solid ground (Map16 $130) a few rows below the sprite, level-wide, plus
+            // $5D screens-in-level — the block probe ($019441) treats any position whose
+            // screen number >= $5D as "no blocks", so unseeded NOTHING is ever solid:
+            // walkers then run their in-air path (2px/frame gravity sag, stay-on-ledge
+            // direction flip, walk animation frozen at the standing pose). $C800 layout
+            // verified against the probe's pointer tables DATA_00BA60/BA9C (horizontal:
+            // screen*$1B0, rows 16+ at +$100) and BA80/BABC (vertical: band*$200, right
+            // half at +$100).
+            r[0x5D] = 0x20;
+            int cy2 = wy / 16;
+            for (int gy = cy2 + 1; gy <= cy2 + 4; gy++)
+            {
+                if (!vertical && gy > 26) break;
+                for (int gx = 0; gx < (vertical ? 32 : 512); gx++)
+                {
+                    int a = vertical
+                        ? 0xC800 + (gy >> 4) * 0x200 + (gy & 15) * 16 + (gx & 15) + (gx >= 16 ? 0x100 : 0)
+                        : 0xC800 + (gx >> 4) * 0x1B0 + (gy < 16 ? gy * 16 : 0x100 + (gy - 16) * 16) + (gx & 15);
+                    if (a >= 0xC800 && a < 0x10000) { r[a] = 0x30; cpu.Ram7F[a] = 0x01; }
+                }
+            }
+
             cpu.PresetX(0); cpu.CallLong(0x07F7D2, 400_000);           // InitSpriteTables: tweaker + palette RAM
             r[0x14C8] = (byte)(s.Number >= 0xDA ? 9 : 1);              // status: shells stationary, else init
             cpu.PresetDbr(1);                                          // sprite engine runs with DBR=1
@@ -67,8 +90,11 @@ public static class SpriteRender
             // Size table $0420-$049F: ONE byte per tile — FinishOAMWriteRt ($01B7BB) LSRs the
             // $0300-relative byte offset twice and indexes $0460, i.e. $0420 + entry index.
             // bit1 = 16x16; bit0 = 9th X bit, set when the tile hangs off the LEFT edge.
+            // 11 frames: walkers alternate walk poses every 8 frames after landing
+            // (frames 3-10 = the mid-stride image) — the last frame lands on the
+            // stride, matching LM's walking editor pose.
             List<Oam>? last = null;
-            for (int frame = 0; frame < 16; frame++)
+            for (int frame = 0; frame < 11; frame++)
             {
                 for (int i = 0; i < 0x200; i += 4) r[0x201 + i] = 0xF0;   // OAM Y offscreen
                 r[0x13]++; r[0x14]++;                                      // frame counters

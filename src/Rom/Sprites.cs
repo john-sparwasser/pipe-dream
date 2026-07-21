@@ -104,7 +104,7 @@ public sealed class SpriteData
         {
             var (cx, cy) = s.Cell(vert);
             if (sp is not null && pal is not null && !s.IsScrollCommand
-                && SpriteRender.Capture(rom!, s, cx, cy) is { } oam)
+                && SpriteRender.Capture(rom!, s, cx, cy, vert) is { } oam)
             {
                 SpriteRender.Draw(img, W, H, oam, sp, pal);
                 continue;

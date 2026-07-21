@@ -613,6 +613,15 @@ every bank-1 tile/anim table — silently read bank-0 garbage with DBR=0, produc
 "close but wrong" tiles (koopas one-tiled, shells drawing GFX00's P-switch). Preset
 DBR=1 before HandleSprite frames.
 
+**Ground seeding**: the sprite block probe ($019441) treats any position whose screen
+number >= **$5D (screens in level)** as "no blocks" — unseeded, nothing is ever solid,
+so walkers run their in-air path forever: 2px/frame gravity sag, stay-on-ledge direction
+flip ($018B98), walk animation frozen on the standing pose. Seed $5D and write solid
+tiles (Map16 $130: $7EC800=$30/$7FC800=$01) a few rows below the sprite. The $C800
+layout matches the probe's ROM pointer tables DATA_00BA60/BA9C (horizontal: screen*$1B0,
+rows 16-26 at +$100) and DATA_00BA80/BABC (vertical: band*$200, right 16 columns at
++$100). Horizontal bottom bound is a hardcoded $01B0 ($0194D6), not $13D7.
+
 **Mario seeding**: `SubHorizPos`/`SubVertPos` ($01AD30/$01AD42) read Mario from the
 **$D1-$D4 mirrors**, not $94-$97 — seed both. Mario is parked at sprite X **-0x140**:
 truly LEFT (Banzai Bill's init self-erases when Mario is to its right, $01838B; matches
