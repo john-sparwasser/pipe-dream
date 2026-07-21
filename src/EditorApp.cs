@@ -253,10 +253,15 @@ public class EditorApp : App
     {
         if (rom is null) { ImGui.TextDisabled("No ROM loaded.  File → Open ROM to begin."); return; }
         ImGui.SetNextItemWidth(120);
-        if (ImGui.InputInt($"Level (0x{levelNum:X3})", ref levelNum))
+        unsafe
         {
-            levelNum = Math.Clamp(levelNum, 0, Rom.LevelCount - 1);
-            ParseLevel();
+            int v = levelNum, step = 1;
+            if (ImGui.InputScalar("Level", ImGuiDataType.S32, (IntPtr)(&v), (IntPtr)(&step),
+                                  IntPtr.Zero, "%03X", ImGuiInputTextFlags.CharsHexadecimal))
+            {
+                levelNum = Math.Clamp(v, 0, Rom.LevelCount - 1);
+                ParseLevel();
+            }
         }
         ImGui.SameLine();
         if (ImGui.Button("Reload")) ParseLevel();
