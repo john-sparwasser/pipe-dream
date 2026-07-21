@@ -175,19 +175,4 @@ public sealed class SpriteOverlay
         }
     }
 
-    public int Count => items.Length;
-
-    /// <summary>
-    /// Draw one sprite with its cell's top-left at (ox, oy) — for list thumbnails.
-    /// Returns false when the sprite has no graphics (badge case).
-    /// </summary>
-    public bool DrawThumb(int i, uint[] img, int W, int H, Palette pal, int ox, int oy)
-    {
-        var (s, oam) = items[i];
-        if (oam is null || sp is null) return false;
-        var (cx, cy) = s.Cell(vert);
-        var shifted = oam.Select(o => o with { X = o.X - cx * 16 + ox, Y = o.Y - cy * 16 + oy }).ToList();
-        SpriteRender.Draw(img, W, H, shifted, sp, pal);
-        return true;
-    }
 }

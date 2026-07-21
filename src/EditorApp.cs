@@ -58,9 +58,6 @@ public class EditorApp : App
     private SpriteData? sprites;     // sprite list for the overlay
     private SpriteOverlay? spriteOverlay;   // cached OAM captures; Draw() is cheap blits
     private bool showSprites = true;
-    private Texture? sprThumbTex;    // Sprites-tab thumbnail atlas (one 32x32 cell per sprite)
-    private int sprThumbCount;
-
     // Sprite catalog (all insertable sprite numbers), LM-style "loaded only" filter.
     private Texture? catThumbTex;    // catalog thumbnail atlas
     private int[] catNumbers = Array.Empty<int>();
@@ -717,54 +714,31 @@ public class EditorApp : App
 
     // Sprites palette tab: the level's sprite list. Selection is groundwork for sprite
     // placement editing later; today it's an inspector.
+    // Sprites available to place in this level; "Loaded only" = LM's "sprites available
+    // with the current sprite GFX" filter, from the table's per-slot file requirements.
     private void DrawSpritesTab()
     {
-        if (sprites is null) { ImGui.TextDisabled("No level."); return; }
-        if (ImGui.BeginChild("sprtab"))
+        if (rom is null || level is null) { ImGui.TextDisabled("No level."); return; }
+        ImGui.Checkbox("Loaded only", ref catalogLoadedOnly);
+        ImGui.SameLine();
+        ImGui.TextDisabled($"SP {string.Join(" ", levelSpFiles.Select(f => f.ToString("X2")))}");
+        if (ImGui.BeginChild("sprcat"))
         {
-            if (ImGui.CollapsingHeader($"In level ({sprites.Sprites.Count})###inlvl", ImGuiTreeNodeFlags.DefaultOpen))
+            for (int i = 0; i < catNumbers.Length; i++)
             {
-                bool vert = rom is not null && level is not null && rom.IsVerticalMode(level.Header.LevelMode);
-                for (int i = 0; i < sprites.Sprites.Count; i++)
+                int num = catNumbers[i];
+                bool loaded = SpriteDisplay.IsLoaded(num, levelSpFiles);
+                if (catalogLoadedOnly && !loaded) continue;
+                if (catThumbTex is not null)
                 {
-                    var s = sprites.Sprites[i];
-                    var (cx, cy) = s.Cell(vert);
-                    if (sprThumbTex is not null && i < sprThumbCount)
-                    {
-                        ImGui.Image(imgui!.GetTextureID(sprThumbTex), new Vector2(32, 32),
-                                    new Vector2(0, (float)i / sprThumbCount),
-                                    new Vector2(1, (float)(i + 1) / sprThumbCount));
-                        ImGui.SameLine();
-                    }
-                    string kind = s.IsScrollCommand ? " (scroll cmd)" : s.Number >= 0xC9 ? " (special)" : "";
-                    if (ImGui.Selectable($"{s.Number:X2}  at ({cx,3},{cy,2})  extra {s.Extra}{kind}###spr{i}",
-                                         selectedSprite == i, ImGuiSelectableFlags.None, new Vector2(0, 32)))
-                        selectedSprite = i;
+                    ImGui.Image(imgui!.GetTextureID(catThumbTex), new Vector2(32, 32),
+                                new Vector2(0, (float)i / catNumbers.Length),
+                                new Vector2(1, (float)(i + 1) / catNumbers.Length));
+                    ImGui.SameLine();
                 }
-            }
-            // All insertable sprites; "Loaded only" = LM's "sprites available with the
-            // current sprite GFX" filter, from the table's per-slot file requirements.
-            if (ImGui.CollapsingHeader("Catalog###cat", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-                ImGui.Checkbox("Loaded only", ref catalogLoadedOnly);
-                ImGui.SameLine();
-                ImGui.TextDisabled($"SP {string.Join(" ", levelSpFiles.Select(f => f.ToString("X2")))}");
-                for (int i = 0; i < catNumbers.Length; i++)
-                {
-                    int num = catNumbers[i];
-                    bool loaded = SpriteDisplay.IsLoaded(num, levelSpFiles);
-                    if (catalogLoadedOnly && !loaded) continue;
-                    if (catThumbTex is not null)
-                    {
-                        ImGui.Image(imgui!.GetTextureID(catThumbTex), new Vector2(32, 32),
-                                    new Vector2(0, (float)i / catNumbers.Length),
-                                    new Vector2(1, (float)(i + 1) / catNumbers.Length));
-                        ImGui.SameLine();
-                    }
-                    if (ImGui.Selectable($"{num:X2}{(loaded ? "" : "  (GFX not loaded)")}###cat{num}",
-                                         selectedCatalog == num, ImGuiSelectableFlags.None, new Vector2(0, 32)))
-                        selectedCatalog = num;
-                }
+                if (ImGui.Selectable($"{num:X2}{(loaded ? "" : "  (GFX not loaded)")}###cat{num}",
+                                     selectedCatalog == num, ImGuiSelectableFlags.None, new Vector2(0, 32)))
+                    selectedCatalog = num;
             }
             ImGui.EndChild();
         }
@@ -1053,7 +1027,6 @@ public class EditorApp : App
         }
         else bgCaches = null;
         BuildMap16Sheet();
-        BuildSpriteThumbs();
         BuildSpriteCatalog();
         BuildLevelCanvas();
     }
@@ -1081,26 +1054,6 @@ public class EditorApp : App
             catThumbTex = new Texture(GraphicsDevice, cell, cell * n, MemoryMarshal.AsBytes(img.AsSpan()));
         }
         catch { catThumbTex?.Dispose(); catThumbTex = null; catNumbers = Array.Empty<int>(); }
-    }
-
-    // Thumbnail atlas for the Sprites tab: each sprite drawn from its cached OAM into a
-    // 32x32 cell (cell top-left at (8,16) so heads/overhangs show).
-    private void BuildSpriteThumbs()
-    {
-        sprThumbTex?.Dispose(); sprThumbTex = null; sprThumbCount = 0;
-        if (spriteOverlay is null || spriteOverlay.Count == 0 || rom is null || level is null) return;
-        try
-        {
-            int n = spriteOverlay.Count;
-            const int cell = 32;
-            var img = new uint[cell * cell * n];
-            var pal = EditedPalette(0)!;
-            for (int i = 0; i < n; i++)
-                spriteOverlay.DrawThumb(i, img, cell, cell * n, pal, 8, i * cell + 16);
-            sprThumbTex = new Texture(GraphicsDevice, cell, cell * n, MemoryMarshal.AsBytes(img.AsSpan()));
-            sprThumbCount = n;
-        }
-        catch { sprThumbTex?.Dispose(); sprThumbTex = null; }
     }
 
     private void LoadRom(string path)
