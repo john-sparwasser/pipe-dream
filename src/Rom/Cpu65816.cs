@@ -111,6 +111,21 @@ public sealed class Cpu65816(Rom rom)
         throw new InvalidOperationException("emulation overran instruction budget");
     }
 
+    /// <summary>Run a JSL to <paramref name="entrySnes"/> until its top-level RTL. Throws on overrun.</summary>
+    public void CallLong(int entrySnes, int maxInstructions = 30_000_000)
+    {
+        PBR = (entrySnes >> 16) & 0xFF; PC = entrySnes & 0xFFFF;
+        Push(0xFF);                                         // fake JSL frame: RTL restores PBR=$FF
+        Push16(0xFFFE);                                     // and lands on $FFFF
+        long budget = maxInstructions;
+        while (--budget > 0)
+        {
+            if (PC == 0xFFFF && PBR == 0xFF) return;
+            Step();
+        }
+        throw new InvalidOperationException("emulation overran instruction budget");
+    }
+
     private void Step()
     {
         byte op = Fetch();

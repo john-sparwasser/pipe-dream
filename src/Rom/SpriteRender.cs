@@ -11,22 +11,37 @@ public static class SpriteRender
 
     public static List<Oam>? Capture(Rom rom, Sprite s, int cellX = -1, int cellY = -1)
     {
+        // Sprite-list number classes ($02A866-$02A8D8): C9-CA shooters, CB-D9 generators,
+        // DE/E0-E6 multi-sprite specials, E7+ scroll commands — none are in the 00-C8
+        // dispatch tables. DA-DD/DF are koopa shells: loaded as sprite (num-$DA)+4 with
+        // initial status 9 (stationary) per $02A97E.
+        int num = s.Number;
+        if (num is (>= 0xDA and <= 0xDD) or 0xDF) num = num - 0xDA + 4;
+        else if (num >= 0xC9) return null;
         try
         {
             var cpu = new Cpu65816(rom);
             var r = cpu.Ram7E;
-            for (int i = 0; i < 0x200; i += 4) r[0x201 + i] = 0xF0;   // OAM Y offscreen
-            // OAM_TileSize default 8x8: the draw finisher ($01B7F0) writes $02 for the 16x16
-            // tiles a sprite actually draws; unwritten entries must stay a single 8x8 tile,
-            // else a large default draws 3 garbage neighbour tiles.
 
             int wx = (cellX >= 0 ? cellX : s.AbsoluteX) * 16, wy = (cellY >= 0 ? cellY : s.Y) * 16;
             int bx = Math.Max(0, wx - 0x40), by = Math.Max(0, wy - 0x40);
             r[0x1A] = (byte)bx; r[0x1B] = (byte)(bx >> 8);            // screen boundary X
             r[0x1C] = (byte)by; r[0x1D] = (byte)(by >> 8);
-            r[0x94] = (byte)(bx + 0x180); r[0x95] = (byte)((bx + 0x180) >> 8);  // Mario far right
+            // Mario far LEFT of the sprite: on the side sprites expect an approaching
+            // player (Banzai Bill's init erases itself when Mario is to its right,
+            // $01838B) and too far for any contact. Exactly -0x140 because proximity
+            // gates like Monty Mole's ($01E2E3) use only the LOW byte of the distance:
+            // -0x140 aliases to -0x40, "near" enough to activate, while the true 16-bit
+            // position stays far away.
+            int mx = Math.Max(0, wx - 0x140);
+            r[0x94] = (byte)mx; r[0x95] = (byte)(mx >> 8);
             r[0x96] = (byte)by; r[0x97] = (byte)(by >> 8);
-            r[0x9E] = (byte)s.Number;                                  // slot 0
+            // SubHorizPos/SubVertPos ($01AD30/$01AD42) read Mario from the $D1-$D4
+            // mirrors, not $94-$97 — unseeded they put Mario at (0,0), which makes
+            // proximity gates (e.g. Monty Mole state 0) fail by X-low-byte accident.
+            r[0xD1] = (byte)mx; r[0xD2] = (byte)(mx >> 8);
+            r[0xD3] = (byte)by; r[0xD4] = (byte)(by >> 8);
+            r[0x9E] = (byte)num;                                       // slot 0
             r[0xE4] = (byte)wx; r[0x14E0] = (byte)(wx >> 8);
             r[0xD8] = (byte)wy; r[0x14D4] = (byte)(wy >> 8);
             r[0x15EA] = 0x30;                                          // OAM index for slot 0
@@ -34,23 +49,39 @@ public static class SpriteRender
             r[0x187B] = (byte)s.Extra;                                 // LM extra bits
             r[0x190F] = 0; r[0x9D] = 0;                                // sprites not locked
 
-            cpu.PresetX(0); cpu.CallNear(0x018172, 400_000);           // init
-            cpu.PresetX(0); cpu.CallNear(0x0185C3, 400_000);           // main (draws OAM)
+            cpu.PresetX(0); cpu.CallLong(0x07F7D2, 400_000);           // InitSpriteTables: tweaker + palette RAM
+            r[0x14C8] = (byte)(s.Number >= 0xDA ? 9 : 1);              // status: shells stationary, else init
 
-            // Sprites write tiles to the $0300 OAM scratch (X,Y,tile,props per 4 bytes) with the
-            // X-high bit + tile size in OAM_TileSize $0460 (indexed slot>>2 — one byte per 4
-            // slots, hardware high-OAM granularity; bit1 = 16x16, bit0 = X high). By the time
-            // the sprite's frame returns, its finisher has mirrored $0300 → the DMA'd $0200
-            // (with off-screen culling), so we read the final tiles from $0200.
+            // Run frames through HandleSprite ($018127): it dispatches on status $14C8 —
+            // 1 → CallSpriteInit, 8 → CallSpriteMain, 9/A/B → the stunned/kicked/carried
+            // handlers that draw carryables (POW, springboard, shells). Some sprites draw
+            // nothing on their first frames (Monty Moles hide underground), so step frames
+            // — position pinned to the spawn cell — until tiles appear.
+            //
+            // OAM buffer $0200-$03FF (X,Y,tile,props per 4 bytes; sprites use the $0300 half).
+            // Size table $0420-$049F: ONE byte per tile — FinishOAMWriteRt ($01B7BB) LSRs the
+            // $0300-relative byte offset twice and indexes $0460, i.e. $0420 + entry index.
+            // bit1 = 16x16; bit0 = 9th X bit, set when the tile hangs off the LEFT edge.
             var list = new List<Oam>();
-            for (int i = 0; i < 0x80; i++)
+            for (int frame = 0; frame < 16 && list.Count == 0; frame++)
             {
-                int y = r[0x201 + i * 4];
-                if (y >= 0xE0) continue;
-                int sz = r[0x460 + (i >> 2)];
-                int x = r[0x200 + i * 4] | ((sz & 1) << 8);
-                int tile = r[0x202 + i * 4], attr = r[0x203 + i * 4];
-                list.Add(new Oam(x + bx, y + by, tile | ((attr & 1) << 8), attr, (sz & 2) != 0));
+                for (int i = 0; i < 0x200; i += 4) r[0x201 + i] = 0xF0;   // OAM Y offscreen
+                r[0x13]++; r[0x14]++;                                      // frame counters
+                r[0xE4] = (byte)wx; r[0x14E0] = (byte)(wx >> 8);
+                r[0xD8] = (byte)wy; r[0x14D4] = (byte)(wy >> 8);
+                // A frame stuck in a wait loop (e.g. fireball init spinning on state we
+                // don't emulate) overruns the budget; later frames still draw fine.
+                try { cpu.PresetX(0); cpu.CallNear(0x018127, 400_000); }
+                catch (InvalidOperationException) { }
+                for (int i = 0; i < 0x80; i++)
+                {
+                    int y = r[0x201 + i * 4];
+                    if (y >= 0xE0) continue;
+                    int sz = r[0x420 + i];
+                    int x = r[0x200 + i * 4] - ((sz & 1) << 8);
+                    int tile = r[0x202 + i * 4], attr = r[0x203 + i * 4];
+                    list.Add(new Oam(x + bx, y + by, tile | ((attr & 1) << 8), attr, (sz & 2) != 0));
+                }
             }
             return list.Count is > 0 and < 40 ? list : null;
         }

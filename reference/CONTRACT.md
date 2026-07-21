@@ -589,30 +589,54 @@ every 4 frames from `MorePalettes` ($00B60C): 8 BGR555 words, byte offset
 Applied in Palette.Load per display phase (offsets 0/4/8/12), including on top of LM
 custom palettes (the NMI write happens regardless).
 
-## 14. Sprite graphics via OAM capture  [IMPLEMENTED v1]
+## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 
 No unified sprite→tile table exists; each sprite's look comes from its graphics routine.
-The editor runs `CallSpriteInit` ($018172) + one `CallSpriteMain` ($0185C3) frame per
-sprite in the CPU interpreter (slot 0 seeded: $9E num, $E4/$14E0 + $D8/$14D4 position,
-$14C8=8, $15EA=$30 OAM index, $64 priority, $187B extra bits, screen boundary $1A/$1C
-near the sprite, Mario parked far away) and captures OAM ($0200 low table, $0420 hi).
+The editor emulates the ROM's own load flow per sprite (slot 0 seeded: $9E num, $E4/$14E0
++ $D8/$14D4 position, $15EA=$30 OAM index, $64 priority, $187B extra bits, screen boundary
+$1A/$1C near the sprite):
+
+1. `InitSpriteTables` ($07F7D2, RTL via CallLong) — loads tweaker/palette RAM ($1656-$1686,
+   $15F6) from ROM; without it every sprite draws with palette 0.
+2. Status $14C8 seeded **1** (init) — or **9** (stationary) for shells, see below.
+3. Up to 16 frames of `HandleSprite` ($018127) — the per-slot STATUS dispatcher
+   (0→erase, 1→CallSpriteInit $018172, 8→CallSpriteMain $0185C3, 9/A/B→stunned/kicked/
+   carried at $01953C/$019913/$019F71). Calling CallSpriteMain directly misses every
+   carryable: POW's number-dispatch main ($01E75B) only handles the message-box timer —
+   the visible POW draws from the status-9 handler. Each frame: OAM Y-fill $F0, $13/$14++,
+   position re-pinned; first frame that yields OAM tiles wins. A frame that overruns the
+   instruction budget (wait loops, e.g. castle fireball init) is skipped, not fatal.
+
+**Mario seeding**: `SubHorizPos`/`SubVertPos` ($01AD30/$01AD42) read Mario from the
+**$D1-$D4 mirrors**, not $94-$97 — seed both. Mario is parked at sprite X **-0x140**:
+truly LEFT (Banzai Bill's init self-erases when Mario is to its right, $01838B; matches
+LM's face-left convention) yet aliasing to -0x40 in the LOW byte, because proximity gates
+like Monty Mole's ($01E2E3) compare only the low byte of the 16-bit distance.
+
+**Sprite-list number classes** ($02A866-$02A8D8): 00-C8 normal; C9-CA shooters ($1783
+system, badge); CB-D9 generators ($18B9, badge); **DA-DD/DF koopa shells** — loaded as
+sprite (num-$DA)+4 with initial status 9 ($02A97E; $1EEB can color-swap 04↔07/05↔06);
+DE = 5 Eeries, E0 = 3 chain platforms, E1-E6 cluster specials (badge); E7+ scroll
+commands (badge).
+
 Tiles resolve through SP1-4 (SPRITEGFXLIST $00A8C3 / bypass words 11-8), palettes = CGRAM
 rows 8-F, 16x16 assembly T/T+1/T+16/T+17 with flip-quadrant swap; entries draw in reverse
-OAM order. Failures/scroll commands keep badge markers.
-KNOWN v1 gaps: OAM size bits default to 16x16 (frame-init runs outside capture — real 8x8
-tiles like hammers draw doubled); single frame 0 pose; per-sprite RAM quirks may misdraw
-exotic sprites (they fall back to badges only if the routine crashes).
+OAM order. Remaining badges are sprites that are genuinely invisible in-game at rest
+(invisible mushroom C7, warp blocks 8E, static net door 54) — plus hidden Monty Moles,
+which draw their in-ground dirt pose.
 
-### 14a. Sprite OAM specifics  [from the sprite GFX tutorial, verified]
+### 14a. Sprite OAM specifics  [verified against bank_01]
 
-- Sprite GFX routines write tiles to the **$0300** OAM scratch (per 4-byte slot: $0300 X,
-  $0301 Y, $0302 tile, $0303 YXPPCCCT props) with the X-high bit + tile size in
-  **OAM_TileSize $0460**, indexed **slot>>2** (one byte per 4 slots — the hardware high-OAM
-  granularity; bit1 = 16x16, bit0 = X high). The OAM finisher ($01B7B3, RTL) mirrors $0300 →
-  the DMA'd **$0200** with off-screen culling. We run one frame then read the final $0200
-  (reading $0300 post-frame yields nothing — the finisher has already consumed it).
+- Sprite GFX routines write tiles to the **$0300 half** of the $0200-$03FF OAM buffer
+  (per 4-byte entry: X, Y, tile, YXPPCCCT props). The size table **$0420-$049F holds ONE
+  byte per OAM entry** — `FinishOAMWriteRt` ($01B7BB) LSRs the $0300-relative byte offset
+  twice and indexes $0460 = $0420 + entry index (consecutive per-tile stores at $01BC08
+  confirm). bit1 = 16x16; **bit0 = 9th X bit, meaning the tile hangs off the LEFT edge**
+  (subtract 0x100, don't add — set via DEX/offscreen check at $01B7F5-$01B811). Unwritten
+  entries must default to 0 (8x8) or garbage neighbour tiles appear.
 - **Priority**: earlier-drawn OAM tiles sit in FRONT of later ones regardless of the PP
   priority bits (PP only orders sprites vs BG layers). We draw the captured list in reverse
   so slot order wins — matches.
 - **Palette**: OAM CCC addresses only the SECOND half of CGRAM → sprite palettes are rows
-  8-F (colour base 0x80 + CCC*16).
+  8-F (colour base 0x80 + CCC*16). The CCC value itself comes from $15F6,x, loaded by
+  InitSpriteTables — hence step 1 above.
