@@ -58,6 +58,8 @@ public class EditorApp : App
     private SpriteData? sprites;     // sprite list for the overlay
     private SpriteOverlay? spriteOverlay;   // cached OAM captures; Draw() is cheap blits
     private bool showSprites = true;
+    private Texture? sprThumbTex;    // Sprites-tab thumbnail atlas (one 32x32 cell per sprite)
+    private int sprThumbCount;
 
     // Incremental canvas: the 4 phase images stay in memory; edits recompose only the
     // dirty cells and re-upload via Texture.SetData (non-visible phases refresh lazily
@@ -719,9 +721,16 @@ public class EditorApp : App
             {
                 var s = sprites.Sprites[i];
                 var (cx, cy) = s.Cell(vert);
+                if (sprThumbTex is not null && i < sprThumbCount)
+                {
+                    ImGui.Image(imgui!.GetTextureID(sprThumbTex), new Vector2(32, 32),
+                                new Vector2(0, (float)i / sprThumbCount),
+                                new Vector2(1, (float)(i + 1) / sprThumbCount));
+                    ImGui.SameLine();
+                }
                 string kind = s.IsScrollCommand ? " (scroll cmd)" : s.Number >= 0xC9 ? " (special)" : "";
                 if (ImGui.Selectable($"{s.Number:X2}  at ({cx,3},{cy,2})  extra {s.Extra}{kind}###spr{i}",
-                                     selectedSprite == i))
+                                     selectedSprite == i, ImGuiSelectableFlags.None, new Vector2(0, 32)))
                     selectedSprite = i;
             }
             ImGui.EndChild();
@@ -1011,7 +1020,28 @@ public class EditorApp : App
         }
         else bgCaches = null;
         BuildMap16Sheet();
+        BuildSpriteThumbs();
         BuildLevelCanvas();
+    }
+
+    // Thumbnail atlas for the Sprites tab: each sprite drawn from its cached OAM into a
+    // 32x32 cell (cell top-left at (8,16) so heads/overhangs show).
+    private void BuildSpriteThumbs()
+    {
+        sprThumbTex?.Dispose(); sprThumbTex = null; sprThumbCount = 0;
+        if (spriteOverlay is null || spriteOverlay.Count == 0 || rom is null || level is null) return;
+        try
+        {
+            int n = spriteOverlay.Count;
+            const int cell = 32;
+            var img = new uint[cell * cell * n];
+            var pal = EditedPalette(0)!;
+            for (int i = 0; i < n; i++)
+                spriteOverlay.DrawThumb(i, img, cell, cell * n, pal, 8, i * cell + 16);
+            sprThumbTex = new Texture(GraphicsDevice, cell, cell * n, MemoryMarshal.AsBytes(img.AsSpan()));
+            sprThumbCount = n;
+        }
+        catch { sprThumbTex?.Dispose(); sprThumbTex = null; }
     }
 
     private void LoadRom(string path)

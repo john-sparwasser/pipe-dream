@@ -151,7 +151,17 @@ public sealed class SpriteOverlay
         {
             var s = sprites.Sprites[i];
             var (cx, cy) = s.Cell(vert);
-            items[i] = (s, sp is null || s.IsScrollCommand ? null : SpriteRender.Capture(rom, s, cx, cy, vert));
+            List<SpriteRender.Oam>? oam = null;
+            if (sp is not null && !s.IsScrollCommand)
+            {
+                // Static display table for vanilla sprites (extra bits 0/1); PIXI custom
+                // sprites (extra bits 2/3 = different routines entirely) capture live.
+                if (s.Extra < 2 && SpriteDisplay.TryGet(s.Number, out var rel))
+                    oam = rel.Select(o => o with { X = o.X + cx * 16, Y = o.Y + cy * 16 }).ToList();
+                else
+                    oam = SpriteRender.Capture(rom, s, cx, cy, vert);
+            }
+            items[i] = (s, oam);
         }
         return new SpriteOverlay(items, sp, vert);
     }
@@ -163,5 +173,21 @@ public sealed class SpriteOverlay
             if (oam is not null && sp is not null) SpriteRender.Draw(img, W, H, oam, sp, pal);
             else SpriteData.DrawBadge(img, W, H, s, vert);
         }
+    }
+
+    public int Count => items.Length;
+
+    /// <summary>
+    /// Draw one sprite with its cell's top-left at (ox, oy) — for list thumbnails.
+    /// Returns false when the sprite has no graphics (badge case).
+    /// </summary>
+    public bool DrawThumb(int i, uint[] img, int W, int H, Palette pal, int ox, int oy)
+    {
+        var (s, oam) = items[i];
+        if (oam is null || sp is null) return false;
+        var (cx, cy) = s.Cell(vert);
+        var shifted = oam.Select(o => o with { X = o.X - cx * 16 + ox, Y = o.Y - cy * 16 + oy }).ToList();
+        SpriteRender.Draw(img, W, H, shifted, sp, pal);
+        return true;
     }
 }

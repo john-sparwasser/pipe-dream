@@ -124,6 +124,17 @@ public static class SpriteRender
         catch { return null; }
     }
 
+    /// <summary>
+    /// Capture at a canonical mid-level cell and return CELL-RELATIVE OAM entries —
+    /// the source data for the static sprite display table (SpriteDisplay).
+    /// </summary>
+    public static List<Oam>? CaptureRelative(Rom rom, int number)
+    {
+        var s = new Sprite(Screen: 1, XNibble: 4, Y: 20, Extra: 0, Number: number);   // cell (20,20)
+        var oam = Capture(rom, s, 20, 20, false);
+        return oam?.Select(o => o with { X = o.X - 320, Y = o.Y - 320 }).ToList();
+    }
+
     /// <summary>Decoded SP-slot 8x8 tiles (512) for a sprite GFX set, honoring the bypass.</summary>
     public static byte[][] LoadSpTiles(Rom rom, LevelHeader h, int level)
     {

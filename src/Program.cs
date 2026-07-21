@@ -31,6 +31,18 @@ class Program
         if (bi >= 0)
             return BlobSheet(args, bi);
 
+        int si = Array.IndexOf(args, "--gen-spritedisplay");
+        if (si >= 0)
+        {
+            var rom = Rom.Load(args.ElementAtOrDefault(si + 1) ?? @"C:\SMW\Projects\.resources\SMW.smc");
+            string outp = args.ElementAtOrDefault(si + 2) ?? @"src\Data\SpriteDisplay.json";
+            File.WriteAllText(outp, SpriteDisplay.Generate(rom));
+            var parsed = SpriteDisplay.Parse(File.ReadAllText(outp));
+            Console.WriteLine($"wrote {outp}: {parsed.Count} sprite entries, " +
+                              $"{parsed.Values.Sum(v => v.Length)} OAM tiles");
+            return 0;
+        }
+
         using var app = new EditorApp();
         app.Run();
         return 0;
