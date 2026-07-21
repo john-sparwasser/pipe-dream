@@ -342,6 +342,20 @@ public static class RomSelfCheck
             var vr = Rom.Load(CleanRom);
             Check("clean ROM: no palette hook, no custom palettes",
                   !vr.HasLmPaletteHook && vr.LmCustomPalette(0x107) is null);
+
+            // Write round-trip: new blob (0x105 had none) + in-place overwrite (0x107 had one).
+            var wc = new ushort[256];
+            for (int i = 0; i < 256; i++) wc[i] = (ushort)i;
+            int ptr107Before = dr.ReadValue(Rom.LmPaletteTable + 0x107 * 3, 3);
+            dr.WriteLmCustomPalette(0x105, 0x1234, wc);
+            dr.WriteLmCustomPalette(0x107, 0x4321, wc);
+            var w5 = dr.LmCustomPalette(0x105);
+            var w7 = dr.LmCustomPalette(0x107);
+            Check("written palette reads back (new RATS blob)",
+                  w5 is (0x1234, var c5) && c5[1] == 1 && c5[0x11] == 0x11 && c5[0x10] == 0);
+            Check("written palette reads back (in-place overwrite)",
+                  w7 is (0x4321, var c7) && c7[0xFF] == 0xFF &&
+                  dr.ReadValue(Rom.LmPaletteTable + 0x107 * 3, 3) == ptr107Before);
         }
 
         string juzRom = @"C:\SMW\Projects\juz\SMW.smc";

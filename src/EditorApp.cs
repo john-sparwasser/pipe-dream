@@ -161,6 +161,8 @@ public class EditorApp : App
                 ImGui.Separator();
                 if (ImGui.MenuItem("Save DM16 edits to ROM copy", rom is not null && level is not null))
                     SaveEdits();
+                if (ImGui.MenuItem("Save palette to ROM copy", rom is not null && level is not null))
+                    SavePalette();
                 ImGui.Separator();
                 if (ImGui.MenuItem("ROM Info", "", showRomInfo)) showRomInfo = !showRomInfo;
                 ImGui.Separator();
@@ -496,6 +498,9 @@ public class EditorApp : App
         if (rom is null || level is null) { ImGui.TextDisabled("No level."); return; }
         var pal = EditedPalette(0)!;
         ImGui.Text($"CGRAM — rows 0-7 BG/FG, 8-F sprites.  {palEdits.Count} edit(s)");
+        ImGui.TextDisabled(rom.LmCustomPalette(levelNum) is not null
+            ? "source: LM custom palette"
+            : "source: vanilla (header-assembled)");
         if (palEdits.Count > 0)
         {
             ImGui.SameLine();
@@ -534,6 +539,32 @@ public class EditorApp : App
             }
         }
         ImGui.PopStyleVar();
+    }
+
+    // Save the edited palette as an LM custom palette (§7e) into a ROM copy. After a
+    // successful save the edits ARE the level's palette, so the edit list resets.
+    private void SavePalette()
+    {
+        if (rom is null || level is null) return;
+        if (!rom.HasLmPaletteHook)
+        { saveStatus = "ROM lacks LM's palette ASM — open/save it in Lunar Magic once first."; return; }
+        try
+        {
+            var pal = EditedPalette(0)!;
+            try { rom.WriteLmCustomPalette(levelNum, pal.Bgr[0], pal.Bgr); }
+            catch (InvalidOperationException) { throw; }
+            catch
+            {
+                rom.ExpandTo(Math.Min(0x400000, Math.Max(0x200000, rom.ActualRomSize * 2)));
+                rom.WriteLmCustomPalette(levelNum, pal.Bgr[0], pal.Bgr);
+            }
+            string outp = System.IO.Path.ChangeExtension(loadedRomPath, ".edited.smc");
+            rom.SaveAs(outp);
+            palEdits.Clear();               // the ROM now holds these colors
+            RebuildGraphics();
+            saveStatus = $"palette saved -> {System.IO.Path.GetFileName(outp)} (level 0x{levelNum:X3} custom palette)";
+        }
+        catch (Exception e) { saveStatus = "palette save failed: " + e.Message; }
     }
 
     // The level palette with the editor tab's session edits applied on top.

@@ -143,6 +143,41 @@ public sealed class Rom
     }
 
     /// <summary>
+    /// Write a level's LM custom palette (§7e): the same 0x202 blob LmCustomPalette reads
+    /// (word 0 = back color, 256 CGRAM words with row color-0 slots zeroed). Overwrites an
+    /// existing blob in place (the size is fixed); otherwise allocates a RATS block and
+    /// points the $0EF600 table entry at it. Requires LM's palette hook — without the
+    /// $0095E9 JML the game would never read the table.
+    /// </summary>
+    public void WriteLmCustomPalette(int level, ushort back, ushort[] colors)
+    {
+        if (!HasLmPaletteHook)
+            throw new InvalidOperationException("ROM lacks LM's palette ASM — save it in Lunar Magic once first.");
+        var blob = new byte[0x202];
+        blob[0] = (byte)back; blob[1] = (byte)(back >> 8);
+        for (int i = 0; i < 256; i++)
+        {
+            ushort c = (i & 15) == 0 ? (ushort)0 : colors[i];
+            blob[2 + i * 2] = (byte)c; blob[3 + i * 2] = (byte)(c >> 8);
+        }
+
+        int ptr = ReadValue(LmPaletteTable + level * 3, 3);
+        if (ptr != 0 && ptr != 0xFFFFFF)
+        {
+            int fo = FileOffset(ptr);
+            if (fo >= 8 && fo + 0x202 <= Data.Length &&
+                Data[fo - 8] == 'S' && Data[fo - 7] == 'T' && Data[fo - 6] == 'A' && Data[fo - 5] == 'R')
+            {
+                Array.Copy(blob, 0, Data, fo, 0x202);
+                return;
+            }
+        }
+        int addr = AllocateRats(blob);
+        int tfo = FileOffset(LmPaletteTable + level * 3);
+        Data[tfo] = (byte)addr; Data[tfo + 1] = (byte)(addr >> 8); Data[tfo + 2] = (byte)(addr >> 16);
+    }
+
+    /// <summary>
     /// Find the little-endian 3-byte operand that sits between <paramref name="prefix"/> and
     /// <paramref name="suffix"/> code bytes (-1 in prefix = wildcard). Returns -1 if not found.
     /// </summary>
