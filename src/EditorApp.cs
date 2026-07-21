@@ -142,6 +142,33 @@ public class EditorApp : App
     protected override void Startup()
     {
         imgui = new ImGuiLayer(this) { BaseScale = 1.5f };
+        SetWindowIcon();
+    }
+
+    // Foster 0.3.0 has no icon API; go straight to SDL with the embedded pipe icon.
+    // (The exe/taskbar icon comes from assets/pipe-dream.ico via <ApplicationIcon>.)
+    private void SetWindowIcon()
+    {
+        try
+        {
+            using var s = GetType().Assembly.GetManifestResourceStream("pipe-icon.png");
+            if (s is null) return;
+            using var img = new Image(s);
+            // Window.Handle (the SDL_Window*) is internal in Foster 0.3.0.
+            var handleProp = typeof(Window).GetProperty("Handle",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public |
+                System.Reflection.BindingFlags.Instance);
+            if (handleProp?.GetValue(Window) is not IntPtr win || win == IntPtr.Zero) return;
+            unsafe
+            {
+                var surf = SDL3.SDL.SDL_CreateSurfaceFrom(img.Width, img.Height,
+                    SDL3.SDL.SDL_PixelFormat.SDL_PIXELFORMAT_RGBA32, img.Pointer, img.Width * 4);
+                if (surf is null) return;
+                SDL3.SDL.SDL_SetWindowIcon(win, (IntPtr)surf);
+                SDL3.SDL.SDL_DestroySurface((IntPtr)surf);
+            }
+        }
+        catch { /* cosmetic only */ }
     }
 
     protected override void Shutdown()
