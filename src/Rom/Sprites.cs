@@ -175,4 +175,20 @@ public sealed class SpriteOverlay
         }
     }
 
+    /// <summary>Level-pixel bounds of one sprite's tiles (null when badge-only).</summary>
+    public (int MinX, int MinY, int MaxX, int MaxY)? PixelBounds(int i)
+    {
+        var (_, oam) = items[i];
+        if (oam is null || oam.Count == 0) return null;
+        return (oam.Min(o => o.X), oam.Min(o => o.Y),
+                oam.Max(o => o.X + (o.Big ? 16 : 8)), oam.Max(o => o.Y + (o.Big ? 16 : 8)));
+    }
+
+    /// <summary>Draw one sprite shifted by (shiftX, shiftY) pixels — for drag ghosts.</summary>
+    public void DrawOne(int i, uint[] img, int W, int H, Palette pal, int shiftX, int shiftY)
+    {
+        var (_, oam) = items[i];
+        if (oam is null || sp is null) return;
+        SpriteRender.Draw(img, W, H, oam.Select(o => o with { X = o.X + shiftX, Y = o.Y + shiftY }).ToList(), sp, pal);
+    }
 }

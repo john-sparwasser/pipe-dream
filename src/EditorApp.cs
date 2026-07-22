@@ -78,6 +78,8 @@ public class EditorApp : App
     private bool showRomInfo;
     private bool showGfxViewer;
     private readonly HashSet<int> selSprites = new();   // selected sprite indices (sprite mode)
+    private Texture? sprGhostTex;                       // drag ghost: the selected sprites' pixels
+    private int sprGhostW, sprGhostH, sprGhostX, sprGhostY;   // ghost size + level-px origin
     private int selectedObject = -1;
 
     // LM-style editing: left-click/drag selects (grabs the tiles under the cursor as the
@@ -268,6 +270,7 @@ public class EditorApp : App
         {
             editMode = editMode == EditMode.Layer1 ? EditMode.Sprites : EditMode.Layer1;
             dragStart = null; moveDrag = null;
+            DropSpriteGhost();
         }
 
         DrawMainLayout();
@@ -409,7 +412,7 @@ public class EditorApp : App
                         {
                             // Click on a selected sprite drags the selection; else rubber-band.
                             if (SpriteIndexAt(cx, cy, verticalLvl) is int hit && selSprites.Contains(hit))
-                                moveDrag = (cx, cy);
+                            { moveDrag = (cx, cy); BuildSpriteGhost(); }
                             else
                                 dragStart = dragEnd = (cx, cy);
                         }
@@ -434,7 +437,7 @@ public class EditorApp : App
                                          new Vector2(origin.X + (hr2.x + hr2.w) * cs, origin.Y + (hr2.y + hr2.h) * cs),
                                          0x3000FFFFu);
                     }
-                    else
+                    else if (editMode == EditMode.Layer1)   // sprite mode has no tile reticle
                     {
                         var tl = new Vector2(origin.X + cx * cs, origin.Y + cy * cs);
                         dl.AddRect(tl, new Vector2(tl.X + cs, tl.Y + cs), 0xFFFFFFFF, 0, 0, 1.5f);
@@ -447,6 +450,16 @@ public class EditorApp : App
             {
                 var (rx, ry, rw, rh) = (Math.Min(d0.x, d1.x), Math.Min(d0.y, d1.y),
                                         Math.Abs(d1.x - d0.x) + 1, Math.Abs(d1.y - d0.y) + 1);
+                if (editMode == EditMode.Sprites && sprites is not null)
+                {
+                    // Live lasso: sprites inside the band highlight (and select) immediately.
+                    selSprites.Clear();
+                    for (int i = 0; i < sprites.Sprites.Count; i++)
+                    {
+                        var (sx, sy) = sprites.Sprites[i].Cell(verticalLvl);
+                        if (sx >= rx && sx < rx + rw && sy >= ry && sy < ry + rh) selSprites.Add(i);
+                    }
+                }
                 if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
                     dl.AddRect(new Vector2(origin.X + rx * cs, origin.Y + ry * cs),
                                new Vector2(origin.X + (rx + rw) * cs, origin.Y + (ry + rh) * cs),
@@ -454,15 +467,6 @@ public class EditorApp : App
                 else
                 {
                     if (editMode == EditMode.Layer1) GrabSelection(rx, ry, rw, rh);
-                    else if (sprites is not null)
-                    {
-                        selSprites.Clear();
-                        for (int i = 0; i < sprites.Sprites.Count; i++)
-                        {
-                            var (sx, sy) = sprites.Sprites[i].Cell(verticalLvl);
-                            if (sx >= rx && sx < rx + rw && sy >= ry && sy < ry + rh) selSprites.Add(i);
-                        }
-                    }
                     dragStart = dragEnd = null;
                 }
             }
@@ -476,17 +480,29 @@ public class EditorApp : App
                 if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
                 {
                     ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
-                    foreach (int si in selSprites)
+                    if (sprGhostTex is not null)
                     {
-                        var (sx, sy) = sprites.Sprites[si].Cell(verticalLvl);
-                        var p0 = new Vector2(origin.X + (sx + mdx) * cs, origin.Y + (sy + mdy) * cs);
-                        dl.AddRect(p0, new Vector2(p0.X + cs, p0.Y + cs), 0xFF00FF00, 0, 0, 1.5f);
+                        // Ghost: the selected sprites' actual pixels, translucent, at the drop offset.
+                        float pz = cs / 16f;
+                        var p0 = new Vector2(origin.X + (sprGhostX + mdx * 16) * pz,
+                                             origin.Y + (sprGhostY + mdy * 16) * pz);
+                        dl.AddImage(imgui!.GetTextureID(sprGhostTex), p0,
+                                    new Vector2(p0.X + sprGhostW * pz, p0.Y + sprGhostH * pz),
+                                    Vector2.Zero, Vector2.One, 0xC0FFFFFFu);
                     }
+                    else
+                        foreach (int si in selSprites)
+                        {
+                            var (sx, sy) = sprites.Sprites[si].Cell(verticalLvl);
+                            var p0 = new Vector2(origin.X + (sx + mdx) * cs, origin.Y + (sy + mdy) * cs);
+                            dl.AddRect(p0, new Vector2(p0.X + cs, p0.Y + cs), 0xFF00FF00, 0, 0, 1.5f);
+                        }
                 }
                 else
                 {
                     if (mdx != 0 || mdy != 0) MoveSelectedSprites(mdx, mdy, verticalLvl);
                     moveDrag = null; dragEnd = null;
+                    DropSpriteGhost();
                 }
             }
 
@@ -594,6 +610,37 @@ public class EditorApp : App
         spriteOverlay = rom is not null && level is not null && sprites is not null
             ? SpriteOverlay.Build(rom, sprites, level.Header, levelNum) : null;
         levelDirty = true;
+    }
+
+    // Compose the selected sprites into one texture for the drag ghost (built when the
+    // move starts, disposed when it ends).
+    private void BuildSpriteGhost()
+    {
+        DropSpriteGhost();
+        if (spriteOverlay is null || selSprites.Count == 0) return;
+        try
+        {
+            int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
+            foreach (int i in selSprites)
+                if (spriteOverlay.PixelBounds(i) is { } b)
+                {
+                    minX = Math.Min(minX, b.MinX); minY = Math.Min(minY, b.MinY);
+                    maxX = Math.Max(maxX, b.MaxX); maxY = Math.Max(maxY, b.MaxY);
+                }
+            if (minX > maxX) return;                      // badge-only selection: no ghost
+            int W = maxX - minX, H = maxY - minY;
+            var img = new uint[W * H];
+            var pal = EditedPalette(0)!;
+            foreach (int i in selSprites) spriteOverlay.DrawOne(i, img, W, H, pal, -minX, -minY);
+            sprGhostTex = new Texture(GraphicsDevice, W, H, MemoryMarshal.AsBytes(img.AsSpan()));
+            sprGhostW = W; sprGhostH = H; sprGhostX = minX; sprGhostY = minY;
+        }
+        catch { DropSpriteGhost(); }
+    }
+
+    private void DropSpriteGhost()
+    {
+        sprGhostTex?.Dispose(); sprGhostTex = null;
     }
 
     private void PlaceSprite(int number, int cx, int cy, bool vert)
@@ -1166,7 +1213,7 @@ public class EditorApp : App
             grid = rom is not null && level is not null ? ObjectEngine.Render(rom, level) : null;
             baseGrid = grid?.Clone();          // snapshot to diff edits against on save
             undoStack.Clear(); redoStack.Clear(); currentStroke = new();   // new grid = new history
-            selSprites.Clear(); dragStart = dragEnd = null; moveDrag = null;
+            selSprites.Clear(); dragStart = dragEnd = null; moveDrag = null; DropSpriteGhost();
             levelGfxKey = -1;                                              // refresh Level GFX window
             if (levelNum != palEditsLevel) { palEdits.Clear(); palEditsLevel = levelNum; }
             // Layer 2: background image or object layer, drawn behind layer 1.
