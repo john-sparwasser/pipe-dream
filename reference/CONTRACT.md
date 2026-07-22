@@ -625,6 +625,15 @@ box lacks):
   not wiring AN into the vanilla overlay. (The OLD "Extend Animated Tile GFX" feature did use
   $AD00 via manually-edited $05B999 entries — a ROM using it WOULD show $05B999 >= $AD00.)
 
+**ENGINE LOCATED (foothold for the decode).** Diffing clean SMW vs ShaoBase (which has global
+ExAnimation) in the NMI animation code: LM overwrites the vanilla DMA setup at **$00A390**
+(was `REP #$20 : LDY #$80 : STY $2115`) with **`JSL $138170`** (expanded bank $13). $138170 is
+the ExAnimation engine — it performs the animated-tile VRAM DMA itself (sets DP=$4300, writes
+$2116/$22/$420B from the `$0D7x` params) and layers its own slots on top; the vanilla dispatch
+$05BB39 is UNTOUCHED. NEXT: follow $138170 to the global + per-level slot tables (dest tile,
+frame source list, rate, trigger) — the actual format to decode, via `--disasm` + a controlled
+per-level before/after (one ExAnimation slot) to disambiguate the record fields.
+
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 
 No unified sprite→tile table exists; each sprite's look comes from its graphics routine.
