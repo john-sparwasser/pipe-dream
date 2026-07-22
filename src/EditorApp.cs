@@ -99,12 +99,14 @@ public class EditorApp : App
     private readonly Dictionary<int, ushort> palEdits = new();
     private int palEditsLevel = -1;
     private int palDirtyRebuild = -1;   // swatch whose picker changed; rebuild when its popup closes
+    private Dictionary<int, ushort>? palBeforePicker;   // palEdits snapshot at picker open (undo)
 
     // Undo/redo: tile paint strokes (one per mouse-down) and sprite-list edits
     // (before/after snapshots — sprite lists are small, snapshots are simplest).
     private abstract record EditAction;
     private sealed record TileStroke(List<(int x, int y, ushort before, ushort after)> Cells) : EditAction;
     private sealed record SpriteEdit(List<Sprite> Before, List<Sprite> After) : EditAction;
+    private sealed record PaletteEdit(Dictionary<int, ushort> Before, Dictionary<int, ushort> After) : EditAction;
     private readonly List<EditAction> undoStack = new();
     private readonly List<EditAction> redoStack = new();
     private List<(int x, int y, ushort before, ushort after)> currentStroke = new();
@@ -833,6 +835,27 @@ public class EditorApp : App
         redoStack.Clear();
     }
 
+    // Record a palette-edit action; `mutate` (e.g. Reset's clear) runs before the
+    // after-snapshot. No-ops (picker closed back on the original color) aren't recorded.
+    private void PushPaletteEdit(Dictionary<int, ushort> before, Action? mutate)
+    {
+        mutate?.Invoke();
+        if (before.Count == palEdits.Count &&
+            before.All(kv => palEdits.TryGetValue(kv.Key, out var v) && v == kv.Value))
+            return;
+        CommitStroke();
+        undoStack.Add(new PaletteEdit(before, new Dictionary<int, ushort>(palEdits)));
+        if (undoStack.Count > 256) undoStack.RemoveAt(0);
+        redoStack.Clear();
+    }
+
+    private void RestorePalEdits(Dictionary<int, ushort> state)
+    {
+        palEdits.Clear();
+        foreach (var (k, c) in state) palEdits[k] = c;
+        RebuildGraphics();
+    }
+
     private void RestoreSprites(List<Sprite> list)
     {
         if (sprites is null) return;
@@ -865,6 +888,9 @@ public class EditorApp : App
             case SpriteEdit se:
                 RestoreSprites(se.Before);
                 break;
+            case PaletteEdit pe:
+                RestorePalEdits(pe.Before);
+                break;
         }
         redoStack.Add(a);
         levelDirty = true;
@@ -882,6 +908,9 @@ public class EditorApp : App
                 break;
             case SpriteEdit se:
                 RestoreSprites(se.After);
+                break;
+            case PaletteEdit pe:
+                RestorePalEdits(pe.After);
                 break;
         }
         undoStack.Add(a);
@@ -1129,7 +1158,11 @@ public class EditorApp : App
         if (palEdits.Count > 0)
         {
             ImGui.SameLine();
-            if (ImGui.SmallButton("Reset")) { palEdits.Clear(); RebuildGraphics(); }
+            if (ImGui.SmallButton("Reset"))
+            {
+                PushPaletteEdit(new Dictionary<int, ushort>(palEdits), () => palEdits.Clear());
+                RebuildGraphics();
+            }
         }
         ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, new Vector2(2, 2));
         float sw = MathF.Max(10, MathF.Floor((ImGui.GetContentRegionAvail().X - 15 * 2) / 16));
@@ -1140,7 +1173,10 @@ public class EditorApp : App
             var v = new Vector4((c & 0xFF) / 255f, ((c >> 8) & 0xFF) / 255f, ((c >> 16) & 0xFF) / 255f, 1f);
             if (ImGui.ColorButton($"##pal{i}", v,
                     ImGuiColorEditFlags.NoAlpha | ImGuiColorEditFlags.NoTooltip, new Vector2(sw, sw)))
+            {
+                palBeforePicker = new Dictionary<int, ushort>(palEdits);   // undo baseline
                 ImGui.OpenPopup($"palpick{i}");
+            }
             if (ImGui.IsItemHovered())
                 ImGui.SetTooltip($"0x{i:X2}  row {i >> 4} color {i & 15}  BGR555 {pal.Bgr[i]:X4}" +
                                  (palEdits.ContainsKey(i) ? "  (edited)" : ""));
@@ -1160,6 +1196,8 @@ public class EditorApp : App
             else if (palDirtyRebuild == i)
             {
                 palDirtyRebuild = -1;
+                PushPaletteEdit(palBeforePicker ?? new Dictionary<int, ushort>(palEdits), null);
+                palBeforePicker = null;
                 RebuildGraphics();      // picker closed: re-render with the edited palette
             }
         }
