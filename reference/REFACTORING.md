@@ -49,10 +49,20 @@ Each step is behavior-preserving and must pass `--selfcheck` + `dotnet test` bef
     catalogs; catalogs need tileCaches + GraphicsDevice). Extracting adds delegation churn
     across ~5 call sites for modest gain and real regression risk on rendering. Revisit only
     if the palette/catalog code grows. EditorApp is now 1201 (from 1761).
-- [ ] **6. (Later) Core/App project split** — move `Rom/` into a `PipeDream.Core` library the
-  exe and tests both reference, so the UI framework never enters the domain/test build. Low
-  risk (Rom/ is already dependency-free) but high file-move churn; do it deliberately, not
-  bundled with a behavior change. Tests reference the exe project until then.
+- [ ] **6. (Optional, not done) Core/App project split** — move `Rom/` into a `PipeDream.Core`
+  library the exe + tests reference, compiler-enforcing the UI/domain boundary. NOT done: the
+  boundary is already clean by convention (Rom/ has zero Foster refs, verified) and tests
+  already run against the exe without loading Foster, so the practical gain today is marginal
+  while the cost is real — moving ~16 files breaks the graphify index paths (graphify-out/,
+  refresh-graph.ps1) and the memory notes that reference `src/Rom/`. Do it as its own
+  deliberate task if/when a second consumer of Core appears; don't bundle it with feature work.
+
+## Result
+God file broken up: `EditorApp.cs` 1761 → 1201. `ObjectEngine.cs` 750 → 137. New focused
+units: `Map16Grid`, `ObjectEnginePorted`, `LevelCanvas`, `EditHistory`, `EditTools`
+(Tile/Sprite/Object), `Dm16Saver`, `DebugPanels`. 31 unit tests + `--selfcheck` guard every
+step. Remaining EditorApp is the app shell + level orchestration + the render-coupled
+palette/catalog builders (deliberately kept — see step 5).
 
 ## Notes
 - Inheritance is *not* the problem here (only `EditorApp : App`, `ImGuiLayer : IDisposable`).
