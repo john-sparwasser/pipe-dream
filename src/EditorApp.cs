@@ -1129,19 +1129,51 @@ public class EditorApp : App
         ImGui.Text($"{level.Objects.Count} objects   tileset {level.Header.Tileset}");
         if (ImGui.BeginChild("objlist"))
         {
+            float rowH = 40;
             for (int i = 0; i < level.Objects.Count; i++)
             {
                 var o = level.Objects[i];
-                string label = o.IsScreenExit ? $"exit -> {(o.ExtraByte >= 0 ? $"{o.ExtraByte:X2}" : "?")}"
-                    : o.IsDm16 ? $"DM16 0x{o.Dm16Tile:X3}"
-                    : o.Extended ? $"ext {o.ExtendedNumber:X2}"
-                    : $"obj {o.Number:X2}";
-                if (ImGui.Selectable($"{label}  scr {o.Screen:X2} at ({o.AbsoluteX,3},{o.Y,2})###obj{i}",
-                                     selectedObject == i))
+                string name = o.IsScreenExit ? $"Screen exit → {(o.ExtraByte >= 0 ? $"{o.ExtraByte:X2}" : "?")}"
+                    : o.IsDm16 ? $"Direct Map16 0x{o.Dm16Tile:X3}"
+                    : o.Extended ? ObjectNames.Extended(o.ExtendedNumber)
+                    : ObjectNames.Standard(o.Number);
+                string id = o.IsDm16 ? $"DM16 {o.Dm16Tile:X3}"
+                    : o.Extended ? $"ext {o.ExtendedNumber:X2}" : $"obj {o.Number:X2}";
+
+                DrawObjectThumb(o, rowH);
+                ImGui.SameLine();
+                if (ImGui.Selectable($"{name}\n{id}  scr {o.Screen:X2} ({o.AbsoluteX},{o.Y})###obj{i}",
+                                     selectedObject == i, ImGuiSelectableFlags.None, new Vector2(0, rowH)))
                     selectedObject = i;
             }
             ImGui.EndChild();
         }
+    }
+
+    // Preview cropped straight from the rendered level canvas at the object's footprint
+    // (declared Width×Height) — no extra rendering, just UVs into the level texture.
+    private void DrawObjectThumb(LevelObject o, float box)
+    {
+        var tex = levelTexs[AnimPhase] ?? levelTexs[0];
+        if (tex is null || levelPxW == 0 || o.IsScreenExit || (o.Extended && o.ExtendedNumber <= 0x01))
+        { ImGui.Dummy(new Vector2(box, box)); return; }
+
+        int cw = Math.Clamp(o.Extended ? 1 : o.Width, 1, 8);
+        int ch = Math.Clamp(o.Extended ? 1 : o.Height, 1, 8);
+        int px = o.AbsoluteX * 16, py = o.Y * 16, pw = cw * 16, ph = ch * 16;
+        if (px + pw > levelPxW) pw = levelPxW - px;
+        if (py + ph > levelPxH) ph = levelPxH - py;
+        if (px < 0 || py < 0 || pw <= 0 || ph <= 0) { ImGui.Dummy(new Vector2(box, box)); return; }
+
+        var uv0 = new Vector2((float)px / levelPxW, (float)py / levelPxH);
+        var uv1 = new Vector2((float)(px + pw) / levelPxW, (float)(py + ph) / levelPxH);
+        float scale = box / Math.Max(pw, ph);            // fit, preserve aspect
+        var size = new Vector2(pw * scale, ph * scale);
+        // Center within the box so rows align.
+        var cur = ImGui.GetCursorScreenPos();
+        ImGui.SetCursorScreenPos(cur + new Vector2((box - size.X) / 2, (box - size.Y) / 2));
+        ImGui.Image(imgui!.GetTextureID(tex), size, uv0, uv1);
+        ImGui.SetCursorScreenPos(cur + new Vector2(box, 0));
     }
 
     // Palette tab: the level's 256-color CGRAM as a 16x16 swatch grid. Click a swatch to
