@@ -99,9 +99,13 @@ public class EditorApp : App
     private int palEditsLevel = -1;
     private int palDirtyRebuild = -1;   // swatch whose picker changed; rebuild when its popup closes
 
-    // Undo/redo: each entry is one paint stroke (all cells changed during one mouse-down).
-    private readonly List<List<(int x, int y, ushort before, ushort after)>> undoStack = new();
-    private readonly List<List<(int x, int y, ushort before, ushort after)>> redoStack = new();
+    // Undo/redo: tile paint strokes (one per mouse-down) and sprite-list edits
+    // (before/after snapshots — sprite lists are small, snapshots are simplest).
+    private abstract record EditAction;
+    private sealed record TileStroke(List<(int x, int y, ushort before, ushort after)> Cells) : EditAction;
+    private sealed record SpriteEdit(List<Sprite> Before, List<Sprite> After) : EditAction;
+    private readonly List<EditAction> undoStack = new();
+    private readonly List<EditAction> redoStack = new();
     private List<(int x, int y, ushort before, ushort after)> currentStroke = new();
     private string saveStatus = "";
     private const float Zoom = 2f;        // on-screen px per source px (GFX viewer)
@@ -646,14 +650,17 @@ public class EditorApp : App
     private void PlaceSprite(int number, int cx, int cy, bool vert)
     {
         if (sprites is null) return;
+        var before = new List<Sprite>(sprites.Sprites);
         sprites.Sprites.Add(SpriteAt(number, 0, cx, cy, vert));
         MarkSpriteCells(cx, cy);
+        PushSpriteEdit(before);
         RebuildSpriteOverlay();
     }
 
     private void MoveSelectedSprites(int dx, int dy, bool vert)
     {
         if (sprites is null) return;
+        var before = new List<Sprite>(sprites.Sprites);
         foreach (int i in selSprites)
         {
             var s = sprites.Sprites[i];
@@ -662,6 +669,7 @@ public class EditorApp : App
             sprites.Sprites[i] = SpriteAt(s.Number, s.Extra, cx + dx, cy + dy, vert, s.ExtraBytes);
             MarkSpriteCells(cx + dx, cy + dy);
         }
+        PushSpriteEdit(before);
         RebuildSpriteOverlay();
     }
 
@@ -670,6 +678,7 @@ public class EditorApp : App
     private void DuplicateSelection(int cx, int cy, bool vert)
     {
         if (sprites is null || selSprites.Count == 0) return;
+        var before = new List<Sprite>(sprites.Sprites);
         var cells = selSprites.Select(i => (i, cell: sprites.Sprites[i].Cell(vert))).ToList();
         int ax = cells.Min(c => c.cell.X), ay = cells.Min(c => c.cell.Y);
         var added = new List<int>();
@@ -683,12 +692,14 @@ public class EditorApp : App
         }
         selSprites.Clear();
         foreach (int i in added) selSprites.Add(i);
+        PushSpriteEdit(before);
         RebuildSpriteOverlay();
     }
 
     private void DeleteSelectedSprites(bool vert)
     {
         if (sprites is null || selSprites.Count == 0) return;
+        var before = new List<Sprite>(sprites.Sprites);
         foreach (int i in selSprites.OrderByDescending(i => i))
         {
             var (cx, cy) = sprites.Sprites[i].Cell(vert);
@@ -696,6 +707,7 @@ public class EditorApp : App
             sprites.Sprites.RemoveAt(i);
         }
         selSprites.Clear();
+        PushSpriteEdit(before);
         RebuildSpriteOverlay();
     }
 
@@ -732,30 +744,73 @@ public class EditorApp : App
     private void CommitStroke()
     {
         if (currentStroke.Count == 0) return;
-        undoStack.Add(currentStroke);
+        undoStack.Add(new TileStroke(currentStroke));
         if (undoStack.Count > 256) undoStack.RemoveAt(0);
         currentStroke = new();
         redoStack.Clear();
     }
 
+    // Record a sprite-list mutation (call with the pre-mutation copy of the list).
+    private void PushSpriteEdit(List<Sprite> before)
+    {
+        if (sprites is null) return;
+        CommitStroke();
+        undoStack.Add(new SpriteEdit(before, new List<Sprite>(sprites.Sprites)));
+        if (undoStack.Count > 256) undoStack.RemoveAt(0);
+        redoStack.Clear();
+    }
+
+    private void RestoreSprites(List<Sprite> list)
+    {
+        if (sprites is null) return;
+        bool vert = rom is not null && level is not null && rom.IsVerticalMode(level.Header.LevelMode);
+        foreach (var s in sprites.Sprites.Concat(list))
+        {
+            var (cx, cy) = s.Cell(vert);
+            MarkSpriteCells(cx, cy);
+        }
+        sprites.Sprites.Clear();
+        sprites.Sprites.AddRange(list);
+        selSprites.Clear();
+        DropSpriteGhost();
+        RebuildSpriteOverlay();
+    }
+
     private void Undo()
     {
         CommitStroke();
-        if (undoStack.Count == 0 || grid is null) return;
-        var s = undoStack[^1];
+        if (undoStack.Count == 0) return;
+        var a = undoStack[^1];
         undoStack.RemoveAt(undoStack.Count - 1);
-        for (int i = s.Count - 1; i >= 0; i--) { grid.Set(s[i].x, s[i].y, s[i].before); dirtyCells.Add((s[i].x, s[i].y)); }
-        redoStack.Add(s);
+        switch (a)
+        {
+            case TileStroke ts when grid is not null:
+                for (int i = ts.Cells.Count - 1; i >= 0; i--)
+                { grid.Set(ts.Cells[i].x, ts.Cells[i].y, ts.Cells[i].before); dirtyCells.Add((ts.Cells[i].x, ts.Cells[i].y)); }
+                break;
+            case SpriteEdit se:
+                RestoreSprites(se.Before);
+                break;
+        }
+        redoStack.Add(a);
         levelDirty = true;
     }
 
     private void Redo()
     {
-        if (redoStack.Count == 0 || grid is null) return;
-        var s = redoStack[^1];
+        if (redoStack.Count == 0) return;
+        var a = redoStack[^1];
         redoStack.RemoveAt(redoStack.Count - 1);
-        foreach (var (x, y, _, after) in s) { grid.Set(x, y, after); dirtyCells.Add((x, y)); }
-        undoStack.Add(s);
+        switch (a)
+        {
+            case TileStroke ts when grid is not null:
+                foreach (var (x, y, _, after) in ts.Cells) { grid.Set(x, y, after); dirtyCells.Add((x, y)); }
+                break;
+            case SpriteEdit se:
+                RestoreSprites(se.After);
+                break;
+        }
+        undoStack.Add(a);
         levelDirty = true;
     }
 
