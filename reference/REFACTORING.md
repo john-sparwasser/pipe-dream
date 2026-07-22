@@ -27,8 +27,10 @@ Each step is behavior-preserving and must pass `--selfcheck` + `dotnet test` bef
   `RefreshPhase`/`Drop`/`MarkDirty`/`TexFor`. Inputs arrive as a `CanvasScene` record (grid,
   caches, backdrop, bg/layer2 + an overlay delegate). EditorApp keeps thin `Scene()` +
   `BuildLevelCanvas`/`ApplyDirtyCells` wrappers. Verified: selfcheck + 26 tests + render.
-- [ ] **3. Extract `EditHistory`** — the `EditAction` records + `Undo`/`Redo`/`Push*`. Move
-  toward `IUndoable { Undo(); Redo(); }` command objects instead of the type switch.
+- [x] **3. Extract `EditHistory`** (`src/EditHistory.cs`) — a generic command stack of
+  (undo, redo) closure pairs; the `EditAction` record hierarchy + two type-switches are gone.
+  Each `Push*` in EditorApp captures its own restore closures, so the history knows nothing
+  about tiles/sprites/objects/palettes. 5 dedicated unit tests (31 total). Verified green.
 - [ ] **4. Introduce `EditTool` (composition, the main win)** — `TileTool`/`SpriteTool`/
   `ObjectTool`, each owning its selection state + interaction + operations + overlay draw.
   `EditorApp` holds the active tool and swaps it on tab change. Collapses the 336-line

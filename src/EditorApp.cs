@@ -106,15 +106,9 @@ public class EditorApp : App
     private int palDirtyRebuild = -1;   // swatch whose picker changed; rebuild when its popup closes
     private Dictionary<int, ushort>? palBeforePicker;   // palEdits snapshot at picker open (undo)
 
-    // Undo/redo: tile paint strokes (one per mouse-down) and sprite-list edits
-    // (before/after snapshots — sprite lists are small, snapshots are simplest).
-    private abstract record EditAction;
-    private sealed record TileStroke(List<(int x, int y, ushort before, ushort after)> Cells) : EditAction;
-    private sealed record SpriteEdit(List<Sprite> Before, List<Sprite> After) : EditAction;
-    private sealed record PaletteEdit(Dictionary<int, ushort> Before, Dictionary<int, ushort> After) : EditAction;
-    private sealed record ObjectEdit(List<LevelObject> Before, List<LevelObject> After) : EditAction;
-    private readonly List<EditAction> undoStack = new();
-    private readonly List<EditAction> redoStack = new();
+    // Undo/redo via a generic command stack; each Push* below captures the domain-specific
+    // undo/redo closures. `currentStroke` buffers a tile paint until the mouse releases.
+    private readonly EditHistory history = new();
     private List<(int x, int y, ushort before, ushort after)> currentStroke = new();
     private string saveStatus = "";
     private const float Zoom = 2f;        // on-screen px per source px (GFX viewer)
@@ -249,8 +243,8 @@ public class EditorApp : App
             }
             if (ImGui.BeginMenu("Edit"))
             {
-                if (ImGui.MenuItem("Undo", "Ctrl+Z", false, undoStack.Count > 0 || currentStroke.Count > 0)) Undo();
-                if (ImGui.MenuItem("Redo", "Ctrl+Shift+Z", false, redoStack.Count > 0)) Redo();
+                if (ImGui.MenuItem("Undo", "Ctrl+Z", false, history.CanUndo || currentStroke.Count > 0)) Undo();
+                if (ImGui.MenuItem("Redo", "Ctrl+Shift+Z", false, history.CanRedo)) Redo();
                 ImGui.EndMenu();
             }
             if (ImGui.BeginMenu("View"))
@@ -1007,24 +1001,29 @@ public class EditorApp : App
     private void CommitStroke()
     {
         if (currentStroke.Count == 0) return;
-        undoStack.Add(new TileStroke(currentStroke));
-        if (undoStack.Count > 256) undoStack.RemoveAt(0);
+        var cells = currentStroke;
         currentStroke = new();
-        redoStack.Clear();
+        history.Push(
+            undoAction: () => { if (grid is null) return;
+                for (int i = cells.Count - 1; i >= 0; i--)
+                { grid.Set(cells[i].x, cells[i].y, cells[i].before); canvas.MarkDirty(cells[i].x, cells[i].y); }
+                levelDirty = true; },
+            redoAction: () => { if (grid is null) return;
+                foreach (var (x, y, _, after) in cells) { grid.Set(x, y, after); canvas.MarkDirty(x, y); }
+                levelDirty = true; });
     }
 
-    // Record a sprite-list mutation (call with the pre-mutation copy of the list).
+    // Sprite/object/palette edits are before/after snapshots (the lists/dicts are small).
     private void PushSpriteEdit(List<Sprite> before)
     {
         if (sprites is null) return;
         CommitStroke();
-        undoStack.Add(new SpriteEdit(before, new List<Sprite>(sprites.Sprites)));
-        if (undoStack.Count > 256) undoStack.RemoveAt(0);
-        redoStack.Clear();
+        var after = new List<Sprite>(sprites.Sprites);
+        history.Push(() => RestoreSprites(before), () => RestoreSprites(after));
     }
 
-    // Record a palette-edit action; `mutate` (e.g. Reset's clear) runs before the
-    // after-snapshot. No-ops (picker closed back on the original color) aren't recorded.
+    // `mutate` (e.g. Reset's clear) runs before the after-snapshot; a no-op (picker closed
+    // back on the original color) records nothing.
     private void PushPaletteEdit(Dictionary<int, ushort> before, Action? mutate)
     {
         mutate?.Invoke();
@@ -1032,9 +1031,16 @@ public class EditorApp : App
             before.All(kv => palEdits.TryGetValue(kv.Key, out var v) && v == kv.Value))
             return;
         CommitStroke();
-        undoStack.Add(new PaletteEdit(before, new Dictionary<int, ushort>(palEdits)));
-        if (undoStack.Count > 256) undoStack.RemoveAt(0);
-        redoStack.Clear();
+        var after = new Dictionary<int, ushort>(palEdits);
+        history.Push(() => RestorePalEdits(before), () => RestorePalEdits(after));
+    }
+
+    private void PushObjectEdit(List<LevelObject> before)
+    {
+        if (objList is null) return;
+        CommitStroke();
+        var after = new List<LevelObject>(objList);
+        history.Push(() => RestoreObjects(before), () => RestoreObjects(after));
     }
 
     private void RestorePalEdits(Dictionary<int, ushort> state)
@@ -1042,14 +1048,6 @@ public class EditorApp : App
         palEdits.Clear();
         foreach (var (k, c) in state) palEdits[k] = c;
         RebuildGraphics();
-    }
-
-    private void PushObjectEdit(List<LevelObject> before)
-    {
-        CommitStroke();
-        undoStack.Add(new ObjectEdit(before, new List<LevelObject>(objList!)));
-        if (undoStack.Count > 256) undoStack.RemoveAt(0);
-        redoStack.Clear();
     }
 
     private void RestoreObjects(List<LevelObject> list)
@@ -1078,55 +1076,8 @@ public class EditorApp : App
         RebuildSpriteOverlay();
     }
 
-    private void Undo()
-    {
-        CommitStroke();
-        if (undoStack.Count == 0) return;
-        var a = undoStack[^1];
-        undoStack.RemoveAt(undoStack.Count - 1);
-        switch (a)
-        {
-            case TileStroke ts when grid is not null:
-                for (int i = ts.Cells.Count - 1; i >= 0; i--)
-                { grid.Set(ts.Cells[i].x, ts.Cells[i].y, ts.Cells[i].before); canvas.MarkDirty(ts.Cells[i].x, ts.Cells[i].y); }
-                break;
-            case SpriteEdit se:
-                RestoreSprites(se.Before);
-                break;
-            case PaletteEdit pe:
-                RestorePalEdits(pe.Before);
-                break;
-            case ObjectEdit oe:
-                RestoreObjects(oe.Before);
-                break;
-        }
-        redoStack.Add(a);
-        levelDirty = true;
-    }
-
-    private void Redo()
-    {
-        if (redoStack.Count == 0) return;
-        var a = redoStack[^1];
-        redoStack.RemoveAt(redoStack.Count - 1);
-        switch (a)
-        {
-            case TileStroke ts when grid is not null:
-                foreach (var (x, y, _, after) in ts.Cells) { grid.Set(x, y, after); canvas.MarkDirty(x, y); }
-                break;
-            case SpriteEdit se:
-                RestoreSprites(se.After);
-                break;
-            case PaletteEdit pe:
-                RestorePalEdits(pe.After);
-                break;
-            case ObjectEdit oe:
-                RestoreObjects(oe.After);
-                break;
-        }
-        undoStack.Add(a);
-        levelDirty = true;
-    }
+    private void Undo() { CommitStroke(); history.Undo(); }
+    private void Redo() { history.Redo(); }
 
     // Write the current grid edits back to a ROM copy as Direct Map16 objects.
     private void SaveEdits()
@@ -1532,7 +1483,7 @@ public class EditorApp : App
             grid = rom is not null && level is not null ? ObjectEngine.Render(rom, level) : null;
             baseGrid = grid?.Clone();          // snapshot to diff edits against on save
             objList = level is not null ? new List<LevelObject>(level.Objects) : null;
-            undoStack.Clear(); redoStack.Clear(); currentStroke = new();   // new grid = new history
+            history.Clear(); currentStroke = new();                       // new grid = new history
             selSprites.Clear(); selObjs.Clear(); dragStart = dragEnd = null; moveDrag = null; DropSpriteGhost(); hiddenSprites = null;
             levelGfxKey = -1;                                              // refresh Level GFX window
             if (levelNum != palEditsLevel) { palEdits.Clear(); palEditsLevel = levelNum; }
