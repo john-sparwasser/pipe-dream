@@ -57,6 +57,18 @@ Each step is behavior-preserving and must pass `--selfcheck` + `dotnet test` bef
   refresh-graph.ps1) and the memory notes that reference `src/Rom/`. Do it as its own
   deliberate task if/when a second consumer of Core appears; don't bundle it with feature work.
 
+- [x] **7. Split the ROM/SMC bit-operation files by concern** — one file per operation kind,
+  each with a documented header explaining the format it touches. `partial class` keeps the
+  API identical (no call-site churn):
+  - `Rom.cs` (95) — core container + LoROM addressing + SNES header.
+  - `Rom.LevelData.cs` (36) — reading per-level pointer tables (Layer 1/2/sprite, vertical).
+  - `Rom.Save.cs` (125) — the write path: RATS free-space, expand, repoint, checksum, save.
+  - `Rom.LunarMagic.cs` (187) — LM hack detection + expanded-table location/decode.
+  - `Level.cs` (111) — data model (LevelHeader/LevelObject structs + Level fields).
+  - `Level.Parse.cs` (134) — reading level data (bytes → header + object lists + BG image).
+  - `Level.Encode.cs` (75) — saving level data (object list → bytes, normalize, append).
+  Verified: selfcheck + 31 tests.
+
 ## Result
 God file broken up: `EditorApp.cs` 1761 → 1201. `ObjectEngine.cs` 750 → 137. New focused
 units: `Map16Grid`, `ObjectEnginePorted`, `LevelCanvas`, `EditHistory`, `EditTools`
