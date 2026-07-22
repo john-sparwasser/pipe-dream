@@ -275,6 +275,8 @@ public class EditorApp : App
             editMode = editMode == EditMode.Layer1 ? EditMode.Sprites : EditMode.Layer1;
             dragStart = null; moveDrag = null;
             DropSpriteGhost();
+            // Bring the matching palette tab along (Map16 for layer 1).
+            pendingTabSelect = paletteTab = editMode == EditMode.Sprites ? 1 : 0;
         }
 
         DrawMainLayout();
@@ -311,16 +313,51 @@ public class EditorApp : App
     }
 
     // The left palette: pickers that feed the main view. Tabs per palette kind.
+    // Selecting a tab switches the canvas edit mode (Sprites tab -> sprite mode,
+    // Map16/Objects -> layer 1); Esc's mode toggle selects the matching tab back.
+    private int paletteTab;             // 0 Map16, 1 Sprites, 2 Objects, 3 Palette
+    private int pendingTabSelect = -1;  // tab to force-select (mode changed via Esc)
+
     private void DrawPalette()
     {
         if (ImGui.BeginTabBar("palettetabs"))
         {
-            if (ImGui.BeginTabItem("Map16")) { DrawMap16Tab(); ImGui.EndTabItem(); }
-            if (ImGui.BeginTabItem("Sprites")) { DrawSpritesTab(); ImGui.EndTabItem(); }
-            if (ImGui.BeginTabItem("Objects")) { DrawObjectsTab(); ImGui.EndTabItem(); }
-            if (ImGui.BeginTabItem("Palette")) { DrawPaletteTab(); ImGui.EndTabItem(); }
+            PaletteTabItem(0, "Map16", EditMode.Layer1, DrawMap16Tab);
+            PaletteTabItem(1, "Sprites", EditMode.Sprites, DrawSpritesTab);
+            PaletteTabItem(2, "Objects", EditMode.Layer1, DrawObjectsTab);
+            PaletteTabItem(3, "Palette", null, DrawPaletteTab);
             ImGui.EndTabBar();
         }
+        pendingTabSelect = -1;
+    }
+
+    private void PaletteTabItem(int idx, string label, EditMode? mode, Action draw)
+    {
+        var flags = pendingTabSelect == idx ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
+        // ImGui.NET has no BeginTabItem(label, flags) overload (only ref-bool with a
+        // close button) — call the native one with p_open = null.
+        bool open;
+        unsafe
+        {
+            int len = System.Text.Encoding.UTF8.GetByteCount(label);
+            Span<byte> buf = stackalloc byte[len + 1];
+            System.Text.Encoding.UTF8.GetBytes(label, buf);
+            buf[len] = 0;
+            fixed (byte* p = buf) open = ImGuiNative.igBeginTabItem(p, null, flags) != 0;
+        }
+        if (!open) return;
+        if (paletteTab != idx)
+        {
+            paletteTab = idx;
+            if (mode is { } m && editMode != m)
+            {
+                editMode = m;
+                dragStart = dragEnd = null; moveDrag = null;
+                DropSpriteGhost();
+            }
+        }
+        draw();
+        ImGui.EndTabItem();
     }
 
     // The main view: the composed level (Map16 grid with real tile graphics).
