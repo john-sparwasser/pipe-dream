@@ -31,6 +31,16 @@ class Program
         if (bi >= 0)
             return BlobSheet(args, bi);
 
+        int dsi = Array.IndexOf(args, "--disasm");
+        if (dsi >= 0)
+        {
+            var rom = Rom.Load(args[dsi + 1]);
+            int snes = Convert.ToInt32(args[dsi + 2], 16);
+            int count = int.TryParse(args.ElementAtOrDefault(dsi + 3), out var c) ? c : 40;
+            Console.Write(Disasm.Dis(rom, snes, count, args.Contains("--m8"), args.Contains("--x8")));
+            return 0;
+        }
+
         int si = Array.IndexOf(args, "--gen-spritedisplay");
         if (si >= 0)
         {
