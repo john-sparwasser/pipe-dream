@@ -77,7 +77,7 @@ public class EditorApp : App
     private bool paletteVisible = true;
     private bool showRomInfo;
     private bool showGfxViewer;
-    private int selectedSprite = -1;
+    private readonly HashSet<int> selSprites = new();   // selected sprite indices (sprite mode)
     private int selectedObject = -1;
 
     // LM-style editing: left-click/drag selects (grabs the tiles under the cursor as the
@@ -339,7 +339,7 @@ public class EditorApp : App
         ImGui.SameLine();
         ImGui.Text(editMode == EditMode.Layer1
             ? $"—  Layer 1:  left: select/grab ({brushW}x{brushH})   drag selection: move   right: stamp   Del: erase   Esc: sprites"
-            : "—  Sprites:  left: select sprite   Esc: layer 1");
+            : $"—  Sprites:  left: select/drag-select   drag selection: move   right: {(selSprites.Count > 0 ? "duplicate" : selectedCatalog >= 0 ? $"place {selectedCatalog:X2}" : "place (pick in palette)")}   Del: delete   Esc: layer 1");
         if (saveStatus.Length > 0) ImGui.TextDisabled(saveStatus);
         // Horizontal levels scroll left/right with the wheel (Shift+wheel = vertical);
         // vertical levels keep the default up/down wheel.
@@ -370,14 +370,18 @@ public class EditorApp : App
                 dl.AddRect(new Vector2(origin.X + sr.x * cs, origin.Y + sr.y * cs),
                            new Vector2(origin.X + (sr.x + sr.w) * cs, origin.Y + (sr.y + sr.h) * cs),
                            0xFF00FFFF, 0, 0, 1.5f);
-            if (editMode == EditMode.Sprites && sprites is not null &&
-                selectedSprite >= 0 && selectedSprite < sprites.Sprites.Count)
-            {
-                var (sx, sy) = sprites.Sprites[selectedSprite].Cell(verticalLvl);
-                dl.AddRect(new Vector2(origin.X + sx * cs, origin.Y + sy * cs),
-                           new Vector2(origin.X + (sx + 1) * cs, origin.Y + (sy + 1) * cs),
-                           0xFF00FF00, 0, 0, 2f);
-            }
+            if (editMode == EditMode.Sprites && sprites is not null)
+                foreach (int si in selSprites)
+                {
+                    if (si >= sprites.Sprites.Count) continue;
+                    var (sx, sy) = sprites.Sprites[si].Cell(verticalLvl);
+                    dl.AddRectFilled(new Vector2(origin.X + sx * cs, origin.Y + sy * cs),
+                                     new Vector2(origin.X + (sx + 1) * cs, origin.Y + (sy + 1) * cs),
+                                     0x3000FF00u);
+                    dl.AddRect(new Vector2(origin.X + sx * cs, origin.Y + sy * cs),
+                               new Vector2(origin.X + (sx + 1) * cs, origin.Y + (sy + 1) * cs),
+                               0xFF00FF00, 0, 0, 2f);
+                }
 
             if (ImGui.IsItemHovered())
             {
@@ -399,11 +403,26 @@ public class EditorApp : App
                         if (moveDrag is not null && ImGui.IsMouseDown(ImGuiMouseButton.Left)) dragEnd = (cx, cy);
                         if (ImGui.IsMouseDown(ImGuiMouseButton.Right)) StampBrush(cx, cy);
                     }
-                    else if (sprites is not null && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+                    else if (sprites is not null)
                     {
-                        selectedSprite = -1;
-                        for (int i = 0; i < sprites.Sprites.Count; i++)
-                            if (sprites.Sprites[i].Cell(verticalLvl) == (cx, cy)) { selectedSprite = i; break; }
+                        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+                        {
+                            // Click on a selected sprite drags the selection; else rubber-band.
+                            if (SpriteIndexAt(cx, cy, verticalLvl) is int hit && selSprites.Contains(hit))
+                                moveDrag = (cx, cy);
+                            else
+                                dragStart = dragEnd = (cx, cy);
+                        }
+                        if (dragStart is not null && ImGui.IsMouseDown(ImGuiMouseButton.Left)) dragEnd = (cx, cy);
+                        if (moveDrag is not null && ImGui.IsMouseDown(ImGuiMouseButton.Left)) dragEnd = (cx, cy);
+                        // Right-click: duplicate the selection, or place the catalog sprite.
+                        if (ImGui.IsMouseClicked(ImGuiMouseButton.Right))
+                        {
+                            if (selSprites.Count > 0) DuplicateSelection(cx, cy, verticalLvl);
+                            else if (selectedCatalog >= 0) PlaceSprite(selectedCatalog, cx, cy, verticalLvl);
+                        }
+                        if (SpriteIndexAt(cx, cy, verticalLvl) is int over && selSprites.Contains(over))
+                            ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
                     }
                     // Inside the selection: highlight it and show a hand cursor (it's grabbable).
                     bool overSel = editMode == EditMode.Layer1 && selRect is { } hr &&
@@ -434,15 +453,52 @@ public class EditorApp : App
                                0xFF00FFFF, 0, 0, 1.5f);
                 else
                 {
-                    GrabSelection(rx, ry, rw, rh);
+                    if (editMode == EditMode.Layer1) GrabSelection(rx, ry, rw, rh);
+                    else if (sprites is not null)
+                    {
+                        selSprites.Clear();
+                        for (int i = 0; i < sprites.Sprites.Count; i++)
+                        {
+                            var (sx, sy) = sprites.Sprites[i].Cell(verticalLvl);
+                            if (sx >= rx && sx < rx + rw && sy >= ry && sy < ry + rh) selSprites.Add(i);
+                        }
+                    }
                     dragStart = dragEnd = null;
                 }
             }
 
+            // Sprite selection move: outline ghosts at the destination cells; on release
+            // every selected sprite shifts by the drag delta.
+            if (editMode == EditMode.Sprites && moveDrag is { } sa && dragEnd is { } sc &&
+                sprites is not null && selSprites.Count > 0)
+            {
+                int mdx = sc.x - sa.x, mdy = sc.y - sa.y;
+                if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
+                {
+                    ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+                    foreach (int si in selSprites)
+                    {
+                        var (sx, sy) = sprites.Sprites[si].Cell(verticalLvl);
+                        var p0 = new Vector2(origin.X + (sx + mdx) * cs, origin.Y + (sy + mdy) * cs);
+                        dl.AddRect(p0, new Vector2(p0.X + cs, p0.Y + cs), 0xFF00FF00, 0, 0, 1.5f);
+                    }
+                }
+                else
+                {
+                    if (mdx != 0 || mdy != 0) MoveSelectedSprites(mdx, mdy, verticalLvl);
+                    moveDrag = null; dragEnd = null;
+                }
+            }
+
+            // Delete removes the selected sprites.
+            if (editMode == EditMode.Sprites && selSprites.Count > 0 &&
+                !ImGui.GetIO().WantTextInput && ImGui.IsKeyPressed(ImGuiKey.Delete))
+                DeleteSelectedSprites(verticalLvl);
+
             // Selection move: dragging from inside the selection carries its contents —
             // ghost tiles (drawn from the Map16 sheet texture) preview the drop; on
             // release the source is erased and the region stamped as ONE undo step.
-            if (moveDrag is { } anchor && selRect is { } mr && dragEnd is { } cur)
+            if (editMode == EditMode.Layer1 && moveDrag is { } anchor && selRect is { } mr && dragEnd is { } cur)
             {
                 int dx = Math.Clamp(mr.x + cur.x - anchor.x, 0, grid.Width - mr.w);
                 int dy = Math.Clamp(mr.y + cur.y - anchor.y, 0, grid.Height - mr.h);
@@ -505,6 +561,95 @@ public class EditorApp : App
         grid.Set(x, y, tile);
         dirtyCells.Add((x, y));
         levelDirty = true;
+    }
+
+    // ---- sprite editing (sprite mode) ----
+
+    /// <summary>Construct a sprite at a display cell (inverse of Sprite.Cell).</summary>
+    private static Sprite SpriteAt(int number, int extra, int cx, int cy, bool vert, byte[]? extraBytes = null)
+    {
+        int abs = vert ? cy : cx, y = vert ? cx : cy;
+        return new Sprite(Screen: (abs >> 4) & 0x1F, XNibble: abs & 15, Y: y & 0x1F,
+                          Extra: extra, Number: number, ExtraBytes: extraBytes);
+    }
+
+    private int? SpriteIndexAt(int cx, int cy, bool vert)
+    {
+        if (sprites is null) return null;
+        for (int i = 0; i < sprites.Sprites.Count; i++)
+            if (sprites.Sprites[i].Cell(vert) == (cx, cy)) return i;
+        return null;
+    }
+
+    // A sprite changed at (around) this cell: recompose its neighborhood on next flush.
+    private void MarkSpriteCells(int cx, int cy)
+    {
+        for (int dy = -2; dy <= 4; dy++)
+            for (int dx = -2; dx <= 4; dx++)
+                dirtyCells.Add((cx + dx, cy + dy));
+    }
+
+    private void RebuildSpriteOverlay()
+    {
+        spriteOverlay = rom is not null && level is not null && sprites is not null
+            ? SpriteOverlay.Build(rom, sprites, level.Header, levelNum) : null;
+        levelDirty = true;
+    }
+
+    private void PlaceSprite(int number, int cx, int cy, bool vert)
+    {
+        if (sprites is null) return;
+        sprites.Sprites.Add(SpriteAt(number, 0, cx, cy, vert));
+        MarkSpriteCells(cx, cy);
+        RebuildSpriteOverlay();
+    }
+
+    private void MoveSelectedSprites(int dx, int dy, bool vert)
+    {
+        if (sprites is null) return;
+        foreach (int i in selSprites)
+        {
+            var s = sprites.Sprites[i];
+            var (cx, cy) = s.Cell(vert);
+            MarkSpriteCells(cx, cy);
+            sprites.Sprites[i] = SpriteAt(s.Number, s.Extra, cx + dx, cy + dy, vert, s.ExtraBytes);
+            MarkSpriteCells(cx + dx, cy + dy);
+        }
+        RebuildSpriteOverlay();
+    }
+
+    // Duplicate the selection with its top-left-most cell at the cursor; the copies
+    // become the new selection (LM-style stamp-and-continue).
+    private void DuplicateSelection(int cx, int cy, bool vert)
+    {
+        if (sprites is null || selSprites.Count == 0) return;
+        var cells = selSprites.Select(i => (i, cell: sprites.Sprites[i].Cell(vert))).ToList();
+        int ax = cells.Min(c => c.cell.X), ay = cells.Min(c => c.cell.Y);
+        var added = new List<int>();
+        foreach (var (i, cell) in cells)
+        {
+            var s = sprites.Sprites[i];
+            int nx = cx + cell.X - ax, ny = cy + cell.Y - ay;
+            added.Add(sprites.Sprites.Count);
+            sprites.Sprites.Add(SpriteAt(s.Number, s.Extra, nx, ny, vert, s.ExtraBytes));
+            MarkSpriteCells(nx, ny);
+        }
+        selSprites.Clear();
+        foreach (int i in added) selSprites.Add(i);
+        RebuildSpriteOverlay();
+    }
+
+    private void DeleteSelectedSprites(bool vert)
+    {
+        if (sprites is null || selSprites.Count == 0) return;
+        foreach (int i in selSprites.OrderByDescending(i => i))
+        {
+            var (cx, cy) = sprites.Sprites[i].Cell(vert);
+            MarkSpriteCells(cx, cy);
+            sprites.Sprites.RemoveAt(i);
+        }
+        selSprites.Clear();
+        RebuildSpriteOverlay();
     }
 
     // Copy a level region into the brush (LM-style: what you select is what you stamp).
@@ -1021,6 +1166,7 @@ public class EditorApp : App
             grid = rom is not null && level is not null ? ObjectEngine.Render(rom, level) : null;
             baseGrid = grid?.Clone();          // snapshot to diff edits against on save
             undoStack.Clear(); redoStack.Clear(); currentStroke = new();   // new grid = new history
+            selSprites.Clear(); dragStart = dragEnd = null; moveDrag = null;
             levelGfxKey = -1;                                              // refresh Level GFX window
             if (levelNum != palEditsLevel) { palEdits.Clear(); palEditsLevel = levelNum; }
             // Layer 2: background image or object layer, drawn behind layer 1.
