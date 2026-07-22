@@ -39,8 +39,16 @@ Each step is behavior-preserving and must pass `--selfcheck` + `dotnet test` bef
   (the domain ops — PaintCell/PlaceSprite/MoveSelected*/etc. — stay on EditorApp). Shared
   band math in the `EditTool` base. EditorApp 1645 → 1373. Verified: selfcheck + 31 tests +
   render. (Live 3-mode interaction: verbatim block move, needs an eyeball in-app.)
-- [ ] **5. Peel off remaining panels/state** — `PaletteEditorState`, `SpriteCatalog`/
-  `ObjectCatalog`, `GfxViewerPanel`/`DrawRomInfo`, `Dm16Saver`.
+- [~] **5. Peel off remaining panels/state** (partial):
+  - [x] `Dm16Saver` (`src/Dm16Saver.cs`) — the DM16 overlay→ROM save, pure Rom/Level
+    orchestration returning (status, committed).
+  - [x] `DebugPanels` (`src/DebugPanels.cs`) — ROM info + GFX viewer + Level GFX inspectors,
+    owning their own preview textures + Show* toggles + `InvalidateLevel()`.
+  - [ ] `PaletteEditorState`, `SpriteCatalog`/`ObjectCatalog` — DEFERRED: these are tightly
+    coupled to the render path (`EditedPalette` feeds the canvas scene, tile caches, and both
+    catalogs; catalogs need tileCaches + GraphicsDevice). Extracting adds delegation churn
+    across ~5 call sites for modest gain and real regression risk on rendering. Revisit only
+    if the palette/catalog code grows. EditorApp is now 1201 (from 1761).
 - [ ] **6. (Later) Core/App project split** — move `Rom/` into a `PipeDream.Core` library the
   exe and tests both reference, so the UI framework never enters the domain/test build. Low
   risk (Rom/ is already dependency-free) but high file-move churn; do it deliberately, not

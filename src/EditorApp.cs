@@ -25,15 +25,8 @@ public partial class EditorApp : App
     private Level? level;
     private Map16Grid? grid;
 
-    // GFX viewer state
-    private Texture? gfxTex;
-    private int gfxW, gfxH, gfxFile, gfxBpp = 3, gfxPalRow = 2;
-    private (int, int, int, int) gfxKey = (-1, -1, -1, -1);
-
-    // "Level GFX" popup: the 8 GFX files this level loads into VRAM, as tile sheets.
-    private bool showLevelGfx;
-    private readonly List<(string label, Texture tex, int w, int h)> levelGfx = new();
-    private int levelGfxKey = -1;
+    // Read-only inspector windows (ROM info / GFX viewers), created in Startup.
+    private DebugPanels panels = null!;
 
     // Composed Map16 sheet, one texture per animation phase (CONTRACT §12). The level
     // canvas itself is owned by the LevelCanvas compositor.
@@ -70,8 +63,6 @@ public partial class EditorApp : App
 
     // Layout state
     private bool paletteVisible = true;
-    private bool showRomInfo;
-    private bool showGfxViewer;
     private readonly HashSet<int> selSprites = new();   // selected sprite indices (sprite mode)
     private Texture? sprGhostTex;                       // drag ghost: the selected sprites' pixels
     private int sprGhostW, sprGhostH, sprGhostX, sprGhostY;   // ghost size + level-px origin
@@ -114,7 +105,6 @@ public partial class EditorApp : App
     private readonly EditHistory history = new();
     private List<(int x, int y, ushort before, ushort after)> currentStroke = new();
     private string saveStatus = "";
-    private const float Zoom = 2f;        // on-screen px per source px (GFX viewer)
     private const float Map16Zoom = 1f;   // tile picker (16px tiles at native size)
     private const float CanvasZoom = 1f;  // level canvas (native size)
 
@@ -156,6 +146,7 @@ public partial class EditorApp : App
         imgui = new ImGuiLayer(this) { BaseScale = 1.5f };
         canvas = new LevelCanvas(GraphicsDevice);
         tileTool = new TileTool(this); spriteTool = new SpriteTool(this); objectTool = new ObjectTool(this);
+        panels = new DebugPanels(GraphicsDevice, imgui);
         SetWindowIcon();
     }
 
@@ -189,6 +180,7 @@ public partial class EditorApp : App
     {
         imgui?.Dispose();
         canvas?.Dispose();
+        panels?.Dispose();
     }
 
     protected override void Update()
@@ -240,7 +232,7 @@ public partial class EditorApp : App
                 if (ImGui.MenuItem("Save palette to ROM copy", rom is not null && level is not null))
                     SavePalette();
                 ImGui.Separator();
-                if (ImGui.MenuItem("ROM Info", "", showRomInfo)) showRomInfo = !showRomInfo;
+                if (ImGui.MenuItem("ROM Info", "", panels.ShowRomInfo)) panels.ShowRomInfo = !panels.ShowRomInfo;
                 ImGui.Separator();
                 if (ImGui.MenuItem("Exit")) Exit();
                 ImGui.EndMenu();
@@ -260,8 +252,8 @@ public partial class EditorApp : App
                 if (ImGui.MenuItem("Animate tiles", "", animateTiles))
                     animateTiles = !animateTiles;
                 ImGui.Separator();
-                if (ImGui.MenuItem("GFX Viewer", "", showGfxViewer)) showGfxViewer = !showGfxViewer;
-                if (ImGui.MenuItem("Level GFX", "", showLevelGfx)) showLevelGfx = !showLevelGfx;
+                if (ImGui.MenuItem("GFX Viewer", "", panels.ShowGfxViewer)) panels.ShowGfxViewer = !panels.ShowGfxViewer;
+                if (ImGui.MenuItem("Level GFX", "", panels.ShowLevelGfx)) panels.ShowLevelGfx = !panels.ShowLevelGfx;
                 ImGui.EndMenu();
             }
             ImGui.EndMainMenuBar();
@@ -296,9 +288,9 @@ public partial class EditorApp : App
         }
 
         DrawMainLayout();
-        if (showRomInfo) DrawRomInfo();
-        if (showGfxViewer) DrawGfxViewer();
-        DrawLevelGfx();
+        panels.DrawRomInfo(rom, loadedRomPath, ratCount);
+        panels.DrawGfxViewer(rom, level?.Header, levelNum);
+        panels.DrawLevelGfx(rom, level, levelNum);
     }
 
     // Fixed shell: left palette (hideable, resizable) + main view fill the whole work area.
@@ -394,7 +386,7 @@ public partial class EditorApp : App
         ImGui.SameLine();
         if (ImGui.Button("Reload")) ParseLevel();
         ImGui.SameLine();
-        if (ImGui.Button("GFX")) showLevelGfx = !showLevelGfx;
+        if (ImGui.Button("GFX")) panels.ShowLevelGfx = !panels.ShowLevelGfx;
         if (canvas.TexFor(0) is null || grid is null) { ImGui.TextDisabled("No level rendered."); return; }
         ImGui.SameLine();
         ImGui.Text(ActiveTool.Hint);
@@ -811,56 +803,9 @@ public partial class EditorApp : App
     private void SaveEdits()
     {
         if (rom is null || level is null || grid is null || baseGrid is null) return;
-        if (!rom.HasDm16Hijack) { saveStatus = "ROM lacks LM Direct Map16 ASM — open a ROM saved by LM."; return; }
-
-        // Collect changed, non-empty cells as DM16 objects grouped by screen.
-        var byScreen = new Dictionary<int, List<LevelObject>>();
-        int edits = 0;
-        for (int y = 0; y < grid.Height; y++)
-            for (int x = 0; x < grid.Width; x++)
-            {
-                int t = grid.Get(x, y);
-                if (t == baseGrid.Get(x, y)) continue;
-                if ((t & ObjectEngine.Marker) != 0) continue;             // marker: skip
-                int place = t == Map16Grid.Empty ? 0x025 : t;             // erase = blank sky tile
-                int screen = x / 16;
-                var o = LevelObject.MakeDm16(place, screen, x % 16, y);
-                if (!byScreen.TryGetValue(screen, out var lst)) byScreen[screen] = lst = new();
-                lst.Add(o);
-                edits++;
-            }
-        if (edits == 0) { saveStatus = "no edits to save"; return; }
-
-        // Merge into the original object list: insert each screen's DM16 objects right after
-        // that screen's last original object (keeps the original new-screen flags valid).
-        var merged = new List<LevelObject>();
-        var placed = new HashSet<int>();
-        var objs = level.Objects;
-        for (int i = 0; i < objs.Count; i++)
-        {
-            merged.Add(objs[i]);
-            int next = i + 1 < objs.Count ? objs[i + 1].Screen : -1;
-            // Screens can repeat (screen jumps): only insert at a screen's first boundary.
-            if (objs[i].Screen != next && !placed.Contains(objs[i].Screen) &&
-                byScreen.TryGetValue(objs[i].Screen, out var lst))
-            { merged.AddRange(lst); placed.Add(objs[i].Screen); }
-        }
-        int skipped = byScreen.Where(kv => !placed.Contains(kv.Key)).Sum(kv => kv.Value.Count);
-
-        try
-        {
-            byte[] data = level.Encode(rom, merged);
-            int addr;
-            try { addr = rom.AllocateRats(data); }
-            catch { rom.ExpandTo(Math.Min(0x400000, Math.Max(0x200000, rom.ActualRomSize * 2))); addr = rom.AllocateRats(data); }
-            rom.SetLayer1Pointer(levelNum, addr);
-            string outp = System.IO.Path.ChangeExtension(loadedRomPath, ".edited.smc");
-            rom.SaveAs(outp);
-            baseGrid = grid.Clone();   // committed: new baseline
-            saveStatus = $"saved {edits} edits -> {System.IO.Path.GetFileName(outp)}" +
-                         (skipped > 0 ? $"  ({skipped} on empty screens skipped)" : "");
-        }
-        catch (Exception e) { saveStatus = "save failed: " + e.Message; }
+        var (status, committed) = Dm16Saver.Save(rom, level, levelNum, grid, baseGrid, loadedRomPath);
+        saveStatus = status;
+        if (committed) baseGrid = grid.Clone();   // committed: new baseline
     }
 
     // Assemble the compositor inputs from current edit state, or null when nothing to draw.
@@ -1071,28 +1016,6 @@ public partial class EditorApp : App
     }
 
     // ROM inspector, reachable from File → ROM Info.
-    private void DrawRomInfo()
-    {
-        if (!ImGui.Begin("ROM Info", ref showRomInfo)) { ImGui.End(); return; }
-        if (rom is null)
-        {
-            ImGui.TextDisabled("No ROM loaded.");
-            ImGui.TextDisabled("File → Open ROM to begin.");
-        }
-        else
-        {
-            ImGui.Text($"File: {loadedRomPath}");
-            ImGui.Text($"Copier header: {(rom.HeaderOffset != 0 ? "yes (0x200)" : "no")}");
-            ImGui.Text($"Title: '{rom.Title}'");
-            ImGui.Text($"Map mode: {rom.MapModeName} (0x{rom.MapMode:X2})");
-            ImGui.Text($"ROM size: {rom.ActualRomSize / 1024} KB on disk, {rom.DeclaredRomSize / 1024} KB declared");
-            ImGui.Text($"Checksum: 0x{rom.Checksum:X4} (compl 0x{rom.ChecksumComplement:X4})");
-            ImGui.Separator();
-            ImGui.Text($"Valid RATS tags: {ratCount}");
-        }
-        ImGui.End();
-    }
-
     private void BuildMap16Sheet()
     {
         for (int p = 0; p < 4; p++) { map16Texs[p]?.Dispose(); map16Texs[p] = null; }
@@ -1109,100 +1032,6 @@ public partial class EditorApp : App
         catch { for (int p = 0; p < 4; p++) { map16Texs[p]?.Dispose(); map16Texs[p] = null; } }
     }
 
-    // Renders a GFX file as a palette-colored 8x8 tile sheet — real SNES pixels via the
-    // decompress → decode → palette → Foster texture path.
-    private void DrawGfxViewer()
-    {
-        ImGui.Begin("GFX Viewer");
-        if (rom is null) { ImGui.TextDisabled("No ROM."); ImGui.End(); return; }
-        ImGui.SetNextItemWidth(90);
-        ImGui.InputInt($"file (0x{gfxFile:X2})", ref gfxFile); gfxFile = Math.Clamp(gfxFile, 0, Gfx.Count - 1);
-        ImGui.SameLine(); ImGui.SetNextItemWidth(80); ImGui.InputInt("bpp", ref gfxBpp); gfxBpp = Math.Clamp(gfxBpp, 2, 4);
-        ImGui.SameLine(); ImGui.SetNextItemWidth(80); ImGui.InputInt("pal", ref gfxPalRow); gfxPalRow = Math.Clamp(gfxPalRow, 0, 15);
-
-        var key = (gfxFile, gfxBpp, gfxPalRow, levelNum);
-        if (key != gfxKey) { gfxKey = key; BuildGfxTexture(); }
-        if (gfxTex is not null)
-            ImGui.Image(imgui!.GetTextureID(gfxTex), new Vector2(gfxW * 3f, gfxH * 3f));
-        ImGui.End();
-    }
-
-    // The GFX files loaded into VRAM for the current level: 4 FG/BG + 4 sprite slots,
-    // resolved through the tileset lists and the Super GFX Bypass, as decoded tile sheets.
-    private void DrawLevelGfx()
-    {
-        if (!showLevelGfx) return;
-        if (!ImGui.Begin("Level GFX", ref showLevelGfx)) { ImGui.End(); return; }
-        if (rom is null || level is null) { ImGui.TextDisabled("No level."); ImGui.End(); return; }
-
-        if (levelGfxKey != levelNum) { levelGfxKey = levelNum; BuildLevelGfx(); }
-        foreach (var (label, tex, w, h) in levelGfx)
-        {
-            ImGui.Text(label);
-            ImGui.Image(imgui!.GetTextureID(tex), new Vector2(w * 2f, h * 2f));
-            ImGui.Separator();
-        }
-        ImGui.End();
-    }
-
-    private void BuildLevelGfx()
-    {
-        foreach (var e in levelGfx) e.tex.Dispose();
-        levelGfx.Clear();
-        if (rom is null || level is null) return;
-        var h = level.Header;
-        var pal = Palette.Load(rom, h, levelNum);
-        var byp = rom.LmGfxBypass(levelNum);
-
-        // (name, GFXLIST base, list index, palette row for the preview, bypass record word)
-        var slots = new (string name, int listBase, int idx, int palRow, int bypWord)[]
-        {
-            ("FG1", Gfx.ObjectGfxList, h.Tileset * 4 + 0, 2, 7),
-            ("FG2", Gfx.ObjectGfxList, h.Tileset * 4 + 1, 2, 6),
-            ("BG1", Gfx.ObjectGfxList, h.Tileset * 4 + 2, 0, 5),
-            ("FG3", Gfx.ObjectGfxList, h.Tileset * 4 + 3, 2, 4),
-            ("SP1", 0x00A8C3, h.SpriteSet * 4 + 0, 8, 11),
-            ("SP2", 0x00A8C3, h.SpriteSet * 4 + 1, 8, 10),
-            ("SP3", 0x00A8C3, h.SpriteSet * 4 + 2, 8, 9),
-            ("SP4", 0x00A8C3, h.SpriteSet * 4 + 3, 8, 8),
-        };
-        foreach (var s in slots)
-        {
-            int file = rom.Data[rom.FileOffset(s.listBase) + s.idx];
-            bool bypassed = byp is not null && (byp[s.bypWord] & 0xFFF) != 0x7F;
-            if (bypassed) file = byp![s.bypWord] & 0xFFF;
-            int src = Gfx.SourceSnes(rom, file);
-            if (src < 0) { levelGfx.Add(($"{s.name} = {file:X2} (empty)", MakeBlank(), 8, 8)); continue; }
-            try
-            {
-                var data = Gfx.Lz2Decompress(rom.Data, rom.FileOffset(src));
-                int bpp = data.Length >= 0x1000 ? 4 : 3;
-                var (px, w, ht) = Gfx.TileSheet(data, bpp, pal, s.palRow);
-                levelGfx.Add(($"{s.name} = GFX{file:X2}{(bypassed ? " (bypass)" : "")}, {bpp}bpp",
-                              new Texture(GraphicsDevice, w, ht, MemoryMarshal.AsBytes(px.AsSpan())), w, ht));
-            }
-            catch { levelGfx.Add(($"{s.name} = {file:X2} (decode failed)", MakeBlank(), 8, 8)); }
-        }
-    }
-
-    private Texture MakeBlank() => new(GraphicsDevice, 8, 8, new byte[8 * 8 * 4]);
-
-    private void BuildGfxTexture()
-    {
-        try
-        {
-            var gfx = Gfx.DecompressFile(rom!, gfxFile);
-            var pal = Palette.Load(rom!, level?.Header ?? default);
-            var (px, w, h) = Gfx.TileSheet(gfx, gfxBpp, pal, gfxPalRow);
-            gfxTex?.Dispose();
-            gfxTex = new Texture(GraphicsDevice, w, h, MemoryMarshal.AsBytes(px.AsSpan()));
-            gfxW = w; gfxH = h;
-        }
-        catch { gfxTex?.Dispose(); gfxTex = null; }
-    }
-
-    // Schematic view: each object drawn as a box at (screen*16+x, y), sized by width/height.
-    // Not the real tiles (that needs the object engine + GFX) — a structural map of the parse.
     private void ParseLevel()
     {
         try
@@ -1213,7 +1042,7 @@ public partial class EditorApp : App
             objList = level is not null ? new List<LevelObject>(level.Objects) : null;
             history.Clear(); currentStroke = new();                       // new grid = new history
             selSprites.Clear(); selObjs.Clear(); dragStart = dragEnd = null; moveDrag = null; DropSpriteGhost(); hiddenSprites = null;
-            levelGfxKey = -1;                                              // refresh Level GFX window
+            panels.InvalidateLevel();                                     // refresh Level GFX window
             if (levelNum != palEditsLevel) { palEdits.Clear(); palEditsLevel = levelNum; }
             // Layer 2: background image or object layer, drawn behind layer 1.
             bgImage = rom is not null && level is not null ? Level.DecodeBgImage(rom, levelNum) : null;
