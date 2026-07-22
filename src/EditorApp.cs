@@ -80,6 +80,7 @@ public class EditorApp : App
     private readonly HashSet<int> selSprites = new();   // selected sprite indices (sprite mode)
     private Texture? sprGhostTex;                       // drag ghost: the selected sprites' pixels
     private int sprGhostW, sprGhostH, sprGhostX, sprGhostY;   // ghost size + level-px origin
+    private HashSet<int>? hiddenSprites;                // sprites hidden from the canvas mid-drag
     private int selectedObject = -1;
 
     // LM-style editing: left-click/drag selects (grabs the tiles under the cursor as the
@@ -275,6 +276,7 @@ public class EditorApp : App
             editMode = editMode == EditMode.Layer1 ? EditMode.Sprites : EditMode.Layer1;
             dragStart = null; moveDrag = null;
             DropSpriteGhost();
+            ClearHiddenSprites();
             // Bring the matching palette tab along (Map16 for layer 1).
             pendingTabSelect = paletteTab = editMode == EditMode.Sprites ? 1 : 0;
         }
@@ -414,7 +416,7 @@ public class EditorApp : App
                 dl.AddRect(new Vector2(origin.X + sr.x * cs, origin.Y + sr.y * cs),
                            new Vector2(origin.X + (sr.x + sr.w) * cs, origin.Y + (sr.y + sr.h) * cs),
                            0xFF00FFFF, 0, 0, 1.5f);
-            if (editMode == EditMode.Sprites && sprites is not null)
+            if (editMode == EditMode.Sprites && sprites is not null && moveDrag is null)
                 foreach (int si in selSprites)
                 {
                     if (si >= sprites.Sprites.Count) continue;
@@ -453,7 +455,18 @@ public class EditorApp : App
                         {
                             // Click on a selected sprite drags the selection; else rubber-band.
                             if (SpriteIndexAt(cx, cy, verticalLvl) is int hit && selSprites.Contains(hit))
-                            { moveDrag = (cx, cy); BuildSpriteGhost(); }
+                            {
+                                moveDrag = (cx, cy);
+                                BuildSpriteGhost();
+                                // Hide the originals immediately — only the ghost shows.
+                                hiddenSprites = new HashSet<int>(selSprites);
+                                foreach (int si in selSprites)
+                                {
+                                    var (hx, hy) = sprites.Sprites[si].Cell(verticalLvl);
+                                    MarkSpriteCells(hx, hy);
+                                }
+                                levelDirty = true;
+                            }
                             else
                                 dragStart = dragEnd = (cx, cy);
                         }
@@ -541,7 +554,12 @@ public class EditorApp : App
                 }
                 else
                 {
-                    if (mdx != 0 || mdy != 0) MoveSelectedSprites(mdx, mdy, verticalLvl);
+                    if (mdx != 0 || mdy != 0)
+                    {
+                        hiddenSprites = null;             // MoveSelectedSprites repaints everything
+                        MoveSelectedSprites(mdx, mdy, verticalLvl);
+                    }
+                    else ClearHiddenSprites();            // dropped in place: just un-hide
                     moveDrag = null; dragEnd = null;
                     DropSpriteGhost();
                 }
@@ -684,6 +702,24 @@ public class EditorApp : App
         sprGhostTex?.Dispose(); sprGhostTex = null;
     }
 
+    // Un-hide sprites that were suppressed during a drag (their cells recompose).
+    private void ClearHiddenSprites()
+    {
+        if (hiddenSprites is null) return;
+        if (sprites is not null)
+        {
+            bool vert = rom is not null && level is not null && rom.IsVerticalMode(level.Header.LevelMode);
+            foreach (int i in hiddenSprites)
+                if (i < sprites.Sprites.Count)
+                {
+                    var (cx, cy) = sprites.Sprites[i].Cell(vert);
+                    MarkSpriteCells(cx, cy);
+                }
+        }
+        hiddenSprites = null;
+        levelDirty = true;
+    }
+
     private void PlaceSprite(int number, int cx, int cy, bool vert)
     {
         if (sprites is null) return;
@@ -810,6 +846,7 @@ public class EditorApp : App
         sprites.Sprites.AddRange(list);
         selSprites.Clear();
         DropSpriteGhost();
+        hiddenSprites = null;
         RebuildSpriteOverlay();
     }
 
@@ -918,7 +955,7 @@ public class EditorApp : App
             for (int p = 0; p < 4; p++)
             {
                 var (img, W, H) = Map16.ComposeLevel(tileCaches[p], backdropColor, grid, bgImage, bgCaches?[p], layer2Grid, visRows);
-                if (showSprites) spriteOverlay?.Draw(img, W, H, EditedPalette(p)!);
+                if (showSprites) spriteOverlay?.Draw(img, W, H, EditedPalette(p)!, hiddenSprites);
                 canvasImgs[p] = img;
                 // Reuse the texture when the size matches — creating 4 large textures per
                 // edit is a big part of repaint latency.
@@ -947,7 +984,7 @@ public class EditorApp : App
         {
             var img = canvasImgs[p]!;
             foreach (var (cx, cy) in dirtyCells) ComposeCellInto(img, W, H, tileCaches[p], p, cx, cy);
-            if (showSprites) spriteOverlay?.Draw(img, W, H, EditedPalette(p)!);
+            if (showSprites) spriteOverlay?.Draw(img, W, H, EditedPalette(p)!, hiddenSprites);
             canvasStale[p] = true;
         }
         dirtyCells.Clear();
@@ -1305,7 +1342,7 @@ public class EditorApp : App
             grid = rom is not null && level is not null ? ObjectEngine.Render(rom, level) : null;
             baseGrid = grid?.Clone();          // snapshot to diff edits against on save
             undoStack.Clear(); redoStack.Clear(); currentStroke = new();   // new grid = new history
-            selSprites.Clear(); dragStart = dragEnd = null; moveDrag = null; DropSpriteGhost();
+            selSprites.Clear(); dragStart = dragEnd = null; moveDrag = null; DropSpriteGhost(); hiddenSprites = null;
             levelGfxKey = -1;                                              // refresh Level GFX window
             if (levelNum != palEditsLevel) { palEdits.Clear(); palEditsLevel = levelNum; }
             // Layer 2: background image or object layer, drawn behind layer 1.

@@ -166,10 +166,12 @@ public sealed class SpriteOverlay
         return new SpriteOverlay(items, sp, vert);
     }
 
-    public void Draw(uint[] img, int W, int H, Palette pal)
+    public void Draw(uint[] img, int W, int H, Palette pal, ISet<int>? skip = null)
     {
-        foreach (var (s, oam) in items)
+        for (int i = 0; i < items.Length; i++)
         {
+            if (skip is not null && skip.Contains(i)) continue;   // e.g. sprites being dragged
+            var (s, oam) = items[i];
             if (oam is not null && sp is not null) SpriteRender.Draw(img, W, H, oam, sp, pal);
             else SpriteData.DrawBadge(img, W, H, s, vert);
         }
