@@ -65,10 +65,15 @@ public static class Gfx
     public sealed class FgTiles
     {
         private static readonly byte[] Blank = new byte[64];
-        private readonly byte[][][] slots = new byte[4][][];
+        // 8 pages of 0x80 8x8 tiles = tiles 0x000-0x3FF. Pages 0-3 are the vanilla FG/BG
+        // slots; 4-5 are BG2/BG3, the two extra slots LM's VRAM patch adds (option_vram.htm:
+        // "anything in slots BG2 and BG3 will not be loaded" without the patch). Pages 6-7
+        // are the animated-tile region, filled by OverlayAnimatedTiles.
+        private readonly byte[][][] slots = new byte[8][][];
 
-        // Bypass record words for VRAM slots 0-3: FG1=w7, FG2=w6, BG1=w5, FG3=w4 (CONTRACT §7d).
-        private static readonly int[] BypassSlotWord = [7, 6, 5, 4];
+        // Bypass record word per background page: FG1=w7, FG2=w6, BG1=w5, FG3=w4 (pages 0-3),
+        // then BG2=w3, BG3=w2 (pages 4-5). CONTRACT §7d.
+        private static readonly int[] BypassSlotWord = [7, 6, 5, 4, 3, 2];
 
         /// <summary>
         /// Overlay animation frame 0 onto the loaded slots (CONTRACT §12) — what LM displays.
@@ -105,8 +110,8 @@ public static class Gfx
 
             void OverlayPx(int vramTile, byte[] px)
             {
-                int s = (vramTile >> 7) & 3, t = vramTile & 0x7F;
-                if (t < slots[s].Length) slots[s][t] = px;
+                int s = (vramTile >> 7) & 7, t = vramTile & 0x7F;
+                if (slots[s] is { } arr && t < arr.Length) slots[s][t] = px;
             }
 
             for (int id = 0; id < 24; id++)
@@ -138,16 +143,29 @@ public static class Gfx
             var bypass = level >= 0 ? rom.LmGfxBypass(level) : null;
             int bpp = RomBpp(rom);                                  // ROM-wide depth (vanilla 3 / LM 4)
             var f = new FgTiles();
-            for (int s = 0; s < 4; s++)
+            for (int s = 0; s < f.slots.Length; s++) f.slots[s] = [];   // default all pages blank
+            for (int s = 0; s < BypassSlotWord.Length; s++)
             {
-                int file = rom.Data[rom.FileOffset(ObjectGfxList) + tileset * 4 + s];
-                if (bypass is not null && (bypass[BypassSlotWord[s]] & 0xFFF) != 0x7F)
+                int file;
+                if (s < 4)
+                {
+                    // Pages 0-3: the vanilla FG/BG list (4 files per tileset), bypass overrides.
+                    file = rom.Data[rom.FileOffset(ObjectGfxList) + tileset * 4 + s];
+                    if (bypass is not null && (bypass[BypassSlotWord[s]] & 0xFFF) != 0x7F)
+                        file = bypass[BypassSlotWord[s]] & 0xFFF;
+                }
+                else
+                {
+                    // Pages 4-5 (BG2/BG3): only exist via the bypass; no vanilla default.
+                    if (bypass is null) continue;
                     file = bypass[BypassSlotWord[s]] & 0xFFF;
+                    if (file == 0x7F) continue;                    // slot off → blank
+                }
                 int src = SourceSnes(rom, file);
-                if (src < 0) { f.slots[s] = []; continue; }        // skipped / not inserted → blank
+                if (src < 0) continue;                             // skipped / not inserted → blank
                 byte[] data;
                 try { data = Lz2Decompress(rom.Data, rom.FileOffset(src)); }
-                catch { f.slots[s] = []; continue; }               // bad pointer/data → blank, don't crash
+                catch { continue; }                                // bad pointer/data → blank, don't crash
 
                 int tb = TileBytes(bpp), n = data.Length / tb;
                 var tiles = new byte[n][];
@@ -160,9 +178,9 @@ public static class Gfx
 
         public byte[] Fetch(int tileNum)
         {
-            int s = (tileNum >> 7) & 3, t = tileNum & 0x7F;
+            int s = (tileNum >> 7) & 7, t = tileNum & 0x7F;   // 8 pages (0x000-0x3FF)
             var arr = slots[s];
-            return t < arr.Length ? arr[t] : Blank;
+            return arr is not null && t < arr.Length ? arr[t] : Blank;
         }
     }
 

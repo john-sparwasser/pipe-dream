@@ -390,9 +390,16 @@ w8 = SP4   w9 = SP3   w10 = SP2   w11 = SP1   w12-15 = tail (TBD, constant)
 So level-0x105's record in gfx_after.smc = $10CDA8, not $10CDA0.
 
 **Named slot → VRAM/renderer mapping** (from LM help level_change_graphics.htm "FG1=14" +
-OBJECTGFXLIST): FG1→slot0 ($0000, 8x8 tiles 0x000-07F), FG2→slot1 ($0800, 0x080-0FF),
-BG1→slot2 ($1000, 0x100-17F), FG3→slot3 ($1800, 0x180-1FF). I.e. renderer FG files =
-[w7, w6, w5, w4] = [FG1, FG2, BG1, FG3], replacing OBJECTGFXLIST[tileset*4+0..3].
+OBJECTGFXLIST): FG1→page0 (8x8 tiles 0x000-07F), FG2→page1 (0x080-0FF), BG1→page2
+(0x100-17F), FG3→page3 (0x180-1FF). I.e. renderer FG files = [w7, w6, w5, w4] =
+[FG1, FG2, BG1, FG3], replacing OBJECTGFXLIST[tileset*4+0..3].
+**BG2/BG3 = pages 4-5** (0x200-0x27F / 0x280-0x2FF), words [w3, w2]. These are the two
+EXTRA background slots LM's VRAM patch adds (option_vram.htm: "anything in slots BG2 and
+BG3 will not be loaded" without it) — no vanilla OBJECTGFXLIST entry, so they come ONLY
+from the bypass (0x7F/absent → blank). FgTiles now loads 6 background pages; Fetch indexes
+`tile>>7` over 8 pages (6-7 = the animated region). Verified: ShaoBase 105 (BG2=ExGFX 0x310,
+BG3=0x311) renders its block graphics correctly; before, tiles 0x200+ wrapped to pages 0-3.
+AN1/AN2 (the animated ExGFX source) still not applied to the overlay (separate gap).
 
 **File# → data resolver** (`$0FF903`, slot word AND #$0FFF):
 - 0x00-0x33: vanilla ptr tables $00B992/B9C4/B9F6 (unchanged).

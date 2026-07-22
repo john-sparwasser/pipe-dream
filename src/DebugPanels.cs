@@ -111,6 +111,9 @@ public sealed class DebugPanels : IDisposable
             ("FG2", Gfx.ObjectGfxList, h.Tileset * 4 + 1, 2, 6),
             ("BG1", Gfx.ObjectGfxList, h.Tileset * 4 + 2, 0, 5),
             ("FG3", Gfx.ObjectGfxList, h.Tileset * 4 + 3, 2, 4),
+            // BG2/BG3 have no vanilla list entry (listBase -1) — only via the bypass (LM VRAM patch).
+            ("BG2", -1, 0, 0, 3),
+            ("BG3", -1, 0, 0, 2),
             ("SP1", 0x00A8C3, h.SpriteSet * 4 + 0, 8, 11),
             ("SP2", 0x00A8C3, h.SpriteSet * 4 + 1, 8, 10),
             ("SP3", 0x00A8C3, h.SpriteSet * 4 + 2, 8, 9),
@@ -118,8 +121,9 @@ public sealed class DebugPanels : IDisposable
         };
         foreach (var s in slots)
         {
-            int file = rom.Data[rom.FileOffset(s.listBase) + s.idx];
             bool bypassed = byp is not null && (byp[s.bypWord] & 0xFFF) != 0x7F;
+            if (s.listBase < 0 && !bypassed) { levelGfx.Add(($"{s.name} = (off)", MakeBlank(), 8, 8)); continue; }
+            int file = s.listBase < 0 ? 0x7F : rom.Data[rom.FileOffset(s.listBase) + s.idx];
             if (bypassed) file = byp![s.bypWord] & 0xFFF;
             int src = Gfx.SourceSnes(rom, file);
             if (src < 0) { levelGfx.Add(($"{s.name} = {file:X2} (empty)", MakeBlank(), 8, 8)); continue; }
