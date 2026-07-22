@@ -122,6 +122,8 @@ public static class RomSelfCheck
             Check("all GFX files decompress without error", bad == 0);
             Check("GFX00 decompresses to a sane size (0x200-0x2000)",
                   sizes.Count > 0 && sizes[0] is >= 0x200 and <= 0x2000);
+            // Depth is ROM-wide, probed from a full base file — vanilla stores 3bpp.
+            Check("clean ROM GFX depth is 3bpp", Gfx.RomBpp(r) == 3);
         }
 
         if (File.Exists(CleanRom))
@@ -326,6 +328,9 @@ public static class RomSelfCheck
         {
             Console.WriteLine("LM custom palettes (DogsOfWar, CONTRACT §7e):");
             var dr = Rom.Load(dowRom);
+            // This hack re-normalized its graphics to 4bpp; partial ExGFX rely on the
+            // ROM-wide depth probe (not a per-file size guess) to decode at the right depth.
+            Check("LM 4bpp ROM: GFX depth probes as 4bpp", Gfx.RomBpp(dr) == 4);
             Check("palette hook detected (JML at $0095E9)", dr.HasLmPaletteHook);
             var cp = dr.LmCustomPalette(0x107);
             Check("level 0x107 has a custom palette", cp is not null);

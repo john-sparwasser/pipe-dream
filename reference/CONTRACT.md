@@ -403,9 +403,15 @@ BG1→slot2 ($1000, 0x100-17F), FG3→slot3 ($1800, 0x180-1FF). I.e. renderer FG
   `38 E9 00 01 85 8A 0A 18 65 8A AA BF <base:3>`.
 - All pointers → LC_LZ2-compressed GFX (loader tail JMLs into vanilla decompressor $00BA47
   with $8A-8C = pointer). 0x000000/0xFFFFFF entry = file not inserted.
-- GFX file = 0x80 tiles; ExGFX may be 3bpp (0x80*24 = 0xC00 decompressed) or 4bpp
-  (0x80*32 = 0x1000). Pick bpp from decompressed length, as we already do for vanilla files.
-  (AN2 is special: up to 0xD0 tiles / 0x1A00 bytes 4bpp — not needed for FG rendering.)
+- GFX file = 0x80 tiles. **Bit depth is ROM-WIDE, not per-file** (CORRECTED): the earlier
+  "pick bpp from decompressed length" heuristic is WRONG for PARTIAL ExGFX — a 0x800-byte
+  file is 128×2bpp, 85×3bpp, OR 64×4bpp, indistinguishable by size. SMW stores every GFX/
+  ExGFX at one depth: vanilla = 3bpp (full file 0xC00), and Lunar Magic re-normalizes ALL
+  graphics to 4bpp on save (full file 0x1000) — but NOT every LM-touched ROM (a ROM edited
+  only for e.g. the GFX bypass keeps 3bpp base GFX). So `Gfx.RomBpp(rom)` probes a full base
+  file (GFX00) once and every slot decodes at that depth; full files were always right, only
+  partial ExGFX were garbled. (AN2 is special: up to 0xD0 tiles / 0x1A00 bytes — not needed
+  for FG rendering.)
 
 Tooling: `tools/dis65816.py <rom> <snesHex> [count]` — minimal 65816 disassembler used for
 the trace.

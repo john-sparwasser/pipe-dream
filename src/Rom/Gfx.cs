@@ -37,6 +37,21 @@ public static class Gfx
     public static byte[] DecompressFile(Rom rom, int file)
         => Lz2Decompress(rom.Data, rom.FileOffset(SourceSnes(rom, file)));
 
+    /// <summary>
+    /// The bit-depth every GFX/ExGFX file in this ROM is stored at. It is NOT knowable from
+    /// a single file's decompressed size — a partial ExGFX file (e.g. 64 tiles) is ambiguous
+    /// (2048 bytes could be 128×2bpp, 85×3bpp, or 64×4bpp). But SMW stores ALL graphics at
+    /// one depth ROM-wide: vanilla is 3bpp (a full 128-tile file = 3072 bytes), and Lunar
+    /// Magic re-normalizes everything to 4bpp on save (full file = 4096). So probe a
+    /// guaranteed-full base file (GFX00) and read the depth off its size.
+    /// ponytail: recomputed per call (one tiny LZ2 of GFX00); GFX loads aren't per-frame.
+    /// </summary>
+    public static int RomBpp(Rom rom)
+    {
+        try { return DecompressFile(rom, 0).Length >= 4096 ? 4 : 3; }
+        catch { return 3; }
+    }
+
     public static int TileBytes(int bpp) => bpp * 8;   // 2bpp=16, 3bpp=24, 4bpp=32
 
     public const int ObjectGfxList = 0x00A92B;         // FG/BG GFX file list, indexed by tileset*4
@@ -121,6 +136,7 @@ public static class Gfx
         public static FgTiles Load(Rom rom, int tileset, int level = -1, int animPhase = 0)
         {
             var bypass = level >= 0 ? rom.LmGfxBypass(level) : null;
+            int bpp = RomBpp(rom);                                  // ROM-wide depth (vanilla 3 / LM 4)
             var f = new FgTiles();
             for (int s = 0; s < 4; s++)
             {
@@ -133,7 +149,6 @@ public static class Gfx
                 try { data = Lz2Decompress(rom.Data, rom.FileOffset(src)); }
                 catch { f.slots[s] = []; continue; }               // bad pointer/data → blank, don't crash
 
-                int bpp = data.Length >= 0x1000 ? 4 : 3;           // ExGFX may be 4bpp; vanilla FG 3bpp
                 int tb = TileBytes(bpp), n = data.Length / tb;
                 var tiles = new byte[n][];
                 for (int t = 0; t < n; t++) tiles[t] = DecodeTile(data, t * tb, bpp);

@@ -159,6 +159,7 @@ public static class SpriteRender
     {
         var tiles = new byte[0x200][];
         var files = ResolveSpFiles(rom, h, level);
+        int bpp = Gfx.RomBpp(rom), tb = Gfx.TileBytes(bpp);   // ROM-wide depth (vanilla 3 / LM 4)
         for (int slot = 0; slot < 4; slot++)
         {
             int file = files[slot];
@@ -166,7 +167,6 @@ public static class SpriteRender
             if (src < 0) continue;
             byte[] data;
             try { data = Gfx.Lz2Decompress(rom.Data, rom.FileOffset(src)); } catch { continue; }
-            int bpp = data.Length >= 0x1000 ? 4 : 3, tb = Gfx.TileBytes(bpp);
             for (int t = 0; t < 0x80 && t * tb + tb <= data.Length; t++)
                 tiles[slot * 0x80 + t] = Gfx.DecodeTile(data, t * tb, bpp);
         }

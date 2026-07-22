@@ -126,7 +126,7 @@ public sealed class DebugPanels : IDisposable
             try
             {
                 var data = Gfx.Lz2Decompress(rom.Data, rom.FileOffset(src));
-                int bpp = data.Length >= 0x1000 ? 4 : 3;
+                int bpp = Gfx.RomBpp(rom);              // ROM-wide depth (vanilla 3 / LM 4)
                 var (px, w, ht) = Gfx.TileSheet(data, bpp, pal, s.palRow);
                 levelGfx.Add(($"{s.name} = GFX{file:X2}{(bypassed ? " (bypass)" : "")}, {bpp}bpp",
                               new Texture(gd, w, ht, MemoryMarshal.AsBytes(px.AsSpan())), w, ht));
