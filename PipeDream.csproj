@@ -10,6 +10,11 @@
     <ApplicationIcon>assets\pipe-dream.ico</ApplicationIcon>
   </PropertyGroup>
 
+  <!-- The app globs **/*.cs from the repo root; keep the sibling test project out. -->
+  <ItemGroup>
+    <Compile Remove="tests\**\*.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="FosterFramework" Version="0.3.0" />
     <PackageReference Include="ImGui.NET" Version="1.90.5.1" />
