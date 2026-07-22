@@ -31,6 +31,10 @@ class Program
         if (bi >= 0)
             return BlobSheet(args, bi);
 
+        int dfi = Array.IndexOf(args, "--diff");
+        if (dfi >= 0)
+            return DiffRoms(args[dfi + 1], args[dfi + 2]);
+
         int dsi = Array.IndexOf(args, "--disasm");
         if (dsi >= 0)
         {
@@ -92,6 +96,52 @@ class Program
         }
         Png.Write(args[bi + 4], px, w, h);
         Console.WriteLine($"wrote {args[bi + 4]}: {data.Length / Gfx.TileBytes(bpp)} tiles {bpp}bpp");
+        return 0;
+    }
+
+    // --diff <a.smc> <b.smc> : byte-diff two ROMs for reverse-engineering. Coalesces changed
+    // runs (gap <= 16), skips the SNES checksum, and flags RATS blocks new in B — the usual
+    // home of LM-inserted data. Prints SNES/PC address + length + a hex preview of both sides.
+    private static int DiffRoms(string aPath, string bPath)
+    {
+        var a = Rom.Load(aPath);
+        var b = Rom.Load(bPath);
+        Console.WriteLine($"A {System.IO.Path.GetFileName(aPath)}: {a.ActualRomSize / 1024}KB   " +
+                          $"B {System.IO.Path.GetFileName(bPath)}: {b.ActualRomSize / 1024}KB");
+
+        int n = Math.Min(a.ActualRomSize, b.ActualRomSize);
+        int ah = a.HeaderOffset, bh = b.HeaderOffset;
+        bool Diff(int pc) => pc is >= 0x7FDC and <= 0x7FDF ? false : a.Data[ah + pc] != b.Data[bh + pc];
+
+        var runs = new List<(int pc, int len)>();
+        for (int pc = 0; pc < n;)
+        {
+            if (!Diff(pc)) { pc++; continue; }
+            int start = pc, gap = 0, last = pc;
+            while (pc < n && gap <= 16) { if (Diff(pc)) { last = pc; gap = 0; } else gap++; pc++; }
+            runs.Add((start, last - start + 1));
+        }
+
+        string Hex(Rom r, int pc, int len) =>
+            string.Join(" ", Enumerable.Range(0, Math.Min(len, 24)).Select(i => $"{r.Data[r.HeaderOffset + pc + i]:X2}"));
+
+        Console.WriteLine($"{runs.Count} changed run(s) (checksum skipped):");
+        foreach (var (pc, len) in runs.OrderByDescending(r => r.len).Take(60).OrderBy(r => r.pc))
+        {
+            Console.WriteLine($"  SNES ${Rom.PcToSnes(pc):X6}  PC {pc:X6}  len {len}");
+            Console.WriteLine($"    A: {Hex(a, pc, len)}");
+            Console.WriteLine($"    B: {Hex(b, pc, len)}");
+        }
+
+        // RATS blocks present in B but not A (by PC offset) — likely the newly-inserted data.
+        var aRats = a.EnumerateRats().Select(r => r.PcOffset).ToHashSet();
+        var newRats = b.EnumerateRats().Where(r => !aRats.Contains(r.PcOffset)).ToList();
+        if (newRats.Count > 0)
+        {
+            Console.WriteLine($"RATS blocks new in B ({newRats.Count}):");
+            foreach (var r in newRats.Take(20))
+                Console.WriteLine($"  SNES ${Rom.PcToSnes(r.PcOffset + 8):X6}  PC {r.PcOffset:X6}  size {r.Size}");
+        }
         return 0;
     }
 
