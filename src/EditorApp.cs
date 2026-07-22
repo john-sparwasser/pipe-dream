@@ -35,11 +35,11 @@ public class EditorApp : App
     private readonly List<(string label, Texture tex, int w, int h)> levelGfx = new();
     private int levelGfxKey = -1;
 
-    // Composed Map16 sheet + level canvas, one texture per animation phase (CONTRACT §12).
+    // Composed Map16 sheet, one texture per animation phase (CONTRACT §12). The level
+    // canvas itself is owned by the LevelCanvas compositor.
     private readonly Texture?[] map16Texs = new Texture?[4];
     private int map16W, map16H;
-    private readonly Texture?[] levelTexs = new Texture?[4];
-    private int levelPxW, levelPxH;
+    private LevelCanvas canvas = null!;    // created in Startup (needs GraphicsDevice)
     private bool animateTiles = true;
     // Current animation phase: the game advances every 8 frames at 60fps (~133 ms).
     // Wall-clock based (NOT ImGui.GetTime) — this is read outside the ImGui layout
@@ -65,12 +65,7 @@ public class EditorApp : App
     private bool catalogLoadedOnly = true;
     private int selectedCatalog = -1;
 
-    // Incremental canvas: the 4 phase images stay in memory; edits recompose only the
-    // dirty cells and re-upload via Texture.SetData (non-visible phases refresh lazily
-    // when the animation flips to them). canvasFull forces the full compose path.
-    private readonly uint[]?[] canvasImgs = new uint[4][];
-    private readonly bool[] canvasStale = new bool[4];
-    private readonly HashSet<(int x, int y)> dirtyCells = new();
+    // canvasFull forces the full compose path (vs incremental dirty-cell) on the next flush.
     private bool canvasFull = true;
 
     // Layout state
@@ -162,6 +157,7 @@ public class EditorApp : App
     protected override void Startup()
     {
         imgui = new ImGuiLayer(this) { BaseScale = 1.5f };
+        canvas = new LevelCanvas(GraphicsDevice);
         SetWindowIcon();
     }
 
@@ -194,6 +190,7 @@ public class EditorApp : App
     protected override void Shutdown()
     {
         imgui?.Dispose();
+        canvas?.Dispose();
     }
 
     protected override void Update()
@@ -203,11 +200,11 @@ public class EditorApp : App
         // Apply pending edits before layout so we never dispose a texture mid-frame.
         if (levelDirty)
         {
-            if (!canvasFull && dirtyCells.Count > 0 && canvasImgs[0] is not null) ApplyDirtyCells();
+            if (!canvasFull && canvas.DirtyCount > 0 && canvas.HasImages) ApplyDirtyCells();
             else BuildLevelCanvas();
             levelDirty = false;
         }
-        RefreshPhaseTex(AnimPhase);   // lazy re-upload when the animation reaches a stale phase
+        canvas.RefreshPhase(AnimPhase);   // lazy re-upload when the animation reaches a stale phase
 
         imgui.BeginLayout();
         DrawUI();
@@ -400,7 +397,7 @@ public class EditorApp : App
         if (ImGui.Button("Reload")) ParseLevel();
         ImGui.SameLine();
         if (ImGui.Button("GFX")) showLevelGfx = !showLevelGfx;
-        if (levelTexs[0] is null || grid is null) { ImGui.TextDisabled("No level rendered."); return; }
+        if (canvas.TexFor(0) is null || grid is null) { ImGui.TextDisabled("No level rendered."); return; }
         ImGui.SameLine();
         ImGui.Text(editMode switch
         {
@@ -429,7 +426,7 @@ public class EditorApp : App
             }
             SnapCursorToPixel();
             var origin = ImGui.GetCursorScreenPos();
-            ImGui.Image(imgui!.GetTextureID(levelTexs[AnimPhase] ?? levelTexs[0]!), new Vector2(levelPxW * z, levelPxH * z));
+            ImGui.Image(imgui!.GetTextureID(canvas.TexFor(AnimPhase)!), new Vector2(canvas.PxW * z, canvas.PxH * z));
             float cs = 16 * z;
             var dl = ImGui.GetWindowDrawList();
 
@@ -724,7 +721,7 @@ public class EditorApp : App
         if (before == tile) return;
         currentStroke.Add((x, y, (ushort)before, (ushort)tile));
         grid.Set(x, y, tile);
-        dirtyCells.Add((x, y));
+        canvas.MarkDirty(x, y);
         levelDirty = true;
     }
 
@@ -751,7 +748,7 @@ public class EditorApp : App
     {
         for (int dy = -2; dy <= 4; dy++)
             for (int dx = -2; dx <= 4; dx++)
-                dirtyCells.Add((cx + dx, cy + dy));
+                canvas.MarkDirty(cx + dx, cy + dy);
     }
 
     private void RebuildSpriteOverlay()
@@ -1091,7 +1088,7 @@ public class EditorApp : App
         {
             case TileStroke ts when grid is not null:
                 for (int i = ts.Cells.Count - 1; i >= 0; i--)
-                { grid.Set(ts.Cells[i].x, ts.Cells[i].y, ts.Cells[i].before); dirtyCells.Add((ts.Cells[i].x, ts.Cells[i].y)); }
+                { grid.Set(ts.Cells[i].x, ts.Cells[i].y, ts.Cells[i].before); canvas.MarkDirty(ts.Cells[i].x, ts.Cells[i].y); }
                 break;
             case SpriteEdit se:
                 RestoreSprites(se.Before);
@@ -1115,7 +1112,7 @@ public class EditorApp : App
         switch (a)
         {
             case TileStroke ts when grid is not null:
-                foreach (var (x, y, _, after) in ts.Cells) { grid.Set(x, y, after); dirtyCells.Add((x, y)); }
+                foreach (var (x, y, _, after) in ts.Cells) { grid.Set(x, y, after); canvas.MarkDirty(x, y); }
                 break;
             case SpriteEdit se:
                 RestoreSprites(se.After);
@@ -1187,89 +1184,25 @@ public class EditorApp : App
         catch (Exception e) { saveStatus = "save failed: " + e.Message; }
     }
 
+    // Assemble the compositor inputs from current edit state, or null when nothing to draw.
+    private CanvasScene? Scene()
+    {
+        if (tileCaches is null || grid is null) return null;
+        int visRows = rom is not null && level is not null && rom.IsVerticalMode(level.Header.LevelMode)
+            ? grid.Height : 27;
+        return new CanvasScene(tileCaches, backdropColor, grid, bgImage, bgCaches, layer2Grid, visRows,
+            (img, W, H, p) => { if (showSprites) spriteOverlay?.Draw(img, W, H, EditedPalette(p)!, hiddenSprites); });
+    }
+
     private void BuildLevelCanvas()
     {
-        dirtyCells.Clear(); canvasFull = false;
-        if (tileCaches is null || grid is null) { DropCanvas(); return; }
-        try
-        {
-            int visRows = rom is not null && level is not null && rom.IsVerticalMode(level.Header.LevelMode)
-                ? grid.Height : 27;
-            for (int p = 0; p < 4; p++)
-            {
-                var (img, W, H) = Map16.ComposeLevel(tileCaches[p], backdropColor, grid, bgImage, bgCaches?[p], layer2Grid, visRows);
-                if (showSprites) spriteOverlay?.Draw(img, W, H, EditedPalette(p)!, hiddenSprites);
-                canvasImgs[p] = img;
-                // Reuse the texture when the size matches — creating 4 large textures per
-                // edit is a big part of repaint latency.
-                if (levelTexs[p] is { } t && t.Width == W && t.Height == H) t.SetData<uint>(img);
-                else { levelTexs[p]?.Dispose(); levelTexs[p] = new Texture(GraphicsDevice, W, H, MemoryMarshal.AsBytes(img.AsSpan())); }
-                canvasStale[p] = false;
-                levelPxW = W; levelPxH = H;
-            }
-        }
-        catch { DropCanvas(); }
+        canvasFull = false;
+        if (Scene() is { } s) canvas.Rebuild(s); else canvas.Drop();
     }
 
-    private void DropCanvas()
-    {
-        for (int p = 0; p < 4; p++) { levelTexs[p]?.Dispose(); levelTexs[p] = null; canvasImgs[p] = null; }
-    }
-
-    // Incremental repaint: recompose only the edited cells into the persistent phase
-    // images, re-blit the cached sprite overlay (idempotent), and upload the visible
-    // phase now — the other three refresh when the animation reaches them.
     private void ApplyDirtyCells()
     {
-        if (grid is null || tileCaches is null || canvasImgs[0] is null) { BuildLevelCanvas(); return; }
-        int W = levelPxW, H = levelPxH;
-        for (int p = 0; p < 4; p++)
-        {
-            var img = canvasImgs[p]!;
-            foreach (var (cx, cy) in dirtyCells) ComposeCellInto(img, W, H, tileCaches[p], p, cx, cy);
-            if (showSprites) spriteOverlay?.Draw(img, W, H, EditedPalette(p)!, hiddenSprites);
-            canvasStale[p] = true;
-        }
-        dirtyCells.Clear();
-        RefreshPhaseTex(AnimPhase);
-    }
-
-    private void RefreshPhaseTex(int p)
-    {
-        if (canvasStale[p] && levelTexs[p] is { } t && canvasImgs[p] is { } img)
-        { t.SetData<uint>(img); canvasStale[p] = false; }
-    }
-
-    // One cell of Map16.ComposeLevel's layering: backdrop → BG image (or layer 2) → layer 1.
-    private void ComposeCellInto(uint[] img, int W, int H, uint[][] cache, int phase, int cx, int cy)
-    {
-        int px = cx * 16, py = cy * 16;
-        if (px < 0 || py < 0 || px + 16 > W || py + 16 > H) return;
-        for (int y = 0; y < 16; y++)
-            for (int x = 0; x < 16; x++) img[(py + y) * W + (px + x)] = backdropColor;
-        if (bgImage is not null && bgCaches is not null)
-        {
-            int within = cx & 0x1F;                          // 2-screen horizontal repeat
-            int idx = bgImage[(within / 16) * 0x1B0 + (cy % 27) * 16 + (within & 0x0F)];
-            var t = bgCaches[phase][idx & 0x1FF];
-            for (int y = 0; y < 16; y++)
-                for (int x = 0; x < 16; x++)
-                { uint c = t[y * 16 + x]; if (c != 0) img[(py + y) * W + (px + x)] = c; }
-        }
-        else if (layer2Grid is not null) DrawCellTile(img, W, layer2Grid.Get(cx, cy), cache, px, py);
-        DrawCellTile(img, W, grid!.Get(cx, cy), cache, px, py);
-    }
-
-    private static void DrawCellTile(uint[] img, int W, int t, uint[][] cache, int px, int py)
-    {
-        if (t == Map16Grid.Empty) return;
-        uint[]? tile = (t & ObjectEngine.Marker) != 0 || t >= cache.Length ? null : cache[t];
-        for (int y = 0; y < 16; y++)
-            for (int x = 0; x < 16; x++)
-            {
-                uint c = tile is null ? 0xFFFF00FFu : tile[y * 16 + x];
-                if (c != 0) img[(py + y) * W + (px + x)] = c;
-            }
+        if (Scene() is { } s) canvas.ApplyDirty(s, AnimPhase); else canvas.Drop();
     }
 
     // Map16 palette tab: the composed tile sheet; click a tile to pick the paint brush.

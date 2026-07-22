@@ -22,9 +22,11 @@ Each step is behavior-preserving and must pass `--selfcheck` + `dotnet test` bef
   - `Map16Grid.cs` (36) — plain grid data structure.
   - `ObjectEnginePorted.cs` (584) — hand-ported fallback handlers, `partial` of ObjectEngine.
   - `ObjectEngine.cs` (137) — emulated path + `Handler`. Verified: selfcheck + tests green.
-- [ ] **2. Extract `LevelCanvas`** — the incremental compositor (`BuildLevelCanvas`,
-  `ApplyDirtyCells`, `ComposeCellInto`, `DrawCellTile`, `RefreshPhaseTex`, dirty-cell set,
-  phase images/textures, `AnimPhase`). "grid + overlay → textures."
+- [x] **2. Extract `LevelCanvas`** (`src/LevelCanvas.cs`) — the incremental compositor owns
+  the 4 phase images/textures, dirty-cell set, and px size; `Rebuild`/`ApplyDirty`/
+  `RefreshPhase`/`Drop`/`MarkDirty`/`TexFor`. Inputs arrive as a `CanvasScene` record (grid,
+  caches, backdrop, bg/layer2 + an overlay delegate). EditorApp keeps thin `Scene()` +
+  `BuildLevelCanvas`/`ApplyDirtyCells` wrappers. Verified: selfcheck + 26 tests + render.
 - [ ] **3. Extract `EditHistory`** — the `EditAction` records + `Undo`/`Redo`/`Push*`. Move
   toward `IUndoable { Undo(); Redo(); }` command objects instead of the type switch.
 - [ ] **4. Introduce `EditTool` (composition, the main win)** — `TileTool`/`SpriteTool`/
