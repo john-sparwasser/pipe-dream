@@ -602,6 +602,29 @@ every 4 frames from `MorePalettes` ($00B60C): 8 BGR555 words, byte offset
 Applied in Palette.Load per display phase (offsets 0/4/8/12), including on top of LM
 custom palettes (the NMI write happens regardless).
 
+### 12d. LM ExAnimation / AN1-AN2 slots  [INVESTIGATED — NOT the vanilla path]
+
+The bypass AN1 (record w1) / AN2 (w0) slots are the source GFX for LM's rewritten
+ExAnimation engine, NOT the vanilla animated-tile system in §12/§12a. Traced from the LM
+loader (fixed $0FF780 region, hand-decoded — the disassembler needs Python which the build
+box lacks):
+- The bypass record reader is at $0FF7F0 (`LDA.l <bypassBase>,X`, X = level*0x20); each slot
+  word is masked `AND #$0FFF` → file number, then decompressed via $0FF900.
+- $0FF900 resolves file→source EXACTLY as our `Gfx.SourceSnes` (vanilla $00B992/C4/F6,
+  ExGFX80 $0FF600, ExGFX100+ per-ROM `LmExGfxBase`) then JMLs the vanilla decompressor
+  $00BA47 — confirms SourceSnes is correct, including for AN files.
+- The AN/extended-animated loader (~$0FF8B8) sets the decompress destination to **$7E:AD00**
+  (`LDA #$AD:STA $01 / LDA #$7E:STA $02`) — matches level_extend_ani.htm ("$AD00 = start of
+  the extended animated tile area").
+- BUT the vanilla frame table `AnimatedTileData` ($05B999) that §12a's overlay reads tops out
+  at **$AC20** — NOTHING in it points at $AD00. So loading AN1/AN2 into the §12 overlay is a
+  NO-OP: the vanilla path never samples the extended area. AN tiles are consumed only by LM's
+  ExAnimation slot engine, whose per-level/global frame references (+ triggers, rates, line/
+  palette types — changes.htm) live in an as-yet-undecoded LM data area. Displaying AN
+  animation therefore requires decoding that slot format (a controlled before/after diff),
+  not wiring AN into the vanilla overlay. (The OLD "Extend Animated Tile GFX" feature did use
+  $AD00 via manually-edited $05B999 entries — a ROM using it WOULD show $05B999 >= $AD00.)
+
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 
 No unified sprite→tile table exists; each sprite's look comes from its graphics routine.
