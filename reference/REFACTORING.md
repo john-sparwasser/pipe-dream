@@ -31,11 +31,14 @@ Each step is behavior-preserving and must pass `--selfcheck` + `dotnet test` bef
   (undo, redo) closure pairs; the `EditAction` record hierarchy + two type-switches are gone.
   Each `Push*` in EditorApp captures its own restore closures, so the history knows nothing
   about tiles/sprites/objects/palettes. 5 dedicated unit tests (31 total). Verified green.
-- [ ] **4. Introduce `EditTool` (composition, the main win)** — `TileTool`/`SpriteTool`/
-  `ObjectTool`, each owning its selection state + interaction + operations + overlay draw.
-  `EditorApp` holds the active tool and swaps it on tab change. Collapses the 336-line
-  `DrawLevelView` and the duplicated move/duplicate/delete/lasso trios. Shared rubber-band +
-  drag-ghost machinery becomes one `DragSelection` helper.
+- [x] **4. Introduce `EditTool`** (`src/EditTools.cs`) — `TileTool`/`SpriteTool`/`ObjectTool`,
+  each owning its whole per-frame interaction (highlights, hover, rubber-band, move-drag,
+  place/duplicate, delete). `EditorApp.ActiveTool` picks by mode; the 336-line `DrawLevelView`
+  interaction became a ~15-line `ActiveTool.Frame(ctx)` dispatch with zero mode conditionals.
+  Tools are nested `partial class` types so they reach EditorApp's edit state directly
+  (the domain ops — PaintCell/PlaceSprite/MoveSelected*/etc. — stay on EditorApp). Shared
+  band math in the `EditTool` base. EditorApp 1645 → 1373. Verified: selfcheck + 31 tests +
+  render. (Live 3-mode interaction: verbatim block move, needs an eyeball in-app.)
 - [ ] **5. Peel off remaining panels/state** — `PaletteEditorState`, `SpriteCatalog`/
   `ObjectCatalog`, `GfxViewerPanel`/`DrawRomInfo`, `Dm16Saver`.
 - [ ] **6. (Later) Core/App project split** — move `Rom/` into a `PipeDream.Core` library the

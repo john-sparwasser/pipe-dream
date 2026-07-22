@@ -13,7 +13,7 @@ namespace PipeDream;
 /// editor) will swap into the same main region. Auxiliary inspectors (ROM info, GFX
 /// viewers) are floating windows behind the File/View menus.
 /// </summary>
-public class EditorApp : App
+public partial class EditorApp : App
 {
     private ImGuiLayer? imgui;
 
@@ -93,6 +93,9 @@ public class EditorApp : App
     // between Layer 1 and sprite selection modes.
     private enum EditMode { Layer1, Sprites, Objects }
     private EditMode editMode = EditMode.Layer1;
+    private EditTool tileTool = null!, spriteTool = null!, objectTool = null!;   // set in Startup
+    private EditTool ActiveTool => editMode switch
+    { EditMode.Sprites => spriteTool, EditMode.Objects => objectTool, _ => tileTool };
     private ushort[] brushTiles = { 0x100 };
     private int brushW = 1, brushH = 1;
     private (int x, int y, int w, int h)? selRect;   // last grab, for highlight + Delete
@@ -152,6 +155,7 @@ public class EditorApp : App
     {
         imgui = new ImGuiLayer(this) { BaseScale = 1.5f };
         canvas = new LevelCanvas(GraphicsDevice);
+        tileTool = new TileTool(this); spriteTool = new SpriteTool(this); objectTool = new ObjectTool(this);
         SetWindowIcon();
     }
 
@@ -393,12 +397,7 @@ public class EditorApp : App
         if (ImGui.Button("GFX")) showLevelGfx = !showLevelGfx;
         if (canvas.TexFor(0) is null || grid is null) { ImGui.TextDisabled("No level rendered."); return; }
         ImGui.SameLine();
-        ImGui.Text(editMode switch
-        {
-            EditMode.Layer1 => $"—  Layer 1:  left: select/grab ({brushW}x{brushH})   drag selection: move   right: stamp   Del: erase   Esc: sprites",
-            EditMode.Sprites => $"—  Sprites:  left: select/drag-select   drag selection: move   right: {(selSprites.Count > 0 ? "duplicate" : selectedCatalog >= 0 ? $"place {selectedCatalog:X2}" : "place (pick in palette)")}   Del: delete   Esc: objects",
-            _ => $"—  Objects:  left: select/drag-select   drag selection: move   right: {(selObjs.Count > 0 ? "duplicate" : selectedObjCat >= 0 ? $"place {selectedObjCat:X2}" : "place (pick in palette)")}   Del: delete   Esc: layer 1",
-        });
+        ImGui.Text(ActiveTool.Hint);
         if (saveStatus.Length > 0) ImGui.TextDisabled(saveStatus);
         // Horizontal levels scroll left/right with the wheel (Shift+wheel = vertical);
         // vertical levels keep the default up/down wheel.
@@ -424,287 +423,16 @@ public class EditorApp : App
             float cs = 16 * z;
             var dl = ImGui.GetWindowDrawList();
 
-            // Persistent highlights: last selection (yellow) / selected sprite (green).
-            if (editMode == EditMode.Layer1 && selRect is { } sr)
-                dl.AddRect(new Vector2(origin.X + sr.x * cs, origin.Y + sr.y * cs),
-                           new Vector2(origin.X + (sr.x + sr.w) * cs, origin.Y + (sr.y + sr.h) * cs),
-                           0xFF00FFFF, 0, 0, 1.5f);
-            if (editMode == EditMode.Sprites && sprites is not null && moveDrag is null)
-                foreach (int si in selSprites)
-                {
-                    if (si >= sprites.Sprites.Count) continue;
-                    var (sx, sy) = sprites.Sprites[si].Cell(verticalLvl);
-                    dl.AddRectFilled(new Vector2(origin.X + sx * cs, origin.Y + sy * cs),
-                                     new Vector2(origin.X + (sx + 1) * cs, origin.Y + (sy + 1) * cs),
-                                     0x3000FF00u);
-                    dl.AddRect(new Vector2(origin.X + sx * cs, origin.Y + sy * cs),
-                               new Vector2(origin.X + (sx + 1) * cs, origin.Y + (sy + 1) * cs),
-                               0xFF00FF00, 0, 0, 2f);
-                }
-            if (editMode == EditMode.Objects && objList is not null && moveDrag is null)
-                foreach (int oi in selObjs)
-                {
-                    if (oi >= objList.Count) continue;
-                    var (ox, oy, ow, oh) = ObjRect(objList[oi]);
-                    dl.AddRectFilled(new Vector2(origin.X + ox * cs, origin.Y + oy * cs),
-                                     new Vector2(origin.X + (ox + ow) * cs, origin.Y + (oy + oh) * cs),
-                                     0x300080FFu);
-                    dl.AddRect(new Vector2(origin.X + ox * cs, origin.Y + oy * cs),
-                               new Vector2(origin.X + (ox + ow) * cs, origin.Y + (oy + oh) * cs),
-                               0xFF0080FF, 0, 0, 2f);
-                }
-
+            // Hand the frame to the active tool: it owns highlights + all interaction.
+            int hcx = 0, hcy = 0;
+            bool hovered = false;
             if (ImGui.IsItemHovered())
             {
                 var m = ImGui.GetMousePos();
-                int cx = (int)((m.X - origin.X) / cs), cy = (int)((m.Y - origin.Y) / cs);
-                if (cx >= 0 && cx < grid.Width && cy >= 0 && cy < grid.Height)
-                {
-                    if (editMode == EditMode.Layer1)
-                    {
-                        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
-                        {
-                            // Click inside the selection drags it (move); outside starts a new one.
-                            if (selRect is { } r && cx >= r.x && cx < r.x + r.w && cy >= r.y && cy < r.y + r.h)
-                                moveDrag = (cx, cy);
-                            else
-                                dragStart = dragEnd = (cx, cy);
-                        }
-                        if (dragStart is not null && ImGui.IsMouseDown(ImGuiMouseButton.Left)) dragEnd = (cx, cy);
-                        if (moveDrag is not null && ImGui.IsMouseDown(ImGuiMouseButton.Left)) dragEnd = (cx, cy);
-                        if (ImGui.IsMouseDown(ImGuiMouseButton.Right)) StampBrush(cx, cy);
-                    }
-                    else if (sprites is not null)
-                    {
-                        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
-                        {
-                            // Click on a selected sprite drags the selection; else rubber-band.
-                            if (SpriteIndexAt(cx, cy, verticalLvl) is int hit && selSprites.Contains(hit))
-                            {
-                                moveDrag = (cx, cy);
-                                BuildSpriteGhost();
-                                // Hide the originals immediately — only the ghost shows.
-                                hiddenSprites = new HashSet<int>(selSprites);
-                                foreach (int si in selSprites)
-                                {
-                                    var (hx, hy) = sprites.Sprites[si].Cell(verticalLvl);
-                                    MarkSpriteCells(hx, hy);
-                                }
-                                levelDirty = true;
-                            }
-                            else
-                                dragStart = dragEnd = (cx, cy);
-                        }
-                        if (dragStart is not null && ImGui.IsMouseDown(ImGuiMouseButton.Left)) dragEnd = (cx, cy);
-                        if (moveDrag is not null && ImGui.IsMouseDown(ImGuiMouseButton.Left)) dragEnd = (cx, cy);
-                        // Right-click: duplicate the selection, or place the catalog sprite.
-                        if (ImGui.IsMouseClicked(ImGuiMouseButton.Right))
-                        {
-                            if (selSprites.Count > 0) DuplicateSelection(cx, cy, verticalLvl);
-                            else if (selectedCatalog >= 0) PlaceSprite(selectedCatalog, cx, cy, verticalLvl);
-                        }
-                        if (SpriteIndexAt(cx, cy, verticalLvl) is int over && selSprites.Contains(over))
-                            ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
-                    }
-                    else if (editMode == EditMode.Objects && objList is not null)
-                    {
-                        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
-                        {
-                            if (ObjIndexAt(cx, cy) is int hit && selObjs.Contains(hit)) moveDrag = (cx, cy);
-                            else dragStart = dragEnd = (cx, cy);
-                        }
-                        if (dragStart is not null && ImGui.IsMouseDown(ImGuiMouseButton.Left)) dragEnd = (cx, cy);
-                        if (moveDrag is not null && ImGui.IsMouseDown(ImGuiMouseButton.Left)) dragEnd = (cx, cy);
-                        if (ImGui.IsMouseClicked(ImGuiMouseButton.Right))
-                        {
-                            if (selObjs.Count > 0) DuplicateSelectedObjects(cx, cy);
-                            else if (selectedObjCat >= 0) PlaceObject(selectedObjCat, cx, cy);
-                        }
-                        if (ObjIndexAt(cx, cy) is int ov && selObjs.Contains(ov))
-                            ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
-                    }
-                    // Inside the selection: highlight it and show a hand cursor (it's grabbable).
-                    bool overSel = editMode == EditMode.Layer1 && selRect is { } hr &&
-                                   cx >= hr.x && cx < hr.x + hr.w && cy >= hr.y && cy < hr.y + hr.h;
-                    if (overSel && selRect is { } hr2)
-                    {
-                        ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
-                        dl.AddRectFilled(new Vector2(origin.X + hr2.x * cs, origin.Y + hr2.y * cs),
-                                         new Vector2(origin.X + (hr2.x + hr2.w) * cs, origin.Y + (hr2.y + hr2.h) * cs),
-                                         0x3000FFFFu);
-                    }
-                    else if (editMode == EditMode.Layer1)   // sprite mode has no tile reticle
-                    {
-                        var tl = new Vector2(origin.X + cx * cs, origin.Y + cy * cs);
-                        dl.AddRect(tl, new Vector2(tl.X + cs, tl.Y + cs), 0xFFFFFFFF, 0, 0, 1.5f);
-                    }
-                }
+                hcx = (int)((m.X - origin.X) / cs); hcy = (int)((m.Y - origin.Y) / cs);
+                hovered = hcx >= 0 && hcx < grid.Width && hcy >= 0 && hcy < grid.Height;
             }
-
-            // Rubber band while dragging; grab the region as the brush on release.
-            if (dragStart is { } d0 && dragEnd is { } d1)
-            {
-                var (rx, ry, rw, rh) = (Math.Min(d0.x, d1.x), Math.Min(d0.y, d1.y),
-                                        Math.Abs(d1.x - d0.x) + 1, Math.Abs(d1.y - d0.y) + 1);
-                if (editMode == EditMode.Sprites && sprites is not null)
-                {
-                    // Live lasso: sprites inside the band highlight (and select) immediately.
-                    selSprites.Clear();
-                    for (int i = 0; i < sprites.Sprites.Count; i++)
-                    {
-                        var (sx, sy) = sprites.Sprites[i].Cell(verticalLvl);
-                        if (sx >= rx && sx < rx + rw && sy >= ry && sy < ry + rh) selSprites.Add(i);
-                    }
-                }
-                else if (editMode == EditMode.Objects && objList is not null)
-                {
-                    // Live lasso: objects whose footprint rect overlaps the band.
-                    selObjs.Clear();
-                    for (int i = 0; i < objList.Count; i++)
-                    {
-                        var (ox, oy, ow, oh) = ObjRect(objList[i]);
-                        if (ox < rx + rw && ox + ow > rx && oy < ry + rh && oy + oh > ry) selObjs.Add(i);
-                    }
-                }
-                if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
-                    dl.AddRect(new Vector2(origin.X + rx * cs, origin.Y + ry * cs),
-                               new Vector2(origin.X + (rx + rw) * cs, origin.Y + (ry + rh) * cs),
-                               0xFF00FFFF, 0, 0, 1.5f);
-                else
-                {
-                    if (editMode == EditMode.Layer1) GrabSelection(rx, ry, rw, rh);
-                    dragStart = dragEnd = null;
-                }
-            }
-
-            // Sprite selection move: outline ghosts at the destination cells; on release
-            // every selected sprite shifts by the drag delta.
-            if (editMode == EditMode.Sprites && moveDrag is { } sa && dragEnd is { } sc &&
-                sprites is not null && selSprites.Count > 0)
-            {
-                int mdx = sc.x - sa.x, mdy = sc.y - sa.y;
-                if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
-                {
-                    ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
-                    if (sprGhostTex is not null)
-                    {
-                        // Ghost: the selected sprites' actual pixels, translucent, at the drop offset.
-                        float pz = cs / 16f;
-                        var p0 = new Vector2(origin.X + (sprGhostX + mdx * 16) * pz,
-                                             origin.Y + (sprGhostY + mdy * 16) * pz);
-                        dl.AddImage(imgui!.GetTextureID(sprGhostTex), p0,
-                                    new Vector2(p0.X + sprGhostW * pz, p0.Y + sprGhostH * pz),
-                                    Vector2.Zero, Vector2.One, 0xC0FFFFFFu);
-                    }
-                    else
-                        foreach (int si in selSprites)
-                        {
-                            var (sx, sy) = sprites.Sprites[si].Cell(verticalLvl);
-                            var p0 = new Vector2(origin.X + (sx + mdx) * cs, origin.Y + (sy + mdy) * cs);
-                            dl.AddRect(p0, new Vector2(p0.X + cs, p0.Y + cs), 0xFF00FF00, 0, 0, 1.5f);
-                        }
-                }
-                else
-                {
-                    if (mdx != 0 || mdy != 0)
-                    {
-                        hiddenSprites = null;             // MoveSelectedSprites repaints everything
-                        MoveSelectedSprites(mdx, mdy, verticalLvl);
-                    }
-                    else ClearHiddenSprites();            // dropped in place: just un-hide
-                    moveDrag = null; dragEnd = null;
-                    DropSpriteGhost();
-                }
-            }
-
-            // Delete removes the selected sprites.
-            if (editMode == EditMode.Sprites && selSprites.Count > 0 &&
-                !ImGui.GetIO().WantTextInput && ImGui.IsKeyPressed(ImGuiKey.Delete))
-                DeleteSelectedSprites(verticalLvl);
-
-            // Object selection move: outline the footprints at the drag delta; on release
-            // shift every selected object (re-renders the level).
-            if (editMode == EditMode.Objects && moveDrag is { } oa && dragEnd is { } oc &&
-                objList is not null && selObjs.Count > 0)
-            {
-                int mdx = oc.x - oa.x, mdy = oc.y - oa.y;
-                if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
-                {
-                    ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
-                    foreach (int oi in selObjs)
-                    {
-                        var (ox, oy, ow, oh) = ObjRect(objList[oi]);
-                        dl.AddRect(new Vector2(origin.X + (ox + mdx) * cs, origin.Y + (oy + mdy) * cs),
-                                   new Vector2(origin.X + (ox + ow + mdx) * cs, origin.Y + (oy + oh + mdy) * cs),
-                                   0xFF0080FF, 0, 0, 1.5f);
-                    }
-                }
-                else
-                {
-                    if (mdx != 0 || mdy != 0) MoveSelectedObjects(mdx, mdy);
-                    moveDrag = null; dragEnd = null;
-                }
-            }
-
-            // Delete removes the selected objects.
-            if (editMode == EditMode.Objects && selObjs.Count > 0 &&
-                !ImGui.GetIO().WantTextInput && ImGui.IsKeyPressed(ImGuiKey.Delete))
-                DeleteSelectedObjects();
-
-            // Selection move: dragging from inside the selection carries its contents —
-            // ghost tiles (drawn from the Map16 sheet texture) preview the drop; on
-            // release the source is erased and the region stamped as ONE undo step.
-            if (editMode == EditMode.Layer1 && moveDrag is { } anchor && selRect is { } mr && dragEnd is { } cur)
-            {
-                int dx = Math.Clamp(mr.x + cur.x - anchor.x, 0, grid.Width - mr.w);
-                int dy = Math.Clamp(mr.y + cur.y - anchor.y, 0, grid.Height - mr.h);
-                if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
-                {
-                    ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
-                    var sheetTex = map16Texs[AnimPhase] ?? map16Texs[0];
-                    int tileCount = tileCaches?[0].Length ?? 0;
-                    for (int j = 0; j < mr.h && sheetTex is not null; j++)
-                        for (int i = 0; i < mr.w; i++)
-                        {
-                            int t = brushTiles[j * mr.w + i];
-                            if (t == Map16Grid.Empty || (t & ObjectEngine.Marker) != 0 || t >= tileCount)
-                                continue;
-                            var p0 = new Vector2(origin.X + (dx + i) * cs, origin.Y + (dy + j) * cs);
-                            var uv0 = new Vector2((t % 16) * 16f / map16W, (t / 16) * 16f / map16H);
-                            var uv1 = new Vector2(uv0.X + 16f / map16W, uv0.Y + 16f / map16H);
-                            dl.AddImage(imgui!.GetTextureID(sheetTex), p0,
-                                        new Vector2(p0.X + cs, p0.Y + cs), uv0, uv1, 0xC0FFFFFFu);
-                        }
-                    dl.AddRect(new Vector2(origin.X + dx * cs, origin.Y + dy * cs),
-                               new Vector2(origin.X + (dx + mr.w) * cs, origin.Y + (dy + mr.h) * cs),
-                               0xFF00FFFF, 0, 0, 1.5f);
-                }
-                else
-                {
-                    if (dx != mr.x || dy != mr.y)
-                    {
-                        for (int y = mr.y; y < mr.y + mr.h; y++)
-                            for (int x = mr.x; x < mr.x + mr.w; x++)
-                                PaintCell(x, y, Map16Grid.Empty);
-                        for (int j = 0; j < mr.h; j++)
-                            for (int i = 0; i < mr.w; i++)
-                                PaintCell(dx + i, dy + j, brushTiles[j * mr.w + i]);
-                        CommitStroke();
-                        selRect = (dx, dy, mr.w, mr.h);
-                    }
-                    moveDrag = null; dragEnd = null;
-                }
-            }
-
-            // Delete erases the selected region (one undo step).
-            if (editMode == EditMode.Layer1 && selRect is { } er &&
-                !ImGui.GetIO().WantTextInput && ImGui.IsKeyPressed(ImGuiKey.Delete))
-            {
-                for (int y = er.y; y < er.y + er.h; y++)
-                    for (int x = er.x; x < er.x + er.w; x++)
-                        PaintCell(x, y, Map16Grid.Empty);
-                CommitStroke();
-            }
+            ActiveTool.Frame(new CanvasCtx(origin, cs, dl, hcx, hcy, hovered, verticalLvl));
             ImGui.EndChild();
         }
     }
