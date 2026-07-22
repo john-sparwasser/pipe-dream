@@ -72,12 +72,34 @@ public static class ObjectEngine
 
     public static Cpu65816? LastCpu;    // debug hook
 
+    /// <summary>
+    /// Render an edited object list by encoding it and running the ROM loader against the
+    /// stream injected into RAM (bank $7F, below the $C800 high plane) — so edits use the
+    /// same accurate emulated engine as the ROM's own data. `encoded` = Level.Encode output
+    /// (5-byte header + objects + 0xFF terminator).
+    /// </summary>
+    public static Map16Grid RenderEmulatedStream(Rom rom, LevelHeader header, byte[] encoded, int layer)
+    {
+        var cpu = new Cpu65816(rom);
+        LastCpu = cpu;
+        Array.Fill(cpu.Ram7E, (byte)0x25, 0xC800, 0x3800);
+        for (int i = 0; i < encoded.Length && i < 0xC000; i++) cpu.Ram7F[i] = encoded[i];
+        return RenderEmulatedCore(rom, cpu, header, 0x7F0000, layer);
+    }
+
     public static Map16Grid RenderEmulated(Rom rom, LevelHeader header, int dataPtrSnes, int layer)
     {
         var cpu = new Cpu65816(rom);
         LastCpu = cpu;
         // Tilemap init as at $058074: low planes 0x25, high planes 0x00.
         Array.Fill(cpu.Ram7E, (byte)0x25, 0xC800, 0x3800);
+        return RenderEmulatedCore(rom, cpu, header, dataPtrSnes, layer);
+    }
+
+    private static Map16Grid RenderEmulatedCore(Rom rom, Cpu65816 cpu, LevelHeader header, int dataPtrSnes, int layer)
+    {
+        byte RomOrRam(int snes)     // $65 pointer may target ROM (real level) or $7F RAM (edited stream)
+            => (snes >> 16) == 0x7F ? cpu.Ram7F[snes & 0xFFFF] : rom.ReadByte(snes);
 
         void W(int addr, byte v) => cpu.Ram7E[addr] = v;
         int data = dataPtrSnes + 5;                       // past the 5-byte header copy
@@ -89,7 +111,7 @@ public static class ObjectEngine
         W(0x5B, rom.ReadByte(0x058417 + (header.LevelMode & 0x1F)));   // VerticalTable
         W(0x1933, (byte)layer);
 
-        if (rom.ReadByte(data) != 0xFF)                   // empty level: nothing to run
+        if (RomOrRam(data) != 0xFF)                       // empty level: nothing to run
             cpu.CallNear(0x05_85FF);
 
         // Plane bases come from the same tables the loader used ($00BEA8/$00BEAC → per-mode

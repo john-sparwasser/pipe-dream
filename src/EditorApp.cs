@@ -81,12 +81,22 @@ public class EditorApp : App
     private Texture? sprGhostTex;                       // drag ghost: the selected sprites' pixels
     private int sprGhostW, sprGhostH, sprGhostX, sprGhostY;   // ghost size + level-px origin
     private HashSet<int>? hiddenSprites;                // sprites hidden from the canvas mid-drag
-    private int selectedObject = -1;
+
+    // Object editing (Objects mode): a mutable working copy of the level's objects, its
+    // own render, and a placeable-object catalog.
+    private List<LevelObject>? objList;
+    private readonly HashSet<int> selObjs = new();      // selected indices into objList
+    private Texture? objCatTex;                          // catalog thumbnail atlas
+    private int[] objCatNums = Array.Empty<int>();
+    private readonly Dictionary<int, (int cw, int ch, float u0, float v0, float u1, float v1)> objCatUV = new();
+    private int objCatTileset = -1;                      // tileset the catalog was built for
+    private int selectedObjCat = -1;                     // catalog object number to place
+    private const int ObjDefaultSize = 0x22;             // default placed size: 3 wide x 3 tall
 
     // LM-style editing: left-click/drag selects (grabs the tiles under the cursor as the
     // brush), right-click stamps the brush, Delete erases the selection, Esc toggles
     // between Layer 1 and sprite selection modes.
-    private enum EditMode { Layer1, Sprites }
+    private enum EditMode { Layer1, Sprites, Objects }
     private EditMode editMode = EditMode.Layer1;
     private ushort[] brushTiles = { 0x100 };
     private int brushW = 1, brushH = 1;
@@ -107,6 +117,7 @@ public class EditorApp : App
     private sealed record TileStroke(List<(int x, int y, ushort before, ushort after)> Cells) : EditAction;
     private sealed record SpriteEdit(List<Sprite> Before, List<Sprite> After) : EditAction;
     private sealed record PaletteEdit(Dictionary<int, ushort> Before, Dictionary<int, ushort> After) : EditAction;
+    private sealed record ObjectEdit(List<LevelObject> Before, List<LevelObject> After) : EditAction;
     private readonly List<EditAction> undoStack = new();
     private readonly List<EditAction> redoStack = new();
     private List<(int x, int y, ushort before, ushort after)> currentStroke = new();
@@ -275,12 +286,18 @@ public class EditorApp : App
         if (!io.WantTextInput && ImGui.IsKeyPressed(ImGuiKey.Escape) &&
             !ImGui.IsPopupOpen("", ImGuiPopupFlags.AnyPopupId | ImGuiPopupFlags.AnyPopupLevel))
         {
-            editMode = editMode == EditMode.Layer1 ? EditMode.Sprites : EditMode.Layer1;
+            editMode = editMode switch
+            {
+                EditMode.Layer1 => EditMode.Sprites,
+                EditMode.Sprites => EditMode.Objects,
+                _ => EditMode.Layer1,
+            };
             dragStart = null; moveDrag = null;
             DropSpriteGhost();
             ClearHiddenSprites();
-            // Bring the matching palette tab along (Map16 for layer 1).
-            pendingTabSelect = paletteTab = editMode == EditMode.Sprites ? 1 : 0;
+            // Bring the matching palette tab along.
+            pendingTabSelect = paletteTab = editMode switch
+            { EditMode.Sprites => 1, EditMode.Objects => 2, _ => 0 };
         }
 
         DrawMainLayout();
@@ -328,7 +345,7 @@ public class EditorApp : App
         {
             PaletteTabItem(0, "Map16", EditMode.Layer1, DrawMap16Tab);
             PaletteTabItem(1, "Sprites", EditMode.Sprites, DrawSpritesTab);
-            PaletteTabItem(2, "Objects", EditMode.Layer1, DrawObjectsTab);
+            PaletteTabItem(2, "Objects", EditMode.Objects, DrawObjectsTab);
             PaletteTabItem(3, "Palette", null, DrawPaletteTab);
             ImGui.EndTabBar();
         }
@@ -385,9 +402,12 @@ public class EditorApp : App
         if (ImGui.Button("GFX")) showLevelGfx = !showLevelGfx;
         if (levelTexs[0] is null || grid is null) { ImGui.TextDisabled("No level rendered."); return; }
         ImGui.SameLine();
-        ImGui.Text(editMode == EditMode.Layer1
-            ? $"—  Layer 1:  left: select/grab ({brushW}x{brushH})   drag selection: move   right: stamp   Del: erase   Esc: sprites"
-            : $"—  Sprites:  left: select/drag-select   drag selection: move   right: {(selSprites.Count > 0 ? "duplicate" : selectedCatalog >= 0 ? $"place {selectedCatalog:X2}" : "place (pick in palette)")}   Del: delete   Esc: layer 1");
+        ImGui.Text(editMode switch
+        {
+            EditMode.Layer1 => $"—  Layer 1:  left: select/grab ({brushW}x{brushH})   drag selection: move   right: stamp   Del: erase   Esc: sprites",
+            EditMode.Sprites => $"—  Sprites:  left: select/drag-select   drag selection: move   right: {(selSprites.Count > 0 ? "duplicate" : selectedCatalog >= 0 ? $"place {selectedCatalog:X2}" : "place (pick in palette)")}   Del: delete   Esc: objects",
+            _ => $"—  Objects:  left: select/drag-select   drag selection: move   right: {(selObjs.Count > 0 ? "duplicate" : selectedObjCat >= 0 ? $"place {selectedObjCat:X2}" : "place (pick in palette)")}   Del: delete   Esc: layer 1",
+        });
         if (saveStatus.Length > 0) ImGui.TextDisabled(saveStatus);
         // Horizontal levels scroll left/right with the wheel (Shift+wheel = vertical);
         // vertical levels keep the default up/down wheel.
@@ -429,6 +449,18 @@ public class EditorApp : App
                     dl.AddRect(new Vector2(origin.X + sx * cs, origin.Y + sy * cs),
                                new Vector2(origin.X + (sx + 1) * cs, origin.Y + (sy + 1) * cs),
                                0xFF00FF00, 0, 0, 2f);
+                }
+            if (editMode == EditMode.Objects && objList is not null && moveDrag is null)
+                foreach (int oi in selObjs)
+                {
+                    if (oi >= objList.Count) continue;
+                    var (ox, oy, ow, oh) = ObjRect(objList[oi]);
+                    dl.AddRectFilled(new Vector2(origin.X + ox * cs, origin.Y + oy * cs),
+                                     new Vector2(origin.X + (ox + ow) * cs, origin.Y + (oy + oh) * cs),
+                                     0x300080FFu);
+                    dl.AddRect(new Vector2(origin.X + ox * cs, origin.Y + oy * cs),
+                               new Vector2(origin.X + (ox + ow) * cs, origin.Y + (oy + oh) * cs),
+                               0xFF0080FF, 0, 0, 2f);
                 }
 
             if (ImGui.IsItemHovered())
@@ -483,6 +515,23 @@ public class EditorApp : App
                         if (SpriteIndexAt(cx, cy, verticalLvl) is int over && selSprites.Contains(over))
                             ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
                     }
+                    else if (editMode == EditMode.Objects && objList is not null)
+                    {
+                        if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+                        {
+                            if (ObjIndexAt(cx, cy) is int hit && selObjs.Contains(hit)) moveDrag = (cx, cy);
+                            else dragStart = dragEnd = (cx, cy);
+                        }
+                        if (dragStart is not null && ImGui.IsMouseDown(ImGuiMouseButton.Left)) dragEnd = (cx, cy);
+                        if (moveDrag is not null && ImGui.IsMouseDown(ImGuiMouseButton.Left)) dragEnd = (cx, cy);
+                        if (ImGui.IsMouseClicked(ImGuiMouseButton.Right))
+                        {
+                            if (selObjs.Count > 0) DuplicateSelectedObjects(cx, cy);
+                            else if (selectedObjCat >= 0) PlaceObject(selectedObjCat, cx, cy);
+                        }
+                        if (ObjIndexAt(cx, cy) is int ov && selObjs.Contains(ov))
+                            ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+                    }
                     // Inside the selection: highlight it and show a hand cursor (it's grabbable).
                     bool overSel = editMode == EditMode.Layer1 && selRect is { } hr &&
                                    cx >= hr.x && cx < hr.x + hr.w && cy >= hr.y && cy < hr.y + hr.h;
@@ -514,6 +563,16 @@ public class EditorApp : App
                     {
                         var (sx, sy) = sprites.Sprites[i].Cell(verticalLvl);
                         if (sx >= rx && sx < rx + rw && sy >= ry && sy < ry + rh) selSprites.Add(i);
+                    }
+                }
+                else if (editMode == EditMode.Objects && objList is not null)
+                {
+                    // Live lasso: objects whose footprint rect overlaps the band.
+                    selObjs.Clear();
+                    for (int i = 0; i < objList.Count; i++)
+                    {
+                        var (ox, oy, ow, oh) = ObjRect(objList[i]);
+                        if (ox < rx + rw && ox + ow > rx && oy < ry + rh && oy + oh > ry) selObjs.Add(i);
                     }
                 }
                 if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
@@ -571,6 +630,35 @@ public class EditorApp : App
             if (editMode == EditMode.Sprites && selSprites.Count > 0 &&
                 !ImGui.GetIO().WantTextInput && ImGui.IsKeyPressed(ImGuiKey.Delete))
                 DeleteSelectedSprites(verticalLvl);
+
+            // Object selection move: outline the footprints at the drag delta; on release
+            // shift every selected object (re-renders the level).
+            if (editMode == EditMode.Objects && moveDrag is { } oa && dragEnd is { } oc &&
+                objList is not null && selObjs.Count > 0)
+            {
+                int mdx = oc.x - oa.x, mdy = oc.y - oa.y;
+                if (ImGui.IsMouseDown(ImGuiMouseButton.Left))
+                {
+                    ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+                    foreach (int oi in selObjs)
+                    {
+                        var (ox, oy, ow, oh) = ObjRect(objList[oi]);
+                        dl.AddRect(new Vector2(origin.X + (ox + mdx) * cs, origin.Y + (oy + mdy) * cs),
+                                   new Vector2(origin.X + (ox + ow + mdx) * cs, origin.Y + (oy + oh + mdy) * cs),
+                                   0xFF0080FF, 0, 0, 1.5f);
+                    }
+                }
+                else
+                {
+                    if (mdx != 0 || mdy != 0) MoveSelectedObjects(mdx, mdy);
+                    moveDrag = null; dragEnd = null;
+                }
+            }
+
+            // Delete removes the selected objects.
+            if (editMode == EditMode.Objects && selObjs.Count > 0 &&
+                !ImGui.GetIO().WantTextInput && ImGui.IsKeyPressed(ImGuiKey.Delete))
+                DeleteSelectedObjects();
 
             // Selection move: dragging from inside the selection carries its contents —
             // ghost tiles (drawn from the Map16 sheet texture) preview the drop; on
@@ -722,6 +810,109 @@ public class EditorApp : App
         levelDirty = true;
     }
 
+    // ---- object editing (Objects mode) ----
+
+    // Re-render the level grid from the edited object list, preserving any DM16 tile-paint
+    // overlay (the cells where the display grid differs from the object-render baseline).
+    private void RenderObjects()
+    {
+        if (rom is null || level is null || objList is null || grid is null || baseGrid is null) return;
+        var overlay = new List<(int x, int y, ushort t)>();
+        for (int y = 0; y < grid.Height; y++)
+            for (int x = 0; x < grid.Width; x++)
+            {
+                int t = grid.Get(x, y);
+                if (t != baseGrid.Get(x, y)) overlay.Add((x, y, (ushort)t));
+            }
+        try
+        {
+            var g = ObjectEngine.RenderEmulatedStream(rom, level.Header, level.Encode(rom, Level.NormalizeStream(objList)), 0);
+            baseGrid = g;
+            grid = g.Clone();
+            foreach (var (x, y, t) in overlay) grid.Set(x, y, t);
+        }
+        catch { return; }
+        canvasFull = true;
+        levelDirty = true;
+    }
+
+    // A rough footprint for hit-testing/selection: the object's declared W×H rect
+    // (extended objects are single-cell). Not pixel-exact for irregular objects.
+    private (int x, int y, int w, int h) ObjRect(LevelObject o)
+    {
+        int w = o.Extended || o.IsScreenExit ? 1 : Math.Clamp(o.Width, 1, 32);
+        int h = o.Extended || o.IsScreenExit ? 1 : Math.Clamp(o.Height, 1, 32);
+        return (o.AbsoluteX, o.Y, w, h);
+    }
+
+    private int? ObjIndexAt(int cx, int cy)
+    {
+        if (objList is null) return null;
+        // Topmost (last-drawn) object whose rect contains the cell.
+        for (int i = objList.Count - 1; i >= 0; i--)
+        {
+            var (x, y, w, h) = ObjRect(objList[i]);
+            if (cx >= x && cx < x + w && cy >= y && cy < y + h) return i;
+        }
+        return null;
+    }
+
+    private static LevelObject ObjAt(LevelObject src, int cx, int cy)
+        => new(src.NewScreen, src.Number, (cx >> 4) & 0x1F, cx & 15, cy & 0x1F,
+               src.Byte3, src.ExtraByte, src.Dm16Tile, src.Dm16Page, src.Dm16ExtX, src.Dm16ExtH);
+
+    private void MarkAllDirty() { canvasFull = true; levelDirty = true; }
+
+    private void PlaceObject(int number, int cx, int cy)
+    {
+        if (objList is null) return;
+        var before = new List<LevelObject>(objList);
+        objList.Add(new LevelObject(false, number, (cx >> 4) & 0x1F, cx & 15, cy & 0x1F, ObjDefaultSize, -1));
+        PushObjectEdit(before);
+        RenderObjects();
+    }
+
+    private void MoveSelectedObjects(int dx, int dy)
+    {
+        if (objList is null) return;
+        var before = new List<LevelObject>(objList);
+        foreach (int i in selObjs)
+        {
+            var o = objList[i];
+            objList[i] = ObjAt(o, Math.Max(0, o.AbsoluteX + dx), Math.Clamp(o.Y + dy, 0, 0x1F));
+        }
+        PushObjectEdit(before);
+        RenderObjects();
+    }
+
+    private void DuplicateSelectedObjects(int cx, int cy)
+    {
+        if (objList is null || selObjs.Count == 0) return;
+        var before = new List<LevelObject>(objList);
+        int ax = selObjs.Min(i => objList[i].AbsoluteX), ay = selObjs.Min(i => objList[i].Y);
+        var added = new List<int>();
+        foreach (int i in selObjs.OrderBy(i => i))
+        {
+            var o = objList[i];
+            added.Add(objList.Count);
+            objList.Add(ObjAt(o, Math.Max(0, cx + o.AbsoluteX - ax), Math.Clamp(cy + o.Y - ay, 0, 0x1F)));
+        }
+        selObjs.Clear();
+        foreach (int i in added) selObjs.Add(i);
+        PushObjectEdit(before);
+        RenderObjects();
+    }
+
+    private void DeleteSelectedObjects()
+    {
+        if (objList is null || selObjs.Count == 0) return;
+        var before = new List<LevelObject>(objList);
+        foreach (int i in selObjs.OrderByDescending(i => i)) objList.RemoveAt(i);
+        selObjs.Clear();
+        PushObjectEdit(before);
+        RenderObjects();
+    }
+
     private void PlaceSprite(int number, int cx, int cy, bool vert)
     {
         if (sprites is null) return;
@@ -856,6 +1047,23 @@ public class EditorApp : App
         RebuildGraphics();
     }
 
+    private void PushObjectEdit(List<LevelObject> before)
+    {
+        CommitStroke();
+        undoStack.Add(new ObjectEdit(before, new List<LevelObject>(objList!)));
+        if (undoStack.Count > 256) undoStack.RemoveAt(0);
+        redoStack.Clear();
+    }
+
+    private void RestoreObjects(List<LevelObject> list)
+    {
+        if (objList is null) return;
+        objList.Clear();
+        objList.AddRange(list);
+        selObjs.Clear();
+        RenderObjects();
+    }
+
     private void RestoreSprites(List<Sprite> list)
     {
         if (sprites is null) return;
@@ -891,6 +1099,9 @@ public class EditorApp : App
             case PaletteEdit pe:
                 RestorePalEdits(pe.Before);
                 break;
+            case ObjectEdit oe:
+                RestoreObjects(oe.Before);
+                break;
         }
         redoStack.Add(a);
         levelDirty = true;
@@ -911,6 +1122,9 @@ public class EditorApp : App
                 break;
             case PaletteEdit pe:
                 RestorePalEdits(pe.After);
+                break;
+            case ObjectEdit oe:
+                RestoreObjects(oe.After);
                 break;
         }
         undoStack.Add(a);
@@ -1123,57 +1337,30 @@ public class EditorApp : App
 
     // Objects palette tab: the level's parsed object list. Selection is groundwork for
     // object editing later; today it's an inspector.
+    // Objects tab: the placeable-object catalog (thumbnails from this tileset), right-click
+    // the level to place the selected one. Names from the SMW source dispatch comments.
     private void DrawObjectsTab()
     {
         if (level is null) { ImGui.TextDisabled("No level."); return; }
-        ImGui.Text($"{level.Objects.Count} objects   tileset {level.Header.Tileset}");
-        if (ImGui.BeginChild("objlist"))
+        ImGui.TextDisabled($"tileset {level.Header.Tileset}  —  select, then right-click the level to place");
+        if (objCatTex is null) BuildObjectCatalog();   // lazy: first view of the tab (per tileset)
+        if (ImGui.BeginChild("objcat"))
         {
-            float rowH = 40;
-            for (int i = 0; i < level.Objects.Count; i++)
+            for (int i = 0; i < objCatNums.Length; i++)
             {
-                var o = level.Objects[i];
-                string name = o.IsScreenExit ? $"Screen exit → {(o.ExtraByte >= 0 ? $"{o.ExtraByte:X2}" : "?")}"
-                    : o.IsDm16 ? $"Direct Map16 0x{o.Dm16Tile:X3}"
-                    : o.Extended ? ObjectNames.Extended(o.ExtendedNumber)
-                    : ObjectNames.Standard(o.Number);
-                string id = o.IsDm16 ? $"DM16 {o.Dm16Tile:X3}"
-                    : o.Extended ? $"ext {o.ExtendedNumber:X2}" : $"obj {o.Number:X2}";
-
-                DrawObjectThumb(o, rowH);
-                ImGui.SameLine();
-                if (ImGui.Selectable($"{name}\n{id}  scr {o.Screen:X2} ({o.AbsoluteX},{o.Y})###obj{i}",
-                                     selectedObject == i, ImGuiSelectableFlags.None, new Vector2(0, rowH)))
-                    selectedObject = i;
+                int num = objCatNums[i];
+                if (objCatTex is not null && objCatUV.TryGetValue(num, out var uv))
+                {
+                    ImGui.Image(imgui!.GetTextureID(objCatTex), new Vector2(48, 48),
+                                new Vector2(uv.u0, uv.v0), new Vector2(uv.u1, uv.v1));
+                    ImGui.SameLine();
+                }
+                if (ImGui.Selectable($"{num:X2}  {ObjectNames.Standard(num)}###objcat{num}",
+                                     selectedObjCat == num, ImGuiSelectableFlags.None, new Vector2(0, 48)))
+                    selectedObjCat = num;
             }
             ImGui.EndChild();
         }
-    }
-
-    // Preview cropped straight from the rendered level canvas at the object's footprint
-    // (declared Width×Height) — no extra rendering, just UVs into the level texture.
-    private void DrawObjectThumb(LevelObject o, float box)
-    {
-        var tex = levelTexs[AnimPhase] ?? levelTexs[0];
-        if (tex is null || levelPxW == 0 || o.IsScreenExit || (o.Extended && o.ExtendedNumber <= 0x01))
-        { ImGui.Dummy(new Vector2(box, box)); return; }
-
-        int cw = Math.Clamp(o.Extended ? 1 : o.Width, 1, 8);
-        int ch = Math.Clamp(o.Extended ? 1 : o.Height, 1, 8);
-        int px = o.AbsoluteX * 16, py = o.Y * 16, pw = cw * 16, ph = ch * 16;
-        if (px + pw > levelPxW) pw = levelPxW - px;
-        if (py + ph > levelPxH) ph = levelPxH - py;
-        if (px < 0 || py < 0 || pw <= 0 || ph <= 0) { ImGui.Dummy(new Vector2(box, box)); return; }
-
-        var uv0 = new Vector2((float)px / levelPxW, (float)py / levelPxH);
-        var uv1 = new Vector2((float)(px + pw) / levelPxW, (float)(py + ph) / levelPxH);
-        float scale = box / Math.Max(pw, ph);            // fit, preserve aspect
-        var size = new Vector2(pw * scale, ph * scale);
-        // Center within the box so rows align.
-        var cur = ImGui.GetCursorScreenPos();
-        ImGui.SetCursorScreenPos(cur + new Vector2((box - size.X) / 2, (box - size.Y) / 2));
-        ImGui.Image(imgui!.GetTextureID(tex), size, uv0, uv1);
-        ImGui.SetCursorScreenPos(cur + new Vector2(box, 0));
     }
 
     // Palette tab: the level's 256-color CGRAM as a 16x16 swatch grid. Click a swatch to
@@ -1411,8 +1598,9 @@ public class EditorApp : App
             level = rom is null ? null : Level.Parse(rom, levelNum);
             grid = rom is not null && level is not null ? ObjectEngine.Render(rom, level) : null;
             baseGrid = grid?.Clone();          // snapshot to diff edits against on save
+            objList = level is not null ? new List<LevelObject>(level.Objects) : null;
             undoStack.Clear(); redoStack.Clear(); currentStroke = new();   // new grid = new history
-            selSprites.Clear(); dragStart = dragEnd = null; moveDrag = null; DropSpriteGhost(); hiddenSprites = null;
+            selSprites.Clear(); selObjs.Clear(); dragStart = dragEnd = null; moveDrag = null; DropSpriteGhost(); hiddenSprites = null;
             levelGfxKey = -1;                                              // refresh Level GFX window
             if (levelNum != palEditsLevel) { palEdits.Clear(); palEditsLevel = levelNum; }
             // Layer 2: background image or object layer, drawn behind layer 1.
@@ -1447,7 +1635,86 @@ public class EditorApp : App
         else bgCaches = null;
         BuildMap16Sheet();
         BuildSpriteCatalog();
+        objCatTex?.Dispose(); objCatTex = null;   // stale: Objects tab rebuilds it lazily
         BuildLevelCanvas();
+    }
+
+    // Per-tileset object footprint geometry (changed cells vs an empty render), cached so
+    // the object engine runs only on tileset change; thumbnails recompose per palette.
+    private readonly Dictionary<int, (int bx, int by, int bw, int bh, (int cx, int cy, ushort t)[] cells)> objCatCells = new();
+
+    private void BuildObjectFootprints()
+    {
+        objCatCells.Clear();
+        if (rom is null || level is null) return;
+        var empty = new List<LevelObject>();
+        Map16Grid baseG;
+        try { baseG = ObjectEngine.RenderEmulatedStream(rom, level.Header, level.Encode(rom, empty), 0); }
+        catch { return; }
+        for (int num = 1; num <= 0x3F; num++)
+        {
+            var one = new List<LevelObject> { new(false, num, 0, 4, 10, ObjDefaultSize, -1) };
+            Map16Grid g;
+            try { g = ObjectEngine.RenderEmulatedStream(rom, level.Header, level.Encode(rom, one), 0); }
+            catch { continue; }
+            int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
+            var cells = new List<(int, int, ushort)>();
+            for (int y = 0; y < g.Height; y++)
+                for (int x = 0; x < g.Width; x++)
+                {
+                    int t = g.Get(x, y);
+                    if (t == baseG.Get(x, y) || t == Map16Grid.Empty) continue;
+                    cells.Add((x, y, (ushort)t));
+                    minX = Math.Min(minX, x); minY = Math.Min(minY, y);
+                    maxX = Math.Max(maxX, x); maxY = Math.Max(maxY, y);
+                }
+            if (cells.Count == 0) continue;
+            objCatCells[num] = (minX, minY, maxX - minX + 1, maxY - minY + 1, cells.ToArray());
+        }
+    }
+
+    // Catalog atlas: one 48x48 thumbnail per placeable object, composed from the cached
+    // footprint geometry with the current tileset's Map16 tiles (phase 0).
+    private void BuildObjectCatalog()
+    {
+        objCatTex?.Dispose(); objCatTex = null;
+        objCatNums = Array.Empty<int>();
+        objCatUV.Clear();
+        if (rom is null || level is null || tileCaches is null) return;
+        if (objCatTileset != level.Header.Tileset) { BuildObjectFootprints(); objCatTileset = level.Header.Tileset; }
+        var nums = objCatCells.Keys.OrderBy(n => n).ToArray();
+        if (nums.Length == 0) return;
+        const int cell = 48;
+        var cache = tileCaches[0];
+        var img = new uint[cell * cell * nums.Length];
+        for (int i = 0; i < nums.Length; i++)
+        {
+            var fp = objCatCells[nums[i]];
+            int srcW = fp.bw * 16, srcH = fp.bh * 16;
+            // Nearest-neighbour fit into the cell, preserving aspect.
+            int dw = srcW, dh = srcH;
+            float scale = Math.Min(1f, (float)cell / Math.Max(srcW, srcH));
+            dw = Math.Max(1, (int)(srcW * scale)); dh = Math.Max(1, (int)(srcH * scale));
+            int ox = (cell - dw) / 2, oy = (cell - dh) / 2, rowBase = i * cell;
+            foreach (var (cx, cy, t) in fp.cells)
+            {
+                uint[]? tile = (t & ObjectEngine.Marker) != 0 || t >= cache.Length ? null : cache[t];
+                if (tile is null) continue;
+                for (int py = 0; py < 16; py++)
+                    for (int px = 0; px < 16; px++)
+                    {
+                        uint c = tile[py * 16 + px];
+                        if (c == 0) continue;
+                        int sx = (cx - fp.bx) * 16 + px, sy = (cy - fp.by) * 16 + py;
+                        int dx = ox + (int)(sx * scale), dy = oy + (int)(sy * scale);
+                        if (dx >= 0 && dx < cell && dy >= 0 && dy < cell) img[(rowBase + dy) * cell + dx] = c;
+                    }
+            }
+            objCatUV[nums[i]] = (fp.bw, fp.bh, 0, (float)rowBase / (cell * nums.Length),
+                                 1, (float)(rowBase + cell) / (cell * nums.Length));
+        }
+        objCatTex = new Texture(GraphicsDevice, cell, cell * nums.Length, MemoryMarshal.AsBytes(img.AsSpan()));
+        objCatNums = nums;
     }
 
     // Catalog atlas: one thumbnail per table sprite, drawn with THIS level's GFX/palette.
@@ -1482,6 +1749,7 @@ public class EditorApp : App
             rom = Rom.Load(path);
             loadedRomPath = path;
             ratCount = rom.EnumerateRats().Count();
+            objCatTileset = -1;                 // force object catalog rebuild for the new ROM
             ParseLevel();
         }
         catch (Exception e)

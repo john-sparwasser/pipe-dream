@@ -73,6 +73,14 @@ public readonly struct LevelObject
         Dm16Page = dm16Page; Dm16ExtX = dm16ExtX; Dm16ExtH = dm16ExtH;
     }
 
+    /// <summary>This object with a different NewScreen flag (struct is immutable).</summary>
+    public LevelObject WithNewScreen(bool ns) =>
+        new(ns, Number, Screen, XNibble, Y, Byte3, ExtraByte, Dm16Tile, Dm16Page, Dm16ExtX, Dm16ExtH);
+
+    /// <summary>A vanilla screen-jump command (ext obj 0x01) targeting a screen.</summary>
+    public static LevelObject ScreenJump(int screen) =>
+        new(false, 0, screen, 0, screen & 0x1F, 0x01, -1);
+
     /// <summary>Create a Direct Map16 object placing <paramref name="tile"/> at a cell.</summary>
     public static LevelObject MakeDm16(int tile, int screen, int xNib, int y, int w = 1, int h = 1, bool newScreen = false)
     {
@@ -225,6 +233,24 @@ public sealed class Level
     /// terminated by 0xFF. Verified by round-trip against the original bytes.
     /// </summary>
     public byte[] Encode(Rom rom) => Encode(rom, Objects);
+
+    /// <summary>
+    /// Order an edited object list into a valid stream: objects sorted by absolute screen
+    /// (stable, so within-screen layering is preserved) with a screen-jump command inserted
+    /// before each screen change and NewScreen flags cleared. The raw NewScreen bit only
+    /// advances the running screen counter by 1, so arbitrary placement needs explicit jumps.
+    /// </summary>
+    public static List<LevelObject> NormalizeStream(IEnumerable<LevelObject> objs)
+    {
+        var outl = new List<LevelObject>();
+        int running = 0;
+        foreach (var o in objs.OrderBy(o => o.Screen))
+        {
+            if (o.Screen != running) { outl.Add(LevelObject.ScreenJump(o.Screen)); running = o.Screen; }
+            outl.Add(o.WithNewScreen(false));
+        }
+        return outl;
+    }
 
     /// <summary>Encode this level's header (verbatim from ROM) + a given object list + 0xFF.</summary>
     public byte[] Encode(Rom rom, IEnumerable<LevelObject> objects)
