@@ -630,9 +630,24 @@ ExAnimation) in the NMI animation code: LM overwrites the vanilla DMA setup at *
 (was `REP #$20 : LDY #$80 : STY $2115`) with **`JSL $138170`** (expanded bank $13). $138170 is
 the ExAnimation engine — it performs the animated-tile VRAM DMA itself (sets DP=$4300, writes
 $2116/$22/$420B from the `$0D7x` params) and layers its own slots on top; the vanilla dispatch
-$05BB39 is UNTOUCHED. NEXT: follow $138170 to the global + per-level slot tables (dest tile,
-frame source list, rate, trigger) — the actual format to decode, via `--disasm` + a controlled
-per-level before/after (one ExAnimation slot) to disambiguate the record fields.
+$05BB39 is UNTOUCHED.
+
+ENGINE MAP (traced with --disasm on ShaoBase, global ExAnimation):
+- **$138170** (NMI DMA): blits the vanilla animated tiles (from the `$0D7x` params) then the
+  ExAnimation slots. Reads **8 per-slot DMA-param records in RAM at `$7FC0C0`, stride 7**
+  (ctrl word @+0, VRAM dest word @+2, 3-byte source ptr @+4). These are already RESOLVED for
+  the current frame — the NMI half only blits.
+- Color-0x64 glint lives here too ($138487: CGRAM 0x64 ← `$00B60C`+((frame&1C)>>1), same as
+  §12c) — gated by a per-level "disable color-64 anim" flag at **`$7FC00A`** (bit7).
+  ExAnimation frame counter **`$7FC004` = `$7FC019` >> 3**.
+- The `$7FC0C0` param records are filled by a per-tick PROCESSOR (bank $13/$10, RATS blocks;
+  init/clear routine at **$10F2F9** zeroes all 8 slots) that reads the ROM slot DEFINITIONS
+  and dispatches per slot TYPE via a handler-offset table at **~$10F32D** (~12 entries — the
+  "new line/palette types" of changes.htm). The processor writes params via indexed stores.
+- STILL UNDECODED: the ROM slot-definition table (base + per-type record: dest tile, frame
+  source list, rate, trigger) and where per-level vs global slots live. Because there are ~12
+  type variants, decode this with a CONTROLLED per-level before/after (one slot, distinctive
+  values) rather than reading ~12 handlers blind — same method that cracked the GFX bypass.
 
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 
