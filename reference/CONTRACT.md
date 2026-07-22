@@ -649,6 +649,30 @@ ENGINE MAP (traced with --disasm on ShaoBase, global ExAnimation):
   type variants, decode this with a CONTROLLED per-level before/after (one slot, distinctive
   values) rather than reading ~12 handlers blind — same method that cracked the GFX bypass.
 
+### 12e. LM ExAnimation slot record  [DECODED via controlled diff]
+
+Decoded from exanim_0..3 in .resources (one 8x8-tile animation on level 0x105; dest and
+frame-count varied one at a time). Each ExAnimation slot is a variable-length record inside
+a small RATS block (LM relocates it on every save):
+
+  +0x00 word   type/config       (0x0001 for the plain 8x8-tile line — TENTATIVE)
+  +0x02 word   trigger           (0xFFFF = none/periodic — TENTATIVE)
+  +0x04..+0x0B                    runtime state, zeroed on save (current frame/timer — TENTATIVE)
+  +0x0C word   frameCount - 1     (CONFIRMED: 3 frames→0x0002, 4 frames→0x0003)
+  +0x0E byte   destTile / 0x10    (CONFIRMED: dest 0xA0→0x0A, 0x40→0x04; dialog range 0x00-0xAA)
+  +0x0F...     frame list         (CONFIRMED: one 16-bit $7E RAM source addr per frame)
+
+Frame source addr = **$7D00 + (srcTile - 0x600) * 0x20** (CONFIRMED on 4 values: 0x601→7D20,
+0x655→87A0, 0x6AA→9240, 0x633→8360). So source tile 0x600 = $7E:7D00 (the animated-GFX source
+area, §12a), 0x20 bytes/tile 4bpp — the ExGFX 60-63 uncompressed source data loaded there.
+The record POINTER is at ROM $109587 (low word tracked the block: 0xA92E→0xAAD3 across saves).
+
+REMAINING for display: (1) confirm whether $109587 is a per-level table (index by level) or a
+single "active slot list" pointer, and how multiple slots + the global list chain; (2) the
+header bytes 0x00-0x0B (type/trigger) if we ever need non-8x8-tile types; (3) load the ExGFX
+60-63 source into the $7E:7D00 model and overlay frame-0 tiles at dest. Tooling: --disasm,
+--diff (both built). Next: trace $109587's producer to resolve the per-level/global table.
+
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 
 No unified sprite→tile table exists; each sprite's look comes from its graphics routine.
