@@ -60,7 +60,21 @@ public sealed partial class Rom
     // operands; the surrounding code bytes are stable across ROMs, the operands are not.
     // Each base is found once by signature scan and cached (-2 = not scanned yet).
 
-    private int lmActsAsBase = -2, lmGfxBypassBase = -2, lmExGfxBase = -2, lmSpriteSizeBase = -2;
+    private int lmActsAsBase = -2, lmGfxBypassBase = -2, lmExGfxBase = -2, lmSpriteSizeBase = -2, lmExAnimBase = -2;
+
+    /// <summary>
+    /// Base of LM's per-level ExAnimation pointer table (3 bytes/level, 24-bit record ptr,
+    /// FF 00 00 = none), or -1 if the hack lacks ExAnimation (CONTRACT §12e). Located from
+    /// the record reader at $108700: `A5 FE F0 ?? 3A 0A 18 65 FE 3A AA BF <base+1,X>` (the
+    /// first table access reads base+1, so subtract 1). Distinct from the GFX-bypass reader,
+    /// which uses five ASLs (stride 0x20) instead of DEC/ASL/CLC/ADC (stride 3).
+    /// </summary>
+    public int LmExAnimBase => lmExAnimBase != -2 ? lmExAnimBase : lmExAnimBase = ScanExAnimBase();
+    private int ScanExAnimBase()
+    {
+        int o = ScanOperand([0xA5, 0xFE, 0xF0, -1, 0x3A, 0x0A, 0x18, 0x65, 0xFE, 0x3A, 0xAA, 0xBF], []);
+        return o < 0 ? -1 : o - 1;
+    }
 
     /// <summary>
     /// Base of LM's sprite entry-size table (0x400 bytes, byte size per (extraBits&lt;&lt;8)|sprite#,

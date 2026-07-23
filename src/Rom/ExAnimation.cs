@@ -17,7 +17,6 @@ namespace PipeDream;
 /// </summary>
 public sealed class ExAnimation
 {
-    public const int TableSnes = 0x109278;   // verified on the exanim_* family; may be per-ROM
     private const int SlotArrayOffset = 8;    // record+8 = slot array ($7FC000 setup, §12e)
 
     public readonly record struct Slot(int Unknown0, int Unknown2, int FrameCount, int DestWord, ushort[] FrameSrcAddrs)
@@ -31,12 +30,18 @@ public sealed class ExAnimation
     /// <summary>Slots animated in <paramref name="level"/>; empty if the level has none.</summary>
     public static IReadOnlyList<Slot> ReadLevel(Rom rom, int level)
     {
-        int ptr = rom.ReadValue(TableSnes + level * 3, 3);
+        int baseSnes = rom.LmExAnimBase;                  // per-ROM; -1 = no ExAnimation ASM
+        if (baseSnes < 0) return [];
+        int ptr = rom.ReadValue(baseSnes + level * 3, 3);
         if ((ptr >> 16) == 0) return [];                 // FF 00 00 sentinel / not set
 
-        // Records are small; a 512-byte window covers any realistic slot array.
-        var rec = new byte[512];
-        for (int k = 0; k < rec.Length; k++) rec[k] = rom.ReadByte(ptr + k);
+        // Records are small; a 512-byte window covers any realistic slot array. Clamp to the
+        // ROM so a stray/garbage pointer can't overrun (the overlay runs on every ROM).
+        int fo = rom.FileOffset(ptr);
+        if (fo < 0 || fo >= rom.Data.Length) return [];
+        int n = Math.Min(512, rom.Data.Length - fo);
+        var rec = new byte[n];
+        Array.Copy(rom.Data, fo, rec, 0, n);
         return ParseSlots(rec);
     }
 

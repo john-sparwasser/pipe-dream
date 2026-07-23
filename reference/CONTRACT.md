@@ -684,11 +684,24 @@ vanilla animation. OVERLAY IMPLEMENTED in FgTiles.OverlayAnimatedTiles: for each
 Overlay(DestTile, FrameSrcAddrs[phase % FrameCount]). Verified live on exanim_1 (tile 0xA0
 cycles across phases) and gated (a level without ExAnimation is untouched).
 
-REMAINING: (1) $109278 fixed vs per-ROM (verify on other hacks; signature-scan if it moves);
-(2) multiple slots per level + GLOBAL list (ShaoBase) untested; (3) custom ExGFX 60-63 loaded
-into the $7E:7D00 source model — today only standard animated GFX resolves, so custom-source
-ExAnimation shows the GFX32/33 tile at that offset as a placeholder; (4) slot header words
-+0/+2 (0x0002/0x0001 — likely tile-count/type) for multi-tile ExAnimation types.
+TABLE BASE PER-ROM (DONE): rom.LmExAnimBase signature-scans the $108700 reader
+(`A5 FE F0 ?? 3A 0A 18 65 FE 3A AA BF <base+1>`, subtract 1); -1 = no ExAnimation ASM.
+Verified: exanim_1 $109278, vanilla none, ShaoBase/BigEye $12A312, DogsOfWar $14A4E2.
+ReadLevel clamps the record read to the ROM so a stray pointer can't overrun (the overlay
+runs on every ROM). This fixed a real crash: the old hardcoded $109278 read garbage on any
+non-exanim ROM.
+
+KEY FINDING: ShaoBase/DogsOfWar/BigEye have ZERO per-level slots — real hacks use LM's GLOBAL
+ExAnimation list (runs in all levels), a SEPARATE structure not yet decoded. So the custom
+animated source (AN1/AN2 -> $AD00, source tiles >= 0x780) can't be verified via the per-level
+path on the hacks we have; the data lives in the global list.
+
+REMAINING: (1) GLOBAL ExAnimation list — decode it (ShaoBase has one); this is what most hacks
+use AND yields real custom-source slots to verify (2) against. (2) custom source: source tiles
+0x600-0x77F resolve from blob1 ($7D00, done); 0x780+ map to $AD00 = the bypass AN1 (w1)/AN2
+(w0) ExGFX, NOT yet loaded — needs the loader (decompress AN file at RomBpp into an anim3
+buffer, extend Overlay to resolve >= $AD00). Build once the global list gives a test case, or
+from a purpose-built ROM. (3) multiple slots per level; (4) slot header words +0/+2.
 Tooling: --disasm, --diff, --exanim.
 
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
