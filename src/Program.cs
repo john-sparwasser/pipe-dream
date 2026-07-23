@@ -35,6 +35,9 @@ class Program
         if (dfi >= 0)
             return DiffRoms(args[dfi + 1], args[dfi + 2]);
 
+        int gxi = Array.IndexOf(args, "--globalexanim");
+        if (gxi >= 0) return DumpGlobalExAnim(args[gxi + 1]);
+
         int exi = Array.IndexOf(args, "--exanim");
         if (exi >= 0)
             return DumpExAnim(args[exi + 1], Convert.ToInt32(args[exi + 2], 16));
@@ -162,6 +165,29 @@ class Program
                 .Select(f => $"{s.SrcTile(f):X3}(${s.FrameSrcAddrs[f]:X4})"));
             Console.WriteLine($"  slot {i}: destTile {s.DestTile:X3} (word ${s.DestWord:X4})  " +
                               $"{s.FrameCount} frames: {frames}   [u0={s.Unknown0:X4} u2={s.Unknown2:X4}]");
+        }
+        return 0;
+    }
+
+    // --globalexanim <rom> : dump LM's global ExAnimation slots' raw bytes (CONTRACT §12f).
+    private static int DumpGlobalExAnim(string romPath)
+    {
+        var rom = Rom.Load(romPath);
+        int ptr = rom.LmGlobalExAnimPtr;
+        if (ptr < 0) { Console.WriteLine("No global ExAnimation list."); return 0; }
+        var slots = ExAnimation.ReadGlobalRaw(rom);
+        Console.WriteLine($"Global ExAnimation record @ ${ptr:X6}: {slots.Count} used slot(s)");
+        Console.WriteLine("  (header fields are type-dependent/undecoded; trailing words in the");
+        Console.WriteLine("   0x600+ tile range resolve to a $7Dxx/$ADxx source, §12e convention)");
+        foreach (var s in slots)
+        {
+            var hdr = Convert.ToHexString(s.Raw, 0, Math.Min(ExAnimation.GlobalSlot.HeaderLen, s.Raw.Length));
+            var words = string.Join(" ", Enumerable.Range(0, s.FrameCount).Select(f =>
+            {
+                int t = s.FrameTile(f);
+                return t >= 0x600 ? $"{t:X3}(->${s.FrameSrcAddr(f):X4})" : $"{t:X3}";
+            }));
+            Console.WriteLine($"  slot {s.Index,2}: hdr {hdr}  {s.FrameCount} word(s): {words}");
         }
         return 0;
     }

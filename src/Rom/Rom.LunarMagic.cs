@@ -61,6 +61,34 @@ public sealed partial class Rom
     // Each base is found once by signature scan and cached (-2 = not scanned yet).
 
     private int lmActsAsBase = -2, lmGfxBypassBase = -2, lmExGfxBase = -2, lmSpriteSizeBase = -2, lmExAnimBase = -2;
+    private int lmGlobalExAnimPtr = -2;
+
+    /// <summary>
+    /// 24-bit pointer to LM's GLOBAL ExAnimation record (runs in every level), or -1 if the
+    /// hack has no global list (CONTRACT §12f). Unlike the per-level table this is not indexed;
+    /// the address is baked into the engine as two immediates: `A9 &lt;bankword&gt; F0 ?? 85 01
+    /// 8D 17 C0 A9 &lt;low16&gt;` — bankword's high byte is the record bank, low16 the offset.
+    /// A zero bankword means the BEQ skips (no global list).
+    /// </summary>
+    public int LmGlobalExAnimPtr => lmGlobalExAnimPtr != -2 ? lmGlobalExAnimPtr
+        : lmGlobalExAnimPtr = ScanGlobalExAnim();
+    private int ScanGlobalExAnim()
+    {
+        int[] pat = [0x85, 0x01, 0x8D, 0x17, 0xC0, 0xA9]; // STA $01 / STA $C017 / LDA #low16
+        int end = Data.Length - pat.Length - 2;
+        for (int i = HeaderOffset + 5; i <= end; i++)
+        {
+            bool ok = true;
+            for (int j = 0; j < pat.Length && ok; j++) ok = Data[i + j] == pat[j];
+            // preceding `A9 <blo> <bhi> F0 <rel>`: LDA opcode at i-5, BEQ opcode at i-2
+            if (!ok || Data[i - 5] != 0xA9 || Data[i - 2] != 0xF0) continue;
+            int bank = Data[i - 3];                            // high byte of #bankword = record bank
+            int low16 = Data[i + 6] | Data[i + 7] << 8;        // #low16 operand after the LDA
+            if (bank == 0) return -1;                          // zero bankword = no global list
+            return (bank << 16) | low16;
+        }
+        return -1;
+    }
 
     /// <summary>
     /// Base of LM's per-level ExAnimation pointer table (3 bytes/level, 24-bit record ptr,

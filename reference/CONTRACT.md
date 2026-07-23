@@ -696,30 +696,43 @@ ExAnimation list (runs in all levels), a SEPARATE structure not yet decoded. So 
 animated source (AN1/AN2 -> $AD00, source tiles >= 0x780) can't be verified via the per-level
 path on the hacks we have; the data lives in the global list.
 
-### 12f. LM GLOBAL ExAnimation list  [LOCATED + outer structure decoded; per-slot format OPEN]
+### 12f. LM GLOBAL ExAnimation list  [LOCATED + outer format decoded from engine; per-slot header type-dependent, OPEN]
 
 Real hacks (ShaoBase/DoW/BigEye) drive animation through a GLOBAL list, not the per-level
-table (they have 0 per-level slots). LOCATED:
-- POINTER baked as two immediates in the engine's setup: `LDA #bankword : STA $01 ... LDA
-  #low16 : STA $00`, record = bankword.hi<<16 | low16. exanim (no global) = 0 -> `BEQ` skips.
-  Byte-stable anchor: `85 01 8D 17 C0 A9 <low16>` preceded by `A9 <bankword> F0 ??`. Engine
-  address is per-ROM (exanim $10869A bank $10; ShaoBase $13805A bank $13). ShaoBase record = $10F331.
-- RECORD outer form (differs from the per-level packed form): +0 word = slot-table size
-  (ShaoBase 0x19=25); +2/+4/+6 = the same FFFF/0000/0000 masks; +8 = OFFSET TABLE, `count`
-  16-bit entries indexed by global slot#, each = byte offset (relative to +8) of that slot's
-  data, 0x0000 = slot unused. First offset (0x32) = table size (25*2), so slot data begins
-  right after the table. Slot sizes from offset diffs: mostly 9 bytes, some 13 (so ~7-byte
-  header + frames*2, i.e. 1 vs 3 frames).
-- PER-SLOT INTERNALS UNRESOLVED: the frame encoding is NOT the per-level $7D00-relative addr.
-  slot6's tail reads as tile numbers 0x680/0x700/0x780 (0x780 = CUSTOM $AD00 region -> ShaoBase
-  DOES use custom sources), but slot0 doesn't align the same way and 0x8000-flagged words
-  appear. Needs the controlled-diff method that cracked the per-level slot (create global
-  animations with distinctive dest/frame values, diff) before a parser can be trusted.
+table (they have 0 per-level slots). LOCATED + outer format read straight from the engine
+setup routine (ShaoBase $13805A, disassembled with `--disasm`), so it's deterministic, not
+diff-guessed. `Rom.LmGlobalExAnimPtr` / `ExAnimation.ReadGlobalRaw` / `--globalexanim` implement it.
+- POINTER baked as two immediates: `LDA #bankword : STA $01 : STA $C017 : LDA #low16 : STA $00`,
+  so record = bankword.hi<<16 | low16. Zero bankword -> `BEQ` skips (no global list). Byte-stable
+  anchor: `A9 <bankword> F0 ?? 85 01 8D 17 C0 A9 <low16>` (bank = byte 3 back from the anchor;
+  low16 = the two bytes after it). Engine address is per-ROM (exanim $10869A bank $10; ShaoBase
+  $13805A bank $13). Records: ShaoBase/BigEye $10F331, DogsOfWar $12FFCB, juz none.
+- RECORD outer form, exactly as the engine consumes it (DP/DBR = $7F, the $7FCxxx scratch page):
+  +0 word = low byte slot COUNT (ShaoBase 0x19=25), high byte = index into a stride-3 table at
+  $03BCC0 -> $7FC013/14; +2 word AND-mask and +4 word OR-mask -> $7FC0FC (DMA-enable); +6 word =
+  16-bit SELECTOR, and for each set bit one trailing byte is consumed (-> $7FC070,X). So the slot
+  section starts at +8 + popcount(+6) (for ShaoBase +6 = 0, section at +8 — the earlier "+8 fixed"
+  was only right because the selector happened to be zero). Section = COUNT 16-bit offsets indexed
+  by global slot# (relative to the section start, 0x0000 = unused), then the packed slot blocks.
+- PER-SLOT block = 7-byte header + frameCount 16-bit words; length 9 (1 word) or 13 (3 words),
+  CONFIRMED on ShaoBase/BigEye (13 used slots) and DoW (1 slot). Reader RATS-bounds the last block
+  so it can't bleed into the next STAR block.
+- FRAME WORDS: for the MULTI-frame tile-animation type the trailing words ARE 0x600-based source
+  tiles (§12e convention, src = $7D00 + (tile-0x600)*0x20): ShaoBase slot6 & DoW slot0 =
+  0x680/0x700/0x780, and 0x780 -> $AD00 CONFIRMS ShaoBase uses the custom source region. But the
+  1-frame slots' trailing word is small/irregular (0x080, 0x420, 0x100...) and does NOT resolve as
+  a tile source — its meaning is TYPE-DEPENDENT. Header byte 0 is the slot TYPE (0x04 common, 0x01
+  variant) dispatched through the ~12-entry handler table at $10F32D (§12d), so the header fields
+  and the non-tile trailing words vary per type and are NOT safe to decode blind.
 
-REMAINING (blocks #1 custom-source rendering): (1) global per-slot format via controlled diffs;
-(2) with real slot data, wire the AN1(w1)/AN2(w0) -> $AD00 loader (decompress AN ExGFX at
-RomBpp into an anim3 buffer; extend FgTiles.Overlay to resolve srcAddr >= $AD00); (3) multiple
-per-level slots; (4) slot header words +0/+2. Tooling: --disasm, --diff, --exanim.
+REMAINING (blocks #1 custom-source rendering): (1) per-slot HEADER + per-type trailing-word
+semantics — decode via a controlled global-animation diff (recommended, per §12d) OR by tracing the
+~12 handlers at $10F32D with `--disasm`; the outer reader + `--globalexanim` raw dump now provide the
+per-type sample data to do either. (2) with the tile-source slots known, wire the AN1(w1)/AN2(w0) ->
+$AD00 loader (decompress AN ExGFX at RomBpp into an anim3 buffer; extend FgTiles.Overlay to resolve
+srcAddr >= $AD00) — the 0x780->$AD00 slots are already identifiable. (3) multiple per-level slots;
+(4) the +0 high-byte $03BCC0 param and the +6 selector bytes. Tooling: --disasm, --diff, --exanim,
+--globalexanim.
 
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 

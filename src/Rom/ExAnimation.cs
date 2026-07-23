@@ -45,6 +45,77 @@ public sealed class ExAnimation
         return ParseSlots(rec);
     }
 
+    /// <summary>
+    /// A global-list slot (§12f): index + raw definition bytes. The block is a 7-byte header
+    /// (fields still type-dependent, undecoded) followed by <see cref="FrameCount"/> 16-bit
+    /// frame words. Frame words use the same 0x600-based tile numbering as the per-level slots
+    /// (§12e): src addr = $7D00 + (tile - 0x600) * 0x20; tile 0x780 → $AD00 (custom source).
+    /// </summary>
+    public readonly record struct GlobalSlot(int Index, byte[] Raw)
+    {
+        public const int HeaderLen = 7;
+        public int FrameCount => Raw.Length >= HeaderLen ? (Raw.Length - HeaderLen) / 2 : 0;
+        public int FrameTile(int f) => Raw[HeaderLen + f * 2] | Raw[HeaderLen + f * 2 + 1] << 8;
+        public int FrameSrcAddr(int f) => 0x7D00 + (FrameTile(f) - 0x600) * 0x20;
+    }
+
+    /// <summary>
+    /// Global ExAnimation slots (CONTRACT §12f) — used by real hacks (per-level table empty).
+    /// The record outer form is read straight from the engine ($13805A on ShaoBase):
+    ///   +0 word   low byte = slot count; high byte = index into $03BCC0 (stride 3)
+    ///   +2 word   AND mask into $7FC0FC (DMA-enable)
+    ///   +4 word   OR  mask into $7FC0FC
+    ///   +6 word   16-bit selector; one trailing byte per set bit → $7FC070,X (popcount bytes)
+    ///   then      slot section: `count` 16-bit offsets (relative to the section start,
+    ///             0x0000 = unused slot), followed by each slot's definition block.
+    /// Per-slot internals are NOT decoded here — the frame encoding differs from the per-level
+    /// form and is interpreted by ~12 type handlers ($10F32D dispatch); this returns the raw
+    /// block per used slot so the format can be cracked from real data (§12f REMAINING #1).
+    /// </summary>
+    public static List<GlobalSlot> ReadGlobalRaw(Rom rom)
+    {
+        var result = new List<GlobalSlot>();
+        int ptr = rom.LmGlobalExAnimPtr;
+        if (ptr < 0) return result;
+        int fo = rom.FileOffset(ptr);
+        if (fo < 0 || fo + 8 > rom.Data.Length) return result;
+        byte[] d = rom.Data;
+
+        int count = d[fo];                                    // +0 low byte
+        int selector = d[fo + 6] | d[fo + 7] << 8;            // +6 selector word
+        int extra = System.Numerics.BitOperations.PopCount((uint)selector);
+        int table = fo + 8 + extra;                           // slot section start ($7FC016 base)
+        if (table + count * 2 > d.Length) return result;
+
+        // The record lives in a RATS block ("STAR" + (size-1) little-endian at fo-8); use that
+        // to bound the last slot so it can't bleed into the next block. Fall back to a 13-byte
+        // cap (the largest real slot) if there's no RATS header.
+        int recEnd = fo + Math.Min(512, d.Length - fo);
+        if (fo >= 8 && d[fo - 8] == 'S' && d[fo - 7] == 'T' && d[fo - 6] == 'A' && d[fo - 5] == 'R')
+            recEnd = Math.Min(recEnd, fo + (d[fo - 4] | d[fo - 3] << 8) + 1);
+
+        // Gather (index, offset) for used slots, then size each block from the next-larger
+        // offset (blocks are packed after the offset table; last one runs to the record end).
+        var used = new List<(int idx, int off)>();
+        for (int i = 0; i < count; i++)
+        {
+            int off = d[table + i * 2] | d[table + i * 2 + 1] << 8;
+            if (off != 0) used.Add((i, off));
+        }
+        used.Sort((a, b) => a.off.CompareTo(b.off));
+        for (int k = 0; k < used.Count; k++)
+        {
+            int start = table + used[k].off;
+            int nextStart = k + 1 < used.Count ? table + used[k + 1].off : recEnd;
+            int len = Math.Min(Math.Min(nextStart, recEnd) - start, 13);
+            if (len <= 0) continue;
+            var raw = new byte[len];
+            Array.Copy(d, start, raw, 0, len);
+            result.Add(new GlobalSlot(used[k].idx, raw));
+        }
+        return result;
+    }
+
     /// <summary>Parse the slot array out of a record's raw bytes (pure — unit-testable).</summary>
     public static List<Slot> ParseSlots(ReadOnlySpan<byte> rec)
     {

@@ -321,6 +321,19 @@ public static class RomSelfCheck
             var d279 = Map16.LmExtendedDef(sh, 0x279);
             Check("tile 0x279 def is the real ground block (not FF filler)",
                   d279[0].Raw == 0x1206 && d279[1].Raw == 0x1216 && d279[2].Raw == 0x1207 && d279[3].Raw == 0x1217);
+
+            Console.WriteLine("LM global ExAnimation list (ShaoBase, CONTRACT §12f):");
+            Check("global list located by engine signature", sh.LmGlobalExAnimPtr == 0x10F331);
+            var gslots = ExAnimation.ReadGlobalRaw(sh);
+            Console.WriteLine($"    {gslots.Count} used slots; sizes [{string.Join(",", gslots.Select(s => s.Raw.Length))}]");
+            Check("13 used slots (RATS-bounded, no bleed into next block)", gslots.Count == 13);
+            Check("all slots are 9 or 13 bytes (7B header + 1 or 3 frame words)",
+                  gslots.All(s => s.Raw.Length is 9 or 13));
+            var s6 = gslots.FirstOrDefault(s => s.Index == 6);
+            Check("slot 6 = 3 frames 0x680/0x700/0x780 (last → $AD00 custom source)",
+                  s6.FrameCount == 3 && s6.FrameTile(0) == 0x680 && s6.FrameTile(1) == 0x700 &&
+                  s6.FrameTile(2) == 0x780 && s6.FrameSrcAddr(2) == 0xAD00);
+            Check("clean ROM has no global ExAnimation list", Rom.Load(CleanRom).LmGlobalExAnimPtr == -1);
         }
 
         string dowRom = @"C:\SMW\Projects\DogsOfWar\dogs_of_war-backup.smc";
