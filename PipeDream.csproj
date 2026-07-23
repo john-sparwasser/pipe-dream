@@ -24,6 +24,7 @@
     <EmbeddedResource Include="src\Data\SpriteDisplay.json" LogicalName="SpriteDisplay.json"
                       Condition="Exists('src\Data\SpriteDisplay.json')" />
     <EmbeddedResource Include="assets\pipe-icon-64.png" LogicalName="pipe-icon.png" />
+    <EmbeddedResource Include="assets\fonts\Roboto-Regular.ttf" LogicalName="Roboto-Regular.ttf" />
   </ItemGroup>
 
 </Project>
