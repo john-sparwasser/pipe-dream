@@ -696,13 +696,30 @@ ExAnimation list (runs in all levels), a SEPARATE structure not yet decoded. So 
 animated source (AN1/AN2 -> $AD00, source tiles >= 0x780) can't be verified via the per-level
 path on the hacks we have; the data lives in the global list.
 
-REMAINING: (1) GLOBAL ExAnimation list — decode it (ShaoBase has one); this is what most hacks
-use AND yields real custom-source slots to verify (2) against. (2) custom source: source tiles
-0x600-0x77F resolve from blob1 ($7D00, done); 0x780+ map to $AD00 = the bypass AN1 (w1)/AN2
-(w0) ExGFX, NOT yet loaded — needs the loader (decompress AN file at RomBpp into an anim3
-buffer, extend Overlay to resolve >= $AD00). Build once the global list gives a test case, or
-from a purpose-built ROM. (3) multiple slots per level; (4) slot header words +0/+2.
-Tooling: --disasm, --diff, --exanim.
+### 12f. LM GLOBAL ExAnimation list  [LOCATED + outer structure decoded; per-slot format OPEN]
+
+Real hacks (ShaoBase/DoW/BigEye) drive animation through a GLOBAL list, not the per-level
+table (they have 0 per-level slots). LOCATED:
+- POINTER baked as two immediates in the engine's setup: `LDA #bankword : STA $01 ... LDA
+  #low16 : STA $00`, record = bankword.hi<<16 | low16. exanim (no global) = 0 -> `BEQ` skips.
+  Byte-stable anchor: `85 01 8D 17 C0 A9 <low16>` preceded by `A9 <bankword> F0 ??`. Engine
+  address is per-ROM (exanim $10869A bank $10; ShaoBase $13805A bank $13). ShaoBase record = $10F331.
+- RECORD outer form (differs from the per-level packed form): +0 word = slot-table size
+  (ShaoBase 0x19=25); +2/+4/+6 = the same FFFF/0000/0000 masks; +8 = OFFSET TABLE, `count`
+  16-bit entries indexed by global slot#, each = byte offset (relative to +8) of that slot's
+  data, 0x0000 = slot unused. First offset (0x32) = table size (25*2), so slot data begins
+  right after the table. Slot sizes from offset diffs: mostly 9 bytes, some 13 (so ~7-byte
+  header + frames*2, i.e. 1 vs 3 frames).
+- PER-SLOT INTERNALS UNRESOLVED: the frame encoding is NOT the per-level $7D00-relative addr.
+  slot6's tail reads as tile numbers 0x680/0x700/0x780 (0x780 = CUSTOM $AD00 region -> ShaoBase
+  DOES use custom sources), but slot0 doesn't align the same way and 0x8000-flagged words
+  appear. Needs the controlled-diff method that cracked the per-level slot (create global
+  animations with distinctive dest/frame values, diff) before a parser can be trusted.
+
+REMAINING (blocks #1 custom-source rendering): (1) global per-slot format via controlled diffs;
+(2) with real slot data, wire the AN1(w1)/AN2(w0) -> $AD00 loader (decompress AN ExGFX at
+RomBpp into an anim3 buffer; extend FgTiles.Overlay to resolve srcAddr >= $AD00); (3) multiple
+per-level slots; (4) slot header words +0/+2. Tooling: --disasm, --diff, --exanim.
 
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 
