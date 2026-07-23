@@ -38,6 +38,48 @@ class Program
         int gxi = Array.IndexOf(args, "--globalexanim");
         if (gxi >= 0) return DumpGlobalExAnim(args[gxi + 1]);
 
+        // --tilepng <rom> <levelHex> <tileHex> <out.png> : render one Map16 tile across the 4
+        // animation phases (debug — for eyeballing animated-tile decode, e.g. munchers).
+        int tpng = Array.IndexOf(args, "--tilepng");
+        if (tpng >= 0)
+        {
+            var rom = Rom.Load(args[tpng + 1]);
+            int lvl = Convert.ToInt32(args[tpng + 2], 16);
+            int tile = Convert.ToInt32(args[tpng + 3], 16);
+            string outp = args[tpng + 4];
+            var h = Level.Parse(rom, lvl).Header;
+            int scale = 8;
+            var img = new uint[64 * scale * 16 * scale];   // 4 phases across, 16px tall, scaled
+            for (int ph = 0; ph < 4; ph++)
+            {
+                var cache = Map16.ComposeAll(rom, h, lvl, ph);
+                var t = cache[tile];
+                for (int y = 0; y < 16; y++)
+                    for (int x = 0; x < 16; x++)
+                        for (int sy = 0; sy < scale; sy++)
+                            for (int sx = 0; sx < scale; sx++)
+                                img[(y * scale + sy) * 64 * scale + (ph * 16 + x) * scale + sx] = t[y * 16 + x];
+            }
+            Png.Write(outp, img, 64 * scale, 16 * scale);
+            Console.WriteLine($"wrote {outp}: Map16 {tile:X3} across 4 phases");
+            return 0;
+        }
+
+        // --map16def <rom> <levelHex> <tileHex> : print a Map16 tile's 4 8x8 tiles (flip/palette).
+        int m16 = Array.IndexOf(args, "--map16def");
+        if (m16 >= 0)
+        {
+            var rom = Rom.Load(args[m16 + 1]);
+            int lvl = Convert.ToInt32(args[m16 + 2], 16);
+            int tile = Convert.ToInt32(args[m16 + 3], 16);
+            int tileset = Level.Parse(rom, lvl).Header.Tileset;
+            var defPtr = Map16.BuildDefPointers(rom, tileset);
+            var d = tile < 0x200 ? Map16.Definition(rom, defPtr, tile) : Map16.LmExtendedDef(rom, tile);
+            Console.WriteLine($"Map16 {tile:X3} (tileset {tileset}, RomBpp {Gfx.RomBpp(rom)}): 8x8 tiles [" +
+                string.Join(" ", d.Select(w => $"{w.Tile:X3}{(w.FlipX ? "h" : "")}{(w.FlipY ? "v" : "")} p{w.Palette}")) + "]");
+            return 0;
+        }
+
         int exi = Array.IndexOf(args, "--exanim");
         if (exi >= 0)
             return DumpExAnim(args[exi + 1], Convert.ToInt32(args[exi + 2], 16));

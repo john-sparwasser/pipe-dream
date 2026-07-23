@@ -96,11 +96,14 @@ public static class Gfx
             }
             catch { return; }
 
+            // blob1 is packed at the ROM's FG depth (3bpp vanilla, 4bpp on LM 4bpp ROms). Decoding
+            // it as a fixed 3bpp garbles animated tiles on 4bpp hacks (e.g. ShaoBase munchers).
+            int a1bpp = RomBpp(rom), a1tb = TileBytes(a1bpp);
             void Overlay(int vramTile, int srcAddr)
             {
                 byte[]? px =
-                    srcAddr >= 0x7D00 && (srcAddr - 0x7D00) / 0x20 * 24 + 24 <= anim1.Length
-                        ? DecodeTile(anim1, (srcAddr - 0x7D00) / 0x20 * 24, 3)
+                    srcAddr >= 0x7D00 && (srcAddr - 0x7D00) / 0x20 * a1tb + a1tb <= anim1.Length
+                        ? DecodeTile(anim1, (srcAddr - 0x7D00) / 0x20 * a1tb, a1bpp)
                     : srcAddr >= 0x2000 && srcAddr - 0x2000 + 0x20 <= anim2.Length
                         ? DecodeTile(anim2, srcAddr - 0x2000, 4)
                     : null;

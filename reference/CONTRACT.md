@@ -565,6 +565,11 @@ NMI consumer $00A3A4: 0x80 bytes (4 tiles) per slot; dest word $0800 is special-
 into two 0x40 transfers at $0800 and $0900 (tiles 0x80,0x81,0x90,0x91).
 Sources below $7D00 (e.g. id 5, berries) come from other RAM — skipped (rare).
 Implemented: Gfx.FgTiles.OverlayAnimatedTiles — frame-0 tiles overlaid at load.
+BPP FIX: the "24 bytes/tile, decode 3bpp" above holds only for 3bpp ROMs. On a 4bpp LM ROM
+(RomBpp 4) blob1 is packed 4bpp (32 bytes/tile), so Overlay decodes it at RomBpp with a
+TileBytes(RomBpp) stride — otherwise animated tiles garble (e.g. ShaoBase munchers, Map16
+0x12F, anim slot 9 / $7D00-region source). Pre-existing; unrelated to the §12f global work.
+Debug: `--tilepng <rom> <lvl> <tileHex> <out>` renders a Map16 tile across the 4 phases.
 
 ### 12b. Second animated blob — berries etc.  [CONFIRMED + IMPLEMENTED]
 
