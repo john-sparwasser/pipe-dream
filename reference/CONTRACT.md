@@ -665,13 +665,19 @@ a small RATS block (LM relocates it on every save):
 Frame source addr = **$7D00 + (srcTile - 0x600) * 0x20** (CONFIRMED on 4 values: 0x601→7D20,
 0x655→87A0, 0x6AA→9240, 0x633→8360). So source tile 0x600 = $7E:7D00 (the animated-GFX source
 area, §12a), 0x20 bytes/tile 4bpp — the ExGFX 60-63 uncompressed source data loaded there.
-The record POINTER is at ROM $109587 (low word tracked the block: 0xA92E→0xAAD3 across saves).
+**PER-LEVEL TABLE (CONFIRMED):** a table at **$109278**, 3 bytes/level (24-bit pointer),
+sentinel `FF 00 00` = no ExAnimation. `table[level]` → the level's slot record. Verified:
+only level 0x105 populated across exanim_1/2/3, entry = $10A92E / $10AAD3 (tracks the record
+as it relocates). $109587 (= $109278 + 0x105*3) was the level-0x105 entry. So the full read
+chain is: `ReadValue($109278 + level*3, 3)` → record → §12e fields → frame src `$7D00 +
+(tile-0x600)*0x20`.
 
-REMAINING for display: (1) confirm whether $109587 is a per-level table (index by level) or a
-single "active slot list" pointer, and how multiple slots + the global list chain; (2) the
-header bytes 0x00-0x0B (type/trigger) if we ever need non-8x8-tile types; (3) load the ExGFX
-60-63 source into the $7E:7D00 model and overlay frame-0 tiles at dest. Tooling: --disasm,
---diff (both built). Next: trace $109587's producer to resolve the per-level/global table.
+REMAINING for display: (1) $109278 base — verify fixed vs per-ROM (locate by signature like
+the other LM tables if it moves); (2) MULTIPLE slots per level + the GLOBAL list (ShaoBase) —
+untested (we placed one local slot); the record header 0x00-0x0B may hold a count/next-link;
+(3) header bytes (type/trigger) for non-8x8-tile types; (4) load ExGFX 60-63 into the
+$7E:7D00 source model and overlay frame-0 tiles at dest*0x10 in FgTiles. Tooling: --disasm,
+--diff. The 8x8-tile single-slot case is fully decoded and ready to implement.
 
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 
