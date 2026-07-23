@@ -165,15 +165,18 @@ public class ImGuiLayer : IDisposable
         // with FontGlobalScale, so text is crisp instead of a 13px atlas upscaled.
         // Scale is sampled once here; a runtime DPI change won't re-rasterize.
         // ponytail: rebuild the atlas on DPI change if multi-monitor crispness matters.
-        const float uiFontSize = 12f; // virtual units — same space as the style metrics
+        const float uiFontSize = 10f; // virtual units — same space as the style metrics
         io.FontGlobalScale = 1f / Scale;
 
-        // Prefer an explicit override, then Segoe UI (Windows' default UI font, what
-        // VS Code renders as); fall back to embedded Roboto on Mac/Linux.
-        string segoe = @"C:\Windows\Fonts\segoeui.ttf";
+        // Prefer an explicit override, then Cascadia Mono (ships with Win11) or
+        // Consolas — monospace with crisp pixel widths at any DPI.
+        // ponytail: Mac/Linux falls back to embedded Roboto (not monospace).
+        string cascadia = @"C:\Windows\Fonts\CascadiaMono.ttf";
+        string consolas = @"C:\Windows\Fonts\consola.ttf";
         byte[] fontBytes =
             customFontPath != null && File.Exists(customFontPath) ? File.ReadAllBytes(customFontPath)
-            : OperatingSystem.IsWindows() && File.Exists(segoe) ? File.ReadAllBytes(segoe)
+            : File.Exists(cascadia) ? File.ReadAllBytes(cascadia)
+            : File.Exists(consolas) ? File.ReadAllBytes(consolas)
             : LoadEmbeddedFont();
         fontDataHandle = GCHandle.Alloc(fontBytes, GCHandleType.Pinned);
         unsafe
@@ -193,93 +196,84 @@ public class ImGuiLayer : IDisposable
 
         mesh = new Mesh<PosTexColVertex, ushort>(app.GraphicsDevice);
         material = app.GraphicsDevice.Defaults.TexturedMaterial.Clone();
-        ApplyDarkPastelStyle();
+        ApplyNuklearDarkGray();
         ImGui.SetCurrentContext(nint.Zero);
     }
 
-    // Dark pastel theme. Rounding/padding are in ImGui's virtual units, so they
-    // scale with Scale automatically — no manual DPI multiply needed here.
-    private static void ApplyDarkPastelStyle()
+    // Nuklear-style dark gray theme. Rounding/padding are in ImGui's virtual
+    // units, so they scale with Scale automatically — no manual DPI multiply.
+    private static void ApplyNuklearDarkGray()
     {
         var style = ImGui.GetStyle();
         var c = style.Colors;
 
-        // Backgrounds
-        c[(int)ImGuiCol.WindowBg]            = new Vector4(0.12f, 0.13f, 0.15f, 1.00f);
-        c[(int)ImGuiCol.ChildBg]             = new Vector4(0.14f, 0.15f, 0.17f, 1.00f);
-        c[(int)ImGuiCol.PopupBg]             = new Vector4(0.10f, 0.10f, 0.12f, 0.95f);
-        c[(int)ImGuiCol.Border]              = new Vector4(0.30f, 0.33f, 0.42f, 0.40f);
+        c[(int)ImGuiCol.Text]                  = new Vector4(0.69f, 0.69f, 0.69f, 1.00f);
+        c[(int)ImGuiCol.TextDisabled]          = new Vector4(0.35f, 0.35f, 0.35f, 1.00f);
+        c[(int)ImGuiCol.WindowBg]              = new Vector4(0.18f, 0.18f, 0.18f, 1.00f);
+        c[(int)ImGuiCol.ChildBg]               = new Vector4(0.00f, 0.00f, 0.00f, 0.00f);
+        c[(int)ImGuiCol.PopupBg]               = new Vector4(0.18f, 0.18f, 0.18f, 1.00f);
+        c[(int)ImGuiCol.Border]                = new Vector4(0.22f, 0.22f, 0.22f, 1.00f);
+        c[(int)ImGuiCol.BorderShadow]          = new Vector4(0.00f, 0.00f, 0.00f, 0.00f);
+        c[(int)ImGuiCol.FrameBg]               = new Vector4(0.15f, 0.15f, 0.15f, 1.00f);
+        c[(int)ImGuiCol.FrameBgHovered]        = new Vector4(0.29f, 0.29f, 0.29f, 1.00f);
+        c[(int)ImGuiCol.FrameBgActive]         = new Vector4(0.39f, 0.39f, 0.39f, 1.00f);
+        c[(int)ImGuiCol.TitleBg]               = new Vector4(0.15f, 0.15f, 0.15f, 1.00f);
+        c[(int)ImGuiCol.TitleBgActive]         = new Vector4(0.18f, 0.18f, 0.18f, 1.00f);
+        c[(int)ImGuiCol.TitleBgCollapsed]      = new Vector4(0.15f, 0.15f, 0.15f, 1.00f);
+        c[(int)ImGuiCol.MenuBarBg]             = new Vector4(0.14f, 0.14f, 0.14f, 1.00f);
+        c[(int)ImGuiCol.ScrollbarBg]           = new Vector4(0.18f, 0.18f, 0.18f, 1.00f);
+        c[(int)ImGuiCol.ScrollbarGrab]         = new Vector4(0.31f, 0.31f, 0.31f, 1.00f);
+        c[(int)ImGuiCol.ScrollbarGrabHovered]  = new Vector4(0.41f, 0.41f, 0.41f, 1.00f);
+        c[(int)ImGuiCol.ScrollbarGrabActive]   = new Vector4(0.51f, 0.51f, 0.51f, 1.00f);
+        c[(int)ImGuiCol.CheckMark]             = new Vector4(0.69f, 0.69f, 0.69f, 1.00f);
+        c[(int)ImGuiCol.SliderGrab]            = new Vector4(0.40f, 0.40f, 0.40f, 1.00f);
+        c[(int)ImGuiCol.SliderGrabActive]      = new Vector4(0.59f, 0.59f, 0.59f, 1.00f);
+        c[(int)ImGuiCol.Button]                = new Vector4(0.22f, 0.22f, 0.22f, 1.00f);
+        c[(int)ImGuiCol.ButtonHovered]         = new Vector4(0.15f, 0.15f, 0.15f, 1.00f);
+        c[(int)ImGuiCol.ButtonActive]          = new Vector4(0.12f, 0.12f, 0.12f, 1.00f);
+        c[(int)ImGuiCol.Header]                = new Vector4(0.18f, 0.18f, 0.18f, 0.00f);
+        c[(int)ImGuiCol.HeaderHovered]         = new Vector4(0.22f, 0.22f, 0.22f, 0.78f);
+        c[(int)ImGuiCol.HeaderActive]          = new Vector4(0.29f, 0.29f, 0.29f, 0.78f);
+        c[(int)ImGuiCol.Separator]             = new Vector4(0.29f, 0.29f, 0.29f, 0.50f);
+        c[(int)ImGuiCol.SeparatorHovered]      = new Vector4(0.49f, 0.49f, 0.49f, 0.78f);
+        c[(int)ImGuiCol.SeparatorActive]       = new Vector4(0.69f, 0.69f, 0.69f, 1.00f);
+        c[(int)ImGuiCol.ResizeGrip]            = new Vector4(0.29f, 0.29f, 0.29f, 1.00f);
+        c[(int)ImGuiCol.ResizeGripHovered]     = new Vector4(0.49f, 0.49f, 0.49f, 1.00f);
+        c[(int)ImGuiCol.ResizeGripActive]      = new Vector4(0.69f, 0.69f, 0.69f, 1.00f);
+        c[(int)ImGuiCol.TabHovered]            = new Vector4(0.49f, 0.49f, 0.49f, 0.80f);
+        c[(int)ImGuiCol.Tab]                   = new Vector4(0.29f, 0.29f, 0.29f, 1.00f);
+        c[(int)ImGuiCol.TabActive]             = new Vector4(0.39f, 0.39f, 0.39f, 1.00f);
+        c[(int)ImGuiCol.TabUnfocused]          = new Vector4(0.29f, 0.29f, 0.29f, 0.78f);
+        c[(int)ImGuiCol.TabUnfocusedActive]    = new Vector4(0.39f, 0.39f, 0.39f, 0.78f);
+        c[(int)ImGuiCol.DockingPreview]        = new Vector4(0.69f, 0.69f, 0.69f, 0.78f);
+        c[(int)ImGuiCol.DockingEmptyBg]        = new Vector4(0.22f, 0.22f, 0.22f, 1.00f);
+        c[(int)ImGuiCol.PlotLines]             = new Vector4(0.61f, 0.61f, 0.61f, 1.00f);
+        c[(int)ImGuiCol.PlotLinesHovered]      = new Vector4(1.00f, 0.43f, 0.35f, 1.00f);
+        c[(int)ImGuiCol.PlotHistogram]         = new Vector4(0.90f, 0.70f, 0.00f, 1.00f);
+        c[(int)ImGuiCol.PlotHistogramHovered]  = new Vector4(1.00f, 0.60f, 0.00f, 1.00f);
+        c[(int)ImGuiCol.TableHeaderBg]         = new Vector4(0.19f, 0.19f, 0.20f, 1.00f);
+        c[(int)ImGuiCol.TableBorderStrong]     = new Vector4(0.29f, 0.29f, 0.29f, 1.00f);
+        c[(int)ImGuiCol.TableBorderLight]      = new Vector4(0.29f, 0.29f, 0.29f, 0.50f);
+        c[(int)ImGuiCol.TableRowBg]            = new Vector4(0.00f, 0.00f, 0.00f, 0.00f);
+        c[(int)ImGuiCol.TableRowBgAlt]         = new Vector4(1.00f, 1.00f, 1.00f, 0.06f);
+        c[(int)ImGuiCol.TextSelectedBg]        = new Vector4(0.26f, 0.59f, 0.98f, 0.35f);
+        c[(int)ImGuiCol.DragDropTarget]        = new Vector4(1.00f, 1.00f, 0.00f, 0.90f);
+        c[(int)ImGuiCol.NavHighlight]          = new Vector4(0.98f, 0.98f, 0.98f, 1.00f);
+        c[(int)ImGuiCol.NavWindowingHighlight] = new Vector4(1.00f, 1.00f, 1.00f, 0.70f);
+        c[(int)ImGuiCol.NavWindowingDimBg]     = new Vector4(0.80f, 0.80f, 0.80f, 0.20f);
+        c[(int)ImGuiCol.ModalWindowDimBg]      = new Vector4(0.80f, 0.80f, 0.80f, 0.35f);
 
-        // Text
-        c[(int)ImGuiCol.Text]                = new Vector4(0.90f, 0.93f, 0.95f, 1.00f);
-        c[(int)ImGuiCol.TextDisabled]        = new Vector4(0.60f, 0.65f, 0.70f, 1.00f);
+        style.WindowRounding    = 2.0f;
+        style.ChildRounding     = 2.0f;
+        style.FrameRounding     = 2.0f;
+        style.PopupRounding     = 2.0f;
+        style.ScrollbarRounding = 2.0f;
+        style.GrabRounding      = 2.0f;
+        style.TabRounding       = 2.0f;
 
-        // Headers
-        c[(int)ImGuiCol.Header]              = new Vector4(0.36f, 0.42f, 0.55f, 0.60f);
-        c[(int)ImGuiCol.HeaderHovered]       = new Vector4(0.44f, 0.50f, 0.68f, 0.80f);
-        c[(int)ImGuiCol.HeaderActive]        = new Vector4(0.46f, 0.55f, 0.75f, 1.00f);
-
-        // Buttons
-        c[(int)ImGuiCol.Button]              = new Vector4(0.28f, 0.34f, 0.48f, 0.70f);
-        c[(int)ImGuiCol.ButtonHovered]       = new Vector4(0.36f, 0.45f, 0.65f, 0.85f);
-        c[(int)ImGuiCol.ButtonActive]        = new Vector4(0.40f, 0.50f, 0.70f, 1.00f);
-
-        // Frames
-        c[(int)ImGuiCol.FrameBg]             = new Vector4(0.20f, 0.22f, 0.28f, 1.00f);
-        c[(int)ImGuiCol.FrameBgHovered]      = new Vector4(0.28f, 0.32f, 0.42f, 1.00f);
-        c[(int)ImGuiCol.FrameBgActive]       = new Vector4(0.32f, 0.38f, 0.50f, 1.00f);
-
-        // Tabs
-        c[(int)ImGuiCol.Tab]                 = new Vector4(0.26f, 0.30f, 0.42f, 0.80f);
-        c[(int)ImGuiCol.TabHovered]          = new Vector4(0.36f, 0.42f, 0.58f, 1.00f);
-        c[(int)ImGuiCol.TabActive]           = new Vector4(0.42f, 0.50f, 0.68f, 1.00f);
-        c[(int)ImGuiCol.TabUnfocused]        = new Vector4(0.20f, 0.24f, 0.32f, 0.80f);
-        c[(int)ImGuiCol.TabUnfocusedActive]  = new Vector4(0.30f, 0.36f, 0.50f, 1.00f);
-
-        // Titles — same blue family as tabs/buttons (was a stray teal)
-        c[(int)ImGuiCol.TitleBg]             = new Vector4(0.16f, 0.18f, 0.24f, 1.00f);
-        c[(int)ImGuiCol.TitleBgActive]       = new Vector4(0.26f, 0.30f, 0.42f, 1.00f);
-        c[(int)ImGuiCol.TitleBgCollapsed]    = new Vector4(0.12f, 0.13f, 0.16f, 0.75f);
-
-        // Scrollbars
-        c[(int)ImGuiCol.ScrollbarBg]         = new Vector4(0.13f, 0.14f, 0.18f, 1.00f);
-        c[(int)ImGuiCol.ScrollbarGrab]       = new Vector4(0.25f, 0.30f, 0.38f, 0.60f);
-        c[(int)ImGuiCol.ScrollbarGrabHovered]= new Vector4(0.35f, 0.40f, 0.50f, 0.80f);
-        c[(int)ImGuiCol.ScrollbarGrabActive] = new Vector4(0.45f, 0.50f, 0.65f, 1.00f);
-
-        // Checkmark
-        c[(int)ImGuiCol.CheckMark]           = new Vector4(0.80f, 0.85f, 1.00f, 1.00f);
-
-        // Sliders
-        c[(int)ImGuiCol.SliderGrab]          = new Vector4(0.50f, 0.65f, 0.90f, 1.00f);
-        c[(int)ImGuiCol.SliderGrabActive]    = new Vector4(0.60f, 0.75f, 1.00f, 1.00f);
-
-        // Resize grip
-        c[(int)ImGuiCol.ResizeGrip]          = new Vector4(0.30f, 0.40f, 0.50f, 0.60f);
-        c[(int)ImGuiCol.ResizeGripHovered]   = new Vector4(0.40f, 0.50f, 0.60f, 0.80f);
-        c[(int)ImGuiCol.ResizeGripActive]    = new Vector4(0.50f, 0.60f, 0.80f, 1.00f);
-
-        // Separators
-        c[(int)ImGuiCol.Separator]           = new Vector4(0.35f, 0.40f, 0.48f, 0.70f);
-        c[(int)ImGuiCol.SeparatorHovered]    = new Vector4(0.50f, 0.60f, 0.72f, 0.90f);
-        c[(int)ImGuiCol.SeparatorActive]     = new Vector4(0.65f, 0.70f, 0.85f, 1.00f);
-
-        // Menu bar / drag-drop
-        c[(int)ImGuiCol.MenuBarBg]           = new Vector4(0.14f, 0.15f, 0.17f, 1.00f);
-        c[(int)ImGuiCol.DragDropTarget]      = new Vector4(0.50f, 0.85f, 1.00f, 0.90f);
-
-        // Metrics — tighter, and one consistent rounding family (4px, window 6px)
-        style.WindowRounding    = 6.0f;
-        style.ChildRounding     = 4.0f;
-        style.FrameRounding     = 4.0f;
-        style.PopupRounding     = 4.0f;
-        style.ScrollbarRounding = 4.0f;
-        style.GrabRounding      = 3.0f;
-        style.TabRounding       = 4.0f;
-
-        style.WindowBorderSize  = 0.0f;
-        style.ChildBorderSize   = 0.0f;
-        style.FrameBorderSize   = 0.0f;
+        style.WindowBorderSize  = 1.0f;
+        style.ChildBorderSize   = 1.0f;
+        style.FrameBorderSize   = 1.0f;
         style.PopupBorderSize   = 1.0f;
 
         style.WindowPadding     = new Vector2(10, 8);
