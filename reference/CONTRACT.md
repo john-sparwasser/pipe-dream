@@ -672,12 +672,20 @@ as it relocates). $109587 (= $109278 + 0x105*3) was the level-0x105 entry. So th
 chain is: `ReadValue($109278 + level*3, 3)` → record → §12e fields → frame src `$7D00 +
 (tile-0x600)*0x20`.
 
-REMAINING for display: (1) $109278 base — verify fixed vs per-ROM (locate by signature like
-the other LM tables if it moves); (2) MULTIPLE slots per level + the GLOBAL list (ShaoBase) —
-untested (we placed one local slot); the record header 0x00-0x0B may hold a count/next-link;
-(3) header bytes (type/trigger) for non-8x8-tile types; (4) load ExGFX 60-63 into the
-$7E:7D00 source model and overlay frame-0 tiles at dest*0x10 in FgTiles. Tooling: --disasm,
---diff. The 8x8-tile single-slot case is fully decoded and ready to implement.
+IMPLEMENTED: ExAnimation.ReadLevel / ParseSlots (src/Rom/ExAnimation.cs) + `--exanim` dump;
+record header confirmed by the $108700 level-setup reader (LDA $109278,X): +0 = slot count,
++2/+4 = AND/OR masks into $7FC0FC, +6 = 16-bit selector filling $7FC070, and it sets
+$7FC000 = record+8 = the slot array. Per-slot (slot-relative): +0/+2 unknown words, +4 =
+frameCount-1, +6 = dest byte, +7.. = frame src addrs. Verified against exanim_1/2/3.
+
+REMAINING for the pixel OVERLAY: (1) DEST BYTE -> FG tile mapping is NOT pinned — both tested
+dests were multiples of 16 (0xA0->0x0A, 0x40->0x04 = value>>4), so "quantized value>>4" vs a
+raw mapping is ambiguous; need one dest NOT a multiple of 16 (e.g. 0x2A: stored 0x02 => >>4
+quantized, stored 0x2A => raw). Once pinned it's a ~5-line add to FgTiles.OverlayAnimatedTiles
+reusing its Overlay(vramTile, srcAddr) primitive (frame-0 src already resolves via anim1 at
+$7D00). (2) $109278 fixed vs per-ROM; (3) multiple slots + GLOBAL list (ShaoBase) untested;
+(4) custom ExGFX 60-63 loaded into the $7E:7D00 source model (only standard animated GFX
+resolves today). Tooling: --disasm, --diff, --exanim.
 
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 
