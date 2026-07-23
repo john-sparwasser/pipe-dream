@@ -160,8 +160,8 @@ class Program
             var s = slots[i];
             var frames = string.Join(" ", Enumerable.Range(0, s.FrameCount)
                 .Select(f => $"{s.SrcTile(f):X3}(${s.FrameSrcAddrs[f]:X4})"));
-            Console.WriteLine($"  slot {i}: dest {s.DestByte:X2}  {s.FrameCount} frames: {frames}" +
-                              $"   [u0={s.Unknown0:X4} u2={s.Unknown2:X4}]");
+            Console.WriteLine($"  slot {i}: destTile {s.DestTile:X3} (word ${s.DestWord:X4})  " +
+                              $"{s.FrameCount} frames: {frames}   [u0={s.Unknown0:X4} u2={s.Unknown2:X4}]");
         }
         return 0;
     }

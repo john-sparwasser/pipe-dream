@@ -678,14 +678,18 @@ record header confirmed by the $108700 level-setup reader (LDA $109278,X): +0 = 
 $7FC000 = record+8 = the slot array. Per-slot (slot-relative): +0/+2 unknown words, +4 =
 frameCount-1, +6 = dest byte, +7.. = frame src addrs. Verified against exanim_1/2/3.
 
-REMAINING for the pixel OVERLAY: (1) DEST BYTE -> FG tile mapping is NOT pinned — both tested
-dests were multiples of 16 (0xA0->0x0A, 0x40->0x04 = value>>4), so "quantized value>>4" vs a
-raw mapping is ambiguous; need one dest NOT a multiple of 16 (e.g. 0x2A: stored 0x02 => >>4
-quantized, stored 0x2A => raw). Once pinned it's a ~5-line add to FgTiles.OverlayAnimatedTiles
-reusing its Overlay(vramTile, srcAddr) primitive (frame-0 src already resolves via anim1 at
-$7D00). (2) $109278 fixed vs per-ROM; (3) multiple slots + GLOBAL list (ShaoBase) untested;
-(4) custom ExGFX 60-63 loaded into the $7E:7D00 source model (only standard animated GFX
-resolves today). Tooling: --disasm, --diff, --exanim.
+DEST PINNED (exanim_4, dest 0x2A -> word $02A0): +0C is a BYTE (frameCount-1) and +0D a WORD
+(dest VRAM word = dialog*0x10); FG tile = word/16 = dialog value. Same word/16 convention as
+vanilla animation. OVERLAY IMPLEMENTED in FgTiles.OverlayAnimatedTiles: for each slot,
+Overlay(DestTile, FrameSrcAddrs[phase % FrameCount]). Verified live on exanim_1 (tile 0xA0
+cycles across phases) and gated (a level without ExAnimation is untouched).
+
+REMAINING: (1) $109278 fixed vs per-ROM (verify on other hacks; signature-scan if it moves);
+(2) multiple slots per level + GLOBAL list (ShaoBase) untested; (3) custom ExGFX 60-63 loaded
+into the $7E:7D00 source model — today only standard animated GFX resolves, so custom-source
+ExAnimation shows the GFX32/33 tile at that offset as a placeholder; (4) slot header words
++0/+2 (0x0002/0x0001 — likely tile-count/type) for multi-tile ExAnimation types.
+Tooling: --disasm, --diff, --exanim.
 
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 

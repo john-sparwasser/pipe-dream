@@ -81,7 +81,7 @@ public static class Gfx
         /// 3bpp; the game's 4bpp conversion zero-fills plane 3, so source tile index =
         /// (addr - 0x7D00)/0x20 into the 3bpp data (24 bytes/tile).
         /// </summary>
-        private void OverlayAnimatedTiles(Rom rom, int tileset, int phase)
+        private void OverlayAnimatedTiles(Rom rom, int tileset, int phase, int level)
         {
             // Two boot-time blobs ($00B888/$00B8D7, operands read per-ROM):
             // blob1 (vanilla $08BFC0): 3bpp, converted to occupy $7E7D00-$7EACFF.
@@ -136,6 +136,13 @@ public static class Gfx
                     for (int k = 0; k < 4; k++) Overlay(dest / 16 + k, srcAddr + k * 0x20);
                 }
             }
+
+            // LM ExAnimation (CONTRACT §12e): overlay each per-level slot's current frame onto
+            // its dest tile. Frame source resolves through the same $7D00 model as vanilla
+            // (custom ExGFX 60-63 not yet loaded there — standard animated GFX only).
+            if (level >= 0)
+                foreach (var slot in ExAnimation.ReadLevel(rom, level))
+                    Overlay(slot.DestTile, slot.FrameSrcAddrs[phase % slot.FrameCount]);
         }
 
         public static FgTiles Load(Rom rom, int tileset, int level = -1, int animPhase = 0)
@@ -172,7 +179,7 @@ public static class Gfx
                 for (int t = 0; t < n; t++) tiles[t] = DecodeTile(data, t * tb, bpp);
                 f.slots[s] = tiles;
             }
-            f.OverlayAnimatedTiles(rom, tileset, animPhase);   // animated tiles (CONTRACT §12)
+            f.OverlayAnimatedTiles(rom, tileset, animPhase, level);   // animated tiles (§12, §12e)
             return f;
         }
 

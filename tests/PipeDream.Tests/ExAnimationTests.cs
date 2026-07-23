@@ -29,11 +29,21 @@ public class ExAnimationTests
         var slots = ExAnimation.ParseSlots(Exanim1);
         Assert.Single(slots);
         var s = slots[0];
-        Assert.Equal(0x0A, s.DestByte);
+        Assert.Equal(0xA0, s.DestTile);       // dest word 0x0A00 / 16
         Assert.Equal(3, s.FrameCount);
         Assert.Equal(0x601, s.SrcTile(0));
         Assert.Equal(0x655, s.SrcTile(1));
         Assert.Equal(0x6AA, s.SrcTile(2));
+    }
+
+    [Fact]
+    public void DestIsWordDividedBy16_NonAligned()
+    {
+        // exanim_4's real record: dest dialog 0x2A -> word 0x02A0 (bytes A0 02) -> tile 0x2A.
+        byte[] rec = [.. Exanim1[..13], 0xA0, 0x02, .. Exanim1[15..]];
+        var s = ExAnimation.ParseSlots(rec)[0];
+        Assert.Equal(0x2A, s.DestTile);
+        Assert.Equal(3, s.FrameCount);        // frameCount byte unaffected by the dest change
     }
 
     [Fact]
