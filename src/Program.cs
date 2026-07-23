@@ -35,6 +35,10 @@ class Program
         if (dfi >= 0)
             return DiffRoms(args[dfi + 1], args[dfi + 2]);
 
+        int exi = Array.IndexOf(args, "--exanim");
+        if (exi >= 0)
+            return DumpExAnim(args[exi + 1], Convert.ToInt32(args[exi + 2], 16));
+
         int dsi = Array.IndexOf(args, "--disasm");
         if (dsi >= 0)
         {
@@ -141,6 +145,23 @@ class Program
             Console.WriteLine($"RATS blocks new in B ({newRats.Count}):");
             foreach (var r in newRats.Take(20))
                 Console.WriteLine($"  SNES ${Rom.PcToSnes(r.PcOffset + 8):X6}  PC {r.PcOffset:X6}  size {r.Size}");
+        }
+        return 0;
+    }
+
+    // --exanim <rom> <levelHex> : dump a level's LM ExAnimation slots (CONTRACT §12e).
+    private static int DumpExAnim(string romPath, int level)
+    {
+        var rom = Rom.Load(romPath);
+        var slots = ExAnimation.ReadLevel(rom, level);
+        Console.WriteLine($"Level {level:X3}: {slots.Count} ExAnimation slot(s)");
+        for (int i = 0; i < slots.Count; i++)
+        {
+            var s = slots[i];
+            var frames = string.Join(" ", Enumerable.Range(0, s.FrameCount)
+                .Select(f => $"{s.SrcTile(f):X3}(${s.FrameSrcAddrs[f]:X4})"));
+            Console.WriteLine($"  slot {i}: dest {s.DestByte:X2}  {s.FrameCount} frames: {frames}" +
+                              $"   [u0={s.Unknown0:X4} u2={s.Unknown2:X4}]");
         }
         return 0;
     }
