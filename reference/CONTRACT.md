@@ -696,7 +696,7 @@ ExAnimation list (runs in all levels), a SEPARATE structure not yet decoded. So 
 animated source (AN1/AN2 -> $AD00, source tiles >= 0x780) can't be verified via the per-level
 path on the hacks we have; the data lives in the global list.
 
-### 12f. LM GLOBAL ExAnimation list  [RESOLVED via engine emulation; rendering pending]
+### 12f. LM GLOBAL ExAnimation list  [DONE — resolved via engine emulation, rendered + animating]
 
 Real hacks (ShaoBase/DoW/BigEye) drive animation through a GLOBAL list, not the per-level
 table (they have 0 per-level slots). LOCATED + outer format read straight from the engine
@@ -758,12 +758,21 @@ the object loader:
   tiles {28,38,B0-F4}, all sources in ROM. Self-check + `--globalexanim` (now shows the emulated
   timeline).
 
-REMAINING: (1) RENDER — decode the ROM source GFX (raw VRAM-format tiles, ctrl = byte count) into each
-resolved dest tile and overlay it in FgTiles, sampling the per-frame timeline across the editor's
-display phases. Timing is per-slot (some sub-updates have periods > 8 frames), so the renderer must
-track current-source-per-dest as frames advance rather than assume a fixed period. (2) confirm the
-source GFX bit-depth/DMA-size semantics of ctrl. (3) multiple per-level slots via the same emulation.
-Tooling: --disasm, --diff, --exanim, --globalexanim.
+RENDERED (done). `ExAnimation.GlobalStates(rom)` builds 4 display-phase snapshots (dest tile -> ROM
+source), cached per ROM: it emulates 8 frames/phase and carries each tile's last source forward
+(the engine spreads its VRAM writes over frames). `FgTiles.OverlayAnimatedTiles` applies the phase's
+snapshot after the vanilla/per-level overlays, decoding the raw ROM source at RomBpp (ctrl = DMA byte
+count -> ctrl/0x20 consecutive tiles). Gated on `LmGlobalExAnimPtr >= 0`, so vanilla/per-level ROMs are
+untouched. Flows through the normal FgTiles.Load path, so both --render and the in-app canvas animate.
+Verified: ShaoBase levels 105/106/10A visibly cycle across phases (decorative cave tiles), self-check
+asserts the overlay changes a tile between phases. (Magenta squares in those renders are unrelated
+object-engine markers, not ExAnimation.)
+
+REMAINING (minor): (1) confirm ctrl's exact DMA-size/bit-depth semantics on a 2bpp-source hack.
+(2) multiple per-level slots via the same emulation (per-level path already resolves; not yet run
+through GlobalStates). (3) animation timing is approximated as 8 frames/phase; real per-slot periods
+vary (some > 8) so fast/slow anims may look slightly off-cadence. Tooling: --disasm, --diff, --exanim,
+--globalexanim.
 
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 

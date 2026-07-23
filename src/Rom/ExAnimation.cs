@@ -165,6 +165,42 @@ public sealed class ExAnimation
         return result;
     }
 
+    /// <summary>Current source for an animated dest tile at one display phase.</summary>
+    public readonly record struct TileAnim(int SrcSnes, int TileCount);
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Rom,
+        Dictionary<int, TileAnim>[]> globalStateCache = new();
+
+    /// <summary>
+    /// Global ExAnimation as 4 display-phase snapshots (CONTRACT §12f), cached per ROM. Each
+    /// snapshot maps a dest FG 8x8 tile → its current ROM GFX source for that phase. Built by
+    /// emulating the engine (<see cref="ResolveGlobal"/>) across 8 frames per phase and carrying
+    /// each tile's last source forward (the engine spreads its VRAM writes over several frames,
+    /// so a tile keeps its source on the frames it isn't rewritten). ctrl = DMA byte count, so a
+    /// record covers ctrl/0x20 consecutive tiles. Empty array if the ROM has no global list.
+    /// </summary>
+    public static Dictionary<int, TileAnim>[] GlobalStates(Rom rom)
+    {
+        if (globalStateCache.TryGetValue(rom, out var cached)) return cached;
+        const int phases = 4, perPhase = 8;
+        var states = new Dictionary<int, TileAnim>[phases];
+        var timeline = ResolveGlobal(rom, phases * perPhase);
+        var cur = new Dictionary<int, TileAnim>();
+        int fi = 0;
+        for (int p = 0; p < phases; p++)
+        {
+            for (; fi < timeline.Count && timeline[fi].Frame < (p + 1) * perPhase; fi++)
+            {
+                var g = timeline[fi];
+                if (g.Ctrl == 0) continue;                 // tile not rewritten this frame
+                cur[g.DestTile] = new TileAnim(g.SrcSnes, Math.Max(1, g.Ctrl / 0x20));
+            }
+            states[p] = new Dictionary<int, TileAnim>(cur); // snapshot the accumulated state
+        }
+        globalStateCache.Add(rom, states);
+        return states;
+    }
+
     /// <summary>Parse the slot array out of a record's raw bytes (pure — unit-testable).</summary>
     public static List<Slot> ParseSlots(ReadOnlySpan<byte> rec)
     {

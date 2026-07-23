@@ -346,6 +346,17 @@ public static class RomSelfCheck
                   updates.All(u => (u.SrcSnes >> 16) >= 0x10) && updates.Any(u => u.SrcSnes != 0));
             Check("dest tiles are valid FG 8x8 indices (< 0x200)",
                   updates.All(u => u.DestTile is >= 0 and < 0x200));
+
+            // Overlay applies + animates: some resolved dest tile's decoded pixels differ across
+            // phases (not every tile moves each phase, so scan all of them).
+            var states = ExAnimation.GlobalStates(sh);
+            Check("4 phase snapshots, each covering the animated tiles", states.Length == 4 && states.All(s => s.Count > 0));
+            int ts = Level.Parse(sh, 0x106).Header.Tileset;
+            var fgA = Gfx.FgTiles.Load(sh, ts, 0x106, 0);
+            var fgB = Gfx.FgTiles.Load(sh, ts, 0x106, 2);
+            var animTiles = states[0].Keys.Union(states[2].Keys).Distinct();
+            Check("some animated tile changes between phase 0 and 2 (overlay applied + animating)",
+                  animTiles.Any(t => !fgA.Fetch(t).AsSpan().SequenceEqual(fgB.Fetch(t))));
         }
 
         string dowRom = @"C:\SMW\Projects\DogsOfWar\dogs_of_war-backup.smc";

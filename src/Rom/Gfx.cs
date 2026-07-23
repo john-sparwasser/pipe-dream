@@ -143,6 +143,23 @@ public static class Gfx
             if (level >= 0)
                 foreach (var slot in ExAnimation.ReadLevel(rom, level))
                     Overlay(slot.DestTile, slot.FrameSrcAddrs[phase % slot.FrameCount]);
+
+            // LM global ExAnimation (CONTRACT §12f): resolved by emulating LM's engine. Unlike the
+            // vanilla/per-level paths the source is raw ROM GFX (RomBpp), so decode it directly
+            // rather than through the $7D00/$2000 anim buffers.
+            if (rom.LmGlobalExAnimPtr >= 0)
+            {
+                int gbpp = RomBpp(rom), gtb = TileBytes(gbpp);
+                foreach (var (destTile, anim) in ExAnimation.GlobalStates(rom)[phase & 3])
+                {
+                    int gfo = rom.FileOffset(anim.SrcSnes);
+                    for (int k = 0; k < anim.TileCount; k++)
+                    {
+                        if (gfo < 0 || gfo + (k + 1) * gtb > rom.Data.Length) break;
+                        OverlayPx(destTile + k, DecodeTile(rom.Data, gfo + k * gtb, gbpp));
+                    }
+                }
+            }
         }
 
         public static FgTiles Load(Rom rom, int tileset, int level = -1, int animPhase = 0)
