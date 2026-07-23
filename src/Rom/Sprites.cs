@@ -98,6 +98,23 @@ public sealed class SpriteData
         ov.Draw(img, W, H, palOverride ?? Palette.Load(rom, header.Value, level));
     }
 
+    /// <summary>PIXI custom sprite marker: black box with a red X (LM-style "no display
+    /// data"). Rendering customs faithfully needs LM's .ssc/.dsc metadata — not emulation.</summary>
+    internal static void DrawCustomBox(uint[] img, int W, int H, Sprite s, bool vert)
+    {
+        var (cx, cy) = s.Cell(vert);
+        int px = cx * 16, py = cy * 16;
+        if (px < 0 || py < 0 || px + 16 > W || py + 16 > H) return;
+        for (int y = 0; y < 16; y++)
+            for (int x = 0; x < 16; x++)
+            {
+                bool border = y == 0 || y == 15 || x == 0 || x == 15;
+                bool cross = Math.Abs(x - y) <= 1 || Math.Abs(x + y - 15) <= 1;
+                img[(py + y) * W + (px + x)] =
+                    border ? 0xFF606060u : cross ? 0xFF0000FFu : 0xFF000000u;   // ABGR red X on black
+            }
+    }
+
     /// <summary>Badge marker (bordered box + hex number) at the sprite's cell.</summary>
     internal static void DrawBadge(uint[] img, int W, int H, Sprite s, bool vert)
     {
@@ -137,25 +154,27 @@ public sealed class SpriteOverlay
     private readonly (Sprite s, List<SpriteRender.Oam>? oam)[] items;
     private readonly byte[][]? sp;
     private readonly bool vert;
+    private readonly bool pixi;
 
-    private SpriteOverlay((Sprite, List<SpriteRender.Oam>?)[] items, byte[][]? sp, bool vert)
-    { this.items = items; this.sp = sp; this.vert = vert; }
+    private SpriteOverlay((Sprite, List<SpriteRender.Oam>?)[] items, byte[][]? sp, bool vert, bool pixi)
+    { this.items = items; this.sp = sp; this.vert = vert; this.pixi = pixi; }
 
     public static SpriteOverlay Build(Rom rom, SpriteData sprites, LevelHeader h, int level)
     {
         byte[][]? sp = null;
         try { sp = SpriteRender.LoadSpTiles(rom, h, level); } catch { }
         bool vert = rom.IsVerticalMode(h.LevelMode);
+        bool pixi = rom.HasPixiSpriteHook;
         var items = new (Sprite, List<SpriteRender.Oam>?)[sprites.Sprites.Count];
         for (int i = 0; i < items.Length; i++)
         {
             var s = sprites.Sprites[i];
             var (cx, cy) = s.Cell(vert);
             List<SpriteRender.Oam>? oam = null;
-            if (sp is not null && !s.IsScrollCommand)
+            // PIXI custom sprites (extra bits 2/3) stay null: their editor look is defined
+            // by LM's .ssc/.dsc metadata, which we don't read — Draw shows a red-X box.
+            if (sp is not null && !s.IsScrollCommand && !(pixi && s.Extra >= 2))
             {
-                // Static display table for vanilla sprites (extra bits 0/1); PIXI custom
-                // sprites (extra bits 2/3 = different routines entirely) capture live.
                 if (s.Extra < 2 && SpriteDisplay.TryGet(s.Number, out var rel))
                     oam = rel.Select(o => o with { X = o.X + cx * 16, Y = o.Y + cy * 16 }).ToList();
                 else
@@ -163,7 +182,7 @@ public sealed class SpriteOverlay
             }
             items[i] = (s, oam);
         }
-        return new SpriteOverlay(items, sp, vert);
+        return new SpriteOverlay(items, sp, vert, pixi);
     }
 
     public void Draw(uint[] img, int W, int H, Palette pal, ISet<int>? skip = null)
@@ -173,6 +192,7 @@ public sealed class SpriteOverlay
             if (skip is not null && skip.Contains(i)) continue;   // e.g. sprites being dragged
             var (s, oam) = items[i];
             if (oam is not null && sp is not null) SpriteRender.Draw(img, W, H, oam, sp, pal);
+            else if (pixi && s.Extra >= 2 && !s.IsScrollCommand) SpriteData.DrawCustomBox(img, W, H, s, vert);
             else SpriteData.DrawBadge(img, W, H, s, vert);
         }
     }

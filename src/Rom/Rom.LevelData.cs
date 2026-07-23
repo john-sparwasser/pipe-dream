@@ -28,8 +28,14 @@ public sealed partial class Rom
     public int Layer2Pointer(int level) => ReadValue(Layer2TableSnes + level * 3, 3);
     public bool Layer2IsBackground(int level) => (Layer2Pointer(level) >> 16) == 0xFF;
 
-    /// <summary>Sprite data pointer (16-bit; bank is fixed $07).</summary>
-    public int SpritePointer(int level) => 0x070000 | ReadValue(SpriteTableSnes + level * 2, 2);
+    /// <summary>Sprite data pointer. Low 16 bits from the vanilla table; the bank is fixed
+    /// $07 in clean ROMs, but LM relocates sprite data and keeps a per-level BANK table
+    /// (<see cref="LmSpriteBankTable"/>) — reading bank $07 there yields stale data.</summary>
+    public int SpritePointer(int level)
+    {
+        int bank = LmSpriteBankTable >= 0 ? ReadByte(LmSpriteBankTable + level) : 0x07;
+        return (bank << 16) | ReadValue(SpriteTableSnes + level * 2, 2);
+    }
 
     /// <summary>True if a level mode is vertical (VerticalTable $058417, bit 0).</summary>
     public bool IsVerticalMode(int levelMode) => (ReadByte(0x058417 + (levelMode & 0x1F)) & 1) != 0;

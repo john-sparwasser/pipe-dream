@@ -38,6 +38,66 @@ class Program
         int gxi = Array.IndexOf(args, "--globalexanim");
         if (gxi >= 0) return DumpGlobalExAnim(args[gxi + 1]);
 
+        // --pixitrace <rom> <levelHex> <spriteNumHex> : trace a custom sprite's capture execution.
+        int pti = Array.IndexOf(args, "--pixitrace");
+        if (pti >= 0)
+        {
+            var rom = Rom.Load(args[pti + 1]);
+            int lvl = Convert.ToInt32(args[pti + 2], 16), wantNum = Convert.ToInt32(args[pti + 3], 16);
+            var sd = SpriteData.Parse(rom, lvl);
+            var s = sd.Sprites.First(x => x.Number == wantNum);
+            SpriteRender.Trace = true;
+            var oam = SpriteRender.Capture(rom, s);
+            var banks = string.Join(",", (SpriteRender.LastBanks ?? new()).Order().Select(b => $"{b:X2}"));
+            Console.WriteLine($"#{wantNum:X2} extra{s.Extra} custom={s.Extra >= 2} tablePtr=" +
+                $"${rom.ReadValue(rom.PixiCustomTable + wantNum * 0x10, 3):X6}");
+            Console.WriteLine($"  result: {(oam is null ? "NULL" : oam.Count + " tiles")}, " +
+                              $"OAM writes={SpriteRender.LastOamWrites}, banks visited=[{banks}]");
+            var hot = SpriteRender.LastPcHot ?? new();
+            Console.WriteLine($"  slots after spawn: " + (SpriteRender.LastSlots is { } ls
+                ? Convert.ToHexString(ls) : "n/a"));
+            Console.WriteLine($"  $14C8 status writes: " + string.Join(" ",
+                (SpriteRender.LastStatusLog ?? new()).Where(w => w.Addr < 0x14D4)
+                    .Select(w => $"{w.Pc:X6}:{w.Addr:X4}={w.V:X2}")));
+            Console.WriteLine($"  inserted-bank addrs executed ({hot.Count}): " +
+                              string.Join(" ", hot.Select(a => $"{a:X6}")));
+            Console.WriteLine($"  ordered bank-01/02 steps: " + string.Join(" ",
+                (SpriteRender.LastStepLog ?? new()).Select(t => $"{t.Pc & 0xFFFF:X4}[X={t.X:X2}]")));
+            Console.WriteLine($"  final status $14C8={SpriteRender.LastStatus:X2} (0=erased)");
+            return 0;
+        }
+
+        // --sprites <rom> <levelHex> : dump a level's sprite list + whether OAM capture yields tiles.
+        int spd = Array.IndexOf(args, "--sprites");
+        if (spd >= 0)
+        {
+            var rom = Rom.Load(args[spd + 1]);
+            int lvl = Convert.ToInt32(args[spd + 2], 16);
+            var sd = SpriteData.Parse(rom, lvl);
+            var h = Level.Parse(rom, lvl).Header;
+            string spStatus;
+            try { var sp = SpriteRender.LoadSpTiles(rom, h, lvl); spStatus = sp is null ? "null" : $"{sp.Length} slots"; }
+            catch (Exception e) { spStatus = "THREW: " + e.Message; }
+            int hptr = Level.Parse(rom, lvl).DataPointer, hfo = rom.FileOffset(hptr);
+            Console.WriteLine($"  layer1 header @ ${hptr:X6}: {Convert.ToHexString(rom.Data.AsSpan(hfo, 5))} " +
+                              $"(mode={h.LevelMode:X2} vert={rom.IsVerticalMode(h.LevelMode)})");
+            int sptr = rom.SpritePointer(lvl), sfo = rom.FileOffset(sptr);
+            Console.WriteLine($"Level {lvl:X3}: {sd.Sprites.Count} sprites, header.Screens={h.Screens}, " +
+                              $"sizeBase ${rom.LmSpriteSizeBase:X6}, hijacked={rom.HasPixiSpriteHook}, SP tiles={spStatus}");
+            Console.WriteLine($"  sprite data @ ${sptr:X6}: {Convert.ToHexString(rom.Data.AsSpan(sfo, 24))}");
+            foreach (var s in sd.Sprites)
+            {
+                string how;
+                bool pixiCustom = rom.HasPixiSpriteHook && s.Extra >= 2;
+                if (s.IsScrollCommand) how = "scroll-cmd";
+                else if (!pixiCustom && s.Extra < 2 && SpriteDisplay.TryGet(s.Number, out var rel)) how = $"static-table ({rel.Length} tiles)";
+                else { var oam = SpriteRender.Capture(rom, s); how = oam is null ? "CAPTURE NULL (badge)" : $"captured {oam.Count}" + (pixiCustom ? " [PIXI]" : ""); }
+                string eb = s.ExtraBytes is null ? "" : " eb=" + Convert.ToHexString(s.ExtraBytes);
+                Console.WriteLine($"  #{s.Number:X2} extra{s.Extra} scr{s.Screen:X2} x{s.XNibble} y{s.Y:X2}{eb}  -> {how}");
+            }
+            return 0;
+        }
+
         // --tilepng <rom> <levelHex> <tileHex> <out.png> : render one Map16 tile across the 4
         // animation phases (debug — for eyeballing animated-tile decode, e.g. munchers).
         int tpng = Array.IndexOf(args, "--tilepng");

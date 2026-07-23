@@ -32,6 +32,11 @@ public sealed class Cpu65816(Rom rom)
 
     /// <summary>Debug: when set, logs (PC, addr, value) for writes to $0200-$04FF.</summary>
     public List<(int Pc, int Addr, byte V)>? OamLog;
+    /// <summary>Debug: when set, logs writes to the sprite status table $14C8-$14D3.</summary>
+    public List<(int Pc, int Addr, byte V)>? StatusLog;
+    /// <summary>Debug: when set, records (pc, X, Y) per step while PBR is bank $02 (or mirror),
+    /// capped at 400 entries — ordered, unlike PcHot.</summary>
+    public List<(int Pc, int X, int Y)>? StepLog;
 
     private void Write(int bank, int addr, byte v)
     {
@@ -39,6 +44,9 @@ public sealed class Cpu65816(Rom rom)
         if (OamLog is not null && addr is >= 0x200 and < 0x500 &&
             (bank == 0x7E || bank < 0x40 || (bank >= 0x80 && bank < 0xC0)))
             OamLog.Add(((PBR << 16) | PC, addr, v));
+        if (StatusLog is not null && addr is >= 0x14C8 and < 0x15C8 &&
+            (bank == 0x7E || bank < 0x40 || (bank >= 0x80 && bank < 0xC0)))
+            StatusLog.Add(((PBR << 16) | PC, addr, v));
         if (bank == 0x7E) Ram7E[addr] = v;
         else if (bank == 0x7F) Ram7F[addr] = v;
         else if (addr < 0x2000 && (bank < 0x40 || (bank >= 0x80 && bank < 0xC0))) Ram7E[addr] = v;
@@ -101,6 +109,7 @@ public sealed class Cpu65816(Rom rom)
 
     /// <summary>Preset the X register (e.g. the sprite slot index) before a call.</summary>
     public void PresetX(int v) => X = v & 0xFF;
+    public void PresetY(int v) => Y = v & 0xFF;
 
     /// <summary>Preset the data bank register. Bank-1 sprite code runs with DBR=1 in-game
     /// (PHK/PLB in the sprite loop); absolute table reads (SprTilemap etc.) depend on it.</summary>
@@ -115,7 +124,9 @@ public sealed class Cpu65816(Rom rom)
         long budget = maxInstructions;
         while (--budget > 0)
         {
-            if (PC == 0xFFFF && PBR == bank) return;        // returned to sentinel
+            // Mirror-aware: hijack chains JML into $80+ mirrors (e.g. $82A82E), so the
+            // top-level RTS can arrive with PBR = entry bank | $80.
+            if (PC == 0xFFFF && (PBR & 0x7F) == (bank & 0x7F)) return;
             Step();
         }
         throw new InvalidOperationException("emulation overran instruction budget");
@@ -136,8 +147,20 @@ public sealed class Cpu65816(Rom rom)
         throw new InvalidOperationException("emulation overran instruction budget");
     }
 
+    /// <summary>Debug: when set, records every program-bank the emulation executes in.</summary>
+    public HashSet<int>? BankTrace;
+    /// <summary>Debug: when set, records instruction addresses executed outside the vanilla
+    /// banks ($00-$02/$05/$07 and mirrors) — i.e. inside LM/tool-inserted code.</summary>
+    public SortedSet<int>? PcHot;
+
     private void Step()
     {
+        BankTrace?.Add(PBR);
+        if (PcHot is not null && ((PBR & 0x7F) is not (0x00 or 0x01 or 0x05 or 0x07)
+                                  && !((PBR & 0x7F) == 0x02 && PC < 0xA7FC)))
+            PcHot.Add((PBR << 16) | PC);
+        if (StepLog is not null && (PBR & 0x7F) is 0x01 or 0x02 && StepLog.Count < 400)
+            StepLog.Add(((PBR << 16) | PC, X, Y));
         byte op = Fetch();
         int m = MMask, xm = XMask, v;
         switch (op)

@@ -74,6 +74,55 @@ public sealed partial class Rom
         : lmGlobalExAnimPtr = ScanGlobalExAnim();
 
     private int lmExAnimSetupEntry = -2, lmExAnimProcEntry = -2;
+    private int pixiTable = -2;
+
+    /// <summary>True if a PIXI-family sprite tool hijacked the sprite main hook ($0185C3 is a
+    /// JSL into an inserted bank instead of the vanilla `STZ $1491`). Init ($018172) is hijacked
+    /// in lockstep. Our OAM capture must bypass these to run the vanilla routines (CONTRACT §11a).</summary>
+    public bool HasPixiSpriteHook => Data[FileOffset(0x0185C3)] == 0x22;
+
+    /// <summary>Base of PIXI's per-sprite config table (stride 0x10; first 3 bytes = the sprite's
+    /// routine pointer), or -1. Located from the dispatch `LDA $xxxx,Y : STA $00 : LDA $yyyy,Y :
+    /// STA $01` in the hijack bank; the table is read with DBR = that bank.</summary>
+    public int PixiCustomTable => pixiTable != -2 ? pixiTable : pixiTable = ScanPixiTable();
+    private int ScanPixiTable()
+    {
+        if (!HasPixiSpriteHook) return -1;
+        // The dispatch lives in the main hook's target bank; scan only there so the generic
+        // `LDA $x,Y : STA $00 : LDA $y,Y : STA $01` pattern can't false-match vanilla code.
+        int pcBank = Data[FileOffset(0x0185C3) + 3] & 0x7F;   // JSL operand bank -> PC bank
+        int lo0 = pcBank * 0x8000 + HeaderOffset, hi0 = Math.Min((pcBank + 1) * 0x8000 + HeaderOffset, Data.Length) - 10;
+        for (int i = lo0; i <= hi0; i++)
+            if (Data[i] == 0xB9 && Data[i + 3] == 0x85 && Data[i + 4] == 0x00 &&
+                Data[i + 5] == 0xB9 && Data[i + 8] == 0x85 && Data[i + 9] == 0x01)
+                return (pcBank << 16) | (Data[i + 1] | Data[i + 2] << 8);
+        return -1;
+    }
+
+    // NOTE: custom-ness cannot be derived from the config table (a routine pointer in an
+    // inserted bank): PIXI shares one routine across numbers and fills unreplaced entries
+    // too. Whether a PLACED sprite is custom is decided by its LM extra bits (2/3), which
+    // the spawn code stores to $7FAB10,X — the only gate the hooks test.
+
+    private int lmSpriteBankTable = -2;
+
+    /// <summary>LM's per-level sprite-data BANK table, or -1 (vanilla: fixed bank $07).
+    /// LM replaces the stream-pointer bank setup at $05D8F5 (vanilla `LDA #$07 : STA $D0`)
+    /// with a JSL to `PHB : PHK : PLB : LDY $0E : LDA $xxxx,Y : STA $D0` — the LDA operand
+    /// (in the JSL target's bank) is the table, 1 byte per level (CONTRACT §11).</summary>
+    public int LmSpriteBankTable => lmSpriteBankTable != -2 ? lmSpriteBankTable
+        : lmSpriteBankTable = ScanSpriteBankTable();
+    private int ScanSpriteBankTable()
+    {
+        if (Data[FileOffset(0x05D8F5)] != 0x22) return -1;      // vanilla LDA #$07
+        int t = ReadValue(0x05D8F6, 3);
+        int fo = FileOffset(t);
+        if (fo + 10 > Data.Length ||
+            Data[fo] != 0x8B || Data[fo + 1] != 0x4B || Data[fo + 2] != 0xAB ||
+            Data[fo + 3] != 0xA4 || Data[fo + 4] != 0x0E || Data[fo + 5] != 0xB9 ||
+            Data[fo + 8] != 0x85 || Data[fo + 9] != 0xD0) return -1;
+        return (t & 0x7F0000) | Data[fo + 6] | (Data[fo + 7] << 8);
+    }
 
     /// <summary>
     /// SNES entry of LM's ExAnimation SETUP routine (populates the $7FC0xx control block from the

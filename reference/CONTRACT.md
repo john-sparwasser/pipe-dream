@@ -506,7 +506,13 @@ drawn from y=0.)
 
 ## 11. Sprites  [CONFIRMED from disassembly + LM ASM trace]
 
-Pointer table §3 ($05EC00, 2 B/level, bank fixed $07). Stream ($05D8F9 + $02A82C):
+Pointer table §3 ($05EC00, 2 B/level, bank fixed $07 — **vanilla only**). LM relocates
+sprite data and replaces the bank setup at $05D8F5 (vanilla `LDA #$07 : STA $D0`) with a
+JSL to `PHB:PHK:PLB : LDY $0E : LDA $xxxx,Y : STA $D0` — the operand is a per-level BANK
+table (ShaoBase $0EF100; 105 → bank $13). Reading bank $07 there returns STALE pre-move
+data that parses plausibly (sorted screens!) but is wrong — Rom.LmSpriteBankTable detects
+the hijack; Rom.SpritePointer composes bank<<16 | $05EC00 word. The same LM stub also
+stores the level number to $010B (PIXI per-level customs read it). Stream ($05D8F9 + $02A82C):
 ```
 header    1 byte   bits5-0 = sprite memory ($1692), bits7-6 = buoyancy ($190E)
 entry     3 bytes  b1 = YYYYEEsy  (Y = (y<<4)|YYYY, EE = extra bits, s = screen bit4)
@@ -523,6 +529,30 @@ absent in clean/juz ROMs → fixed 3). Sizes MUST be honored or the stream desyn
 Readers: SpriteData.Parse/Encode (byte-identical round-trip incl. extra bytes);
 SpriteData.DrawOverlay renders badge markers (green = sprite, orange = scroll command).
 Sprite GFX rendering (real tiles per sprite) is out of scope for now.
+
+**11a. PIXI custom sprites + spawn emulation  [CONFIRMED on ShaoBase/DogsOfWar]**
+- Custom-ness is per PLACEMENT, not per number: the spawn hijack stores `b1 & $0C`
+  (extra bits << 2) to `$7FAB10,X` ($94AC26-AC2C in ShaoBase) and the raw number to
+  `$7FAB9E,X`; both hooks ($018172/$0185C3 → PIXI bank) gate on `$7FAB10,X & $08` and
+  dispatch on `$7FAB9E,X`. The config-table pointer canNOT detect customs: PIXI shares
+  one routine across numbers and fills unreplaced entries with `$018021` (an RTL).
+- PIXI config table: base `$B166` + num*16 in the hijack bank (pointer-dispatch scan
+  finds `$B171` = +0x0B): +0 type (0 = tweak-only), +1 acts-like, +2..+7 tweakers,
+  +8 init ptr (3B), +0x0B main ptr (3B), +0x0E extra props. Hook trick: `PLA:PLA` pops
+  2 of the JSL frame's 3 bytes, `PEA $85C1`, custom routine ends RTL — the leftover
+  JSL bank byte completes the PEA into a long return to $0185C2 (RTS). Balanced.
+- OAM capture spawns through the ROM's OWN loader instead of hand-seeding: synthetic
+  1-record stream (header+record+FF) in $7F0100, `$CE-$D0` → it, enter the record-spawn
+  body at **$02A84E** (Y=2 = b2 offset, X=0 = record index, DBR=**2** — the slot-range
+  tables $02A773+ are DBR-relative!, `$00`/`$01` = load column/screen — CreateSprite
+  takes position high bytes from `$01`). Skips LM 3.x's rewritten walker ($10FA9F),
+  which needs level-load state ($0BF4 flags, per-screen stream index $0CF6/$0D36).
+  Status value flows via `$04` → `STA $14C8,X` at $02A975; slot search = $02A918
+  (start/end per sprite-memory `$1692` from tables $02A773/$A7AC; $1692=0 is safe).
+  After spawn: seed `$15E9` = slot, clear `$15A0,X` (spawn marks sprites offscreen)
+  each frame, run frames with X = slot.
+- Cpu65816 gotcha: hijack chains JML into $80+ mirror banks, so a top-level RTS can
+  arrive at the sentinel with PBR = bank|$80 — CallNear's sentinel compares `& 0x7F`.
 
 ## 12. Tile animations — the header-dependent Map16 appearance  [DECODED, overlay not yet implemented]
 
