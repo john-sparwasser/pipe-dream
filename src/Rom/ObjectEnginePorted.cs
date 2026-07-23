@@ -6,7 +6,9 @@ public static partial class ObjectEngine
 {
     public static Map16Grid RenderPorted(Rom rom, LevelHeader header, IReadOnlyList<LevelObject> objects)
     {
-        int w = Math.Max(16, header.Screens * 16);
+        // Full 32-screen canvas (LM parity): objects and sprites can sit on screens past
+        // header.Screens (e.g. ShaoBase 105 declares 4 screens, sprites live on 9-18).
+        int w = 0x20 * 16;
         var g = new Map16Grid(w, 32);
 
         // Tile tables read from bank 0D (unchanged by Lunar Magic).

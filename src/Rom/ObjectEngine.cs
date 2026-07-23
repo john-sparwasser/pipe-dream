@@ -93,7 +93,9 @@ public static partial class ObjectEngine
             throw new InvalidOperationException("plane tables not vanilla (LM-patched loader)");
 
         bool vertical = rom.IsVerticalMode(header.LevelMode);
-        int screens = Math.Max(1, header.Screens);
+        // Full canvas (LM parity): content can sit past header.Screens. The loader filled
+        // untouched RAM with blank sky ($25). Vertical caps at $1C bands ($C800+$1C*$200 = RAM end).
+        int screens = vertical ? 0x1C : 0x20;
         var g = new Map16Grid(vertical ? 32 : screens * 16, vertical ? screens * 16 : 32);
 
         byte Ram(int bank, int addr) => bank == 0x7F ? cpu.Ram7F[addr & 0xFFFF] : cpu.Ram7E[addr & 0xFFFF];
