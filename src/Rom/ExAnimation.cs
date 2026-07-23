@@ -116,6 +116,55 @@ public sealed class ExAnimation
         return result;
     }
 
+    /// <summary>
+    /// Resolve the global list by EMULATING LM's own engine (CONTRACT §12f): run the setup +
+    /// processor under Cpu65816 for a given animation phase and read back the eight stride-7 DMA
+    /// records LM builds at $7FC0C0. Returns each non-empty record's 7 raw bytes (record i at
+    /// $7FC0C0 + i*7). Format-agnostic — no per-slot handler decode needed. Empty if the ROM has
+    /// no global list or the engine can't be located.
+    /// </summary>
+    /// <summary>One resolved global-ExAnimation DMA job: at frame <see cref="Frame"/> LM's engine
+    /// writes the GFX at <see cref="SrcSnes"/> (a ROM address) into FG <see cref="DestTile"/>.
+    /// <see cref="Ctrl"/> 0 = the tile isn't rewritten that frame (keeps its prior source).</summary>
+    public readonly record struct GlobalFrame(int Frame, int Slot, int Ctrl, int DestTile, int SrcSnes);
+
+    /// <summary>
+    /// Resolve the global list by EMULATING LM's own engine (CONTRACT §12f): run the setup once,
+    /// then the processor for <paramref name="frames"/> consecutive ticks under Cpu65816, reading
+    /// the eight stride-7 DMA records LM builds at $7FC0C0 (+0 ctrl, +2 VRAM dest word, +4 3-byte
+    /// ROM source). Format-agnostic - no per-slot handler decode. Returns the per-frame timeline.
+    /// $FE (per-level index) is seeded 1 so setup takes the global path (0 sets the skip bit).
+    /// </summary>
+    public static List<GlobalFrame> ResolveGlobal(Rom rom, int frames)
+    {
+        var result = new List<GlobalFrame>();
+        int setup = rom.LmExAnimSetupEntry, proc = rom.LmExAnimProcEntry;
+        if (setup < 0 || proc < 0 || rom.LmGlobalExAnimPtr < 0) return result;
+
+        var cpu = new Cpu65816(rom);
+        cpu.Ram7E[0xFE] = 1;                        // nonzero -> setup runs the global path
+        try
+        {
+            cpu.CallLong(setup);                    // populate the $7FC0xx control block once
+            for (int f = 0; f < frames; f++)
+            {
+                cpu.Ram7E[0x14] = (byte)f;          // advance the frame counter each tick
+                cpu.CallLong(proc);                 // fills $7FC0C0 for slots whose timer fires now
+                for (int i = 0; i < 8; i++)
+                {
+                    int b = 0xC0C0 + i * 7;
+                    int ctrl = cpu.Ram7F[b] | cpu.Ram7F[b + 1] << 8;
+                    int dest = cpu.Ram7F[b + 2] | cpu.Ram7F[b + 3] << 8;
+                    int src = cpu.Ram7F[b + 4] | cpu.Ram7F[b + 5] << 8 | cpu.Ram7F[b + 6] << 16;
+                    if (dest == 0 && src == 0) continue;
+                    result.Add(new GlobalFrame(f, i, ctrl, dest >> 4, src));
+                }
+            }
+        }
+        catch { /* seeding gap / overrun - return whatever was collected */ }
+        return result;
+    }
+
     /// <summary>Parse the slot array out of a record's raw bytes (pure — unit-testable).</summary>
     public static List<Slot> ParseSlots(ReadOnlySpan<byte> rec)
     {

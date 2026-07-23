@@ -696,7 +696,7 @@ ExAnimation list (runs in all levels), a SEPARATE structure not yet decoded. So 
 animated source (AN1/AN2 -> $AD00, source tiles >= 0x780) can't be verified via the per-level
 path on the hacks we have; the data lives in the global list.
 
-### 12f. LM GLOBAL ExAnimation list  [LOCATED + outer format decoded from engine; per-slot header type-dependent, OPEN]
+### 12f. LM GLOBAL ExAnimation list  [RESOLVED via engine emulation; rendering pending]
 
 Real hacks (ShaoBase/DoW/BigEye) drive animation through a GLOBAL list, not the per-level
 table (they have 0 per-level slots). LOCATED + outer format read straight from the engine
@@ -722,17 +722,48 @@ diff-guessed. `Rom.LmGlobalExAnimPtr` / `ExAnimation.ReadGlobalRaw` / `--globale
   0x680/0x700/0x780, and 0x780 -> $AD00 CONFIRMS ShaoBase uses the custom source region. But the
   1-frame slots' trailing word is small/irregular (0x080, 0x420, 0x100...) and does NOT resolve as
   a tile source — its meaning is TYPE-DEPENDENT. Header byte 0 is the slot TYPE (0x04 common, 0x01
-  variant) dispatched through the ~12-entry handler table at $10F32D (§12d), so the header fields
-  and the non-tile trailing words vary per type and are NOT safe to decode blind.
+  variant) — but see the ENGINE TRACE below: the low byte is only an on/off, the real behavior
+  split is on word0's HIGH byte, and the layout is a timer state machine, NOT safe to decode blind.
 
-REMAINING (blocks #1 custom-source rendering): (1) per-slot HEADER + per-type trailing-word
-semantics — decode via a controlled global-animation diff (recommended, per §12d) OR by tracing the
-~12 handlers at $10F32D with `--disasm`; the outer reader + `--globalexanim` raw dump now provide the
-per-type sample data to do either. (2) with the tile-source slots known, wire the AN1(w1)/AN2(w0) ->
-$AD00 loader (decompress AN ExGFX at RomBpp into an anim3 buffer; extend FgTiles.Overlay to resolve
-srcAddr >= $AD00) — the 0x780->$AD00 slots are already identifiable. (3) multiple per-level slots;
-(4) the +0 high-byte $03BCC0 param and the +6 selector bytes. Tooling: --disasm, --diff, --exanim,
---globalexanim.
+ENGINE TRACE (ShaoBase, --disasm — maps the processor that fills the $7FC0C0 DMA records):
+- $10F2F9 = init/clear (zeroes the 8 stride-7 slots $7FC0C0/C7/CE/D5/DC/E3/EA/F1, then RTL).
+  CORRECTION to §12d: its "dispatch table ~$10F32D" was a MISREAD — that region is the record's
+  RATS tag ("STAR" at $10F329, size $00B6+1) + the record itself ($10F331). No table there.
+- $138524 (global loop) / $138560 (per-level loop): walk the offset table via the section pointer
+  the setup stashed ($7FC016 global / $7FC000 per-level), and for each used slot call the per-slot
+  handler $1385AF with X = runtime slot#, [$05] = slot data ptr, ($08) = per-slot state $7FC0A0+slot.
+- $1385AF per-slot handler: reads word0 = slot+0. LOW byte → JMP ($138B4A,X): entry 0 = RTS (off),
+  entries 1-11 ALL → $1385CF (so the low byte is just an active flag, not a real type selector).
+  $1385CF: XBA to word0's HIGH byte; 0 = inline path ($1385ED); else JSR ($138B82,X) — the REAL
+  sub-dispatch, 7 sub-handlers ($88E6/EB/F0/F5/FA, $8974, $8903). The high byte drives a frame-timer
+  compare (state ($08) vs a slot rate byte [$05]) that advances the current frame.
+- Then it fills the stride-7 $7FC0C0 record: +0 ctrl = $138B24[X] (0x20-scaled), +2 = VRAM dest word
+  (from a slot byte, offset path-dependent), +5 = $7E source bank. So dest/frame/rate ARE all in the
+  slot bytes, but their offsets differ per sub-handler and are gated by the timer — a static parse of
+  all 7 sub-handlers (through the SEP/REP width flips) is error-prone.
+
+EMULATION RESOLVED (done — the per-slot format never had to be decoded). `ExAnimation.ResolveGlobal`
+runs LM's own engine under Cpu65816 and reads back the resolved DMA records, exactly as §13 emulates
+the object loader:
+- Two engine routines, located per-ROM by their shared DBR prologue `8B A2 7F DA AB` (PHB/LDX #$7F/
+  PHX/PLB). SETUP (`Rom.LmExAnimSetupEntry`, ShaoBase $138002) is the prologue followed by
+  `A9 FF 8D 19 C0`; PROCESSOR (`Rom.LmExAnimProcEntry`, $1384B0) the one followed by `A4 14 CC 03 C0`.
+- Seed $FE=1 (nonzero → setup takes the global path; $FE=0 sets the skip-global bit $7FC00A.4 and
+  emits nothing), $14 = frame counter. CallLong(setup) once, then CallLong(proc) per frame.
+- Read the eight stride-7 records at $7FC0C0: +0 ctrl (0 = tile not rewritten this frame), +2 VRAM
+  dest word (tile = word/0x10), +4 3-byte source. KEY: the source is a **ROM GFX address** (ShaoBase
+  $20:9Exx-A4xx, advancing per frame), NOT the $7E:AD00 buffer — so LM's global ExAnimation DMAs
+  animation frames straight from ROM. This SUPERSEDES the $7D00/0x600-based reading of §12e/the raw
+  slot words for the global list. Verified: ShaoBase resolves 52 tile updates over 32 frames, dest
+  tiles {28,38,B0-F4}, all sources in ROM. Self-check + `--globalexanim` (now shows the emulated
+  timeline).
+
+REMAINING: (1) RENDER — decode the ROM source GFX (raw VRAM-format tiles, ctrl = byte count) into each
+resolved dest tile and overlay it in FgTiles, sampling the per-frame timeline across the editor's
+display phases. Timing is per-slot (some sub-updates have periods > 8 frames), so the renderer must
+track current-source-per-dest as frames advance rather than assume a fixed period. (2) confirm the
+source GFX bit-depth/DMA-size semantics of ctrl. (3) multiple per-level slots via the same emulation.
+Tooling: --disasm, --diff, --exanim, --globalexanim.
 
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 

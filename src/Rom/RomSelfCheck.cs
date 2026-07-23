@@ -334,6 +334,18 @@ public static class RomSelfCheck
                   s6.FrameCount == 3 && s6.FrameTile(0) == 0x680 && s6.FrameTile(1) == 0x700 &&
                   s6.FrameTile(2) == 0x780 && s6.FrameSrcAddr(2) == 0xAD00);
             Check("clean ROM has no global ExAnimation list", Rom.Load(CleanRom).LmGlobalExAnimPtr == -1);
+
+            Console.WriteLine("LM global ExAnimation resolved by emulation (CONTRACT §12f):");
+            Check("setup + processor entries located", sh.LmExAnimSetupEntry == 0x138002 && sh.LmExAnimProcEntry == 0x1384B0);
+            var gf = ExAnimation.ResolveGlobal(sh, 32);
+            var updates = gf.Where(f => f.Ctrl != 0).ToList();
+            Console.WriteLine($"    {updates.Count} tile updates over 32 frames; " +
+                              $"dest tiles [{string.Join(",", updates.Select(u => u.DestTile).Distinct().Order().Select(t => $"{t:X2}"))}]");
+            Check("engine emits tile updates (non-empty timeline)", updates.Count > 0);
+            Check("resolved sources are ROM GFX addresses (bank >= $10)",
+                  updates.All(u => (u.SrcSnes >> 16) >= 0x10) && updates.Any(u => u.SrcSnes != 0));
+            Check("dest tiles are valid FG 8x8 indices (< 0x200)",
+                  updates.All(u => u.DestTile is >= 0 and < 0x200));
         }
 
         string dowRom = @"C:\SMW\Projects\DogsOfWar\dogs_of_war-backup.smc";

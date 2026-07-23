@@ -175,6 +175,12 @@ class Program
         var rom = Rom.Load(romPath);
         int ptr = rom.LmGlobalExAnimPtr;
         if (ptr < 0) { Console.WriteLine("No global ExAnimation list."); return 0; }
+        Console.WriteLine($"Engine: setup ${rom.LmExAnimSetupEntry:X6}  processor ${rom.LmExAnimProcEntry:X6}");
+        var frames = ExAnimation.ResolveGlobal(rom, 32);
+        Console.WriteLine($"  [emulated 32 frames] {frames.Count(f => f.Ctrl != 0)} tile update(s):");
+        foreach (var gf in frames.Where(f => f.Ctrl != 0).Take(24))
+            Console.WriteLine($"    f{gf.Frame,2} slot{gf.Slot}: dest tile {gf.DestTile:X3}  " +
+                              $"<- src ${gf.SrcSnes:X6}  (ctrl ${gf.Ctrl:X4})");
         var slots = ExAnimation.ReadGlobalRaw(rom);
         Console.WriteLine($"Global ExAnimation record @ ${ptr:X6}: {slots.Count} used slot(s)");
         Console.WriteLine("  (header fields are type-dependent/undecoded; trailing words in the");

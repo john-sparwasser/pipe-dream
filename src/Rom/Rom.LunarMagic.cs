@@ -72,6 +72,39 @@ public sealed partial class Rom
     /// </summary>
     public int LmGlobalExAnimPtr => lmGlobalExAnimPtr != -2 ? lmGlobalExAnimPtr
         : lmGlobalExAnimPtr = ScanGlobalExAnim();
+
+    private int lmExAnimSetupEntry = -2, lmExAnimProcEntry = -2;
+
+    /// <summary>
+    /// SNES entry of LM's ExAnimation SETUP routine (populates the $7FC0xx control block from the
+    /// record), or -1. Both engine routines open with `PHB : LDX #$7F : PHX : PLB` (DBR=$7F); the
+    /// setup follows it with `LDA #$FF : STA $C019` (§12f — emulated to resolve the slots).
+    /// </summary>
+    public int LmExAnimSetupEntry => lmExAnimSetupEntry != -2 ? lmExAnimSetupEntry
+        : lmExAnimSetupEntry = ScanCodeAddr([0x8B, 0xA2, 0x7F, 0xDA, 0xAB, 0xA9, 0xFF, 0x8D, 0x19, 0xC0]);
+
+    /// <summary>
+    /// SNES entry of LM's ExAnimation PROCESSOR (fills the eight stride-7 $7FC0C0 DMA records for
+    /// the current frame), or -1. Same DBR prologue, then `LDY $14 : CPY $C003` (§12f).
+    /// </summary>
+    public int LmExAnimProcEntry => lmExAnimProcEntry != -2 ? lmExAnimProcEntry
+        : lmExAnimProcEntry = ScanCodeAddr([0x8B, 0xA2, 0x7F, 0xDA, 0xAB, 0xA4, 0x14, 0xCC, 0x03, 0xC0]);
+
+    /// <summary>SNES address of the first byte matching <paramref name="pat"/> (-1 = wildcard), or -1.
+    /// Computes the LoROM SNES address directly (bank = PC&gt;&gt;15) so it's correct in the expanded
+    /// high banks where <see cref="PcToSnes"/>'s bank-0 mapping would be wrong.</summary>
+    private int ScanCodeAddr(int[] pat)
+    {
+        for (int i = HeaderOffset; i <= Data.Length - pat.Length; i++)
+        {
+            bool ok = true;
+            for (int j = 0; j < pat.Length && ok; j++) ok = pat[j] < 0 || Data[i + j] == pat[j];
+            if (!ok) continue;
+            int pc = i - HeaderOffset;
+            return ((pc >> 15) << 16) | (pc & 0x7FFF) | 0x8000;
+        }
+        return -1;
+    }
     private int ScanGlobalExAnim()
     {
         int[] pat = [0x85, 0x01, 0x8D, 0x17, 0xC0, 0xA9]; // STA $01 / STA $C017 / LDA #low16
