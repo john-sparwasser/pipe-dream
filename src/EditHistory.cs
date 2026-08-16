@@ -15,6 +15,10 @@ public sealed class EditHistory
     public bool CanUndo => undo.Count > 0;
     public bool CanRedo => redo.Count > 0;
 
+    /// <summary>Fired whenever edit state changes through this stack — on Push AND on
+    /// Undo/Redo (which change state without pushing). Project autosave hangs off this.</summary>
+    public Action? Changed;
+
     // Coalesce every Push between Begin/EndGroup into a single undo entry (e.g. a move that
     // touches both tiles and sprites). Not nested.
     private List<Command>? group;
@@ -34,6 +38,7 @@ public sealed class EditHistory
         undo.Add(cmd);
         if (undo.Count > Max) undo.RemoveAt(0);
         redo.Clear();
+        Changed?.Invoke();
     }
 
     public void Undo()
@@ -43,6 +48,7 @@ public sealed class EditHistory
         undo.RemoveAt(undo.Count - 1);
         c.Undo();
         redo.Add(c);
+        Changed?.Invoke();
     }
 
     public void Redo()
@@ -52,6 +58,7 @@ public sealed class EditHistory
         redo.RemoveAt(redo.Count - 1);
         c.Redo();
         undo.Add(c);
+        Changed?.Invoke();
     }
 
     public void Clear() { undo.Clear(); redo.Clear(); }

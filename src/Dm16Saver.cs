@@ -1,9 +1,9 @@
 namespace PipeDream;
 
 /// <summary>
-/// Direct Map16 helpers: turn a tile brush into DM16 objects (LM parity — placed tiles
-/// ARE objects in the stream, resizable like any other), and persist an edited object
-/// list to a ROM copy through RATS/repoint. Pure orchestration over Rom/Level — no UI.
+/// Direct Map16 brush decomposition: turn a tile brush into DM16 objects (LM parity —
+/// placed tiles ARE objects in the stream, resizable like any other). Pure logic, no UI.
+/// (ROM persistence moved to RomBuilder — the project's Build pipeline.)
 /// </summary>
 public static class Dm16Saver
 {
@@ -55,24 +55,4 @@ public static class Dm16Saver
         return LevelObject.MakeDm16(tile, screen, cx & 15, y, w, h);
     }
 
-    /// <summary>Encode an object stream and write it to a ROM copy (RATS alloc + repoint).</summary>
-    public static (string Status, bool Committed) SaveObjects(
-        Rom rom, Level level, int levelNum, IEnumerable<LevelObject> objects, string? romPath)
-    {
-        var list = objects.ToList();
-        if (list.Any(o => o.IsDm16) && !rom.HasDm16Hijack)
-            return ("ROM lacks LM Direct Map16 ASM — open a ROM saved by LM.", false);
-        try
-        {
-            byte[] data = LevelEncoder.Encode(level, rom, list);
-            int addr;
-            try { addr = RatsWriter.Allocate(rom, data); }
-            catch { rom.ExpandTo(Math.Min(0x400000, Math.Max(0x200000, rom.ActualRomSize * 2))); addr = RatsWriter.Allocate(rom, data); }
-            rom.SetLayer1Pointer(levelNum, addr);
-            string outp = System.IO.Path.ChangeExtension(romPath, ".edited.smc");
-            RatsWriter.SaveAs(rom, outp);
-            return ($"saved {list.Count} objects -> {System.IO.Path.GetFileName(outp)}", true);
-        }
-        catch (Exception e) { return ("save failed: " + e.Message, false); }
-    }
 }

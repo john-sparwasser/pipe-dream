@@ -98,6 +98,36 @@ public class EditorApp : App
     internal GfxViewerPanel gfxViewerPanel = null!;
     internal LevelGfxPanel levelGfxPanel = null!;
 
+    // Global per-user config (%APPDATA%\PipeDream) + the first-run modal that fills it.
+    internal Config config = null!;
+    internal FirstRunPrompt firstRun = null!;
+
+    // The open project (null = raw-ROM inspection mode) + its New/Open wizard.
+    internal Project? project;
+    internal ProjectWizard projectWizard = null!;
+    // Set by LEVEL-scoped edits (objects/sprites/palette/GFX overrides) so the session
+    // stashes this level into the project; global Map16/acts edits don't set it — they
+    // capture their own slots and must not freeze an unedited level into the project.
+    internal bool currentLevelTouched;
+
+    // Window.Handle (the SDL_Window*) is internal in Foster 0.3.0 — reflected once,
+    // shared by the window-icon setup and the native file dialogs (dialog parenting).
+    private IntPtr sdlWindowHandle;
+    internal IntPtr SdlWindowHandle
+    {
+        get
+        {
+            if (sdlWindowHandle == IntPtr.Zero)
+            {
+                var p = typeof(Window).GetProperty("Handle",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public |
+                    System.Reflection.BindingFlags.Instance);
+                if (p?.GetValue(Window) is IntPtr h) sdlWindowHandle = h;
+            }
+            return sdlWindowHandle;
+        }
+    }
+
     // The UI runs at ImGuiLayer.Scale (BaseScale x display scale), so a zoom of 1 unit may be
     // a fractional number of physical pixels (e.g. 2.5 at 125% Windows scaling) — that
     // resampling is visible on pixel art. Snap so texel -> physical pixels is an integer,
@@ -117,8 +147,9 @@ public class EditorApp : App
 
     private readonly string? startupRomPath;
     private readonly int startupLevel;
+    private readonly string? startupProjectPath;
 
-    public EditorApp(string? romPath = null, int startLevel = -1) : base(new AppConfig
+    public EditorApp(string? romPath = null, int startLevel = -1, string? projectPath = null) : base(new AppConfig
     {
         ApplicationName = "PipeDream",
         WindowTitle = "Pipe Dream — SMW Editor",
@@ -134,6 +165,7 @@ public class EditorApp : App
     {
         startupRomPath = romPath;
         startupLevel = startLevel;
+        startupProjectPath = projectPath;
     }
 
     protected override void Startup()
@@ -155,12 +187,15 @@ public class EditorApp : App
         romInfoPanel = new RomInfoPanel();
         gfxViewerPanel = new GfxViewerPanel(GraphicsDevice, imgui);
         levelGfxPanel = new LevelGfxPanel(GraphicsDevice, imgui);
+        config = Config.Load();
+        firstRun = new FirstRunPrompt(this);
+        projectWizard = new ProjectWizard(this);
+        // Autosave rides the edit-state hook; non-history edit sites MarkDirty directly.
+        history.Changed = () => project?.MarkDirty();
         SetWindowIcon();
-        if (startupRomPath is not null)
-        {
-            if (startupLevel >= 0) levelNum = startupLevel;
-            session.LoadRom(startupRomPath);
-        }
+        if (startupLevel >= 0) levelNum = startupLevel;
+        if (startupProjectPath is not null) projectWizard.OpenPath(startupProjectPath);
+        else if (startupRomPath is not null) session.LoadRom(startupRomPath);
     }
 
     // Foster 0.3.0 has no icon API; go straight to SDL with the embedded pipe icon.
@@ -191,6 +226,7 @@ public class EditorApp : App
 
     protected override void Shutdown()
     {
+        project?.Save();
         imgui?.Dispose();
         canvas?.Dispose();
         gfxViewerPanel?.Dispose();
@@ -200,6 +236,11 @@ public class EditorApp : App
     protected override void Update()
     {
         if (imgui is null) return;
+
+        // Deliver any finished native file-dialog result on the UI thread, before layout,
+        // so its completion (e.g. LoadRom) never mutates state mid-frame.
+        FileDialog.Pump();
+        project?.Tick();   // debounced autosave once edits settle
 
         // Apply pending edits before layout so we never dispose a texture mid-frame.
         if (levelDirty)
@@ -224,6 +265,8 @@ public class EditorApp : App
     private void DrawUI()
     {
         menuBar.Draw();
+        firstRun.Draw();
+        projectWizard.Draw();
 
         // Map16 paint strokes commit when the right button is up — at frame start, so the
         // graphics rebuild never disposes textures already submitted to this frame.

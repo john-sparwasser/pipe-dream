@@ -145,6 +145,14 @@ public sealed class Rom
         return (bank << 16) | ReadValue(SpriteTableSnes + level * 2, 2);
     }
 
+    /// <summary>Repoint a level's sprite table entry (low 16 bits; the bank byte lives in
+    /// LM's per-level bank table — the caller writes it when the table exists).</summary>
+    public void SetSpritePointerWord(int level, int low16)
+    {
+        int fo = FileOffset(SpriteTableSnes + level * 2);
+        Data[fo] = (byte)low16; Data[fo + 1] = (byte)(low16 >> 8);
+    }
+
     /// <summary>True if a level mode is vertical (VerticalTable $058417, bit 0).</summary>
     public bool IsVerticalMode(int levelMode) => (ReadByte(0x058417 + (levelMode & 0x1F)) & 1) != 0;
 

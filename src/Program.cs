@@ -8,6 +8,10 @@ class Program
         if (args.Contains("--selfcheck"))
             return DebugCommands.SelfCheck();
 
+        int bp = Array.IndexOf(args, "--buildproject");
+        if (bp >= 0)
+            return DebugCommands.BuildProject(args, bp);
+
         int ri = Array.IndexOf(args, "--render");
         if (ri >= 0)
             return DebugCommands.RenderLevel(args, ri);
@@ -67,12 +71,14 @@ class Program
         if (si >= 0)
             return DebugCommands.GenSpriteDisplay(args, si);
 
-        // Plain args: optional ROM path (+ optional hex level) to open at startup.
+        // Plain args: optional project (.pdp) or ROM path (+ optional hex level) to open
+        // at startup — also what a .pdp file-association double-click delivers.
         using var app = new EditorApp(
-            args.FirstOrDefault(File.Exists),
+            args.FirstOrDefault(a => File.Exists(a) && !a.EndsWith(".pdp", StringComparison.OrdinalIgnoreCase)),
             args.Where(a => !File.Exists(a)).Select(a => int.TryParse(a,
                 System.Globalization.NumberStyles.HexNumber, null, out int v) ? v : -1)
-                .FirstOrDefault(v => v >= 0 && v < Rom.LevelCount, -1));
+                .FirstOrDefault(v => v >= 0 && v < Rom.LevelCount, -1),
+            args.FirstOrDefault(a => File.Exists(a) && a.EndsWith(".pdp", StringComparison.OrdinalIgnoreCase)));
         try { app.Run(); }
         catch (Exception e)
         {

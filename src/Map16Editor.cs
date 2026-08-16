@@ -62,6 +62,12 @@ internal sealed class Map16Editor(EditorApp app)
         var err = app.rom is null ? "no ROM loaded" : app.rom.EnsureMap16Tiles(allocTile + 1);
         if (err is null)
         {
+            // Allocation relocates the extended def region: undo entries recorded before
+            // it hold file offsets into the now-dead block — replaying them would write
+            // garbage into abandoned bytes and silently no-op on screen. Drop them.
+            app.history.Clear();
+            if (app.project is not null)
+            { app.project.Data.Map16.TileCount = app.rom!.Map16TileCount; app.project.MarkDirty(); }
             app.session.RebuildGraphics();     // recompose caches/sheets with the new count
             app.levelDirty = true;             // the def region rides along on the next save
             app.selectedMap16 = allocTile;
@@ -294,6 +300,27 @@ internal sealed class Map16Editor(EditorApp app)
         if (before == raw) return;
         app.rom.Data[fo] = (byte)raw; app.rom.Data[fo + 1] = (byte)(raw >> 8);
         m16Stroke.Add((fo, before, raw));
+        CaptureDefSlot(tile);
+    }
+
+    // Project capture: record the touched def slot key; the autosave sync re-reads the
+    // slot's current 8 bytes from the ROM, so undo/redo/allocation-relocation need no
+    // extra bookkeeping. Extended FG tiles (0x200+) key by tile number (their region
+    // relocates on page allocation); vanilla FG + BG slots key by the def's SNES address
+    // (canonical across tilesets — tiles < 0x200 alias shared/per-tileset regions).
+    private void CaptureDefSlot(int tile)
+    {
+        if (app.project is null || app.rom is null || app.level is null) return;
+        if (tile is >= 0x200 and < 0x1000)
+            app.project.Data.Map16.Ext.TryAdd(tile.ToString("X3"), "");
+        else
+        {
+            int baseFo = Map16.DefFileOffset(app.rom, app.level.Header.Tileset, tile);
+            if (baseFo < 0) return;
+            app.project.Data.Map16.Slots.TryAdd(
+                Rom.PcToSnes(baseFo - app.rom.HeaderOffset).ToString("X6"), "");
+        }
+        app.project.MarkDirty();
     }
 
     private void CommitM16Stroke()
@@ -387,7 +414,11 @@ internal sealed class Map16Editor(EditorApp app)
             if (t >= 0x4000) continue;                  // acts-like is an FG concept
             int fo = app.rom.FileOffset(app.rom.LmActsAsBase + t * 2);
             int b = app.rom.Data[fo] | (app.rom.Data[fo + 1] << 8);
-            if (b != val) edits.Add((fo, b));
+            if (b == val) continue;
+            edits.Add((fo, b));
+            // Project capture: value refreshed from the ROM at autosave (undo-proof).
+            if (app.project is not null)
+            { app.project.Data.Map16.ActsAs.TryAdd(t.ToString("X3"), val); app.project.MarkDirty(); }
         }
         if (edits.Count == 0) return;
         var r = app.rom;

@@ -7,6 +7,27 @@ static class DebugCommands
     // --selfcheck : run the ROM self-check suite (exit code = failures).
     public static int SelfCheck() => RomSelfCheck.Run();
 
+    // --buildproject <project.pdp> [--bps] : headless project build (CI/scripting) —
+    // same pipeline as File → Build ROM, plus optional BPS export.
+    public static int BuildProject(string[] args, int bi)
+    {
+        var project = Project.Open(args[bi + 1]);
+        if (project.ValidateBase() is { } problem) { Console.WriteLine("ERROR: " + problem); return 1; }
+        var (status, outPath) = RomBuilder.Build(project);
+        Console.WriteLine(status);
+        if (outPath is null) return 1;
+        if (args.Contains("--bps"))
+        {
+            string dir = Path.Combine(project.Folder, "export");
+            Directory.CreateDirectory(dir);
+            string bps = Path.Combine(dir, project.Name + ".bps");
+            File.WriteAllBytes(bps, BpsWriter.Create(
+                File.ReadAllBytes(project.BaseRomPath), File.ReadAllBytes(outPath)));
+            Console.WriteLine($"exported {bps} ({new FileInfo(bps).Length} bytes)");
+        }
+        return 0;
+    }
+
     // --render <rom> <levelHex> <out.png> [cropTilesW] : compose a level to PNG for inspection.
     public static int RenderLevel(string[] args, int ri)
     {

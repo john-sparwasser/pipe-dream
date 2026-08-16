@@ -170,6 +170,7 @@ internal sealed class SpriteEditor(EditorApp app)
     internal void PushSpriteEdit(List<Sprite> before)
     {
         if (app.sprites is null) return;
+        app.currentLevelTouched = true;
         var after = new List<Sprite>(app.sprites.Sprites);
         app.history.Push(() => RestoreSprites(before), () => RestoreSprites(after));
     }
@@ -177,6 +178,7 @@ internal sealed class SpriteEditor(EditorApp app)
     private void RestoreSprites(List<Sprite> list)
     {
         if (app.sprites is null) return;
+        app.currentLevelTouched = true;
         bool vert = app.rom is not null && app.level is not null && app.rom.IsVerticalMode(app.level.Header.LevelMode);
         foreach (var s in app.sprites.Sprites.Concat(list))
         {

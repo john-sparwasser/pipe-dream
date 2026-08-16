@@ -181,17 +181,21 @@ public class ImGuiLayer : IDisposable
         fontDataHandle = GCHandle.Alloc(fontBytes, GCHandleType.Pinned);
         unsafe
         {
-            var cfg = new ImFontConfigPtr(ImGuiNative.ImFontConfig_ImFontConfig());
-            cfg.FontDataOwnedByAtlas = false; // we own the pinned bytes; freed in Dispose
-            io.Fonts.AddFontFromMemoryTTF(fontDataHandle.AddrOfPinnedObject(),
-                fontBytes.Length, uiFontSize * Scale, cfg);
-            cfg.Destroy();
-        }
+            // Default ranges stop at U+00FF, so "…" and "→" rendered as '?'. Add the
+            // general-punctuation run (dashes, quotes, ellipsis) and the arrows block.
+            // Pairs, 0-terminated; must stay pinned until the atlas is built below.
+            ushort[] ranges = { 0x0020, 0x00FF, 0x2010, 0x2026, 0x2190, 0x2193, 0 };
+            fixed (ushort* rangesPtr = ranges)
+            {
+                var cfg = new ImFontConfigPtr(ImGuiNative.ImFontConfig_ImFontConfig());
+                cfg.FontDataOwnedByAtlas = false; // we own the pinned bytes; freed in Dispose
+                io.Fonts.AddFontFromMemoryTTF(fontDataHandle.AddrOfPinnedObject(),
+                    fontBytes.Length, uiFontSize * Scale, cfg, (IntPtr)rangesPtr);
+                cfg.Destroy();
 
-        unsafe
-        {
-            io.Fonts.GetTexDataAsRGBA32(out byte* pixelData, out int width, out int height, out int _);
-            fontTexture = new Texture(app.GraphicsDevice, width, height, new ReadOnlySpan<byte>(pixelData, width * height * 4));
+                io.Fonts.GetTexDataAsRGBA32(out byte* pixelData, out int width, out int height, out int _);
+                fontTexture = new Texture(app.GraphicsDevice, width, height, new ReadOnlySpan<byte>(pixelData, width * height * 4));
+            }
         }
 
         mesh = new Mesh<PosTexColVertex, ushort>(app.GraphicsDevice);

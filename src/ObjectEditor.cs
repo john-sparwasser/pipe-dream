@@ -268,6 +268,7 @@ internal sealed class ObjectEditor(EditorApp app)
     internal void PushObjectEdit(List<LevelObject> before)
     {
         if (app.objList is null) return;
+        app.currentLevelTouched = true;
         var after = new List<LevelObject>(app.objList);
         app.history.Push(() => RestoreObjects(before), () => RestoreObjects(after));
     }
@@ -275,19 +276,11 @@ internal sealed class ObjectEditor(EditorApp app)
     private void RestoreObjects(List<LevelObject> list)
     {
         if (app.objList is null) return;
+        app.currentLevelTouched = true;
         app.objList.Clear();
         app.objList.AddRange(list);
         app.selObjs.Clear();
         RenderObjects();
-    }
-
-    // Write the edited object list (tiles included — they're DM16 objects) to a ROM copy.
-    internal void SaveEdits()
-    {
-        if (app.rom is null || app.level is null || app.objList is null) return;
-        var (status, _) = Dm16Saver.SaveObjects(app.rom, app.level, app.levelNum,
-                                                LevelEncoder.NormalizeStream(app.objList), app.loadedRomPath);
-        app.saveStatus = status;
     }
 
     // Objects palette tab: the level's parsed object list. Selection is groundwork for

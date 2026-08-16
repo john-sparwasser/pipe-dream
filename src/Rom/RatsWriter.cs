@@ -50,8 +50,11 @@ public static class RatsWriter
         }
     }
 
-    /// <summary>First free run of <paramref name="need"/> bytes in expanded space (PC ≥ 0x80000), skipping valid RATs.</summary>
-    public static int FindFreeSpace(Rom rom, int need)
+    /// <summary>First free run of <paramref name="need"/> bytes in expanded space (PC ≥ 0x80000), skipping valid RATs.
+    /// <paramref name="avoidBankCross"/>: keep the DATA span (after the 8-byte tag) inside one
+    /// 0x8000 bank — level/sprite streams are addressed by a 16-bit runtime pointer with a
+    /// fixed bank byte, so a stream straddling a bank boundary breaks in-game.</summary>
+    public static int FindFreeSpace(Rom rom, int need, bool avoidBankCross = false)
     {
         int end = rom.Data.Length - rom.HeaderOffset;
         for (int p = 0x80000; p + need <= end;)
@@ -62,6 +65,15 @@ public static class RatsWriter
                 int sz = rom.Data[fo + 4] | (rom.Data[fo + 5] << 8), inv = rom.Data[fo + 6] | (rom.Data[fo + 7] << 8);
                 if ((sz ^ inv) == 0xFFFF) { p += 8 + sz + 1; continue; }
             }
+            if (avoidBankCross)
+            {
+                int dataStart = p + 8, dataEnd = p + need - 1;
+                if (dataStart >> 15 != dataEnd >> 15)
+                {   // bump so the tag ends exactly at the boundary and the data opens the next bank
+                    p = ((dataStart >> 15) + 1 << 15) - 8;
+                    continue;
+                }
+            }
             bool ok = true;
             for (int i = 0; i < need; i++)
                 if (rom.Data[fo + i] != 0) { ok = false; p += i + 1; break; }
@@ -71,9 +83,9 @@ public static class RatsWriter
     }
 
     /// <summary>Write a RATS-protected block and return the SNES address of the data (after the tag).</summary>
-    public static int Allocate(Rom rom, byte[] data)
+    public static int Allocate(Rom rom, byte[] data, bool avoidBankCross = false)
     {
-        int pc = FindFreeSpace(rom, 8 + data.Length), fo = pc + rom.HeaderOffset;
+        int pc = FindFreeSpace(rom, 8 + data.Length, avoidBankCross), fo = pc + rom.HeaderOffset;
         rom.Data[fo] = 0x53; rom.Data[fo + 1] = 0x54; rom.Data[fo + 2] = 0x41; rom.Data[fo + 3] = 0x52;   // "STAR"
         int sm1 = data.Length - 1;
         rom.Data[fo + 4] = (byte)sm1; rom.Data[fo + 5] = (byte)(sm1 >> 8);

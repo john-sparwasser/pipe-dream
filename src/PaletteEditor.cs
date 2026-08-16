@@ -23,12 +23,14 @@ internal sealed class PaletteEditor(EditorApp app)
         if (before.Count == palEdits.Count &&
             before.All(kv => palEdits.TryGetValue(kv.Key, out var v) && v == kv.Value))
             return;
+        app.currentLevelTouched = true;
         var after = new Dictionary<int, ushort>(palEdits);
         app.history.Push(() => RestorePalEdits(before), () => RestorePalEdits(after));
     }
 
     private void RestorePalEdits(Dictionary<int, ushort> state)
     {
+        app.currentLevelTouched = true;
         palEdits.Clear();
         foreach (var (k, c) in state) palEdits[k] = c;
         app.session.RebuildGraphics();
@@ -92,32 +94,6 @@ internal sealed class PaletteEditor(EditorApp app)
             }
         }
         ImGui.PopStyleVar();
-    }
-
-    // Save the edited palette as an LM custom palette (§7e) into a ROM copy. After a
-    // successful save the edits ARE the level's palette, so the edit list resets.
-    internal void SavePalette()
-    {
-        if (app.rom is null || app.level is null) return;
-        if (!app.rom.HasLmPaletteHook)
-        { app.saveStatus = "ROM lacks LM's palette ASM — open/save it in Lunar Magic once first."; return; }
-        try
-        {
-            var pal = EditedPalette(0)!;
-            try { app.rom.WriteLmCustomPalette(app.levelNum, pal.Bgr[0], pal.Bgr); }
-            catch (InvalidOperationException) { throw; }
-            catch
-            {
-                app.rom.ExpandTo(Math.Min(0x400000, Math.Max(0x200000, app.rom.ActualRomSize * 2)));
-                app.rom.WriteLmCustomPalette(app.levelNum, pal.Bgr[0], pal.Bgr);
-            }
-            string outp = System.IO.Path.ChangeExtension(app.loadedRomPath, ".edited.smc");
-            RatsWriter.SaveAs(app.rom, outp);
-            palEdits.Clear();               // the ROM now holds these colors
-            app.session.RebuildGraphics();
-            app.saveStatus = $"palette saved -> {System.IO.Path.GetFileName(outp)} (level 0x{app.levelNum:X3} custom palette)";
-        }
-        catch (Exception e) { app.saveStatus = "palette save failed: " + e.Message; }
     }
 
     // The level palette with the editor tab's session edits applied on top.

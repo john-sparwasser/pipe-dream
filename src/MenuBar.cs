@@ -13,24 +13,50 @@ internal sealed class MenuBar(EditorApp app)
         {
             if (ImGui.BeginMenu("File"))
             {
-                if (ImGui.MenuItem("Open ROM…"))
+                if (ImGui.MenuItem("New Project…")) app.projectWizard.BeginNew();
+                if (ImGui.MenuItem("Open Project…")) app.projectWizard.BeginOpen();
+                if (ImGui.BeginMenu("Recent Projects", app.config.RecentProjects.Count > 0))
                 {
-                    // ponytail: hardcoded to the known test ROM until a file dialog exists.
-                    app.session.LoadRom(@"C:\SMW\Projects\.resources\SMW.smc");
-                }
-                if (ImGui.MenuItem("Open ROM (expanded test)…"))
-                {
-                    app.session.LoadRom(@"C:\SMW\Projects\ShaoBase\base.smc");
-                }
-                if (ImGui.MenuItem("Open DM16 test ROM…"))
-                {
-                    app.session.LoadRom(@"C:\SMW\Projects\.resources\after.smc");
+                    // Snapshot: opening a project reorders the recents list mid-iteration.
+                    foreach (var r in app.config.RecentProjects.ToArray())
+                        if (ImGui.MenuItem(r))
+                        {
+                            if (File.Exists(r)) app.projectWizard.OpenPath(r);
+                            else { app.config.RecentProjects.Remove(r); app.config.Save(); }
+                        }
+                    ImGui.EndMenu();
                 }
                 ImGui.Separator();
-                if (ImGui.MenuItem("Save DM16 edits to ROM copy", app.rom is not null && app.level is not null))
-                    app.objectEditor.SaveEdits();
-                if (ImGui.MenuItem("Save palette to ROM copy", app.rom is not null && app.level is not null))
-                    app.paletteEditor.SavePalette();
+                // Raw-ROM inspection (no project): view/debug any ROM without edit persistence.
+                if (ImGui.MenuItem("Open ROM…") && !FileDialog.Busy)
+                    FileDialog.OpenFile("SNES ROM", "smc;sfc", app.SdlWindowHandle,
+                        p => { if (p is not null) { app.project = null; app.session.LoadRom(p); } });
+                ImGui.Separator();
+                // Build applies the project snapshot to a FRESH base copy; the session
+                // ROM is never mutated by saving (the project file is the save).
+                if (ImGui.MenuItem("Build ROM", app.project is not null && app.rom is not null))
+                {
+                    app.project!.Save();   // flush current edits into the snapshot first
+                    var (status, _) = RomBuilder.Build(app.project);
+                    app.saveStatus = status;
+                }
+                if (ImGui.MenuItem("Export BPS Patch", app.project is not null && app.rom is not null))
+                {
+                    app.project!.Save();
+                    var (status, outPath) = RomBuilder.Build(app.project);
+                    if (outPath is null) app.saveStatus = status;
+                    else
+                    {
+                        // Patch maps the exact base.smc bytes to the built ROM — apply
+                        // it to the same base file (headered or not) to reproduce it.
+                        string dir = Path.Combine(app.project.Folder, "export");
+                        Directory.CreateDirectory(dir);
+                        string bps = Path.Combine(dir, app.project.Name + ".bps");
+                        File.WriteAllBytes(bps, BpsWriter.Create(
+                            File.ReadAllBytes(app.project.BaseRomPath), File.ReadAllBytes(outPath)));
+                        app.saveStatus = $"exported {Path.GetFileName(bps)}";
+                    }
+                }
                 ImGui.Separator();
                 if (ImGui.MenuItem("ROM Info", "", app.romInfoPanel.Show)) app.romInfoPanel.Show = !app.romInfoPanel.Show;
                 ImGui.Separator();

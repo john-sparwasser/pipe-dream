@@ -31,10 +31,7 @@ internal sealed class LevelViewport(EditorApp app)
             int v = app.levelNum, step = 1;
             if (ImGui.InputScalar("Level", ImGuiDataType.S32, (IntPtr)(&v), (IntPtr)(&step),
                                   IntPtr.Zero, "%03X", ImGuiInputTextFlags.CharsHexadecimal))
-            {
-                app.levelNum = Math.Clamp(v, 0, Rom.LevelCount - 1);
-                app.session.ParseLevel();
-            }
+                app.session.SwitchLevel(Math.Clamp(v, 0, Rom.LevelCount - 1));   // stashes project edits first
         }
         ImGui.SameLine();
         if (ImGui.Button("Reload")) app.session.ParseLevel();

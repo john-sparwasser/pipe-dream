@@ -15,6 +15,11 @@
     <Compile Remove="tests\**\*.cs" />
   </ItemGroup>
 
+  <!-- Tests exercise the internal project layer (Project, Config). -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="PipeDream.Tests" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="FosterFramework" Version="0.3.0" />
     <PackageReference Include="ImGui.NET" Version="1.90.5.1" />
