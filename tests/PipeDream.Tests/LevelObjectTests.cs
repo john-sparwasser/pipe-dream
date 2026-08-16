@@ -70,7 +70,7 @@ public class LevelObjectTests
             new LevelObject(false, 0x14, screen: 0, 0, 0, 0x00, -1),
             new LevelObject(false, 0x14, screen: 3, 1, 0, 0x00, -1),
         };
-        var norm = Level.NormalizeStream(objs);
+        var norm = LevelEncoder.NormalizeStream(objs);
         // Real objects come out screen-ascending with NewScreen cleared.
         var real = norm.FindAll(o => !(o.Extended && o.Byte3 == 0x01));
         Assert.Equal(new[] { 0, 3, 3 }, real.ConvertAll(o => o.Screen).ToArray());
@@ -87,7 +87,7 @@ public class LevelObjectTests
             new LevelObject(false, 0x14, screen: 0, 0, 0, 0x00, -1),
             new LevelObject(false, 0x14, screen: 5, 0, 0, 0x00, -1),
         };
-        var norm = Level.NormalizeStream(objs);
+        var norm = LevelEncoder.NormalizeStream(objs);
         // A screen-jump command to screen 5 must precede the screen-5 object (counter only +1s).
         int jump = norm.FindIndex(o => o.Extended && o.Byte3 == 0x01 && (o.Y & 0x1F) == 5);
         int obj5 = norm.FindIndex(o => !o.Extended && o.Screen == 5);
