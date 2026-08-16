@@ -1,16 +1,16 @@
 namespace PipeDream;
 
 /// <summary>
-/// Level — READING level data: ROM bytes → header + decoded object lists (CONTRACT §4).
+/// READING level data: ROM bytes → header + decoded object lists (CONTRACT §4).
 ///
 /// Mirrors the SMW loader. A Layer-1 level is a 5-byte header followed by a 3-byte object
 /// stream (some objects carry extra bytes), terminated by a 0xFF lead byte. The screen
 /// counter advances on the new-screen flag and is retargeted by screen-jump commands,
 /// exactly as `$1928` is driven in `LoadLevelData`. Layer 2 is either the same object format
-/// or a run-length-encoded background image (see DecodeBgImage). The inverse (this → bytes)
-/// lives in Level.Encode.cs.
+/// or a run-length-encoded background image (see DecodeBgImage). The inverse (Level → bytes)
+/// lives in LevelEncoder.
 /// </summary>
-public sealed partial class Level
+public static class LevelParser
 {
     /// <summary>
     /// Parse a level's Layer-1 data (header + object stream) from the ROM.
@@ -70,9 +70,16 @@ public sealed partial class Level
         return tiles;
     }
 
+    /// <summary>Parse an encoded stream buffer (5-byte header + objects + FF) — the
+    /// exact inverse of LevelEncoder.Encode, for round-trip testing of edited objects.</summary>
+    public static List<LevelObject> ParseEncoded(Rom rom, byte[] encoded)
+        => ParseObjects(rom, encoded, 5, out _);
+
     private static List<LevelObject> ParseObjects(Rom rom, int p, out bool empty)
+        => ParseObjects(rom, rom.Data, p, out empty);
+
+    private static List<LevelObject> ParseObjects(Rom rom, byte[] data, int p, out bool empty)
     {
-        var data = rom.Data;
         int fo = p - 5;
         var objs = new List<LevelObject>();
         empty = data[p] == 0xFF;

@@ -15,9 +15,23 @@ public sealed class EditHistory
     public bool CanUndo => undo.Count > 0;
     public bool CanRedo => redo.Count > 0;
 
+    // Coalesce every Push between Begin/EndGroup into a single undo entry (e.g. a move that
+    // touches both tiles and sprites). Not nested.
+    private List<Command>? group;
+    public void BeginGroup() => group ??= new();
+    public void EndGroup()
+    {
+        var g = group; group = null;
+        if (g is null || g.Count == 0) return;
+        Push(() => { for (int i = g.Count - 1; i >= 0; i--) g[i].Undo(); },
+             () => { foreach (var c in g) c.Redo(); });
+    }
+
     public void Push(Action undoAction, Action redoAction)
     {
-        undo.Add(new Command(undoAction, redoAction));
+        var cmd = new Command(undoAction, redoAction);
+        if (group is not null) { group.Add(cmd); return; }
+        undo.Add(cmd);
         if (undo.Count > Max) undo.RemoveAt(0);
         redo.Clear();
     }

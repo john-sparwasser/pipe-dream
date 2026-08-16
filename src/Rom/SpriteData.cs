@@ -1,21 +1,5 @@
 namespace PipeDream;
 
-/// <summary>One sprite entry (CONTRACT §11). Decoded from the 3-byte format confirmed at
-/// $02A82C: b1 = YYYYEEsy, b2 = XXXXSSSS, b3 = sprite number.</summary>
-public readonly record struct Sprite(int Screen, int XNibble, int Y, int Extra, int Number, byte[]? ExtraBytes = null)
-{
-    public int AbsoluteX => Screen * 16 + XNibble;
-    /// <summary>Numbers >= 0xE7 are scroll commands, not real sprites ($02A866).</summary>
-    public bool IsScrollCommand => Number >= 0xE7;
-
-    /// <summary>
-    /// Cell position honoring the level orientation. Vertical levels use the same decode
-    /// "with X and Y coords swapped" ($02A943): the Y field becomes the X cell (0-31) and
-    /// the screen walk (our AbsoluteX) runs down the level.
-    /// </summary>
-    public (int X, int Y) Cell(bool vertical) => vertical ? (Y, AbsoluteX) : (AbsoluteX, Y);
-}
-
 /// <summary>A level's sprite list + header byte (memory setting / buoyancy).</summary>
 public sealed class SpriteData
 {
@@ -141,76 +125,5 @@ public sealed class SpriteData
             for (int c = 0; c < 4; c++)
                 if ((bits & (8 >> c)) != 0) img[(py + r) * W + px + c] = 0xFFFFFFFFu;
         }
-    }
-}
-
-/// <summary>
-/// Cached sprite overlay: the expensive part (per-sprite 65816 OAM capture + SP tile
-/// decode) runs once in Build; Draw is cheap pixel blits, safe to repeat on a live
-/// canvas (used by the editor on every incremental repaint).
-/// </summary>
-public sealed class SpriteOverlay
-{
-    private readonly (Sprite s, List<SpriteRender.Oam>? oam)[] items;
-    private readonly byte[][]? sp;
-    private readonly bool vert;
-    private readonly bool pixi;
-
-    private SpriteOverlay((Sprite, List<SpriteRender.Oam>?)[] items, byte[][]? sp, bool vert, bool pixi)
-    { this.items = items; this.sp = sp; this.vert = vert; this.pixi = pixi; }
-
-    public static SpriteOverlay Build(Rom rom, SpriteData sprites, LevelHeader h, int level)
-    {
-        byte[][]? sp = null;
-        try { sp = SpriteRender.LoadSpTiles(rom, h, level); } catch { }
-        bool vert = rom.IsVerticalMode(h.LevelMode);
-        bool pixi = rom.HasPixiSpriteHook;
-        var items = new (Sprite, List<SpriteRender.Oam>?)[sprites.Sprites.Count];
-        for (int i = 0; i < items.Length; i++)
-        {
-            var s = sprites.Sprites[i];
-            var (cx, cy) = s.Cell(vert);
-            List<SpriteRender.Oam>? oam = null;
-            // PIXI custom sprites (extra bits 2/3) stay null: their editor look is defined
-            // by LM's .ssc/.dsc metadata, which we don't read — Draw shows a red-X box.
-            if (sp is not null && !s.IsScrollCommand && !(pixi && s.Extra >= 2))
-            {
-                if (s.Extra < 2 && SpriteDisplay.TryGet(s.Number, out var rel))
-                    oam = rel.Select(o => o with { X = o.X + cx * 16, Y = o.Y + cy * 16 }).ToList();
-                else
-                    oam = SpriteRender.Capture(rom, s, cx, cy, vert);
-            }
-            items[i] = (s, oam);
-        }
-        return new SpriteOverlay(items, sp, vert, pixi);
-    }
-
-    public void Draw(uint[] img, int W, int H, Palette pal, ISet<int>? skip = null)
-    {
-        for (int i = 0; i < items.Length; i++)
-        {
-            if (skip is not null && skip.Contains(i)) continue;   // e.g. sprites being dragged
-            var (s, oam) = items[i];
-            if (oam is not null && sp is not null) SpriteRender.Draw(img, W, H, oam, sp, pal);
-            else if (pixi && s.Extra >= 2 && !s.IsScrollCommand) SpriteData.DrawCustomBox(img, W, H, s, vert);
-            else SpriteData.DrawBadge(img, W, H, s, vert);
-        }
-    }
-
-    /// <summary>Level-pixel bounds of one sprite's tiles (null when badge-only).</summary>
-    public (int MinX, int MinY, int MaxX, int MaxY)? PixelBounds(int i)
-    {
-        var (_, oam) = items[i];
-        if (oam is null || oam.Count == 0) return null;
-        return (oam.Min(o => o.X), oam.Min(o => o.Y),
-                oam.Max(o => o.X + (o.Big ? 16 : 8)), oam.Max(o => o.Y + (o.Big ? 16 : 8)));
-    }
-
-    /// <summary>Draw one sprite shifted by (shiftX, shiftY) pixels — for drag ghosts.</summary>
-    public void DrawOne(int i, uint[] img, int W, int H, Palette pal, int shiftX, int shiftY)
-    {
-        var (_, oam) = items[i];
-        if (oam is null || sp is null) return;
-        SpriteRender.Draw(img, W, H, oam.Select(o => o with { X = o.X + shiftX, Y = o.Y + shiftY }).ToList(), sp, pal);
     }
 }

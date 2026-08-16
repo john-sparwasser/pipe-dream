@@ -3,13 +3,6 @@ using Foster.Framework;
 
 namespace PipeDream;
 
-/// <summary>Everything needed to compose one frame of the level canvas. The overlay
-/// delegate draws sprites for a given animation phase (img, W, H, phase).</summary>
-public readonly record struct CanvasScene(
-    uint[][][] TileCaches, uint Backdrop, Map16Grid Grid,
-    ushort[]? BgImage, uint[][][]? BgCaches, Map16Grid? Layer2,
-    int VisibleRows, Action<uint[], int, int, int>? DrawOverlay);
-
 /// <summary>
 /// Incremental level compositor: holds one composed image + texture per animation phase
 /// (CONTRACT §12), composes the Map16 grid (+ layer 2 / BG image + sprite overlay) into
@@ -34,25 +27,30 @@ public sealed class LevelCanvas : IDisposable
     public void MarkDirty(int x, int y) => dirty.Add((x, y));
     public Texture? TexFor(int phase) => texs[phase] ?? texs[0];
 
-    /// <summary>Full compose of all four phases (creates/reuses textures).</summary>
-    public void Rebuild(in CanvasScene s)
+    /// <summary>Full compose of all four phases: the CPU compose runs in parallel, and only
+    /// the visible phase's texture uploads now — the rest upload lazily via RefreshPhase as
+    /// the animation reaches them (a full-width canvas upload is ~14MB).</summary>
+    public void Rebuild(in CanvasScene s, int visiblePhase = 0)
     {
         dirty.Clear();
         try
         {
+            var scene = s;                          // `in` param can't be captured by the lambda
+            var built = new (uint[] img, int W, int H)[4];
+            System.Threading.Tasks.Parallel.For(0, 4, p =>
+            {
+                var (img, W, H) = Map16.ComposeLevel(scene.TileCaches[p], scene.Backdrop, scene.Grid,
+                                                     scene.BgImage, scene.BgCaches?[p], scene.Layer2, scene.VisibleRows);
+                scene.DrawOverlay?.Invoke(img, W, H, p);
+                built[p] = (img, W, H);
+            });
             for (int p = 0; p < 4; p++)
             {
-                var (img, W, H) = Map16.ComposeLevel(s.TileCaches[p], s.Backdrop, s.Grid,
-                                                     s.BgImage, s.BgCaches?[p], s.Layer2, s.VisibleRows);
-                s.DrawOverlay?.Invoke(img, W, H, p);
-                imgs[p] = img;
-                // Reuse the texture when the size matches — recreating 4 large textures per
-                // edit is a big part of repaint latency.
-                if (texs[p] is { } t && t.Width == W && t.Height == H) t.SetData<uint>(img);
-                else { texs[p]?.Dispose(); texs[p] = new Texture(gd, W, H, MemoryMarshal.AsBytes(img.AsSpan())); }
-                stale[p] = false;
-                PxW = W; PxH = H;
+                imgs[p] = built[p].img;
+                stale[p] = true;
+                PxW = built[p].W; PxH = built[p].H;
             }
+            RefreshPhase(visiblePhase & 3);
         }
         catch { Drop(); }
     }
@@ -75,10 +73,14 @@ public sealed class LevelCanvas : IDisposable
         RefreshPhase(visiblePhase);
     }
 
-    /// <summary>Upload a phase's image if it was recomposed since its last upload.</summary>
+    /// <summary>Upload a phase's image if it was recomposed since its last upload
+    /// (creating/resizing its texture when needed — Rebuild defers that to here).</summary>
     public void RefreshPhase(int p)
     {
-        if (stale[p] && texs[p] is { } t && imgs[p] is { } img) { t.SetData<uint>(img); stale[p] = false; }
+        if (!stale[p] || imgs[p] is not { } img) return;
+        if (texs[p] is { } t && t.Width == PxW && t.Height == PxH) t.SetData<uint>(img);
+        else { texs[p]?.Dispose(); texs[p] = new Texture(gd, PxW, PxH, MemoryMarshal.AsBytes(img.AsSpan())); }
+        stale[p] = false;
     }
 
     public void Drop()

@@ -106,7 +106,7 @@ public static class Map16
         var img = new uint[W * H];
         Array.Fill(img, backdrop);
 
-        if (level >= 0 && Level.DecodeBgImage(rom, level) is { } bgImg)
+        if (level >= 0 && LevelParser.DecodeBgImage(rom, level) is { } bgImg)
         {
             var bgCache = ComposeAllBg(rom, h, level, animPhase);
             DrawBgImage(img, W, H, grid.Width, bgImg, bgCache);
@@ -231,6 +231,24 @@ public static class Map16
         for (int i = 0; i < 4; i++)
             w[i] = new Word((ushort)(rom.Data[fo + i * 2] | (rom.Data[fo + i * 2 + 1] << 8)));
         return w;
+    }
+
+    /// <summary>
+    /// ROM file offset of a Map16 tile's 8-byte definition (word order TL,BL,TR,BR), or
+    /// -1 when the tile has no backing def. FG &lt; 0x200: vanilla per-tileset/shared bank-0D
+    /// tables; FG 0x200+: LM's extended region (when allocated); BG 0x4000-0x41FF: the
+    /// fixed $0D9100 table. This is the write target for tile editing.
+    /// </summary>
+    public static int DefFileOffset(Rom rom, int tileset, int tile)
+    {
+        if (tile < 0x200) return rom.FileOffset(BuildDefPointers(rom, tileset)[tile]);
+        if (tile < rom.Map16TileCount)
+        {
+            var (imm, bank) = rom.LmMap16Defs;
+            return rom.FileOffset((bank << 16) | (imm + tile * 8));
+        }
+        if (tile is >= 0x4000 and < 0x4200) return rom.FileOffset(0x0D9100 + (tile - 0x4000) * 8);
+        return -1;
     }
 
     /// <summary>The 4 words (TL, BL, TR, BR) of a Map16 tile.</summary>

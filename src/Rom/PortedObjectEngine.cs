@@ -1,10 +1,10 @@
 namespace PipeDream;
 
 // Hand-ported object handlers (bank 0D). Fallback path used only when the emulated
-// engine bails (LM-patched loaders); see ObjectEngine.Render. Partial of ObjectEngine.
-public static partial class ObjectEngine
+// engine bails (LM-patched loaders); see ObjectEngine.Render.
+public static class PortedObjectEngine
 {
-    public static Map16Grid RenderPorted(Rom rom, LevelHeader header, IReadOnlyList<LevelObject> objects)
+    public static Map16Grid Render(Rom rom, LevelHeader header, IReadOnlyList<LevelObject> objects)
     {
         // Full 32-screen canvas (LM parity): objects and sprites can sit on screens past
         // header.Screens (e.g. ShaoBase 105 declares 4 screens, sprites live on 9-18).
@@ -72,7 +72,7 @@ public static partial class ObjectEngine
                         if (idx >= 0 && idx < single.Length)
                             g.Set(ax, ay, single[idx] | (idx >= 0x13 ? 0x100 : 0)); // $0DA5B1 page rule
                         else
-                            g.Set(ax, ay, Marker | ext);
+                            g.Set(ax, ay, ObjectEngine.Marker | ext);
                         break;
                     }
                     case 0x0DA68E:                              // midway point bar
@@ -127,7 +127,7 @@ public static partial class ObjectEngine
                     case 0x0DE1E0:                              // LM screen jump (0x03): no tiles
                         break;
                     default:
-                        g.Set(ax, ay, Marker | ext);
+                        g.Set(ax, ay, ObjectEngine.Marker | ext);
                         break;
                 }
                 continue;
@@ -138,7 +138,7 @@ public static partial class ObjectEngine
             // $0DA41E + tileset*3, per-object handler table at dispatcher+0xA, entry (n-1)*3.
             // Handlers are shared across tilesets (theming comes from the Map16 defs), so we
             // key the port on the handler address.
-            switch (Handler(rom, header.Tileset, n))
+            switch (ObjectEngine.Handler(rom, header.Tileset, n))
             {
                 case 0x0DA8C3:                                  // rectangle family
                 {
@@ -355,7 +355,7 @@ public static partial class ObjectEngine
                 case 0x0DF160:                                  // LM obj 0x28 directive (no tiles)
                     break;
                 default:                                        // handler not ported yet
-                    g.Set(ax, ay, Marker | n);
+                    g.Set(ax, ay, ObjectEngine.Marker | n);
                     break;
             }
         }
@@ -491,7 +491,7 @@ public static partial class ObjectEngine
     private static void LedgeEdge(Map16Grid g, int ax, int ay, int type, int height,
                                   int[] top, int[] mid, int[] bot)
     {
-        if (type >= top.Length) { g.Set(ax, ay, Marker | 0x13); return; }
+        if (type >= top.Length) { g.Set(ax, ay, ObjectEngine.Marker | 0x13); return; }
         g.Set(ax, ay, top[type] | (type >= 3 ? 0x100 : 0));
         for (int row = 1; row <= height; row++)
             g.Set(ax, ay + row, mid[type] | LedgeMidPage(type));

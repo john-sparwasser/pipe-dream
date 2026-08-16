@@ -108,7 +108,7 @@ public static class SpriteDisplay
             try
             {
                 sd = SpriteData.Parse(rom, lvl);
-                files = SpriteRender.ResolveSpFiles(rom, Level.Parse(rom, lvl).Header, lvl);
+                files = SpriteRender.ResolveSpFiles(rom, LevelParser.Parse(rom, lvl).Header, lvl);
             }
             catch { continue; }
             foreach (var s in sd.Sprites)

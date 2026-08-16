@@ -200,84 +200,98 @@ public class ImGuiLayer : IDisposable
         ImGui.SetCurrentContext(nint.Zero);
     }
 
-    // Nuklear-style dark gray theme. Rounding/padding are in ImGui's virtual
+    // Dark studio theme (modeled on the SMB3 Workshop reference: near-black chrome,
+    // subtle 1px control borders, small radii on controls only, one blue accent for
+    // active/selected state, bright text). Rounding/padding are in ImGui's virtual
     // units, so they scale with Scale automatically — no manual DPI multiply.
     private static void ApplyNuklearDarkGray()
     {
         var style = ImGui.GetStyle();
         var c = style.Colors;
 
-        c[(int)ImGuiCol.Text]                  = new Vector4(0.69f, 0.69f, 0.69f, 1.00f);
-        c[(int)ImGuiCol.TextDisabled]          = new Vector4(0.35f, 0.35f, 0.35f, 1.00f);
-        c[(int)ImGuiCol.WindowBg]              = new Vector4(0.18f, 0.18f, 0.18f, 1.00f);
-        c[(int)ImGuiCol.ChildBg]               = new Vector4(0.00f, 0.00f, 0.00f, 0.00f);
-        c[(int)ImGuiCol.PopupBg]               = new Vector4(0.18f, 0.18f, 0.18f, 1.00f);
-        c[(int)ImGuiCol.Border]                = new Vector4(0.22f, 0.22f, 0.22f, 1.00f);
-        c[(int)ImGuiCol.BorderShadow]          = new Vector4(0.00f, 0.00f, 0.00f, 0.00f);
-        c[(int)ImGuiCol.FrameBg]               = new Vector4(0.15f, 0.15f, 0.15f, 1.00f);
-        c[(int)ImGuiCol.FrameBgHovered]        = new Vector4(0.29f, 0.29f, 0.29f, 1.00f);
-        c[(int)ImGuiCol.FrameBgActive]         = new Vector4(0.39f, 0.39f, 0.39f, 1.00f);
-        c[(int)ImGuiCol.TitleBg]               = new Vector4(0.15f, 0.15f, 0.15f, 1.00f);
-        c[(int)ImGuiCol.TitleBgActive]         = new Vector4(0.18f, 0.18f, 0.18f, 1.00f);
-        c[(int)ImGuiCol.TitleBgCollapsed]      = new Vector4(0.15f, 0.15f, 0.15f, 1.00f);
-        c[(int)ImGuiCol.MenuBarBg]             = new Vector4(0.14f, 0.14f, 0.14f, 1.00f);
-        c[(int)ImGuiCol.ScrollbarBg]           = new Vector4(0.18f, 0.18f, 0.18f, 1.00f);
-        c[(int)ImGuiCol.ScrollbarGrab]         = new Vector4(0.31f, 0.31f, 0.31f, 1.00f);
-        c[(int)ImGuiCol.ScrollbarGrabHovered]  = new Vector4(0.41f, 0.41f, 0.41f, 1.00f);
-        c[(int)ImGuiCol.ScrollbarGrabActive]   = new Vector4(0.51f, 0.51f, 0.51f, 1.00f);
-        c[(int)ImGuiCol.CheckMark]             = new Vector4(0.69f, 0.69f, 0.69f, 1.00f);
-        c[(int)ImGuiCol.SliderGrab]            = new Vector4(0.40f, 0.40f, 0.40f, 1.00f);
-        c[(int)ImGuiCol.SliderGrabActive]      = new Vector4(0.59f, 0.59f, 0.59f, 1.00f);
-        c[(int)ImGuiCol.Button]                = new Vector4(0.22f, 0.22f, 0.22f, 1.00f);
-        c[(int)ImGuiCol.ButtonHovered]         = new Vector4(0.15f, 0.15f, 0.15f, 1.00f);
-        c[(int)ImGuiCol.ButtonActive]          = new Vector4(0.12f, 0.12f, 0.12f, 1.00f);
-        c[(int)ImGuiCol.Header]                = new Vector4(0.18f, 0.18f, 0.18f, 0.00f);
-        c[(int)ImGuiCol.HeaderHovered]         = new Vector4(0.22f, 0.22f, 0.22f, 0.78f);
-        c[(int)ImGuiCol.HeaderActive]          = new Vector4(0.29f, 0.29f, 0.29f, 0.78f);
-        c[(int)ImGuiCol.Separator]             = new Vector4(0.29f, 0.29f, 0.29f, 0.50f);
-        c[(int)ImGuiCol.SeparatorHovered]      = new Vector4(0.49f, 0.49f, 0.49f, 0.78f);
-        c[(int)ImGuiCol.SeparatorActive]       = new Vector4(0.69f, 0.69f, 0.69f, 1.00f);
-        c[(int)ImGuiCol.ResizeGrip]            = new Vector4(0.29f, 0.29f, 0.29f, 1.00f);
-        c[(int)ImGuiCol.ResizeGripHovered]     = new Vector4(0.49f, 0.49f, 0.49f, 1.00f);
-        c[(int)ImGuiCol.ResizeGripActive]      = new Vector4(0.69f, 0.69f, 0.69f, 1.00f);
-        c[(int)ImGuiCol.TabHovered]            = new Vector4(0.49f, 0.49f, 0.49f, 0.80f);
-        c[(int)ImGuiCol.Tab]                   = new Vector4(0.29f, 0.29f, 0.29f, 1.00f);
-        c[(int)ImGuiCol.TabActive]             = new Vector4(0.39f, 0.39f, 0.39f, 1.00f);
-        c[(int)ImGuiCol.TabUnfocused]          = new Vector4(0.29f, 0.29f, 0.29f, 0.78f);
-        c[(int)ImGuiCol.TabUnfocusedActive]    = new Vector4(0.39f, 0.39f, 0.39f, 0.78f);
-        c[(int)ImGuiCol.DockingPreview]        = new Vector4(0.69f, 0.69f, 0.69f, 0.78f);
-        c[(int)ImGuiCol.DockingEmptyBg]        = new Vector4(0.22f, 0.22f, 0.22f, 1.00f);
-        c[(int)ImGuiCol.PlotLines]             = new Vector4(0.61f, 0.61f, 0.61f, 1.00f);
-        c[(int)ImGuiCol.PlotLinesHovered]      = new Vector4(1.00f, 0.43f, 0.35f, 1.00f);
-        c[(int)ImGuiCol.PlotHistogram]         = new Vector4(0.90f, 0.70f, 0.00f, 1.00f);
-        c[(int)ImGuiCol.PlotHistogramHovered]  = new Vector4(1.00f, 0.60f, 0.00f, 1.00f);
-        c[(int)ImGuiCol.TableHeaderBg]         = new Vector4(0.19f, 0.19f, 0.20f, 1.00f);
-        c[(int)ImGuiCol.TableBorderStrong]     = new Vector4(0.29f, 0.29f, 0.29f, 1.00f);
-        c[(int)ImGuiCol.TableBorderLight]      = new Vector4(0.29f, 0.29f, 0.29f, 0.50f);
-        c[(int)ImGuiCol.TableRowBg]            = new Vector4(0.00f, 0.00f, 0.00f, 0.00f);
-        c[(int)ImGuiCol.TableRowBgAlt]         = new Vector4(1.00f, 1.00f, 1.00f, 0.06f);
-        c[(int)ImGuiCol.TextSelectedBg]        = new Vector4(0.26f, 0.59f, 0.98f, 0.35f);
-        c[(int)ImGuiCol.DragDropTarget]        = new Vector4(1.00f, 1.00f, 0.00f, 0.90f);
-        c[(int)ImGuiCol.NavHighlight]          = new Vector4(0.98f, 0.98f, 0.98f, 1.00f);
-        c[(int)ImGuiCol.NavWindowingHighlight] = new Vector4(1.00f, 1.00f, 1.00f, 0.70f);
-        c[(int)ImGuiCol.NavWindowingDimBg]     = new Vector4(0.80f, 0.80f, 0.80f, 0.20f);
-        c[(int)ImGuiCol.ModalWindowDimBg]      = new Vector4(0.80f, 0.80f, 0.80f, 0.35f);
+        // Palette: slightly blue-tinted greys + a single accent.
+        var text    = new Vector4(0.92f, 0.92f, 0.94f, 1.00f);
+        var textDim = new Vector4(0.46f, 0.47f, 0.52f, 1.00f);
+        var bg0     = new Vector4(0.055f, 0.055f, 0.065f, 1.00f);   // menu bar / chrome
+        var bg1     = new Vector4(0.095f, 0.097f, 0.110f, 1.00f);   // panels
+        var bg2     = new Vector4(0.135f, 0.140f, 0.160f, 1.00f);   // buttons / inputs
+        var bg3     = new Vector4(0.175f, 0.180f, 0.205f, 1.00f);   // hovered
+        var bg4     = new Vector4(0.215f, 0.225f, 0.255f, 1.00f);   // pressed
+        var line    = new Vector4(0.215f, 0.225f, 0.255f, 1.00f);   // 1px control borders
+        var accent  = new Vector4(0.13f, 0.46f, 0.95f, 1.00f);      // #2175F2
+        var accentHi = new Vector4(0.24f, 0.55f, 1.00f, 1.00f);
 
-        style.WindowRounding    = 2.0f;
-        style.ChildRounding     = 2.0f;
-        style.FrameRounding     = 2.0f;
-        style.PopupRounding     = 2.0f;
-        style.ScrollbarRounding = 2.0f;
-        style.GrabRounding      = 2.0f;
-        style.TabRounding       = 2.0f;
+        c[(int)ImGuiCol.Text]                  = text;
+        c[(int)ImGuiCol.TextDisabled]          = textDim;
+        c[(int)ImGuiCol.WindowBg]              = bg1;
+        c[(int)ImGuiCol.ChildBg]               = new Vector4(0, 0, 0, 0);
+        c[(int)ImGuiCol.PopupBg]               = new Vector4(0.105f, 0.107f, 0.122f, 1.00f);
+        c[(int)ImGuiCol.Border]                = line;
+        c[(int)ImGuiCol.BorderShadow]          = new Vector4(0, 0, 0, 0);
+        c[(int)ImGuiCol.FrameBg]               = bg2;
+        c[(int)ImGuiCol.FrameBgHovered]        = bg3;
+        c[(int)ImGuiCol.FrameBgActive]         = bg4;
+        c[(int)ImGuiCol.TitleBg]               = bg0;
+        c[(int)ImGuiCol.TitleBgActive]         = bg1;
+        c[(int)ImGuiCol.TitleBgCollapsed]      = bg0;
+        c[(int)ImGuiCol.MenuBarBg]             = bg0;
+        c[(int)ImGuiCol.ScrollbarBg]           = new Vector4(0.07f, 0.07f, 0.08f, 1.00f);
+        c[(int)ImGuiCol.ScrollbarGrab]         = new Vector4(0.24f, 0.25f, 0.28f, 1.00f);
+        c[(int)ImGuiCol.ScrollbarGrabHovered]  = new Vector4(0.31f, 0.32f, 0.36f, 1.00f);
+        c[(int)ImGuiCol.ScrollbarGrabActive]   = new Vector4(0.38f, 0.39f, 0.44f, 1.00f);
+        c[(int)ImGuiCol.CheckMark]             = accent;
+        c[(int)ImGuiCol.SliderGrab]            = accent;
+        c[(int)ImGuiCol.SliderGrabActive]      = accentHi;
+        c[(int)ImGuiCol.Button]                = bg2;
+        c[(int)ImGuiCol.ButtonHovered]         = bg3;
+        c[(int)ImGuiCol.ButtonActive]          = bg4;
+        c[(int)ImGuiCol.Header]                = accent with { W = 0.32f };   // list/tree selection
+        c[(int)ImGuiCol.HeaderHovered]         = accent with { W = 0.45f };
+        c[(int)ImGuiCol.HeaderActive]          = accent with { W = 0.58f };
+        c[(int)ImGuiCol.Separator]             = line with { W = 0.60f };
+        c[(int)ImGuiCol.SeparatorHovered]      = accent with { W = 0.60f };
+        c[(int)ImGuiCol.SeparatorActive]       = accent;
+        c[(int)ImGuiCol.ResizeGrip]            = line;
+        c[(int)ImGuiCol.ResizeGripHovered]     = accent with { W = 0.70f };
+        c[(int)ImGuiCol.ResizeGripActive]      = accent;
+        c[(int)ImGuiCol.Tab]                   = new Vector4(0, 0, 0, 0);     // text-only tabs;
+        c[(int)ImGuiCol.TabHovered]            = bg3;                          // active = raised block
+        c[(int)ImGuiCol.TabActive]             = bg3;
+        c[(int)ImGuiCol.TabUnfocused]          = new Vector4(0, 0, 0, 0);
+        c[(int)ImGuiCol.TabUnfocusedActive]    = bg2;
+        c[(int)ImGuiCol.DockingPreview]        = accent with { W = 0.60f };
+        c[(int)ImGuiCol.DockingEmptyBg]        = bg0;
+        c[(int)ImGuiCol.PlotLines]             = accent;
+        c[(int)ImGuiCol.PlotLinesHovered]      = accentHi;
+        c[(int)ImGuiCol.PlotHistogram]         = accent;
+        c[(int)ImGuiCol.PlotHistogramHovered]  = accentHi;
+        c[(int)ImGuiCol.TableHeaderBg]         = bg2;
+        c[(int)ImGuiCol.TableBorderStrong]     = line;
+        c[(int)ImGuiCol.TableBorderLight]      = line with { W = 0.50f };
+        c[(int)ImGuiCol.TableRowBg]            = new Vector4(0, 0, 0, 0);
+        c[(int)ImGuiCol.TableRowBgAlt]         = new Vector4(1, 1, 1, 0.04f);
+        c[(int)ImGuiCol.TextSelectedBg]        = accent with { W = 0.35f };
+        c[(int)ImGuiCol.DragDropTarget]        = accentHi;
+        c[(int)ImGuiCol.NavHighlight]          = accent;
+        c[(int)ImGuiCol.NavWindowingHighlight] = new Vector4(1, 1, 1, 0.70f);
+        c[(int)ImGuiCol.NavWindowingDimBg]     = new Vector4(0, 0, 0, 0.45f);
+        c[(int)ImGuiCol.ModalWindowDimBg]      = new Vector4(0, 0, 0, 0.45f);
 
-        style.WindowBorderSize  = 1.0f;
-        style.ChildBorderSize   = 1.0f;
-        style.FrameBorderSize   = 1.0f;
+        style.WindowRounding    = 0.0f;   // panels stay square...
+        style.ChildRounding     = 0.0f;
+        style.FrameRounding     = 3.0f;   // ...controls get the reference's small radius
+        style.PopupRounding     = 3.0f;
+        style.ScrollbarRounding = 0.0f;
+        style.GrabRounding      = 6.0f;   // round slider knobs
+        style.TabRounding       = 3.0f;
+
+        style.WindowBorderSize  = 0.0f;   // panels separated by contrast, not borders
+        style.ChildBorderSize   = 0.0f;
+        style.FrameBorderSize   = 1.0f;   // subtle 1px outline on buttons/inputs
         style.PopupBorderSize   = 1.0f;
 
         style.WindowPadding     = new Vector2(10, 8);
-        style.FramePadding      = new Vector2(6, 4);
+        style.FramePadding      = new Vector2(8, 4);
         style.ItemSpacing       = new Vector2(8, 6);
         style.ItemInnerSpacing  = new Vector2(5, 4);
         style.IndentSpacing     = 16.0f;

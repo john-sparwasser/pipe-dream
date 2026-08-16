@@ -197,7 +197,9 @@ public sealed class ExAnimation
             }
             states[p] = new Dictionary<int, TileAnim>(cur); // snapshot the accumulated state
         }
-        globalStateCache.Add(rom, states);
+        // AddOrUpdate: RebuildGraphics calls this from Parallel.For, so two threads can
+        // miss TryGetValue together — a duplicate compute is fine, a duplicate Add throws.
+        globalStateCache.AddOrUpdate(rom, states);
         return states;
     }
 

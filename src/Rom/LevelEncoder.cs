@@ -1,8 +1,8 @@
 namespace PipeDream;
 
 /// <summary>
-/// Level — SAVING level data: object list → raw Layer-1 byte stream (CONTRACT §4), the exact
-/// inverse of Level.Parse. Each object re-emits its 3 bytes (+ extras for screen exits and
+/// SAVING level data: object list → raw Layer-1 byte stream (CONTRACT §4), the exact
+/// inverse of LevelParser. Each object re-emits its 3 bytes (+ extras for screen exits and
 /// DM16 forms), preceded by the 5-byte header copied verbatim from the ROM (header fields
 /// aren't re-derived yet), terminated by 0xFF. Round-trip verified byte-identical.
 ///
@@ -10,9 +10,9 @@ namespace PipeDream;
 /// new-screen bit only advances the running screen counter by 1, arbitrary placement needs
 /// explicit screen-jump commands, which this inserts (matching how LM stores levels).
 /// </summary>
-public sealed partial class Level
+public static class LevelEncoder
 {
-    public byte[] Encode(Rom rom) => Encode(rom, Objects);
+    public static byte[] Encode(Level level, Rom rom) => Encode(level, rom, level.Objects);
 
     /// <summary>
     /// Order an edited object list into a valid stream: objects sorted by absolute screen
@@ -21,23 +21,34 @@ public sealed partial class Level
     /// advances the running screen counter by 1, so arbitrary placement needs explicit jumps.
     /// </summary>
     public static List<LevelObject> NormalizeStream(IEnumerable<LevelObject> objs)
+        => NormalizeStream(objs, null);
+
+    /// <summary>
+    /// Same, optionally recording each output entry's source index in the input enumeration
+    /// (-1 for inserted screen jumps) — lets callers map stream records back to their list.
+    /// </summary>
+    public static List<LevelObject> NormalizeStream(IEnumerable<LevelObject> objs, List<int>? provenance)
     {
         var outl = new List<LevelObject>();
         int running = 0;
-        foreach (var o in objs.OrderBy(o => o.Screen))
+        // Input screen jumps are dropped and re-derived below — they're stream plumbing,
+        // not content. Keeping them would stack a fresh jump in front of each old one on
+        // every normalize→save cycle, growing the stream forever.
+        foreach (var (o, i) in objs.Select((o, i) => (o, i)).Where(t => !t.o.IsScreenJump).OrderBy(t => t.o.Screen))
         {
-            if (o.Screen != running) { outl.Add(LevelObject.ScreenJump(o.Screen)); running = o.Screen; }
-            outl.Add(o.WithNewScreen(false));
+            if (o.Screen != running) { outl.Add(LevelObject.ScreenJump(o.Screen)); provenance?.Add(-1); running = o.Screen; }
+            outl.Add(o.WithNewScreen(false)); provenance?.Add(i);
         }
         return outl;
     }
 
-    /// <summary>Encode this level's header (verbatim from ROM) + a given object list + 0xFF.</summary>
-    public byte[] Encode(Rom rom, IEnumerable<LevelObject> objects)
+    /// <summary>Encode a level's header (verbatim from ROM) + a given object list + 0xFF.
+    /// <paramref name="offsets"/>, when given, records each object's byte offset in the output.</summary>
+    public static byte[] Encode(Level level, Rom rom, IEnumerable<LevelObject> objects, List<int>? offsets = null)
     {
         var outb = new List<byte>(256);
-        outb.AddRange(rom.Data.AsSpan(rom.FileOffset(DataPointer), 5).ToArray());   // header
-        foreach (var o in objects) AppendObject(outb, o);
+        outb.AddRange(rom.Data.AsSpan(rom.FileOffset(level.DataPointer), 5).ToArray());   // header
+        foreach (var o in objects) { offsets?.Add(outb.Count); AppendObject(outb, o); }
         outb.Add(0xFF);
         return outb.ToArray();
     }

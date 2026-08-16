@@ -37,6 +37,21 @@ public static class Gfx
     public static byte[] DecompressFile(Rom rom, int file)
         => Lz2Decompress(rom.Data, rom.FileOffset(SourceSnes(rom, file)));
 
+    /// <summary>DecompressFile with a per-ROM cache (GFX data is immutable per ROM;
+    /// recompose paths re-read the same files constantly). Null = absent/corrupt file.
+    /// Locked: the phase composes run on parallel workers.</summary>
+    public static byte[]? Cached(Rom rom, int file)
+    {
+        lock (rom.GfxFileCache)
+        {
+            if (rom.GfxFileCache.TryGetValue(file, out var hit)) return hit;
+            byte[]? data = null;
+            int src = SourceSnes(rom, file);
+            if (src > 0) { try { data = Lz2Decompress(rom.Data, rom.FileOffset(src)); } catch { } }
+            return rom.GfxFileCache[file] = data;
+        }
+    }
+
     /// <summary>
     /// The bit-depth every GFX/ExGFX file in this ROM is stored at. It is NOT knowable from
     /// a single file's decompressed size — a partial ExGFX file (e.g. 64 tiles) is ambiguous
@@ -188,11 +203,7 @@ public static class Gfx
                     file = bypass[BypassSlotWord[s]] & 0xFFF;
                     if (file == 0x7F) continue;                    // slot off → blank
                 }
-                int src = SourceSnes(rom, file);
-                if (src < 0) continue;                             // skipped / not inserted → blank
-                byte[] data;
-                try { data = Lz2Decompress(rom.Data, rom.FileOffset(src)); }
-                catch { continue; }                                // bad pointer/data → blank, don't crash
+                if (Cached(rom, file) is not { } data) continue;   // missing/corrupt → blank
 
                 int tb = TileBytes(bpp), n = data.Length / tb;
                 var tiles = new byte[n][];

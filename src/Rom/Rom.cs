@@ -3,18 +3,17 @@ using System.Text;
 namespace PipeDream;
 
 /// <summary>
-/// SMW ROM container + addressing foundation (CONTRACT §1). This core partial holds the raw
-/// bytes, the parsed SNES internal header, and the LoROM address math every other partial
-/// builds on. The rest of the ROM surface is split by concern:
+/// SMW ROM container + addressing foundation (CONTRACT §1, §3). Holds the raw bytes, the
+/// parsed SNES internal header, the LoROM address math everything else builds on, and the
+/// per-level pointer tables (where level data lives). The rest of the ROM surface lives in:
 ///
-///   • Rom.LevelData.cs  — reading the per-level pointer tables (where level data lives)
-///   • Rom.Save.cs       — the write path: RATS free-space allocation, expand, checksum, save
-///   • Rom.LunarMagic.cs — detecting LM hacks and locating/decoding LM's expanded tables
+///   • RatsWriter.cs  — the write path: RATS free-space allocation, checksum, save
+///   • LunarMagic.cs  — detecting LM hacks and locating/decoding LM's expanded tables
 ///
 /// LoROM only (SMW is always LoROM). An address called "snes" is a 24-bit SNES address; "pc"
 /// is the headerless ROM offset; a file offset = pc + HeaderOffset (the copier header, if any).
 /// </summary>
-public sealed partial class Rom
+public sealed class Rom
 {
     public byte[] Data;               // raw file bytes (includes copier header if present)
     public readonly int HeaderOffset; // 0x200 if a 512-byte copier header is present, else 0
@@ -92,4 +91,81 @@ public sealed partial class Rom
         0x31 => "HiROM+FastROM",
         _ => $"0x{MapMode:X2}",
     };
+
+    /// <summary>Grow the ROM to <paramref name="romBytes"/> (zero-filled) and update the size code.</summary>
+    public void ExpandTo(int romBytes)
+    {
+        int want = romBytes + HeaderOffset;
+        if (Data.Length >= want) return;
+        var n = new byte[want];
+        Array.Copy(Data, n, Data.Length);
+        Data = n;
+        int kb = romBytes / 1024, code = 0;
+        while ((1 << code) < kb) code++;
+        Data[0x7FD7 + HeaderOffset] = (byte)code;
+    }
+
+    // --- Per-level pointer tables (CONTRACT §3) ------------------------------
+    // SMW keeps three parallel per-level pointer tables in bank $05, indexed by level number
+    // (0x000-0x1FF). Each entry says where that level's raw data begins; the actual decoding
+    // of that data lives elsewhere (LevelParser.Parse for the header + Layer-1/2 object
+    // streams, SpriteData.Parse for the sprite stream). This only resolves the pointers.
+    //
+    //   Layer 1  $05E000  3 bytes/level  → header (5 bytes) + Layer-1 object stream
+    //   Layer 2  $05E600  3 bytes/level  → Layer-2 object stream, OR a background image when
+    //                                       the pointer's bank is $FF (a background-image id,
+    //                                       not a real address)
+    //   Sprites  $05EC00  2 bytes/level  → sprite stream; the data bank is fixed at $07
+
+    public const int Layer1TableSnes = 0x05E000; // 3 bytes/level
+    public const int Layer2TableSnes = 0x05E600; // 3 bytes/level
+    public const int SpriteTableSnes = 0x05EC00; // 2 bytes/level, data bank fixed $07
+    public const int LevelCount = 0x200;
+
+    /// <summary>24-bit SNES pointer to a level's Layer 1 header+object data.</summary>
+    public int Layer1Pointer(int level) => ReadValue(Layer1TableSnes + level * 3, 3);
+
+    /// <summary>Repoint a level's Layer 1 table entry at a SNES address.</summary>
+    public void SetLayer1Pointer(int level, int snes)
+    {
+        int fo = FileOffset(Layer1TableSnes + level * 3);
+        Data[fo] = (byte)snes; Data[fo + 1] = (byte)(snes >> 8); Data[fo + 2] = (byte)(snes >> 16);
+    }
+
+    /// <summary>Layer 2 pointer. Bank $FF means "layer 2 is a background image", not object data.</summary>
+    public int Layer2Pointer(int level) => ReadValue(Layer2TableSnes + level * 3, 3);
+    public bool Layer2IsBackground(int level) => (Layer2Pointer(level) >> 16) == 0xFF;
+
+    /// <summary>Sprite data pointer. Low 16 bits from the vanilla table; the bank is fixed
+    /// $07 in clean ROMs, but LM relocates sprite data and keeps a per-level BANK table
+    /// (<see cref="LunarMagic"/>'s LmSpriteBankTable) — reading bank $07 there yields stale data.</summary>
+    public int SpritePointer(int level)
+    {
+        int bank = this.LmSpriteBankTable >= 0 ? ReadByte(this.LmSpriteBankTable + level) : 0x07;
+        return (bank << 16) | ReadValue(SpriteTableSnes + level * 2, 2);
+    }
+
+    /// <summary>True if a level mode is vertical (VerticalTable $058417, bit 0).</summary>
+    public bool IsVerticalMode(int levelMode) => (ReadByte(0x058417 + (levelMode & 0x1F)) & 1) != 0;
+
+    // --- Lunar Magic per-ROM state (logic in LunarMagic.cs) ------------------
+    // Scan caches for LM's per-ROM table bases (-2 = not scanned yet; found once by
+    // signature scan) plus session state. They live here because they are per-Rom-instance
+    // state; everything that reads/writes them is in LunarMagic.cs.
+
+    internal int lmActsAsBase = -2, lmGfxBypassBase = -2, lmExGfxBase = -2, lmSpriteSizeBase = -2, lmExAnimBase = -2;
+    internal int lmGlobalExAnimPtr = -2;
+    internal int lmExAnimSetupEntry = -2, lmExAnimProcEntry = -2;
+    internal int pixiTable = -2;
+    internal int lmSpriteBankTable = -2;
+    internal int map16TileCount = -1;
+
+    /// <summary>Session-only GFX slot overrides (the editor's GFX tab): (level, bypass word
+    /// index) → GFX/ExGFX file. Overlaid on the bypass record in LunarMagic.LmGfxBypass so
+    /// every consumer — Map16 compose, sprite tiles, the GFX tab — resolves the same files.
+    /// Never saved.</summary>
+    public readonly Dictionary<(int Level, int Word), int> GfxSlotOverrides = new();
+
+    /// <summary>Decompressed GFX file cache for <see cref="Gfx.Cached"/> (file# → data).</summary>
+    internal readonly Dictionary<int, byte[]?> GfxFileCache = new();
 }

@@ -36,7 +36,7 @@ public static class RomSelfCheck
             Check("Layer1Pointer(0) == $068654", r.Layer1Pointer(0) == 0x068654);
             Check("Layer2 level 0 is background (bank $FF)", r.Layer2IsBackground(0));
             Check("SpritePointer(0) == $07C407", r.SpritePointer(0) == 0x07C407);
-            Check("clean ROM has no RATS (unexpanded)", !r.EnumerateRats().Any());
+            Check("clean ROM has no RATS (unexpanded)", !RatsWriter.EnumerateRats(r).Any());
         }
         else Console.WriteLine($"(skip) clean ROM not found: {CleanRom}");
 
@@ -44,7 +44,7 @@ public static class RomSelfCheck
         {
             Console.WriteLine($"Edited ROM: {EditedRom}");
             var r = Rom.Load(EditedRom);
-            var rats = r.EnumerateRats().ToList();
+            var rats = RatsWriter.EnumerateRats(r).ToList();
             Check("map mode == LoROM (0x20)", r.MapMode == 0x20);
             Check("expanded to >= 2MB", r.ActualRomSize >= 0x200000);
             Check("has valid RATS", rats.Count > 0);
@@ -57,7 +57,7 @@ public static class RomSelfCheck
         {
             Console.WriteLine("Level parse (clean ROM, level 0x105 = Yoshi's Island 2):");
             var r = Rom.Load(CleanRom);
-            var lv = Level.Parse(r, 0x105);
+            var lv = LevelParser.Parse(r, 0x105);
             var h = lv.Header;
             Console.WriteLine($"    header@${lv.DataPointer:X6}  tileset={h.Tileset} mode={h.LevelMode} " +
                               $"screens={h.Screens} fgPal={h.FgPalette} bgPal={h.BgPalette} music={h.Music}");
@@ -77,7 +77,7 @@ public static class RomSelfCheck
         {
             Console.WriteLine("Object engine (YI2 → Map16 grid):");
             var r = Rom.Load(CleanRom);
-            var lv = Level.Parse(r, 0x105);
+            var lv = LevelParser.Parse(r, 0x105);
             var grid = ObjectEngine.Render(r, lv);
             int placed = grid.PlacedCount();
             int markers = grid.Tiles.Count(t => t != Map16Grid.Empty && (t & ObjectEngine.Marker) != 0);
@@ -104,6 +104,175 @@ public static class RomSelfCheck
                 Console.WriteLine($"      obj {gr.Key:X2} × {gr.Count()}" +
                                   (impl.Contains(gr.Key) ? "  [impl]" : "  [TODO handler]"));
         }
+
+        if (File.Exists(CleanRom))
+        {
+            Console.WriteLine("Owner attribution + resize probe (tracked render):");
+            var r = Rom.Load(CleanRom);
+            var lv = LevelParser.Parse(r, 0x105);
+            // Find a plain rect-fill object in this tileset via the probe itself:
+            // 1x1 at byte3=0x00 and exactly 2 wide x 3 tall at byte3=0x21.
+            int rectNum = 0;
+            for (int n = 1; n <= 0x3F && rectNum == 0; n++)
+                if (ObjectEngine.ProbeResize(r, lv, n) is { W: ObjectEngine.SizeSrc.Lo, H: ObjectEngine.SizeSrc.Hi } &&
+                    ObjectEngine.SoloBBox(r, lv, n, 0x00) == (1, 1) &&
+                    ObjectEngine.SoloBBox(r, lv, n, 0x21) == (2, 3))
+                    rectNum = n;
+            Check("probe finds a rect-family object", rectNum != 0);
+            if (rectNum != 0)
+            {
+                Console.WriteLine($"    using obj {rectNum:X2}: two objects on different screens (jump inserted)");
+                var objs = new List<LevelObject>
+                {
+                    new(false, rectNum, 0, 4, 10, 0x21, -1),   // 2 wide x 3 tall at (4,10)
+                    new(false, rectNum, 1, 2, 5, 0x13, -1),    // 4 wide x 2 tall at (18,5)
+                    new(false, rectNum, 0, 4, 10, 0x11, -1),   // 2x2 at (4,10): covers obj 1's top
+                };
+                var prov = new List<int>();
+                var norm = LevelEncoder.NormalizeStream(objs, prov);
+                var offs = new List<int>();
+                byte[] enc = LevelEncoder.Encode(lv, r, norm, offs);
+                var so = new ushort[enc.Length];
+                for (int i = 0; i < norm.Count; i++)
+                {
+                    if (prov[i] < 0) continue;
+                    int end = i + 1 < norm.Count ? offs[i + 1] : enc.Length - 1;
+                    for (int b = offs[i]; b < end; b++) so[b] = (ushort)(prov[i] + 1);
+                }
+                ObjectEngine.RenderEmulatedStream(r, lv.Header, enc, 0, so, out var owners, out var stacks);
+                (int x0, int y0, int x1, int y1)? BBox(int id)
+                {
+                    (int x0, int y0, int x1, int y1)? bb = null;
+                    for (int y = 0; y < owners!.Height; y++)
+                        for (int x = 0; x < owners.Width; x++)
+                            if (owners.Get(x, y) == id)
+                                bb = bb is { } e ? (Math.Min(e.x0, x), Math.Min(e.y0, y), Math.Max(e.x1, x), Math.Max(e.y1, y))
+                                                 : (x, y, x, y);
+                    return bb;
+                }
+                Check("owner grid produced", owners is not null);
+                // Obj 3 (later in stream) covers obj 1's top 2x2 — z-order is stream order.
+                Check("obj 1 visibly owns only its uncovered row (4,12)-(5,12)", BBox(1) == (4, 12, 5, 12));
+                Check("obj 2 owns exactly its 4x2 rect at (18,5)", BBox(2) == (18, 5, 21, 6));
+                Check("obj 3 owns the 2x2 it covers at (4,10)", BBox(3) == (4, 10, 5, 11));
+                Check("no stray owner ids", owners!.Tiles.All(t => t is 0 or 1 or 2 or 3 || t == Map16Grid.Empty));
+                // Full writer stacks: covered cells remember every writer, bottom→top.
+                Check("stacks produced", stacks is not null);
+                Check("covered cell (4,10) stack is [1,3]",
+                      stacks!.TryGetValue(10 * owners.Width + 4, out var s1) && s1.SequenceEqual(new ushort[] { 1, 3 }));
+                Check("uncovered cell (4,12) stack is [1]",
+                      stacks.TryGetValue(12 * owners.Width + 4, out var s2) && s2.SequenceEqual(new ushort[] { 1 }));
+                // Full extent of buried obj 1 from stacks (what selection/handles use).
+                (int x0, int y0, int x1, int y1)? full = null;
+                foreach (var (cell, ids) in stacks)
+                    if (ids.Contains((ushort)1))
+                    {
+                        int x = cell % owners.Width, y = cell / owners.Width;
+                        full = full is { } e ? (Math.Min(e.x0, x), Math.Min(e.y0, y), Math.Max(e.x1, x), Math.Max(e.y1, y))
+                                             : (x, y, x, y);
+                    }
+                Check("obj 1 full extent from stacks is still 2x3 at (4,10)", full == (4, 10, 5, 12));
+            }
+            Console.WriteLine("DM16 brush -> objects (FromBrush):");
+            const ushort E = Map16Grid.Empty;
+            var fa = Dm16Saver.FromBrush(new ushort[] { 5, 5, 5, 5, 5, 5 }, 3, 2, 4, 10, false);
+            Check("uniform 3x2 -> one 3x2 object",
+                  fa.Count == 1 && fa[0].Width == 3 && fa[0].Height == 2 &&
+                  fa[0].Dm16Tile == 5 && fa[0].AbsoluteX == 4 && fa[0].Y == 10);
+            var fb = Dm16Saver.FromBrush(new ushort[] { 1, 1, 2 }, 3, 1, 0, 0, false);
+            Check("mixed row -> two runs (2-wide + 1-wide)",
+                  fb.Count == 2 && fb.Sum(o => o.Width) == 3);
+            var fc = Dm16Saver.FromBrush(new ushort[] { 1, E, 1 }, 3, 1, 0, 0, false);
+            Check("empty cells skipped (no erase)", fc.Count == 2 && fc.All(o => o.Width == 1));
+            var fd = Dm16Saver.FromBrush(Enumerable.Repeat((ushort)7, 20).ToArray(), 20, 1, 0, 0, false);
+            Check("20-wide run -> one extended Form B object (128-wide cap)",
+                  fd.Count == 1 && fd[0].Dm16Size() == (20, 1));
+            var fe = Dm16Saver.FromBrush(new ushort[] { 9 }, 1, 1, 17, 20, true);
+            Check("vertical mapping: (17,20) -> screen 1, Y bit4 = right half",
+                  fe.Count == 1 && fe[0].Screen == 1 && fe[0].Y == 0x14 && fe[0].XNibble == 1);
+
+            // Informational: how the probe classifies every object in this tileset.
+            var byKind = Enumerable.Range(1, 0x3F)
+                .Select(n => (n, rz: ObjectEngine.ProbeResize(r, lv, n)))
+                .GroupBy(t => t.rz).OrderByDescending(g => g.Count());
+            foreach (var g in byKind)
+                Console.WriteLine($"    W={g.Key.W} H={g.Key.H}: " +
+                    string.Join(",", g.Select(t => $"{t.n:X2}")));
+        }
+
+        if (File.Exists(EditedRom))
+        {
+            var r = Rom.Load(EditedRom);
+            var lv = LevelParser.Parse(r, 0x105);
+            Console.WriteLine("LM ROM: emulated stream render (captured plane tables) + DM16 size:");
+            (int x0, int y0, int x1, int y1)? SoloBBoxDm16(int w, int h)
+            {
+                var one = new List<LevelObject> { LevelObject.MakeDm16(0x105, 0, 4, 10, w, h) };
+                var offs = new List<int>();
+                byte[] enc = LevelEncoder.Encode(lv, r, one, offs);
+                var so = new ushort[enc.Length];
+                for (int b = offs[0]; b < enc.Length - 1; b++) so[b] = 1;
+                ObjectEngine.RenderEmulatedStream(r, lv.Header, enc, 0, so, out var owners, out _);
+                (int x0, int y0, int x1, int y1)? bb = null;
+                for (int y = 0; y < owners!.Height; y++)
+                    for (int x = 0; x < owners.Width; x++)
+                        if (owners.Get(x, y) == 1)
+                            bb = bb is { } e ? (Math.Min(e.x0, x), Math.Min(e.y0, y), Math.Max(e.x1, x), Math.Max(e.y1, y))
+                                             : (x, y, x, y);
+                return bb;
+            }
+            try
+            {
+                Check("DM16 1x1 renders 1x1 at (4,10)", SoloBBoxDm16(1, 1) == (4, 10, 4, 10));
+                Check("DM16 3x2 renders 3x2 (resize via byte3 nibbles works)", SoloBBoxDm16(3, 2) == (4, 10, 6, 11));
+
+                // Screen-boundary crossing needs LM's $13D7 stride seeded (LM patches the
+                // step primitives to read it); regression for the wrap bug.
+                List<(int x, int y)> Cells(LevelObject o)
+                {
+                    var offs = new List<int>();
+                    byte[] enc = LevelEncoder.Encode(lv, r, new List<LevelObject> { o }, offs);
+                    var so = new ushort[enc.Length];
+                    for (int b = offs[0]; b < enc.Length - 1; b++) so[b] = 1;
+                    ObjectEngine.RenderEmulatedStream(r, lv.Header, enc, 0, so, out var owners, out _);
+                    var cells = new List<(int, int)>();
+                    for (int y = 0; y < owners!.Height; y++)
+                        for (int x = 0; x < owners.Width; x++)
+                            if (owners.Get(x, y) == 1) cells.Add((x, y));
+                    return cells;
+                }
+                var expect = new List<(int x, int y)> { (14, 10), (15, 10), (16, 10), (17, 10) };
+                Check("DM16 4w at x=14 crosses the screen boundary (no wrap)",
+                      Cells(LevelObject.MakeDm16(0x105, 0, 14, 10, 4, 1)).SequenceEqual(expect));
+                Check("std rect 4w at x=14 crosses the screen boundary (no wrap)",
+                      Cells(new LevelObject(false, 1, 0, 14, 10, 0x03, -1)).SequenceEqual(expect));
+
+                // Extended DM16 Form B (page bits 6+7): width = (byte3 & 0x7F)+1 up to 128,
+                // height = ExtH+1 — the size a "tile object" can really reach (probed).
+                (int w, int h, int n) BB(LevelObject o)
+                {
+                    var cl = Cells(o);
+                    if (cl.Count == 0) return (0, 0, 0);
+                    return (cl.Max(t => t.x) - cl.Min(t => t.x) + 1,
+                            cl.Max(t => t.y) - cl.Min(t => t.y) + 1, cl.Count);
+                }
+                Check("Form B C0: 20x8 renders 20x8",
+                      BB(new LevelObject(false, 0x27, 0, 2, 5, 0x13, -1, 0x105, 0xC1, 0x00, 0x07)) == (20, 8, 160));
+                Check("Form B C0: 128-wide renders 128x1",
+                      BB(new LevelObject(false, 0x27, 0, 2, 5, 0x7F, -1, 0x105, 0xC1, 0x00, 0x00)) == (128, 1, 128));
+                Check("MakeDm16 40x5 renders 40x5 (auto extended form)",
+                      BB(LevelObject.MakeDm16(0x105, 0, 2, 5, 40, 5)) == (40, 5, 200));
+                // Resize round-trip: 3x2 nibble form -> 40x5 extended -> encode -> parse.
+                var grown = LevelObject.MakeDm16(0x105, 0, 2, 5, 3, 2).Dm16Resized(40, 5);
+                var ps = LevelParser.ParseEncoded(r, LevelEncoder.Encode(lv, r, new List<LevelObject> { grown }));
+                Check("Dm16Resized 40x5 round-trips through encode/parse",
+                      ps.Count == 1 && ps[0].IsDm16 && ps[0].Dm16Tile == 0x105 && ps[0].Dm16Size() == (40, 5));
+                Check("Dm16Resized back to 4x3 returns to nibble form",
+                      grown.Dm16Resized(4, 3) is { Byte3: 0x23, Dm16ExtH: -1 } sm && sm.Dm16Size() == (4, 3));
+            }
+            catch (Exception e) { Check("emulated render on LM ROM (" + e.Message + ")", false); }
+        }
+        else Console.WriteLine($"(skip) edited ROM not found: {EditedRom}");
 
         if (File.Exists(CleanRom))
         {
@@ -137,7 +306,7 @@ public static class RomSelfCheck
             Check("tile has >1 distinct color (not blank)", tile.Distinct().Count() > 1);
 
             Console.WriteLine("Palette (YI2):");
-            var lv = Level.Parse(r, 0x105);
+            var lv = LevelParser.Parse(r, 0x105);
             var pal = Palette.Load(r, lv.Header);
             int nonzero = pal.Bgr.Count(c => c != 0);
             Console.WriteLine($"    backdrop=0x{pal.Bgr[0]:X4} rgba=0x{pal.Rgba[0]:X8}; {nonzero}/256 colors set");
@@ -178,10 +347,10 @@ public static class RomSelfCheck
             int mism = 0, tested = 0;
             foreach (int ln in new[] { 0x105, 0x106, 0x101, 0x102, 0x104, 0x1C0 })
             {
-                var l = Level.Parse(r, ln);
+                var l = LevelParser.Parse(r, ln);
                 if (l.Empty) continue;
                 tested++;
-                byte[] enc = l.Encode(r);
+                byte[] enc = LevelEncoder.Encode(l, r);
                 int fo = r.FileOffset(l.DataPointer);
                 var orig = r.Data.AsSpan(fo, enc.Length).ToArray();
                 if (!enc.AsSpan().SequenceEqual(orig)) { mism++; Console.WriteLine($"    level 0x{ln:X3}: MISMATCH ({enc.Length} bytes)"); }
@@ -191,19 +360,19 @@ public static class RomSelfCheck
 
             Console.WriteLine("Save path (expand + RATS + repoint + reload):");
             var wr = Rom.Load(CleanRom);             // fresh copy to mutate
-            var yi2 = Level.Parse(wr, 0x105);
+            var yi2 = LevelParser.Parse(wr, 0x105);
             int origCount = yi2.Objects.Count;
             wr.ExpandTo(0x200000);                   // expand to 2MB
-            int newAddr = wr.AllocateRats(yi2.Encode(wr));
+            int newAddr = RatsWriter.Allocate(wr, LevelEncoder.Encode(yi2, wr));
             wr.SetLayer1Pointer(0x105, newAddr);
             string tmp = Path.Combine(Path.GetTempPath(), "pd_save_test.smc");
-            wr.SaveAs(tmp);
+            RatsWriter.SaveAs(wr, tmp);
             var re = Rom.Load(tmp);
             Check("saved pointer relocated to expanded space", re.Layer1Pointer(0x105) >= 0x080000);
-            var yi2b = Level.Parse(re, 0x105);
+            var yi2b = LevelParser.Parse(re, 0x105);
             Console.WriteLine($"    reloaded: ptr ${re.Layer1Pointer(0x105):X6}, {yi2b.Objects.Count} objects (was {origCount})");
             Check("reloaded level has same object count", yi2b.Objects.Count == origCount);
-            Check("reloaded RATS tag is valid", re.EnumerateRats().Any());
+            Check("reloaded RATS tag is valid", RatsWriter.EnumerateRats(re).Any());
             // checksum: SaveAs fixed it; verify chk + complement == 0xFFFF and chk matches a resum
             long resum = 0; int rh = re.HeaderOffset, rsz = re.ActualRomSize;
             for (int i = 0; i < rsz; i++) resum += re.Data[rh + i];
@@ -216,10 +385,10 @@ public static class RomSelfCheck
             Console.WriteLine("Layer 2 (CONTRACT §10):");
             var r2 = Rom.Load(CleanRom);
             Check("YI2 layer 2 is a background image", r2.Layer2IsBackground(0x105));
-            var bg = Level.DecodeBgImage(r2, 0x105);
+            var bg = LevelParser.DecodeBgImage(r2, 0x105);
             Check("BG image decodes (0x400 tiles, variety)",
                   bg is not null && bg.Distinct().Count() > 8);
-            var l2 = Level.ParseLayer2(r2, 0x105);
+            var l2 = LevelParser.ParseLayer2(r2, 0x105);
             Check("BG-image level has no layer-2 objects", l2 is null);
         }
 
@@ -303,7 +472,7 @@ public static class RomSelfCheck
                       (rec[3] & 0xFFF) == 0x21 && (rec[2] & 0xFFF) == 0x08);
             }
             // Renderer honors the bypass: FG tiles for level 0x105 must differ from tileset default.
-            var lvh = Level.Parse(gr, 0x105).Header;
+            var lvh = LevelParser.Parse(gr, 0x105).Header;
             var defTiles = Gfx.FgTiles.Load(gr, lvh.Tileset);
             var bypTiles = Gfx.FgTiles.Load(gr, lvh.Tileset, 0x105);
             bool differs = Enumerable.Range(0, 0x200).Any(t => !defTiles.Fetch(t).SequenceEqual(bypTiles.Fetch(t)));
@@ -321,6 +490,50 @@ public static class RomSelfCheck
             var d279 = Map16.LmExtendedDef(sh, 0x279);
             Check("tile 0x279 def is the real ground block (not FF filler)",
                   d279[0].Raw == 0x1206 && d279[1].Raw == 0x1216 && d279[2].Raw == 0x1207 && d279[3].Raw == 0x1217);
+            // The def region is a RATS block; the count must stop at its end (the next
+            // block's STAR tag sits at tile 0x436's slot in this ROM) — not the bank end.
+            Check("Map16TileCount bounded by the defs RATS block (0x436)", sh.Map16TileCount == 0x436);
+
+            {   // Object-catalog solo sweep (Objects tab): DM16 numbers are skipped by the
+                // editor (a bare 3-byte record makes the DM16 handlers run away — they
+                // expect tile bytes) and everything else must finish inside the solo
+                // budget, fast. Regression for the 17-second tab freeze.
+                var lv105 = LevelParser.Parse(sh, 0x105);
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                int oFails = 0;
+                for (int num = 1; num <= 0x3F; num++)
+                {
+                    if (num is 0x22 or 0x23 or 0x26 or 0x27 or 0x28 or 0x29) continue;
+                    var one = new List<LevelObject> { new(false, num, 0, 4, 10, 0x22, -1) };
+                    try { ObjectEngine.RenderEmulatedStream(sh, lv105.Header, LevelEncoder.Encode(lv105, sh, one), 0, ObjectEngine.SoloBudget); }
+                    catch { oFails++; }
+                }
+                Console.WriteLine($"    catalog sweep: {sw.ElapsedMilliseconds}ms, {oFails} failing handler(s)");
+                Check("catalog sweep: at most the known-bad handler fails (0x2D)", oFails <= 1);
+                Check("catalog sweep completes fast (< 3s)", sw.ElapsedMilliseconds < 3000);
+            }
+
+            Console.WriteLine("LM-free Map16 page allocation (in-memory only):");
+            int szBefore = sh.ActualRomSize;
+            Check("allocation through page 5 succeeds", sh.EnsureMap16Tiles(0x600) is null);
+            Check("count grew to 0x600", sh.Map16TileCount == 0x600);
+            var (imm2, bank2) = sh.LmMap16Defs;
+            Check("lookup slot repatched to the fresh bank (imm $7008)",
+                  imm2 == 0x7008 && ((bank2 << 16) | 0x8000) == Rom.PcToSnes(szBefore) + 0);
+            var d279b = Map16.LmExtendedDef(sh, 0x279);
+            Check("existing defs copied (tile 0x279 still the ground block)",
+                  d279b[0].Raw == 0x1206 && d279b[1].Raw == 0x1216 && d279b[2].Raw == 0x1207 && d279b[3].Raw == 0x1217);
+            Check("new tiles are LM's default-empty def (0x1004 x4)",
+                  Map16.LmExtendedDef(sh, 0x5FF).All(w => w.Raw == 0x1004));
+            Check("re-allocating a covered page is a no-op",
+                  sh.EnsureMap16Tiles(0x500) is null && sh.Map16TileCount == 0x600 && sh.ActualRomSize == szBefore + 0x8000);
+            // Tile-def editing: DefFileOffset is the write target (raw word order TL,BL,TR,BR).
+            int efo = Map16.DefFileOffset(sh, 0, 0x5FF);
+            Check("DefFileOffset lands in the new region", efo > 0);
+            sh.Data[efo + 2 * 2] = 0xAB; sh.Data[efo + 2 * 2 + 1] = 0x12;   // TR word = 0x12AB
+            Check("edited TR quadrant reads back (0x12AB)", Map16.LmExtendedDef(sh, 0x5FF)[2].Raw == 0x12AB);
+            Check("BG def write target = fixed $0D9100 table",
+                  Map16.DefFileOffset(sh, 0, 0x4025) == sh.FileOffset(0x0D9100 + 0x25 * 8));
 
             Console.WriteLine("LM global ExAnimation list (ShaoBase, CONTRACT §12f):");
             Check("global list located by engine signature", sh.LmGlobalExAnimPtr == 0x10F331);
@@ -351,7 +564,7 @@ public static class RomSelfCheck
             // phases (not every tile moves each phase, so scan all of them).
             var states = ExAnimation.GlobalStates(sh);
             Check("4 phase snapshots, each covering the animated tiles", states.Length == 4 && states.All(s => s.Count > 0));
-            int ts = Level.Parse(sh, 0x106).Header.Tileset;
+            int ts = LevelParser.Parse(sh, 0x106).Header.Tileset;
             var fgA = Gfx.FgTiles.Load(sh, ts, 0x106, 0);
             var fgB = Gfx.FgTiles.Load(sh, ts, 0x106, 2);
             var animTiles = states[0].Keys.Union(states[2].Keys).Distinct();
@@ -376,7 +589,7 @@ public static class RomSelfCheck
                 Console.WriteLine($"    back=${back:X4} c1=${colors[1]:X4} c0x21=${colors[0x21]:X4}");
                 Check("row color-0 slots stored as 0", Enumerable.Range(0, 16).All(r => colors[r * 16] == 0));
                 Check("palette has real colors", colors.Count(c => c != 0) > 64);
-                var lp = Palette.Load(dr, Level.Parse(dr, 0x107).Header, 0x107);
+                var lp = Palette.Load(dr, LevelParser.Parse(dr, 0x107).Header, 0x107);
                 Check("Palette.Load(level) uses the custom palette", lp.Bgr[0] == back && lp.Bgr[1] == colors[1]);
             }
             // vanilla ROM guard: $0EF600 holds unrelated data there, hook check must gate it
@@ -387,7 +600,7 @@ public static class RomSelfCheck
             // Write round-trip: new blob (0x105 had none) + in-place overwrite (0x107 had one).
             var wc = new ushort[256];
             for (int i = 0; i < 256; i++) wc[i] = (ushort)i;
-            int ptr107Before = dr.ReadValue(Rom.LmPaletteTable + 0x107 * 3, 3);
+            int ptr107Before = dr.ReadValue(LunarMagic.LmPaletteTable + 0x107 * 3, 3);
             dr.WriteLmCustomPalette(0x105, 0x1234, wc);
             dr.WriteLmCustomPalette(0x107, 0x4321, wc);
             var w5 = dr.LmCustomPalette(0x105);
@@ -396,7 +609,7 @@ public static class RomSelfCheck
                   w5 is (0x1234, var c5) && c5[1] == 1 && c5[0x11] == 0x11 && c5[0x10] == 0);
             Check("written palette reads back (in-place overwrite)",
                   w7 is (0x4321, var c7) && c7[0xFF] == 0xFF &&
-                  dr.ReadValue(Rom.LmPaletteTable + 0x107 * 3, 3) == ptr107Before);
+                  dr.ReadValue(LunarMagic.LmPaletteTable + 0x107 * 3, 3) == ptr107Before);
         }
 
         string juzRom = @"C:\SMW\Projects\juz\SMW.smc";
@@ -416,7 +629,7 @@ public static class RomSelfCheck
             Console.WriteLine("Direct Map16 parse + round-trip (after.smc, level 0x105):");
             var ar = Rom.Load(afterRom);
             Check("DM16 hijack detected", ar.HasDm16Hijack);
-            var al = Level.Parse(ar, 0x105);
+            var al = LevelParser.Parse(ar, 0x105);
             var dm = al.Objects.Where(o => o.IsDm16).ToList();
             Console.WriteLine("    DM16 objects: " + string.Join(" ",
                 dm.Select(o => $"0x{o.Dm16Tile:X3}@({o.AbsoluteX},{o.Y})")));
@@ -427,14 +640,14 @@ public static class RomSelfCheck
             var agrid = ObjectEngine.Render(ar, al);
             Check("DM16 tiles land in the render grid (not markers)",
                   agrid.Get(2, 5) == 0x100 && agrid.Get(9, 5) == 0x200);
-            byte[] enc = al.Encode(ar);
+            byte[] enc = LevelEncoder.Encode(al, ar);
             int afo = ar.FileOffset(al.DataPointer);
             Check("DM16 level re-encodes byte-identical",
                   enc.AsSpan().SequenceEqual(ar.Data.AsSpan(afo, enc.Length)));
 
             Console.WriteLine("In-app save (merge DM16 edit on a mid screen + reload):");
             var sr = Rom.Load(afterRom);
-            var sl = Level.Parse(sr, 0x105);
+            var sl = LevelParser.Parse(sr, 0x105);
             int targetScreen = sl.Objects[sl.Objects.Count / 2].Screen;   // a screen with objects
             var newObj = LevelObject.MakeDm16(0x110, targetScreen, 4, 6);
             var merged = new List<LevelObject>();
@@ -446,13 +659,13 @@ public static class RomSelfCheck
                 if (!inserted && sl.Objects[i].Screen == targetScreen && sl.Objects[i].Screen != next)
                 { merged.Add(newObj); inserted = true; }
             }
-            var sd = sl.Encode(sr, merged);
+            var sd = LevelEncoder.Encode(sl, sr, merged);
             sr.ExpandTo(0x200000);
-            sr.SetLayer1Pointer(0x105, sr.AllocateRats(sd));
+            sr.SetLayer1Pointer(0x105, RatsWriter.Allocate(sr, sd));
             string stmp = Path.Combine(Path.GetTempPath(), "pd_inapp_save.smc");
-            sr.SaveAs(stmp);
+            RatsWriter.SaveAs(sr, stmp);
             var sre = Rom.Load(stmp);
-            var srl = Level.Parse(sre, 0x105);
+            var srl = LevelParser.Parse(sre, 0x105);
             var newPlaced = srl.Objects.Where(o => o.IsDm16 && o.Dm16Tile == 0x110).ToList();
             Console.WriteLine($"    target screen {targetScreen}; placed tile 0x110 -> " +
                 string.Join(" ", newPlaced.Select(o => $"scr{o.Screen}@({o.AbsoluteX},{o.Y})")));
@@ -464,7 +677,7 @@ public static class RomSelfCheck
 
             Console.WriteLine("Erase-on-save (blank sky tile 0x025 overwrites an original cell):");
             var er = Rom.Load(afterRom);
-            var el = Level.Parse(er, 0x105);
+            var el = LevelParser.Parse(er, 0x105);
             var eg = ObjectEngine.Render(er, el);
             int ex = -1, ey = -1;                       // first real tile on screen 0
             for (int y = 0; y < eg.Height && ex < 0; y++)
@@ -480,11 +693,11 @@ public static class RomSelfCheck
                     emerged.Add(LevelObject.MakeDm16(0x025, 0, ex, ey));
             }
             er.ExpandTo(0x200000);
-            er.SetLayer1Pointer(0x105, er.AllocateRats(el.Encode(er, emerged)));
+            er.SetLayer1Pointer(0x105, RatsWriter.Allocate(er, LevelEncoder.Encode(el, er, emerged)));
             string etmp = Path.Combine(Path.GetTempPath(), "pd_erase_save.smc");
-            er.SaveAs(etmp);
+            RatsWriter.SaveAs(er, etmp);
             var ere = Rom.Load(etmp);
-            var egrid = ObjectEngine.Render(ere, Level.Parse(ere, 0x105));
+            var egrid = ObjectEngine.Render(ere, LevelParser.Parse(ere, 0x105));
             Console.WriteLine($"    erased cell ({ex},{ey}): was 0x{eg.Get(ex, ey):X3}, now 0x{egrid.Get(ex, ey):X3}");
             Check("erased cell reads back as blank sky 0x025", egrid.Get(ex, ey) == 0x025);
             File.Delete(etmp);

@@ -38,6 +38,19 @@ public sealed class Cpu65816(Rom rom)
     /// capped at 400 entries — ordered, unlike PcHot.</summary>
     public List<(int Pc, int X, int Y)>? StepLog;
 
+    /// <summary>
+    /// Object attribution (set all three to enable): every RAM write also records which
+    /// level-data record the loader is processing. The loader advances the stream pointer
+    /// $65 past the 3-byte record BEFORE dispatching its handler (bank 05 CODE_058612),
+    /// so the current record is StreamOwner[$65 - 3]. Ids are caller-defined, 0 = none.
+    /// Only meaningful for streams injected in bank $7F (checked via $67).
+    /// </summary>
+    public ushort[]? StreamOwner;              // encoded-stream byte offset → record id
+    public ushort[]? Owner7E, Owner7F;         // per-address last-writer record id
+    /// <summary>When set (with the above), also logs every attributed tilemap-region write
+    /// in order — the full writer history per cell, for overlap/z-order queries.</summary>
+    public List<(int Bank, int Addr, ushort Id)>? WriteLog;
+
     private void Write(int bank, int addr, byte v)
     {
         bank &= 0xFF; addr &= 0xFFFF;
@@ -47,6 +60,16 @@ public sealed class Cpu65816(Rom rom)
         if (StatusLog is not null && addr is >= 0x14C8 and < 0x15C8 &&
             (bank == 0x7E || bank < 0x40 || (bank >= 0x80 && bank < 0xC0)))
             StatusLog.Add(((PBR << 16) | PC, addr, v));
+        if (StreamOwner is not null && Ram7E[0x67] == 0x7F)
+        {
+            int p = ((Ram7E[0x66] << 8) | Ram7E[0x65]) - 3;
+            ushort id = (uint)p < (uint)StreamOwner.Length ? StreamOwner[p] : (ushort)0;
+            if (bank == 0x7E) Owner7E![addr] = id;
+            else if (bank == 0x7F) Owner7F![addr] = id;
+            else if (addr < 0x2000 && (bank < 0x40 || (bank >= 0x80 && bank < 0xC0))) Owner7E![addr] = id;
+            if (WriteLog is not null && id != 0 && (bank == 0x7F || (bank == 0x7E && addr >= 0xC800)))
+                WriteLog.Add((bank, addr, id));
+        }
         if (bank == 0x7E) Ram7E[addr] = v;
         else if (bank == 0x7F) Ram7F[addr] = v;
         else if (addr < 0x2000 && (bank < 0x40 || (bank >= 0x80 && bank < 0xC0))) Ram7E[addr] = v;
