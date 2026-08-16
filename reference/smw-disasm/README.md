@@ -9,11 +9,35 @@ call graph so the pipe-dream editor work can navigate it and Claude can query it
 - `bank_XX.asm` — the disassembly split by ROM bank (00–07, 0C, 0D). Every line is
   `LABEL/$addr:  hex bytes  MNEMONIC operand  ; comment`. Banks 08–0B (raw graphics
   data, no code labels) are not separate files.
-- `index.txt` — the original header/bank index from the top of the dump.
-- Graph outputs live in `../../graphify-out/`:
+- `index.txt` — the original header/bank index from the top of the dump. Two of its
+  claims are now outdated: bank 06 ("Unknown contents") is level Layer-1 object data,
+  and bank 0C ("Credits") is half overworld map data — see `SYSTEM_NOTES.md` §7.
+
+## Analysis docs (start here)
+
+- `SYSTEM_NOTES.md` — boot/RESET, SPC700 upload protocol, main loop + NMI + IRQ
+  (status-bar raster split), game-mode dispatch, DMA channel allocation, per-bank
+  guide, load-bearing RAM map.
+- `SNES_HARDWARE_NOTES.md` — every PPU/CPU register SMW touches and how, plus the
+  65816 idioms (`ExecutePtr` trampoline explained instruction-by-instruction, XBA,
+  MVN, PHB/PLB, code-generated-into-RAM) and the myth-busting list (no WAI, no SED,
+  no DP relocation).
+- `LEVEL_PIPELINE_NOTES.md` — level number → tiles: 5-byte header bit layout,
+  pointer tables, 3-byte object format, object→Map16 engine in bank 0D, Layer 2/3.
+- `SPRITE_ENGINE_NOTES.md` — sprite engine architecture + redundancy/inefficiency
+  catalog (utility clones, GFX clone families, dispatch and per-frame costs).
+- Graph outputs live in `graph/` (rebuild: `tools/build_disasm_graph.py`, run with
+  graphify's Python; edit `graph/disasm_labels.json` then rerun with `--relabel`):
   - `graph.html` — interactive call graph (open in a browser).
-  - `graph.json` — 675 routines, 1446 `calls` edges, 45 communities.
+  - `graph.json` — 735 nodes (routines + the analysis docs), 1501 `calls` edges +
+    149 `documents` edges (each .md linked to every routine it mentions), 53
+    communities.
   - `GRAPH_REPORT.md` — god nodes, communities, suggested questions.
+
+Note: the original SMWDisC dump contained bank $01's init-routine region twice
+(two comment revisions of $018311–$01875B). The stale first copy was removed
+from `bank_01.asm` on 2026-07-24; the graph was rebuilt after the fix. See
+`SPRITE_ENGINE_NOTES.md` for the sprite-engine redundancy/inefficiency analysis.
 
 ## What the graph is
 
