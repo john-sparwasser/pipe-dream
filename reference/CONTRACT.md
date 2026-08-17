@@ -504,6 +504,30 @@ $05D909 does `TAX` with 16-bit X, so a leaked B shifts every entrance-table inde
 +0x100 for levels >= 0x100 (symptom: garbage spawn/scroll state, e.g. instant TIME UP).
 Vanilla $00F545 is pure 8-bit and B-transparent; replacements must be too.
 
+### 9e. Level connections  [CONFIRMED in-game, two-room hack in Mesen]
+
+Screen exit ($0DA512) → secondary entrance ($05F800/FA00/FC00/FE00) → destination level
+was played end to end: a built two-room hack where a door in level $0C5 warps to level
+$0C6, with the destination's GFX slots overridden to an imported ExGFX. Mario arrives
+standing, alive, with the custom graphics applied. That exercises the level rebuild,
+header edit, main entrance, secondary exit, entrance record and GFX bypass together.
+
+Three things that make a connection *look* broken while the data is correct:
+
+- **Enterable vs decorative pipes.** Object $0F's settings LOW nibble picks the pipe kind
+  and only kind 1 is enterable. In vanilla, pipes standing on a screen that has an exit
+  are overwhelmingly `$x1` ($21×29, $11×11, $51×10); decorative pipes elsewhere are `$x0`
+  ($20×50, $10×29). A kind-0 pipe produces byte-identical Map16 tiles to a kind-1 one
+  (mouth $137/$138, shaft $135/$136), so the level render cannot tell them apart.
+  Pipes also need Mario pixel-centred on the mouth; ext obj $10 (a door, entered with Up)
+  is the reliable choice for a test.
+- **The entrance's camera bits are not optional.** $05FA00 bits 4-5 (screen boundary Y)
+  and 6-7 (vertical scroll) at 0 spawn Mario outside the visible area and he falls out of
+  the level — the warp fires but looks like a crash. Copy the values the source level uses.
+- **Time index 0.** Level $0C5's vanilla header has Time = 0. Nothing notices in vanilla
+  because the opening message box holds the timer, but a rebuilt level without one dies to
+  TIME UP within seconds.
+
 ## 10. Layer 2  [CONFIRMED from bank 05 loader]
 
 Layer-2 pointer (§3): bank != $FF → **object mode**: same stream format as layer 1 with its
