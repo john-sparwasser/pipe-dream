@@ -174,6 +174,12 @@ public sealed class Rom
     /// Never saved.</summary>
     public readonly Dictionary<(int Level, int Word), int> GfxSlotOverrides = new();
 
+    /// <summary>Imported ExGFX files (the project's GFX store): file id → raw planar bytes
+    /// at the ROM's bit depth. Consulted first by Gfx.Cached, so imports render everywhere
+    /// a GFX id resolves. Hydrated from / stashed to ProjectFile.Gfx by LevelSession;
+    /// mutate via Gfx.InvalidateCache so no stale decode survives.</summary>
+    public readonly Dictionary<int, byte[]> ImportedGfx = new();
+
     /// <summary>Decompressed GFX file cache for <see cref="Gfx.Cached"/> (file# → data).</summary>
     internal readonly Dictionary<int, byte[]?> GfxFileCache = new();
 }

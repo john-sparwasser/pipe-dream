@@ -35,7 +35,10 @@ internal sealed class LevelGfxPanel(GraphicsDevice gd, ImGuiLayer imgui) : IDisp
     // sheets. Drawn inline (it lives in the palette drawer's GFX tab). Each bin header
     // is "[NAME]" + an editable GFXnn id; editing re-decodes that bin's sheet (a
     // session preview — nothing is written back to the ROM or the level render yet).
-    public unsafe void Draw(Rom? rom, Level? level, int levelNum, Action? onOverride = null)
+    // "Import…" brings a raw planar .bin in as a project ExGFX file and assigns it to
+    // that bin through the same override path as typing an id.
+    public unsafe void Draw(Rom? rom, Level? level, int levelNum, IntPtr sdlWindow,
+                            Action<string>? setStatus = null, Action? onOverride = null)
     {
         if (rom is null || level is null) { ImGui.TextDisabled("No level."); return; }
         if (levelGfxKey != levelNum) { levelGfxKey = levelNum; BuildLevelGfx(rom, level, levelNum); }
@@ -73,10 +76,54 @@ internal sealed class LevelGfxPanel(GraphicsDevice gd, ImGuiLayer imgui) : IDisp
                     onOverride?.Invoke();
                 }
             }
+            // Import a raw .bin into THIS bin (FileDialog is async; the callback lands on a
+            // later frame via Pump, so it captures everything it needs).
+            ImGui.SameLine();
+            if (ImGui.SmallButton($"Import…##imp{i}") && !FileDialog.Busy)
+            {
+                int bypWord = s.BypWord;
+                FileDialog.OpenFile("Raw GFX", "bin", sdlWindow, path =>
+                {
+                    if (path is not null)
+                        setStatus?.Invoke(Import(rom, levelNum, bypWord, path, onOverride));
+                });
+            }
             if (s.Status.Length > 0) { ImGui.SameLine(); ImGui.TextDisabled(s.Status); }
             ImGui.Image(imgui.GetTextureID(s.Tex), new Vector2(s.W * 2f, s.H * 2f));
             ImGui.Separator();
         }
+    }
+
+    /// <summary>
+    /// Import a raw planar .bin as a project ExGFX file: detect its bpp from the size,
+    /// normalize to the ROM's depth, store under the next free id ≥ 0x100, and point this
+    /// bin at it through the same override commit path as typing an id (so dirty-marking
+    /// and the recompose ride onOverride). Returns the saveStatus line.
+    /// </summary>
+    private string Import(Rom rom, int levelNum, int bypWord, string path, Action? onOverride)
+    {
+        byte[] bytes;
+        try { bytes = File.ReadAllBytes(path); }
+        catch (Exception e) { return $"import failed: {e.Message}"; }
+        int bpp = Gfx.DetectBpp(bytes);
+        if (bpp == 0)
+            return $"import rejected: {Path.GetFileName(path)} is 0x{bytes.Length:X} bytes — not whole 3bpp (×24) or 4bpp (×32) planar tiles";
+        int romBpp = Gfx.RomBpp(rom);
+        bytes = Gfx.NormalizeBpp(bytes, bpp, romBpp, out bool plane3Dropped);
+
+        // Next free ExGFX id: skip prior imports AND files the ROM itself resolves, so an
+        // import can't shadow a real ExGFX file other levels may use.
+        int id = 0x100;
+        while (id <= 0xFFF && (rom.ImportedGfx.ContainsKey(id) || Gfx.SourceSnes(rom, id) >= 0)) id++;
+        if (id > 0xFFF) return "import failed: no free ExGFX id (0x100-0xFFF all in use)";
+        rom.ImportedGfx[id] = bytes;
+        Gfx.InvalidateCache(rom);
+
+        rom.GfxSlotOverrides[(levelNum, bypWord)] = id;
+        levelGfxKey = -1;         // re-resolve all bins through the shared bypass
+        onOverride?.Invoke();     // editor recomposes level / sprites / Map16 sheet
+        return $"imported {Path.GetFileName(path)} as GFX{id:X3} ({bpp}bpp → {romBpp}bpp)"
+             + (plane3Dropped ? " — nonzero plane 3 data discarded" : "");
     }
 
     private void BuildLevelGfx(Rom rom, Level level, int levelNum)
@@ -112,7 +159,8 @@ internal sealed class LevelGfxPanel(GraphicsDevice gd, ImGuiLayer imgui) : IDisp
             int file = bypassed ? byp![s.bypWord] & 0xFFF : def;
             bool overridden = rom.GfxSlotOverrides.ContainsKey((levelNum, s.bypWord));
             levelGfx.Add(DecodeSlot(rom, s.name, s.palRow, s.bypWord, file,
-                                    overridden ? "(override)" : bypassed && file != def ? "(bypass)" : ""));
+                                    rom.ImportedGfx.ContainsKey(file) ? "(imported)"
+                                    : overridden ? "(override)" : bypassed && file != def ? "(bypass)" : ""));
         }
     }
 

@@ -24,6 +24,11 @@ internal sealed class LevelSession(EditorApp app)
             // for every recorded level so any level renders with its overrides on open.
             if (app.project is not null)
             {
+                // Imported ExGFX files are session state on the Rom too — hydrate them
+                // before the first parse so the initial render already resolves imports
+                // through Gfx.Cached.
+                foreach (var (id, b64) in app.project.Data.Gfx)
+                    app.rom.ImportedGfx[Convert.ToInt32(id, 16)] = Convert.FromBase64String(b64);
                 foreach (var (key, state) in app.project.Data.Levels)
                 {
                     int lvl = Convert.ToInt32(key, 16);
@@ -62,6 +67,9 @@ internal sealed class LevelSession(EditorApp app)
         if (app.project is null) return;
         if (app.currentLevelTouched) StashCurrentLevel();
         RefreshCapturedMap16();
+        if (app.rom is not null)
+            app.project.Data.Gfx = app.rom.ImportedGfx
+                .ToDictionary(kv => kv.Key.ToString("X3"), kv => Convert.ToBase64String(kv.Value));
     }
 
     // Write the current level's session state into the project snapshot.
@@ -210,7 +218,8 @@ internal sealed class LevelSession(EditorApp app)
     internal void DrawGfxTab()
     {
         ImGui.BeginChild("gfxtab");
-        app.levelGfxPanel.Draw(app.rom, app.level, app.levelNum, () =>
+        app.levelGfxPanel.Draw(app.rom, app.level, app.levelNum, app.SdlWindowHandle,
+                               s => app.saveStatus = s, () =>
         {
             // GFX overrides bypass the history stack — mark project state dirty directly.
             app.currentLevelTouched = true;

@@ -32,7 +32,7 @@ internal sealed class GfxViewerPanel(GraphicsDevice gd, ImGuiLayer imgui) : IDis
         Show = open;
         if (rom is null) { ImGui.TextDisabled("No ROM."); ImGui.End(); return; }
         ImGui.SetNextItemWidth(90);
-        ImGui.InputInt($"file (0x{gfxFile:X2})", ref gfxFile); gfxFile = Math.Clamp(gfxFile, 0, Gfx.Count - 1);
+        ImGui.InputInt($"file (0x{gfxFile:X2})", ref gfxFile); gfxFile = Math.Clamp(gfxFile, 0, 0xFFF);
         ImGui.SameLine(); ImGui.SetNextItemWidth(80); ImGui.InputInt("bpp", ref gfxBpp); gfxBpp = Math.Clamp(gfxBpp, 2, 4);
         ImGui.SameLine(); ImGui.SetNextItemWidth(80); ImGui.InputInt("pal", ref gfxPalRow); gfxPalRow = Math.Clamp(gfxPalRow, 0, 15);
 
@@ -47,7 +47,9 @@ internal sealed class GfxViewerPanel(GraphicsDevice gd, ImGuiLayer imgui) : IDis
     {
         try
         {
-            var gfx = Gfx.DecompressFile(rom, gfxFile);
+            // Cached (not DecompressFile) so ExGFX ids and project imports resolve too;
+            // missing ids show as no texture.
+            var gfx = Gfx.Cached(rom, gfxFile) ?? throw new InvalidDataException("no file");
             var pal = Palette.Load(rom, header ?? default);
             var (px, w, h) = Gfx.TileSheet(gfx, gfxBpp, pal, gfxPalRow);
             gfxTex?.Dispose();

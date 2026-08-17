@@ -13,8 +13,9 @@ public static class Gfx
 
     /// <summary>
     /// 24-bit SNES source address of a compressed GFX/ExGFX file, or -1 (0x7F = skip slot,
-    /// or ExGFX file not inserted). 0x00-0x33 vanilla tables; 0x80-0xFF LM table at $0FF600;
-    /// 0x100+ LM table located per-ROM (CONTRACT §7d).
+    /// or ExGFX file not inserted). 0x00-0x33 vanilla tables; 0x80-0xFF LM table at $0FF600
+    /// (only meaningful when LM's loader is installed — on vanilla/prepped ROMs those bytes
+    /// are arbitrary data); 0x100+ LM table located per-ROM (CONTRACT §7d).
     /// </summary>
     public static int SourceSnes(Rom rom, int file)
     {
@@ -28,7 +29,7 @@ public static class Gfx
         int ptr = file switch
         {
             < 0x80 => -1,                                                    // 0x32-0x7F invalid/skip
-            < 0x100 => rom.ReadValue(ExGfx80Table + (file - 0x80) * 3, 3),
+            < 0x100 => rom.HasLmGfxLoader ? rom.ReadValue(ExGfx80Table + (file - 0x80) * 3, 3) : -1,
             _ => rom.LmExGfxBase < 0 ? -1 : rom.ReadValue(rom.LmExGfxBase + (file - 0x100) * 3, 3),
         };
         return ptr <= 0 || ptr == 0xFFFFFF ? -1 : ptr;
@@ -38,18 +39,29 @@ public static class Gfx
         => Lz2Decompress(rom.Data, rom.FileOffset(SourceSnes(rom, file)));
 
     /// <summary>DecompressFile with a per-ROM cache (GFX data is immutable per ROM;
-    /// recompose paths re-read the same files constantly). Null = absent/corrupt file.
-    /// Locked: the phase composes run on parallel workers.</summary>
+    /// recompose paths re-read the same files constantly). Project imports
+    /// (Rom.ImportedGfx, already raw planar) win over the ROM's files — checked before
+    /// the cache so a re-import can't serve a stale/negative entry. Null = absent/corrupt
+    /// file. Locked: the phase composes run on parallel workers.</summary>
     public static byte[]? Cached(Rom rom, int file)
     {
         lock (rom.GfxFileCache)
         {
+            if (rom.ImportedGfx.TryGetValue(file, out var imported)) return imported;
             if (rom.GfxFileCache.TryGetValue(file, out var hit)) return hit;
             byte[]? data = null;
             int src = SourceSnes(rom, file);
             if (src > 0) { try { data = Lz2Decompress(rom.Data, rom.FileOffset(src)); } catch { } }
             return rom.GfxFileCache[file] = data;
         }
+    }
+
+    /// <summary>Drop the decompressed-file cache. Call when Rom.ImportedGfx changes —
+    /// a previously-missing id may be negative-cached, and consumers that copied decoded
+    /// tiles rebuild through Cached on the next recompose.</summary>
+    public static void InvalidateCache(Rom rom)
+    {
+        lock (rom.GfxFileCache) rom.GfxFileCache.Clear();
     }
 
     /// <summary>
@@ -68,6 +80,50 @@ public static class Gfx
     }
 
     public static int TileBytes(int bpp) => bpp * 8;   // 2bpp=16, 3bpp=24, 4bpp=32
+
+    /// <summary>
+    /// Bit depth of a raw planar .bin, from its size. Exact full 128-tile files first
+    /// (0x1000 = 4bpp, 0xC00 = 3bpp), then whole-tile divisibility — sizes divisible by
+    /// both 32 and 24 (e.g. 0x600) resolve 4bpp, the LM-era convention. 0 = not a valid
+    /// 3/4bpp planar file.
+    /// </summary>
+    public static int DetectBpp(byte[] data) => data.Length switch
+    {
+        0x1000 => 4,
+        0xC00 => 3,
+        > 0 when data.Length % 32 == 0 => 4,
+        > 0 when data.Length % 24 == 0 => 3,
+        _ => 0,
+    };
+
+    /// <summary>
+    /// Convert raw planar tiles between 3bpp and 4bpp (DecodeTile's layout: planes 0/1
+    /// row-interleaved in the first 16 bytes, then plane 2 packed one byte per row (3bpp)
+    /// or planes 2/3 row-interleaved (4bpp)). 3→4 zero-fills plane 3; 4→3 drops it and
+    /// reports via <paramref name="plane3Dropped"/> when nonzero data was discarded.
+    /// </summary>
+    public static byte[] NormalizeBpp(byte[] data, int fromBpp, int toBpp, out bool plane3Dropped)
+    {
+        plane3Dropped = false;
+        if (fromBpp == toBpp) return data;
+        int from = TileBytes(fromBpp), to = TileBytes(toBpp), n = data.Length / from;
+        var outp = new byte[n * to];
+        for (int t = 0; t < n; t++)
+        {
+            Array.Copy(data, t * from, outp, t * to, 16);      // planes 0/1: same layout both depths
+            for (int row = 0; row < 8; row++)
+                if (toBpp == 4)
+                {
+                    outp[t * to + 16 + row * 2] = data[t * from + 16 + row];
+                }
+                else
+                {
+                    outp[t * to + 16 + row] = data[t * from + 16 + row * 2];
+                    plane3Dropped |= data[t * from + 16 + row * 2 + 1] != 0;
+                }
+        }
+        return outp;
+    }
 
     public const int ObjectGfxList = 0x00A92B;         // FG/BG GFX file list, indexed by tileset*4
 

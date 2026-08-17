@@ -52,6 +52,8 @@ internal static class RomBuilder
             var rom = Rom.Load(project.BaseRomPath);
             var warnings = new List<string>();
             if (ReplayMap16(rom, project.Data) is { } err) return (err, null);
+            if (project.Data.Gfx.Count > 0)
+                warnings.Add($"{project.Data.Gfx.Count} imported GFX file(s) are editor-preview only until the ExGFX build stage");
 
             foreach (var (key, state) in project.Data.Levels.OrderBy(kv => kv.Key, StringComparer.Ordinal))
             {
@@ -104,7 +106,7 @@ internal static class RomBuilder
                 }
 
                 if (state.GfxOverrides.Count > 0)
-                    warnings.Add($"level {key}: GFX slot overrides are editor-preview only (not written to the ROM yet)");
+                    warnings.Add($"level {key}: GFX slot overrides are editor-preview only until the ExGFX build stage");
             }
 
             Directory.CreateDirectory(Path.Combine(project.Folder, "build"));

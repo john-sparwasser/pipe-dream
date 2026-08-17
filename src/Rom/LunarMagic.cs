@@ -226,6 +226,11 @@ public static class LunarMagic
             return w;
         }
 
+        /// <summary>True if LM's GFX bypass loader is installed: `JSL $0FF780` (22 80 F7 0F) at
+        /// $00AA50 replaces the vanilla level-GFX loader (CONTRACT §7d). Gates the fixed ExGFX
+        /// 0x80-0xFF table at $0FF600 — on vanilla/prepped ROMs those bytes are arbitrary data.</summary>
+        public bool HasLmGfxLoader => rom.ReadValue(0x00AA50, 4) == 0x0FF78022;
+
         /// <summary>True if LM's palette engine is installed: a JML hook at $0095E9 replaces the
         /// vanilla JSR UploadSpriteGFX / JSR LoadPalette pair (CONTRACT §7e).</summary>
         public bool HasLmPaletteHook => rom.ReadByte(0x0095E9) == 0x5C;

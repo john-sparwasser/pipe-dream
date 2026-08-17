@@ -22,6 +22,10 @@ public sealed class ProjectFile
     public BaseRomInfo BaseRom { get; set; } = new();
     public Map16State Map16 { get; set; } = new();
     public Dictionary<string, LevelState> Levels { get; set; } = new();
+    /// <summary>Imported ExGFX files: file id hex ("100") → base64 raw planar bytes at the
+    /// base ROM's bit depth. Project-scoped (shared by all levels); which slot uses a file
+    /// stays per-level in <see cref="LevelState.GfxOverrides"/>.</summary>
+    public Dictionary<string, string> Gfx { get; set; } = new();
 
     public sealed class BaseRomInfo
     {

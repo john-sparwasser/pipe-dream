@@ -25,6 +25,7 @@ public class ProjectFileTests
             new Sprite(2, 5, 7, 1, 0x35, new byte[] { 1, 2 })));
         lvl.Palette[0x42] = 0x7FFF;
         lvl.GfxOverrides[7] = 0x113;
+        p.Gfx["100"] = Convert.ToBase64String(new byte[] { 0x80, 0x40, 0x20 });
         return p;
     }
 
@@ -42,6 +43,7 @@ public class ProjectFileTests
         Assert.Equal(a.Map16.Slots, b.Map16.Slots);
         Assert.Equal(a.Map16.Ext, b.Map16.Ext);
         Assert.Equal(a.Map16.ActsAs, b.Map16.ActsAs);
+        Assert.Equal(a.Gfx, b.Gfx);
 
         var la = a.LevelOrNull(0x105)!;
         var lb = b.LevelOrNull(0x105)!;
