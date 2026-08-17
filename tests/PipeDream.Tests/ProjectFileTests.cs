@@ -26,6 +26,7 @@ public class ProjectFileTests
         lvl.Palette[0x42] = 0x7FFF;
         lvl.GfxOverrides[7] = 0x113;
         p.Gfx["100"] = Convert.ToBase64String(new byte[] { 0x80, 0x40, 0x20 });
+        p.Gfx["014"] = Convert.ToBase64String(new byte[] { 0x01, 0x02 });   // forked STOCK id ("014" hex key)
         return p;
     }
 

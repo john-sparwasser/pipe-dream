@@ -40,6 +40,7 @@ internal sealed class LevelViewport(EditorApp app)
         if (app.canvas.TexFor(0) is null || app.grid is null) { ImGui.TextDisabled("No level rendered."); return; }
         if (app.saveStatus.Length > 0) ImGui.TextDisabled(app.saveStatus);
         if (app.canvasView == EditorApp.CanvasView.Map16) { app.map16Editor.DrawMap16Canvas(); return; }
+        if (app.canvasView == EditorApp.CanvasView.Gfx) { app.gfxEditor.DrawCanvas(); return; }
         // Horizontal levels scroll left/right with the wheel (Shift+wheel = vertical);
         // vertical levels keep the default up/down wheel.
         bool verticalLvl = app.rom is not null && app.level is not null && app.rom.IsVerticalMode(app.level.Header.LevelMode);
@@ -106,38 +107,45 @@ internal sealed class LevelViewport(EditorApp app)
             }
     }
 
-    // Sliding two-state Level ⇄ Map16 switch in the canvas header: a pill with a knob
-    // that animates between the halves; clicking (either half) toggles the canvas view.
+    // Sliding three-state Level | Map16 | GFX switch in the canvas header: a pill with a
+    // knob that animates between the thirds; clicking a segment selects that canvas view.
+    private static readonly string[] ViewLabels = { "Level", "Map16", "GFX" };
+
     private void DrawViewToggle()
     {
         float h = ImGui.GetFrameHeight();
-        var size = new Vector2(140, h);
+        var size = new Vector2(210, h);
+        float seg = size.X / 3;
         var p0 = ImGui.GetCursorScreenPos();
         if (ImGui.InvisibleButton("##viewtoggle", size))
         {
-            app.canvasView = app.canvasView == EditorApp.CanvasView.Level ? EditorApp.CanvasView.Map16 : EditorApp.CanvasView.Level;
-            app.dragStart = app.dragEnd = null; app.moveDrag = null; app.resizeDrag = null;   // drop level drag state
-            app.map16Editor.m16Lasso = null; app.map16Editor.m16Move = null;                  // and Map16 drag state
+            var clicked = (EditorApp.CanvasView)Math.Clamp((int)((ImGui.GetMousePos().X - p0.X) / seg), 0, 2);
+            if (clicked != app.canvasView)
+            {
+                app.canvasView = clicked;
+                // Any switch drops EVERY mode's in-flight drag/stroke state.
+                app.dragStart = app.dragEnd = null; app.moveDrag = null; app.resizeDrag = null;   // level
+                app.map16Editor.m16Lasso = null; app.map16Editor.m16Move = null;                  // Map16
+                app.gfxEditor.AbortStroke();       // GFX: uncommitted write-through bytes reverted
+            }
         }
         bool hovered = ImGui.IsItemHovered();
-        float target = app.canvasView == EditorApp.CanvasView.Map16 ? 1f : 0f;
+        float target = (int)app.canvasView;
         float dt = ImGui.GetIO().DeltaTime;
-        viewSlideT = Math.Clamp(viewSlideT + Math.Sign(target - viewSlideT) * dt * 8f, 0f, 1f);
+        viewSlideT = Math.Clamp(viewSlideT + Math.Sign(target - viewSlideT) * dt * 8f, 0f, 2f);
         if (Math.Abs(target - viewSlideT) < dt * 8f) viewSlideT = target;
 
         var dl = ImGui.GetWindowDrawList();
         var p1 = p0 + size;
         dl.AddRectFilled(p0, p1, 0xFF262626u, h / 2);
         dl.AddRect(p0, p1, hovered ? 0xFF666666u : 0xFF404040u, h / 2);
-        float half = size.X / 2;
-        var k0 = new Vector2(p0.X + viewSlideT * half + 2, p0.Y + 2);
-        dl.AddRectFilled(k0, new Vector2(k0.X + half - 4, p1.Y - 2), 0xFF884400u, (h - 4) / 2);
-        uint on = 0xFFFFFFFFu, off = 0xFF808080u;
-        var lvlSz = ImGui.CalcTextSize("Level");
-        var m16Sz = ImGui.CalcTextSize("Map16");
-        dl.AddText(new Vector2(p0.X + (half - lvlSz.X) / 2, p0.Y + (h - lvlSz.Y) / 2),
-                   viewSlideT < 0.5f ? on : off, "Level");
-        dl.AddText(new Vector2(p0.X + half + (half - m16Sz.X) / 2, p0.Y + (h - m16Sz.Y) / 2),
-                   viewSlideT >= 0.5f ? on : off, "Map16");
+        var k0 = new Vector2(p0.X + viewSlideT * seg + 2, p0.Y + 2);
+        dl.AddRectFilled(k0, new Vector2(k0.X + seg - 4, p1.Y - 2), 0xFF884400u, (h - 4) / 2);
+        for (int i = 0; i < ViewLabels.Length; i++)
+        {
+            var sz = ImGui.CalcTextSize(ViewLabels[i]);
+            dl.AddText(new Vector2(p0.X + i * seg + (seg - sz.X) / 2, p0.Y + (h - sz.Y) / 2),
+                       Math.Abs(viewSlideT - i) < 0.5f ? 0xFFFFFFFFu : 0xFF808080u, ViewLabels[i]);
+        }
     }
 }

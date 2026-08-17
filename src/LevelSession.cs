@@ -185,6 +185,7 @@ internal sealed class LevelSession(EditorApp app)
         app.bgCaches = bg;
         backdropColor = app.paletteEditor.EditedPalette(0)!.Rgba[0];
         app.map16Editor.m16ChrPal = -1;          // 8x8 picker sheet: recompose on next draw
+        app.gfxEditor.InvalidateSheet();         // GFX editor sheet: bytes/palette may have changed
         app.map16Editor.BuildMap16Sheet();
         app.spriteEditor.BuildSpriteCatalog();
         app.objectEditor.objCatTex?.Dispose(); app.objectEditor.objCatTex = null;   // stale: Objects tab rebuilds it lazily
@@ -229,7 +230,9 @@ internal sealed class LevelSession(EditorApp app)
             // Swap the SP tile sheets only — the cached OAM captures stay valid.
             if (app.rom is not null && app.level is not null)
                 app.spriteOverlay = app.spriteOverlay?.WithReloadedTiles(app.rom, app.level.Header, app.levelNum);
-        });
+        },
+        // Per-bin "Edit": open the file in the GFX tile editor (canvas mode 3).
+        file => { app.gfxEditor.gfxFile = file; app.canvasView = EditorApp.CanvasView.Gfx; });
         ImGui.EndChild();
     }
 }

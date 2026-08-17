@@ -134,26 +134,10 @@ public class GfxImportTests
 
     // --- end-to-end render ---------------------------------------------------
 
-    /// <summary>Synthetic ROM whose GFX00 decompresses to a full 3bpp file (0xC00 zeros)
-    /// so RomBpp probes 3, like a vanilla ROM.</summary>
-    private static Rom RomWith3bppGfx00()
-    {
-        var rom = TestRom.Create();
-        const int blobSnes = 0x0FA000;
-        int fo = rom.FileOffset(blobSnes);
-        // 3 × extended byte-fill of 1024 zeros (E7 FF 00), then the 0xFF terminator.
-        for (int i = 0; i < 3; i++) { rom.Data[fo + i * 3] = 0xE7; rom.Data[fo + i * 3 + 1] = 0xFF; }
-        rom.Data[fo + 9] = 0xFF;
-        rom.Data[rom.FileOffset(Gfx.PtrLow)] = blobSnes & 0xFF;
-        rom.Data[rom.FileOffset(Gfx.PtrHigh)] = (blobSnes >> 8) & 0xFF;
-        rom.Data[rom.FileOffset(Gfx.PtrBank)] = blobSnes >> 16;
-        return rom;
-    }
-
     [Fact]
     public void imported_file_renders_through_fgtiles_when_a_slot_override_points_at_it()
     {
-        var rom = RomWith3bppGfx00();
+        var rom = TestRom.CreateWithGfx00();               // GFX00 = full 3bpp file → RomBpp 3
         Assert.Equal(3, Gfx.RomBpp(rom));
 
         // A recognizable 3bpp planar tile 0 in an otherwise-blank full file.

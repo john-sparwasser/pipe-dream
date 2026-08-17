@@ -38,7 +38,8 @@ internal sealed class LevelGfxPanel(GraphicsDevice gd, ImGuiLayer imgui) : IDisp
     // "Import…" brings a raw planar .bin in as a project ExGFX file and assigns it to
     // that bin through the same override path as typing an id.
     public unsafe void Draw(Rom? rom, Level? level, int levelNum, IntPtr sdlWindow,
-                            Action<string>? setStatus = null, Action? onOverride = null)
+                            Action<string>? setStatus = null, Action? onOverride = null,
+                            Action<int>? onEdit = null)
     {
         if (rom is null || level is null) { ImGui.TextDisabled("No level."); return; }
         if (levelGfxKey != levelNum) { levelGfxKey = levelNum; BuildLevelGfx(rom, level, levelNum); }
@@ -88,6 +89,9 @@ internal sealed class LevelGfxPanel(GraphicsDevice gd, ImGuiLayer imgui) : IDisp
                         setStatus?.Invoke(Import(rom, levelNum, bypWord, path, onOverride));
                 });
             }
+            // Open this bin's file in the GFX tile editor (canvas mode 3).
+            ImGui.SameLine();
+            if (ImGui.SmallButton($"Edit##ged{i}")) onEdit?.Invoke(s.File);
             if (s.Status.Length > 0) { ImGui.SameLine(); ImGui.TextDisabled(s.Status); }
             ImGui.Image(imgui.GetTextureID(s.Tex), new Vector2(s.W * 2f, s.H * 2f));
             ImGui.Separator();
@@ -112,7 +116,10 @@ internal sealed class LevelGfxPanel(GraphicsDevice gd, ImGuiLayer imgui) : IDisp
         bytes = Gfx.NormalizeBpp(bytes, bpp, romBpp, out bool plane3Dropped);
 
         // Next free ExGFX id: skip prior imports AND files the ROM itself resolves, so an
-        // import can't shadow a real ExGFX file other levels may use.
+        // import can't shadow a real ExGFX file other levels may use. Invariant: the id is
+        // always FRESH — if this ever overwrites an existing ImportedGfx id, clear the edit
+        // history first (GFX stroke undo closures re-look-up the array by id, but Map16-style
+        // offset closures into a replaced array would be meaningless).
         int id = 0x100;
         while (id <= 0xFFF && (rom.ImportedGfx.ContainsKey(id) || Gfx.SourceSnes(rom, id) >= 0)) id++;
         if (id > 0xFFF) return "import failed: no free ExGFX id (0x100-0xFFF all in use)";
@@ -126,12 +133,16 @@ internal sealed class LevelGfxPanel(GraphicsDevice gd, ImGuiLayer imgui) : IDisp
              + (plane3Dropped ? " — nonzero plane 3 data discarded" : "");
     }
 
-    private void BuildLevelGfx(Rom rom, Level level, int levelNum)
+    /// <summary>
+    /// The level's 10 VRAM GFX bins (FG/BG/SP), resolved through the tileset lists and the
+    /// Super GFX Bypass (session overrides ride along inside LmGfxBypass). Def is the vanilla
+    /// list entry (0x7F for the bypass-only BG2/BG3 bins) — file != Def means the bypass
+    /// repointed it. Shared with the GFX editor's drawer quick-list.
+    /// </summary>
+    internal static (string Name, int PalRow, int BypWord, int Def, int File)[] ResolveSlots(
+        Rom rom, Level level, int levelNum)
     {
-        foreach (var e in levelGfx) e.Tex.Dispose();
-        levelGfx.Clear();
         var h = level.Header;
-        var pal = Palette.Load(rom, h, levelNum);
         var byp = rom.LmGfxBypass(levelNum);
 
         // (name, GFXLIST base, list index, palette row for the preview, bypass record word)
@@ -149,18 +160,27 @@ internal sealed class LevelGfxPanel(GraphicsDevice gd, ImGuiLayer imgui) : IDisp
             ("SP3", 0x00A8C3, h.SpriteSet * 4 + 2, 8, 9),
             ("SP4", 0x00A8C3, h.SpriteSet * 4 + 3, 8, 8),
         };
-        levelGfxPal = pal;
-        foreach (var s in slots)
+        return slots.Select(s =>
+        {
+            int def = s.listBase < 0 ? 0x7F : rom.Data[rom.FileOffset(s.listBase) + s.idx];
+            bool bypassed = byp is not null && (byp[s.bypWord] & 0xFFF) != 0x7F;
+            return (s.name, s.palRow, s.bypWord, def, bypassed ? byp![s.bypWord] & 0xFFF : def);
+        }).ToArray();
+    }
+
+    private void BuildLevelGfx(Rom rom, Level level, int levelNum)
+    {
+        foreach (var e in levelGfx) e.Tex.Dispose();
+        levelGfx.Clear();
+        levelGfxPal = Palette.Load(rom, level.Header, levelNum);
+        foreach (var s in ResolveSlots(rom, level, levelNum))
         {
             // LM writes every slot of the record when bypass is on, including ones that
             // just restate the tileset default — only tag when the file actually differs.
-            int def = s.listBase < 0 ? 0x7F : rom.Data[rom.FileOffset(s.listBase) + s.idx];
-            bool bypassed = byp is not null && (byp[s.bypWord] & 0xFFF) != 0x7F;
-            int file = bypassed ? byp![s.bypWord] & 0xFFF : def;
-            bool overridden = rom.GfxSlotOverrides.ContainsKey((levelNum, s.bypWord));
-            levelGfx.Add(DecodeSlot(rom, s.name, s.palRow, s.bypWord, file,
-                                    rom.ImportedGfx.ContainsKey(file) ? "(imported)"
-                                    : overridden ? "(override)" : bypassed && file != def ? "(bypass)" : ""));
+            bool overridden = rom.GfxSlotOverrides.ContainsKey((levelNum, s.BypWord));
+            levelGfx.Add(DecodeSlot(rom, s.Name, s.PalRow, s.BypWord, s.File,
+                                    rom.ImportedGfx.ContainsKey(s.File) ? "(imported)"
+                                    : overridden ? "(override)" : s.File != s.Def ? "(bypass)" : ""));
         }
     }
 

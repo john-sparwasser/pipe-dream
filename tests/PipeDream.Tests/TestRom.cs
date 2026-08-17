@@ -53,6 +53,22 @@ internal static class TestRom
         return rom;
     }
 
+    /// <summary>Synthetic Rom whose GFX00 decompresses to a full 3bpp file (0xC00 zeros),
+    /// so Gfx.RomBpp probes 3 and Gfx.Cached(rom, 0) resolves, like a vanilla ROM.</summary>
+    public static Rom CreateWithGfx00()
+    {
+        var rom = Create();
+        const int blobSnes = 0x0FA000;
+        int fo = rom.FileOffset(blobSnes);
+        // 3 × extended byte-fill of 1024 zeros (E7 FF 00), then the 0xFF terminator.
+        for (int i = 0; i < 3; i++) { rom.Data[fo + i * 3] = 0xE7; rom.Data[fo + i * 3 + 1] = 0xFF; }
+        rom.Data[fo + 9] = 0xFF;
+        rom.Data[rom.FileOffset(Gfx.PtrLow)] = blobSnes & 0xFF;
+        rom.Data[rom.FileOffset(Gfx.PtrHigh)] = (blobSnes >> 8) & 0xFF;
+        rom.Data[rom.FileOffset(Gfx.PtrBank)] = blobSnes >> 16;
+        return rom;
+    }
+
     /// <summary>Synthetic Rom plus an empty Level: 5 header bytes + 0xFF terminator at
     /// LevelDataSnes, layer-1 pointer table entry repointed there, then parsed.</summary>
     public static (Rom Rom, Level Level) CreateWithLevel(bool dm16 = false)

@@ -97,6 +97,12 @@ internal sealed class ShellLayout(EditorApp app)
             app.map16Editor.DrawGfxPaletteDrawer();
             return;
         }
+        if (app.canvasView == EditorApp.CanvasView.Gfx)
+        {
+            // GFX edit mode: the drawer is the color picker + the level's bin quick-list.
+            app.gfxEditor.DrawDrawer();
+            return;
+        }
         if (ImGui.BeginTabBar("palettetabs"))
         {
             PaletteTabItem(0, "Map16", EditorApp.EditMode.Layer1, app.map16Editor.DrawMap16Tab);

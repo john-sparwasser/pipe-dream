@@ -329,6 +329,25 @@ public static class Gfx
     }
 
     /// <summary>
+    /// DecodeTile's inverse for one pixel: set/clear the pixel's bit in each plane byte of
+    /// the 8×8 planar tile at <paramref name="off"/>. x/y are within the tile (0-7),
+    /// colorIdx 0..2^bpp-1. Same plane layout as DecodeTile.
+    /// </summary>
+    public static void SetTilePixel(byte[] src, int off, int bpp, int x, int y, int colorIdx)
+    {
+        int bit = 7 - x;
+        void Plane(int o, int plane)
+        {
+            if (((colorIdx >> plane) & 1) != 0) src[o] |= (byte)(1 << bit);
+            else src[o] &= (byte)~(1 << bit);
+        }
+        Plane(off + y * 2, 0);
+        Plane(off + y * 2 + 1, 1);
+        if (bpp == 3) Plane(off + 16 + y, 2);
+        else if (bpp == 4) { Plane(off + 16 + y * 2, 2); Plane(off + 16 + y * 2 + 1, 3); }
+    }
+
+    /// <summary>
     /// Decompress LC_LZ2 data starting at file offset <paramref name="p"/>. Reads contiguous
     /// PC bytes (LoROM bank-crossing is just contiguous in PC space). Terminates on a 0xFF
     /// command byte.

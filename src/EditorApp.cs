@@ -29,7 +29,7 @@ public class EditorApp : App
 
     // ---- Map16 edit mode (canvas view toggle: the canvas becomes the Map16 sheet, the
     // left drawer becomes the 8x8 GFX palette; same grammar as level editing) ----
-    internal enum CanvasView { Level, Map16 }
+    internal enum CanvasView { Level, Map16, Gfx }
     internal CanvasView canvasView;
 
     internal LevelCanvas canvas = null!;    // created in Startup (needs GraphicsDevice)
@@ -88,6 +88,7 @@ public class EditorApp : App
     internal ShellLayout shell = null!;
     internal LevelViewport viewport = null!;
     internal Map16Editor map16Editor = null!;
+    internal GfxEditor gfxEditor = null!;
     internal SpriteEditor spriteEditor = null!;
     internal ObjectEditor objectEditor = null!;
     internal PaletteEditor paletteEditor = null!;
@@ -180,6 +181,7 @@ public class EditorApp : App
         shell = new ShellLayout(this);
         viewport = new LevelViewport(this);
         map16Editor = new Map16Editor(this);
+        gfxEditor = new GfxEditor(this);
         spriteEditor = new SpriteEditor(this);
         objectEditor = new ObjectEditor(this);
         paletteEditor = new PaletteEditor(this);
@@ -268,9 +270,10 @@ public class EditorApp : App
         firstRun.Draw();
         projectWizard.Draw();
 
-        // Map16 paint strokes commit when the right button is up — at frame start, so the
+        // Map16/GFX paint strokes commit when their button is up — at frame start, so the
         // graphics rebuild never disposes textures already submitted to this frame.
         map16Editor.CommitStrokeOnRelease();
+        gfxEditor.CommitStrokeOnRelease();
 
         // Deferred Map16 page allocation (from a click on an empty page in the picker) —
         // runs before any drawing so texture rebuilds never race the frame's draw data.
@@ -285,8 +288,11 @@ public class EditorApp : App
         if (!io.WantTextInput && ImGui.IsKeyPressed(ImGuiKey.Escape) &&
             !ImGui.IsPopupOpen("", ImGuiPopupFlags.AnyPopupId | ImGuiPopupFlags.AnyPopupLevel))
         {
-            if (canvasView == CanvasView.Map16)
-                canvasView = CanvasView.Level;             // Esc leaves Map16 edit mode first
+            if (canvasView != CanvasView.Level)
+            {
+                gfxEditor.AbortStroke();                   // uncommitted stroke bytes reverted
+                canvasView = CanvasView.Level;             // Esc leaves Map16/GFX edit mode first
+            }
             else
             {
                 editMode = editMode == EditMode.Layer1 ? EditMode.Sprites : EditMode.Layer1;
