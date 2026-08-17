@@ -44,6 +44,28 @@ public readonly struct LevelObject
     public static LevelObject ScreenJump(int screen) =>
         new(false, 0, screen, 0, screen & 0x1F, 0x01, -1);
 
+    // ---- Screen exits (CONTRACT §4, handler $0DA512) -------------------------------
+    // The handler indexes its tables with `$0A & $1F` — the Y FIELD, not the object's
+    // stream screen — so Y is the screen this exit governs. The X nibble carries the
+    // flags: bit0 → $19D8,X (water), the whole nibble >> 1 → $1B93 (use the secondary
+    // entrance table, in which case the destination byte indexes $05F800+ instead of
+    // naming a level). The 4th byte is the destination.
+
+    /// <summary>LM's own secondary exit (ext obj 0x02): 2 extra bytes = the exit word,
+    /// written to $19B8/$19D8 by the same tables the vanilla handler uses.</summary>
+    public bool IsLmSecondaryExit => Extended && Byte3 == 0x02;
+
+    /// <summary>Screen this exit governs (both exit forms index by the Y field).</summary>
+    public int ExitScreen => Y;
+    public bool ExitIsWater => (XNibble & 1) != 0;
+    public bool ExitUsesSecondary => XNibble >> 1 != 0;
+    /// <summary>Destination: a level number for a plain exit, or an index into the
+    /// secondary entrance table when <see cref="ExitUsesSecondary"/>.</summary>
+    public int ExitDestination => ExtraByte;
+
+    public static LevelObject ScreenExit(int screen, int destination, bool water, bool secondary) =>
+        new(false, 0, screen, (secondary ? 2 : 0) | (water ? 1 : 0), screen & 0x1F, 0x00, destination & 0xFF);
+
     /// <summary>Create a Direct Map16 object placing <paramref name="tile"/> at a cell.
     /// Sizes past 16 use LM's extended Form B (page bits 6+7: 7-bit width in byte3,
     /// height byte) — verified against the handler: max 128 wide x 256 tall.</summary>

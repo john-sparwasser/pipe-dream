@@ -15,6 +15,7 @@ static class DebugCommands
         ("--writedm16",         WriteDm16),
         ("--dumpcell",          DumpCell),
         ("--markers",           DumpMarkers),
+        ("--exits",             DumpExits),
         ("--gfxsheet",          GfxSheet),
         ("--blobsheet",         BlobSheet),
         ("--diff",              (a, i) => DiffRoms(a[i + 1], a[i + 2])),
@@ -97,6 +98,30 @@ static class DebugCommands
         Png.Write(outPath, px, w, h);
         Console.WriteLine($"wrote {outPath}: {w}x{h}, level 0x{level:X3}, tileset {lv.Header.Tileset}, " +
                           $"header {Convert.ToHexString(lv.Header.ToBytes())}");
+        return 0;
+    }
+
+    // --exits <rom> [levelHex] : dump a level's screen exits, or every level's when the
+    // level is omitted. Prints the raw object fields next to the decoded meaning, so the
+    // "Y field is the screen" contract stays checkable against a real ROM.
+    public static int DumpExits(string[] args, int ei)
+    {
+        var rom = Rom.Load(args.ElementAtOrDefault(ei + 1) ?? @"C:\SMW\Projects\.resources\SMW.smc");
+        string? one = args.ElementAtOrDefault(ei + 2);
+        IEnumerable<int> levels = one is not null ? [Convert.ToInt32(one, 16)] : Enumerable.Range(0, Rom.LevelCount);
+        foreach (int level in levels)
+        {
+            List<LevelObject> exits;
+            try { exits = LevelParser.Parse(rom, level).Objects.Where(o => o.IsScreenExit || o.IsLmSecondaryExit).ToList(); }
+            catch { continue; }
+            if (exits.Count == 0) continue;
+            Console.WriteLine($"level 0x{level:X3}: {exits.Count} exit(s)");
+            foreach (var o in exits)
+                Console.WriteLine($"  {(o.IsLmSecondaryExit ? "lm-secondary" : "vanilla     ")} " +
+                                  $"streamScreen {o.Screen:X2}  Y(screen) {o.ExitScreen:X2}  xNib {o.XNibble:X}" +
+                                  $"  dest {o.ExitDestination:X2}" +
+                                  (o.IsLmSecondaryExit ? "" : $"  water {o.ExitIsWater}  secondary {o.ExitUsesSecondary}"));
+        }
         return 0;
     }
 

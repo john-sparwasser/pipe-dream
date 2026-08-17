@@ -38,6 +38,8 @@ internal sealed class LevelViewport(EditorApp app)
         ImGui.SameLine();
         ImGui.BeginDisabled(app.level is null);
         if (ImGui.Button("Properties")) app.levelProps.Open();
+        ImGui.SameLine();
+        if (ImGui.Button("Exits")) app.levelExits.Open();
         ImGui.EndDisabled();
         ImGui.SameLine();
         DrawViewToggle();

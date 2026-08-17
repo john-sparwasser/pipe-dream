@@ -216,6 +216,33 @@ public class ProjectPrepTests : IDisposable
         Assert.Equal(LevelParser.Parse(baseRom, 0x106).Header, LevelParser.Parse(built, 0x106).Header);
     }
 
+    [RealRomFact]
+    public void an_edited_screen_exit_survives_the_build()
+    {
+        var p = Project.Create(Path.Combine(dir, "proj"), TestRom.RealRomPath);
+        var baseRom = Rom.Load(p.BaseRomPath);
+        // keep the level's real objects, retarget its exit, and add a second one
+        var objs = LevelParser.Parse(baseRom, 0x105).Objects
+            .Where(o => !o.IsScreenExit)
+            .Append(LevelObject.ScreenExit(7, 0xD4, water: false, secondary: true))
+            .Append(LevelObject.ScreenExit(0x0C, 0xE2, water: true, secondary: false))
+            .ToList();
+        p.Data.Level(0x105).Objects = objs.Select(ProjectFile.ObjectDto.From).ToList();
+        p.Save();
+
+        var (_, outPath) = RomBuilder.Build(p);
+        Assert.NotNull(outPath);
+        // NormalizeStream re-sorts the stream and re-derives screen jumps, so this asserts
+        // the Y field (which is what the handler indexes by) came through untouched.
+        var exits = LevelParser.Parse(Rom.Load(outPath!), 0x105).Objects
+            .Where(o => o.IsScreenExit).OrderBy(o => o.ExitScreen).ToList();
+        Assert.Equal(2, exits.Count);
+        Assert.Equal((7, 0xD4, false, true),
+                     (exits[0].ExitScreen, exits[0].ExitDestination, exits[0].ExitIsWater, exits[0].ExitUsesSecondary));
+        Assert.Equal((0x0C, 0xE2, true, false),
+                     (exits[1].ExitScreen, exits[1].ExitDestination, exits[1].ExitIsWater, exits[1].ExitUsesSecondary));
+    }
+
     [Fact]
     public void create_on_a_non_vanilla_base_stays_unprepped()
     {
