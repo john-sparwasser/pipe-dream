@@ -66,8 +66,10 @@ public readonly struct LevelObject
 
     /// <summary>
     /// This DM16 object resized: compact nibble form when it fits, extended Form B when
-    /// not (converting 0x22/0x23 to 0x27 as needed). The bit7 "run byte" (Dm16ExtX) has
-    /// no geometric effect (probed) — preserved verbatim whenever bit7 stays set.
+    /// not (converting 0x22/0x23 to 0x27 as needed). The bit7 "run byte" (Dm16ExtX) is a
+    /// stamp descriptor — low nibble stamp width-1, high nibble stamp height-1, fill
+    /// cycles tileLow + (col%W) + 0x10*(row%H) (CONTRACT §9d, decoded via RomPrep parity
+    /// probes) — preserved verbatim whenever bit7 stays set so resizing keeps the stamp.
     /// </summary>
     public LevelObject Dm16Resized(int w, int h)
     {
@@ -78,7 +80,7 @@ public readonly struct LevelObject
             int b3 = ((h - 1) << 4) | (w - 1);
             if (Number is 0x22 or 0x23 || Dm16Page < 0)
                 return new(NewScreen, Number, Screen, XNibble, Y, b3, ExtraByte, Dm16Tile);
-            bool run = (Dm16Page & 0x80) != 0;         // keep the mystery run byte if present
+            bool run = (Dm16Page & 0x80) != 0;         // keep the stamp descriptor if present
             return new(NewScreen, Number, Screen, XNibble, Y, b3, ExtraByte, Dm16Tile,
                        run ? page | 0x80 : page, run ? Math.Max(0, Dm16ExtX) : -1, -1);
         }

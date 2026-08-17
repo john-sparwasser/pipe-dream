@@ -443,6 +443,17 @@ around the vanilla loads; the custom palette itself is applied from ROM data:
   slots (zeroed in ROM) — DogsOfWar levels 0x107/0x115.
 - Reader: `Rom.LmCustomPalette(level)`, applied by `Palette.Load(rom, header, level)`.
 
+**There is a SECOND hook site** (found the hard way by RomPrep's real-game smoke): the
+fade-in mode step at `$00A5B9` re-runs `JSR UploadSpriteGFX : JSR LoadPalette`,
+rebuilding the vanilla staging and wiping the custom palette. Every palette-engine LM
+ROM (ShaoBase/DoW/BigEye) repoints the vanilla `JSL $05BE8A` at **$00A5BF** (immediately
+after that second LoadPalette) to an LM stub that re-applies the blob. An installer that
+only hooks $0095E9 shows the custom palette in stills but loses it on the real fade-in.
+
+Back-area color runtime path: the staging word at **$0701** feeds COLDATA `$2132`
+per-frame (`$00AE47: LDA $0701 … STA $2132`); the fade system snapshots
+`$0701/$0703+ → $0903/$0905+` (`$00A5D8`). The back color is NOT CGRAM color 0.
+
 NOTE while investigating: DoW level 0x105 has NO custom palette and no bypass record — its
 washed-out render is expected (mostly-empty level slot), not a palette bug.
 
@@ -474,12 +485,24 @@ identically; vanilla had placeholder $0DB3E3)
 - 0x26 → $0DF130: no-tile directive (pokes $0DDA; music-related).
 - 0x27 → $0DF150 / 0x29 → $0DFF50 (BG pages, +0x40): VARIABLE LENGTH —
   b1,b2,size,pageByte,tileLow (5 bytes) + 1 run byte if pageByte bit7 + 1 height-override
-  byte if bits7+6. bit7 also switches width to (size & 0x7F). Obj 0x29 writes the LAYER-2
-  plane (no layer-1 tiles).
+  byte if bits7+6. Width switches to (size & 0x7F) only when bits7+6 are BOTH set
+  (bit7 alone keeps the nibble sizes — corrected via RomPrep parity probing). Obj 0x29
+  writes the page|0x40 words through the same plane writes as 0x27.
+- The bit7 "run byte" is NOT inert: it is a **stamp descriptor** — low nibble =
+  stamp width-1, high nibble = stamp height-1; the fill cycles
+  `tileLow + (col % W) + 0x10*(row % H)` (decoded by footprint probes vs after.smc,
+  parity-verified incl. screen-crossing fills).
 - 0x28 → $0DF160: no-tile directive (entrance/position, $0F31-33).
 - LM ext obj 0x02 ($0DE1B0): secondary exit — consumes 2 EXTRA stream bytes (exit word).
 Parse lengths must match exactly or the whole object stream desyncs (DoW builds levels
 almost entirely from extended 0x27 forms).
+
+Calling-convention trap for installers (RomPrep bug, found in-game): code hooked at the
+sprite-pointer site ($05D8F5) and the acts-like call sites (the four vanilla
+`JSL $00F545`s) MUST preserve the accumulator's HIGH byte (B). The entrance decode after
+$05D909 does `TAX` with 16-bit X, so a leaked B shifts every entrance-table index by
++0x100 for levels >= 0x100 (symptom: garbage spawn/scroll state, e.g. instant TIME UP).
+Vanilla $00F545 is pure 8-bit and B-transparent; replacements must be too.
 
 ## 10. Layer 2  [CONFIRMED from bank 05 loader]
 
