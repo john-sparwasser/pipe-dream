@@ -3,8 +3,8 @@ namespace PipeDream;
 /// <summary>
 /// SAVING level data: object list → raw Layer-1 byte stream (CONTRACT §4), the exact
 /// inverse of LevelParser. Each object re-emits its 3 bytes (+ extras for screen exits and
-/// DM16 forms), preceded by the 5-byte header copied verbatim from the ROM (header fields
-/// aren't re-derived yet), terminated by 0xFF. Round-trip verified byte-identical.
+/// DM16 forms), preceded by the level's 5 header bytes re-packed from its fields, terminated
+/// by 0xFF. Round-trip verified byte-identical.
 ///
 /// NormalizeStream orders an EDITED object list into a valid stream: because the raw
 /// new-screen bit only advances the running screen counter by 1, arbitrary placement needs
@@ -42,12 +42,12 @@ public static class LevelEncoder
         return outl;
     }
 
-    /// <summary>Encode a level's header (verbatim from ROM) + a given object list + 0xFF.
+    /// <summary>Encode a level's header (re-packed from its fields) + a given object list + 0xFF.
     /// <paramref name="offsets"/>, when given, records each object's byte offset in the output.</summary>
     public static byte[] Encode(Level level, Rom rom, IEnumerable<LevelObject> objects, List<int>? offsets = null)
     {
         var outb = new List<byte>(256);
-        outb.AddRange(rom.Data.AsSpan(rom.FileOffset(level.DataPointer), 5).ToArray());   // header
+        outb.AddRange(level.Header.ToBytes());
         foreach (var o in objects) { offsets?.Add(outb.Count); AppendObject(outb, o); }
         outb.Add(0xFF);
         return outb.ToArray();

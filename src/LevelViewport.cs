@@ -36,6 +36,10 @@ internal sealed class LevelViewport(EditorApp app)
         ImGui.SameLine();
         if (ImGui.Button("Reload")) app.session.ParseLevel();
         ImGui.SameLine();
+        ImGui.BeginDisabled(app.level is null);
+        if (ImGui.Button("Properties")) app.levelProps.Open();
+        ImGui.EndDisabled();
+        ImGui.SameLine();
         DrawViewToggle();
         if (app.canvas.TexFor(0) is null || app.grid is null) { ImGui.TextDisabled("No level rendered."); return; }
         if (app.saveStatus.Length > 0) ImGui.TextDisabled(app.saveStatus);

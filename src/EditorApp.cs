@@ -106,6 +106,8 @@ public class EditorApp : App
     // The open project (null = raw-ROM inspection mode) + its New/Open wizard.
     internal Project? project;
     internal ProjectWizard projectWizard = null!;
+    // Level header editor (modal, opened from the level header row).
+    internal LevelPropertiesDialog levelProps = null!;
     // Set by LEVEL-scoped edits (objects/sprites/palette/GFX overrides) so the session
     // stashes this level into the project; global Map16/acts edits don't set it — they
     // capture their own slots and must not freeze an unedited level into the project.
@@ -192,6 +194,7 @@ public class EditorApp : App
         config = Config.Load();
         firstRun = new FirstRunPrompt(this);
         projectWizard = new ProjectWizard(this);
+        levelProps = new LevelPropertiesDialog(this);
         // Autosave rides the edit-state hook; non-history edit sites MarkDirty directly.
         history.Changed = () => project?.MarkDirty();
         SetWindowIcon();
@@ -269,6 +272,7 @@ public class EditorApp : App
         menuBar.Draw();
         firstRun.Draw();
         projectWizard.Draw();
+        levelProps.Draw();
 
         // Map16/GFX paint strokes commit when their button is up — at frame start, so the
         // graphics rebuild never disposes textures already submitted to this frame.

@@ -199,6 +199,23 @@ public class ProjectPrepTests : IDisposable
         Assert.Null(Rom.Load(outPath!).LmGfxBypass(0x105));        // nothing written
     }
 
+    [RealRomFact]
+    public void a_header_edit_survives_the_build_and_leaves_other_levels_alone()
+    {
+        var p = Project.Create(Path.Combine(dir, "proj"), TestRom.RealRomPath);
+        var baseRom = Rom.Load(p.BaseRomPath);
+        var edited = LevelParser.Parse(baseRom, 0x105).Header with { Tileset = 3, Music = 5, Time = 1 };
+        p.Data.Level(0x105).Header = Convert.ToHexString(edited.ToBytes());
+        p.Save();
+
+        var (_, outPath) = RomBuilder.Build(p);
+        Assert.NotNull(outPath);
+        var built = Rom.Load(outPath!);
+        Assert.Equal(edited, LevelParser.Parse(built, 0x105).Header);
+        // an untouched neighbour keeps the base ROM's header byte for byte
+        Assert.Equal(LevelParser.Parse(baseRom, 0x106).Header, LevelParser.Parse(built, 0x106).Header);
+    }
+
     [Fact]
     public void create_on_a_non_vanilla_base_stays_unprepped()
     {

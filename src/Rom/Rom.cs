@@ -174,6 +174,12 @@ public sealed class Rom
     /// Never saved.</summary>
     public readonly Dictionary<(int Level, int Word), int> GfxSlotOverrides = new();
 
+    /// <summary>Session-only level header overrides: level → the 5 replacement header bytes.
+    /// Applied by LevelParser.Parse, so a header edit reaches everything the header drives
+    /// (object dispatch, palettes, layer 2, sprite tiles) through the normal parse path.
+    /// Hydrated from / stashed to ProjectFile.LevelState.Header by LevelSession.</summary>
+    public readonly Dictionary<int, byte[]> LevelHeaderOverrides = new();
+
     /// <summary>Imported ExGFX files (the project's GFX store): file id → raw planar bytes
     /// at the ROM's bit depth. Consulted first by Gfx.Cached, so imports render everywhere
     /// a GFX id resolves. Hydrated from / stashed to ProjectFile.Gfx by LevelSession;

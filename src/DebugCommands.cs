@@ -95,7 +95,8 @@ static class DebugCommands
             px = crop; w = cw16;
         }
         Png.Write(outPath, px, w, h);
-        Console.WriteLine($"wrote {outPath}: {w}x{h}, level 0x{level:X3}, tileset {lv.Header.Tileset}");
+        Console.WriteLine($"wrote {outPath}: {w}x{h}, level 0x{level:X3}, tileset {lv.Header.Tileset}, " +
+                          $"header {Convert.ToHexString(lv.Header.ToBytes())}");
         return 0;
     }
 

@@ -34,6 +34,7 @@ internal sealed class LevelSession(EditorApp app)
                     int lvl = Convert.ToInt32(key, 16);
                     foreach (var (word, file) in state.GfxOverrides)
                         app.rom.GfxSlotOverrides[(lvl, word)] = file;
+                    if (state.Header is { } hx) app.rom.LevelHeaderOverrides[lvl] = Convert.FromHexString(hx);
                 }
                 // Replay the Map16/acts snapshot into the session ROM: same code Build
                 // uses on a fresh base, so session and built ROM can't drift.
@@ -87,7 +88,34 @@ internal sealed class LevelSession(EditorApp app)
         s.Palette = app.paletteEditor.palEdits.ToDictionary(kv => kv.Key, kv => (int)kv.Value);
         s.GfxOverrides = app.rom.GfxSlotOverrides.Where(kv => kv.Key.Level == app.levelNum)
                             .ToDictionary(kv => kv.Key.Word, kv => kv.Value);
+        s.Header = app.rom.LevelHeaderOverrides.TryGetValue(app.levelNum, out var hb)
+            ? Convert.ToHexString(hb) : null;
         app.project.MarkDirty();
+    }
+
+    /// <summary>Replace the current level's header. The override lives on the Rom (session
+    /// state, like the GFX slot overrides), so a reparse re-renders everything the header
+    /// drives — object dispatch, palettes, layer 2, sprite tiles.
+    /// ponytail: reparsing costs the undo history, which a tileset change invalidates anyway.</summary>
+    internal void ApplyHeader(LevelHeader header)
+    {
+        if (app.rom is null || app.level is null) return;
+        if (app.project is not null && app.currentLevelTouched) StashCurrentLevel();
+        app.rom.LevelHeaderOverrides[app.levelNum] = header.ToBytes();
+        ParseLevel();
+        app.currentLevelTouched = true;
+        app.project?.MarkDirty();
+    }
+
+    /// <summary>Drop the header edit and go back to the base ROM's header.</summary>
+    internal void RevertHeader()
+    {
+        if (app.rom is null) return;
+        if (app.project is not null && app.currentLevelTouched) StashCurrentLevel();
+        app.rom.LevelHeaderOverrides.Remove(app.levelNum);
+        ParseLevel();
+        app.currentLevelTouched = true;
+        app.project?.MarkDirty();
     }
 
     // Re-read every captured Map16/acts slot's CURRENT bytes from the ROM. Values are

@@ -52,6 +52,9 @@ public sealed class ProjectFile
 
     public sealed class LevelState
     {
+        /// <summary>Level header edit: the 5 replacement bytes as hex, or null to keep the
+        /// base ROM's header.</summary>
+        public string? Header { get; set; }
         public List<ObjectDto> Objects { get; set; } = new();
         public int SpriteMemory { get; set; }
         public int Buoyancy { get; set; }

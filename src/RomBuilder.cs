@@ -54,6 +54,12 @@ internal static class RomBuilder
             if (ReplayMap16(rom, project.Data) is { } err) return (err, null);
             WriteGfx(rom, project.Data, warnings);
 
+            // Header edits are applied through the parse path (same as the session), so
+            // seed them before any level is parsed below.
+            foreach (var (key, state) in project.Data.Levels)
+                if (state.Header is { } hx)
+                    rom.LevelHeaderOverrides[Convert.ToInt32(key, 16)] = Convert.FromHexString(hx);
+
             foreach (var (key, state) in project.Data.Levels.OrderBy(kv => kv.Key, StringComparer.Ordinal))
             {
                 int level = Convert.ToInt32(key, 16);

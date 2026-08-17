@@ -1,39 +1,75 @@
-using PipeDream;
 using Xunit;
 
 namespace PipeDream.Tests;
 
-// LevelHeader decodes 5 raw bytes into fields (bank 05 CODE_0584E3). Pure, no ROM.
+/// <summary>LevelHeader decode ↔ encode. LevelEncoder emits the header from these fields
+/// on every save, so an inexact inverse would silently corrupt the header of any level a
+/// project touches — including levels whose header nobody edited.</summary>
 public class LevelHeaderTests
 {
     [Fact]
-    public void DecodesKnownFields()
+    public void every_possible_header_survives_decode_then_encode()
     {
-        // b0=0x14 -> Screens (0x14&0x1F)+1=0x15, BgPalette 0x14>>5=0
-        // b1=0x41 -> LevelMode 1, BackAreaColor 2
-        // b2=0x35 -> SpriteSet 5, Music 3, Layer3Priority 0
-        // b3=0xC5 -> Time 0xC5>>6=3, SpritePalette (0xC5>>3)&7=0, FgPalette 5
-        // b4=0x27 -> Tileset 7, ScrollSetting (0x27>>4)&3=2, ItemMemory 0x27>>6=0
-        var h = new LevelHeader(new byte[] { 0x14, 0x41, 0x35, 0xC5, 0x27 });
-        Assert.Equal(0x15, h.Screens);
-        Assert.Equal(0, h.BgPalette);
-        Assert.Equal(1, h.LevelMode);
-        Assert.Equal(2, h.BackAreaColor);
-        Assert.Equal(5, h.SpriteSet);
-        Assert.Equal(3, h.Music);
-        Assert.Equal(0, h.Layer3Priority);
-        Assert.Equal(3, h.Time);
-        Assert.Equal(0, h.SpritePalette);
-        Assert.Equal(5, h.FgPalette);
-        Assert.Equal(7, h.Tileset);
-        Assert.Equal(2, h.ScrollSetting);
-        Assert.Equal(0, h.ItemMemory);
+        // The 5 bytes are independent bitfields, so covering all 256 values of each byte
+        // against a couple of neighbour patterns exhausts the field packing without
+        // walking all 2^40 combinations.
+        foreach (byte fill in new byte[] { 0x00, 0xFF, 0x5A })
+            for (int b = 0; b < 5; b++)
+                for (int v = 0; v < 256; v++)
+                {
+                    byte[] bytes = [fill, fill, fill, fill, fill];
+                    bytes[b] = (byte)v;
+                    Assert.Equal(bytes, new LevelHeader(bytes).ToBytes());
+                }
     }
 
     [Fact]
-    public void ScreensIsOneBased()
+    public void fields_decode_to_their_documented_bit_positions()
     {
-        Assert.Equal(1, new LevelHeader(new byte[] { 0x00, 0, 0, 0, 0 }).Screens);
-        Assert.Equal(32, new LevelHeader(new byte[] { 0x1F, 0, 0, 0, 0 }).Screens);
+        var h = new LevelHeader([0x00, 0x00, 0x00, 0x00, 0x00]) with
+        {
+            Screens = 32, BgPalette = 5, LevelMode = 0x1F, BackAreaColor = 3,
+            SpriteSet = 9, Music = 6, Layer3Priority = 1,
+            Time = 2, SpritePalette = 4, FgPalette = 1,
+            Tileset = 7, ItemMemory = 3, ScrollSetting = 2,
+        };
+        Assert.Equal(h, new LevelHeader(h.ToBytes()));      // fields survive the trip
+        Assert.Equal([0xBF, 0x7F, 0xE9, 0xA1, 0xE7], h.ToBytes());
+    }
+
+    [Fact]
+    public void out_of_range_field_values_truncate_instead_of_corrupting_neighbours()
+    {
+        var h = new LevelHeader([0, 0, 0, 0, 0]) with { Tileset = 0x1F, ItemMemory = 0 };
+        Assert.Equal(0x0F, h.ToBytes()[4]);                 // 0x1F masked to 4 bits, no spill
+    }
+
+    [RealRomFact]
+    public void every_level_in_the_rom_round_trips_its_header()
+    {
+        var rom = Rom.Load(TestRom.RealRomPath);
+        for (int lvl = 0; lvl < Rom.LevelCount; lvl++)
+        {
+            int fo = rom.FileOffset(rom.Layer1Pointer(lvl));
+            byte[] original = rom.Data.AsSpan(fo, 5).ToArray();
+            Assert.Equal(original, new LevelHeader(original).ToBytes());
+        }
+    }
+
+    [RealRomFact]
+    public void a_header_override_reaches_the_parsed_level_and_the_encoded_bytes()
+    {
+        var rom = Rom.Load(TestRom.RealRomPath);
+        var before = LevelParser.Parse(rom, 0x105);
+        var edited = before.Header with { Tileset = (before.Header.Tileset + 1) & 0x0F };
+
+        rom.LevelHeaderOverrides[0x105] = edited.ToBytes();
+        var after = LevelParser.Parse(rom, 0x105);
+        Assert.Equal(edited, after.Header);
+        Assert.Equal(edited.ToBytes(), LevelEncoder.Encode(after, rom, after.Objects)[..5]);
+        Assert.Equal(before.Objects.Count, after.Objects.Count);   // objects still come from ROM
+
+        rom.LevelHeaderOverrides.Remove(0x105);
+        Assert.Equal(before.Header, LevelParser.Parse(rom, 0x105).Header);
     }
 }

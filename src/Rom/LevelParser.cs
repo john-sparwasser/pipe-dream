@@ -21,7 +21,8 @@ public static class LevelParser
     {
         int ptr = rom.Layer1Pointer(number);
         int fo = rom.FileOffset(ptr);
-        var header = new LevelHeader(rom.Data.AsSpan(fo, 5));
+        var header = new LevelHeader(rom.LevelHeaderOverrides.TryGetValue(number, out var over)
+                                     ? over : rom.Data.AsSpan(fo, 5));
         var objs = ParseObjects(rom, fo + 5, out bool empty);
         return new Level(number, ptr, header, objs, empty);
     }
