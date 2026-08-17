@@ -152,6 +152,23 @@ public sealed class Rom
         for (int t = 0; t < 4; t++) Data[FileOffset(SecondaryEntranceTables[t] + index)] = b[t];
     }
 
+    // Main entrance / entry settings: the sibling tables, indexed by LEVEL (see MainEntrance).
+    private static readonly int[] MainEntranceTables =
+        [0x05F000, 0x05F200, 0x05F400, 0x05F600];
+
+    public MainEntrance ReadMainEntrance(int level)
+    {
+        Span<byte> b = stackalloc byte[4];
+        for (int t = 0; t < 4; t++) b[t] = Data[FileOffset(MainEntranceTables[t] + level)];
+        return new MainEntrance(b);
+    }
+
+    public void WriteMainEntrance(int level, MainEntrance e)
+    {
+        byte[] b = e.ToBytes();
+        for (int t = 0; t < 4; t++) Data[FileOffset(MainEntranceTables[t] + level)] = b[t];
+    }
+
     /// <summary>Layer 2 pointer. Bank $FF means "layer 2 is a background image", not object data.</summary>
     public int Layer2Pointer(int level) => ReadValue(Layer2TableSnes + level * 3, 3);
     public bool Layer2IsBackground(int level) => (Layer2Pointer(level) >> 16) == 0xFF;

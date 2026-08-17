@@ -261,6 +261,23 @@ public class ProjectPrepTests : IDisposable
         Assert.Equal(baseRom.ReadSecondaryEntrance(0xD5), built.ReadSecondaryEntrance(0xD5));
     }
 
+    [RealRomFact]
+    public void an_edited_main_entrance_survives_the_build()
+    {
+        var p = Project.Create(Path.Combine(dir, "proj"), TestRom.RealRomPath);
+        var baseRom = Rom.Load(p.BaseRomPath);
+        var edited = baseRom.ReadMainEntrance(0x105) with
+        { MarioX = 4, MarioY = 6, EntranceAction = 5, Layer2Scroll = 2 };
+        p.Data.Level(0x105).MainEntrance = Convert.ToHexString(edited.ToBytes());
+        p.Save();
+
+        var (_, outPath) = RomBuilder.Build(p);
+        Assert.NotNull(outPath);
+        var built = Rom.Load(outPath!);
+        Assert.Equal(edited, built.ReadMainEntrance(0x105));
+        Assert.Equal(baseRom.ReadMainEntrance(0x106), built.ReadMainEntrance(0x106));
+    }
+
     [Fact]
     public void create_on_a_non_vanilla_base_stays_unprepped()
     {

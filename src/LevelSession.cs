@@ -154,6 +154,10 @@ internal sealed class LevelSession(EditorApp app)
         foreach (var idx in app.project.Data.Entrances.Keys.ToArray())
             app.project.Data.Entrances[idx] =
                 Convert.ToHexString(app.rom.ReadSecondaryEntrance(Convert.ToInt32(idx, 16)).ToBytes());
+        foreach (var (levelHex, state) in app.project.Data.Levels)
+            if (state.MainEntrance is not null)
+                state.MainEntrance =
+                    Convert.ToHexString(app.rom.ReadMainEntrance(Convert.ToInt32(levelHex, 16)).ToBytes());
     }
 
     internal void ParseLevel()

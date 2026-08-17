@@ -17,6 +17,7 @@ static class DebugCommands
         ("--markers",           DumpMarkers),
         ("--exits",             DumpExits),
         ("--entrances",         DumpEntrances),
+        ("--mainentrance",      DumpMainEntrance),
         ("--gfxsheet",          GfxSheet),
         ("--blobsheet",         BlobSheet),
         ("--diff",              (a, i) => DiffRoms(a[i + 1], a[i + 2])),
@@ -145,6 +146,26 @@ static class DebugCommands
                               $"bndryY {e.ScreenBoundaryY}  vscroll {e.VerticalScroll}  action {e.EntranceAction}");
         }
         if (one is null) Console.WriteLine($"{shown} non-empty entrance(s)");
+        return 0;
+    }
+
+    // --mainentrance <rom> [levelHex] : dump a level's main entrance / entry settings.
+    public static int DumpMainEntrance(string[] args, int mi)
+    {
+        var rom = Rom.Load(args.ElementAtOrDefault(mi + 1) ?? @"C:\SMW\Projects\.resources\SMW.smc");
+        string? one = args.ElementAtOrDefault(mi + 2);
+        IEnumerable<int> levels = one is not null
+            ? [Convert.ToInt32(one, 16)] : Enumerable.Range(0, Rom.LevelCount);
+        foreach (int lvl in levels)
+        {
+            var e = rom.ReadMainEntrance(lvl);
+            if (one is null && e.ToBytes().All(b => b == 0)) continue;
+            Console.WriteLine($"level {lvl:X3}: bytes {Convert.ToHexString(e.ToBytes())}  " +
+                              $"marioX {e.MarioX} marioY {e.MarioY:X}  action {e.EntranceAction}  " +
+                              $"bndryY {e.ScreenBoundaryY} vscroll {e.VerticalScroll}  " +
+                              $"l2scroll {e.Layer2Scroll:X} l2set {e.Layer2Setting}  " +
+                              $"vert {e.VerticalLevel} skipwalk {e.SkipEntranceWalk}");
+        }
         return 0;
     }
 

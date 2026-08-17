@@ -43,8 +43,9 @@ internal static class RomBuilder
         return null;
     }
 
-    /// <summary>Replay the project's secondary entrance edits into a ROM. Same code for the
-    /// session ROM and a fresh build copy, so the editor can't drift from the built game.</summary>
+    /// <summary>Replay the project's entrance-table edits into a ROM — secondary entrance
+    /// records and per-level main entrances. Same code for the session ROM and a fresh build
+    /// copy, so the editor can't drift from the built game.</summary>
     internal static void ReplayEntrances(Rom rom, ProjectFile data)
     {
         foreach (var (idxHex, hex) in data.Entrances)
@@ -53,6 +54,11 @@ internal static class RomBuilder
             int index = Convert.ToInt32(idxHex, 16);
             if (index is < 0 or >= Rom.SecondaryEntranceCount) continue;
             rom.WriteSecondaryEntrance(index, new SecondaryEntrance(Convert.FromHexString(hex)));
+        }
+        foreach (var (levelHex, state) in data.Levels)
+        {
+            if (state.MainEntrance is not { Length: 8 } hex) continue;
+            rom.WriteMainEntrance(Convert.ToInt32(levelHex, 16), new MainEntrance(Convert.FromHexString(hex)));
         }
     }
 

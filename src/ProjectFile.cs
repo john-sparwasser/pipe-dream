@@ -59,6 +59,9 @@ public sealed class ProjectFile
         /// <summary>Level header edit: the 5 replacement bytes as hex, or null to keep the
         /// base ROM's header.</summary>
         public string? Header { get; set; }
+        /// <summary>Main entrance / entry settings edit: the 4 table bytes as hex, or null
+        /// to keep the base ROM's.</summary>
+        public string? MainEntrance { get; set; }
         public List<ObjectDto> Objects { get; set; } = new();
         public int SpriteMemory { get; set; }
         public int Buoyancy { get; set; }
