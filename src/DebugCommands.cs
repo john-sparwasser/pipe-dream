@@ -1,11 +1,58 @@
 namespace PipeDream;
 
-// The debug CLI toolbox: every --flag handler Main dispatches to. One-shot inspection /
-// reverse-engineering commands; none of them touch the GUI.
+// The debug CLI toolbox: flag dispatch + every handler, so Main knows nothing about
+// debug commands. One-shot inspection / reverse-engineering commands; no GUI.
 static class DebugCommands
 {
+    // Flag → handler; every handler gets (args, index-of-its-flag) and returns an exit
+    // code. Handlers with friendlier signatures are adapted inline.
+    private static readonly (string Flag, Func<string[], int, int> Run)[] Commands =
+    {
+        ("--selfcheck",         (_, _) => SelfCheck()),
+        ("--newproject",        NewProject),
+        ("--buildproject",      BuildProject),
+        ("--render",            RenderLevel),
+        ("--writedm16",         WriteDm16),
+        ("--dumpcell",          DumpCell),
+        ("--markers",           DumpMarkers),
+        ("--gfxsheet",          GfxSheet),
+        ("--blobsheet",         BlobSheet),
+        ("--diff",              (a, i) => DiffRoms(a[i + 1], a[i + 2])),
+        ("--globalexanim",      (a, i) => DumpGlobalExAnim(a[i + 1])),
+        ("--pixitrace",         PixiTrace),
+        ("--sprites",           DumpSprites),
+        ("--tilepng",           TilePng),
+        ("--map16def",          Map16Def),
+        ("--exanim",            (a, i) => DumpExAnim(a[i + 1], Convert.ToInt32(a[i + 2], 16))),
+        ("--disasm",            Disassemble),
+        ("--gen-spritedisplay", GenSpriteDisplay),
+    };
+
+    /// <summary>Run the debug command named in <paramref name="args"/>, if any.
+    /// Returns its exit code, or null when no debug flag is present (launch the editor).</summary>
+    public static int? TryDispatch(string[] args)
+    {
+        foreach (var (flag, run) in Commands)
+        {
+            int i = Array.IndexOf(args, flag);
+            if (i >= 0) return run(args, i);
+        }
+        return null;
+    }
+
     // --selfcheck : run the ROM self-check suite (exit code = failures).
     public static int SelfCheck() => RomSelfCheck.Run();
+
+    // --newproject <folder> <baseRom> : headless project creation (scripting/tests) —
+    // same pipeline as the New Project wizard, including automatic vanilla-base prep.
+    public static int NewProject(string[] args, int ni)
+    {
+        var p = Project.Create(args[ni + 1], args[ni + 2]);
+        Console.WriteLine($"created {p.FilePath}");
+        Console.WriteLine($"base: {p.Data.BaseRom.Title}, prepVersion {p.Data.BaseRom.PrepVersion}, " +
+                          $"sha256 {p.Data.BaseRom.Sha256}");
+        return 0;
+    }
 
     // --buildproject <project.pdp> [--bps] : headless project build (CI/scripting) —
     // same pipeline as File → Build ROM, plus optional BPS export.
