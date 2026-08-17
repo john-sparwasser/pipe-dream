@@ -60,19 +60,15 @@ static class DebugCommands
     {
         var project = Project.Open(args[bi + 1]);
         if (project.ValidateBase() is { } problem) { Console.WriteLine("ERROR: " + problem); return 1; }
-        var (status, outPath) = RomBuilder.Build(project);
-        Console.WriteLine(status);
-        if (outPath is null) return 1;
         if (args.Contains("--bps"))
         {
-            string dir = Path.Combine(project.Folder, "export");
-            Directory.CreateDirectory(dir);
-            string bps = Path.Combine(dir, project.Name + ".bps");
-            File.WriteAllBytes(bps, BpsWriter.Create(
-                File.ReadAllBytes(project.BaseRomPath), File.ReadAllBytes(outPath)));
-            Console.WriteLine($"exported {bps} ({new FileInfo(bps).Length} bytes)");
+            var (bpsStatus, bpsPath) = RomBuilder.ExportBps(project, Config.Load().VanillaRomPath);
+            Console.WriteLine(bpsStatus);
+            return bpsPath is null ? 1 : 0;
         }
-        return 0;
+        var (status, outPath) = RomBuilder.Build(project);
+        Console.WriteLine(status);
+        return outPath is null ? 1 : 0;
     }
 
     // --render <rom> <levelHex> <out.png> [cropTilesW] : compose a level to PNG for inspection.

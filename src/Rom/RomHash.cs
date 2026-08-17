@@ -15,9 +15,13 @@ public static class RomHash
 
     public static string HeaderlessSha256(byte[] file)
     {
-        int header = file.Length % 0x8000 == 512 ? 512 : 0;
-        return Convert.ToHexStringLower(SHA256.HashData(file.AsSpan(header)));
+        return Convert.ToHexStringLower(SHA256.HashData(HeaderlessSpan(file)));
     }
 
     public static string HeaderlessSha256File(string path) => HeaderlessSha256(File.ReadAllBytes(path));
+
+    /// <summary>The ROM payload with any 512-byte copier header stripped — the form
+    /// standard patch tooling (BPS/IPS) conventionally targets.</summary>
+    public static ReadOnlySpan<byte> HeaderlessSpan(byte[] file)
+        => file.AsSpan(file.Length % 0x8000 == 512 ? 512 : 0);
 }

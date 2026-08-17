@@ -44,6 +44,22 @@ public class BpsTests
     }
 
     [Fact]
+    public void periodic_expansion_regions_compress_instead_of_inlining()
+    {
+        // Models a prepped ROM: 32KB source, target doubles it with zero fill, a
+        // word fill (0x1004-style), and a byte fill — like real expansion regions.
+        var a = Random(0x8000, 7);
+        var b = new byte[0x10000];
+        a.CopyTo(b, 0);
+        for (int i = 0x9000; i < 0xA000; i += 2) { b[i] = 0x04; b[i + 1] = 0x10; }
+        for (int i = 0xC000; i < 0xD000; i++) b[i] = 0x30;
+        byte[] patch = BpsWriter.Create(a, b);
+        Assert.Equal(b, BpsApplier.Apply(a, patch));
+        Assert.True(patch.Length < 256,
+            $"expected fills to RLE-compress, got {patch.Length} byte patch");
+    }
+
+    [Fact]
     public void wrong_source_is_rejected_by_crc()
     {
         var a = Random(0x1000, 5);

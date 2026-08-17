@@ -117,6 +117,40 @@ internal static class RomBuilder
         catch (Exception e) { return ("build failed: " + e.Message, null); }
     }
 
+    /// <summary>Build, then export export\&lt;name&gt;.bps. For a prepped project the patch
+    /// SOURCE is the user's stock vanilla ROM (prep is deterministic, so vanilla + patch
+    /// reproduces the built ROM exactly) — the standard hack-distribution form anyone can
+    /// apply with a generic BPS patcher. Falls back to diffing against the project's own
+    /// base copy when no verified vanilla ROM is available (or the base isn't prepped).
+    /// Both sides are diffed with copier headers stripped, per patching convention.</summary>
+    internal static (string status, string? bpsPath) ExportBps(Project project, string? vanillaRomPath)
+    {
+        var (status, outPath) = Build(project);
+        if (outPath is null) return (status, null);
+
+        byte[] source;
+        string sourceNote;
+        if (project.Data.BaseRom.PrepVersion > 0 && vanillaRomPath is not null &&
+            File.Exists(vanillaRomPath) &&
+            RomHash.HeaderlessSha256File(vanillaRomPath) == RomHash.VanillaUsSha256)
+        {
+            source = RomHash.HeaderlessSpan(File.ReadAllBytes(vanillaRomPath)).ToArray();
+            sourceNote = "applies to a stock vanilla SMW (U) ROM";
+        }
+        else
+        {
+            source = RomHash.HeaderlessSpan(File.ReadAllBytes(project.BaseRomPath)).ToArray();
+            sourceNote = "applies to this project's base ROM";
+        }
+        byte[] target = RomHash.HeaderlessSpan(File.ReadAllBytes(outPath)).ToArray();
+
+        string dir = Path.Combine(project.Folder, "export");
+        Directory.CreateDirectory(dir);
+        string bps = Path.Combine(dir, project.Name + ".bps");
+        File.WriteAllBytes(bps, BpsWriter.Create(source, target));
+        return ($"exported {Path.GetFileName(bps)} ({new FileInfo(bps).Length} bytes, {sourceNote})", bps);
+    }
+
     // Level/sprite streams ride 16-bit runtime pointers — always bank-cross-safe.
     private static int AllocateAutoExpand(Rom rom, byte[] data)
     {

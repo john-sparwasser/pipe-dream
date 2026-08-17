@@ -43,19 +43,8 @@ internal sealed class MenuBar(EditorApp app)
                 if (ImGui.MenuItem("Export BPS Patch", app.project is not null && app.rom is not null))
                 {
                     app.project!.Save();
-                    var (status, outPath) = RomBuilder.Build(app.project);
-                    if (outPath is null) app.saveStatus = status;
-                    else
-                    {
-                        // Patch maps the exact base.smc bytes to the built ROM — apply
-                        // it to the same base file (headered or not) to reproduce it.
-                        string dir = Path.Combine(app.project.Folder, "export");
-                        Directory.CreateDirectory(dir);
-                        string bps = Path.Combine(dir, app.project.Name + ".bps");
-                        File.WriteAllBytes(bps, BpsWriter.Create(
-                            File.ReadAllBytes(app.project.BaseRomPath), File.ReadAllBytes(outPath)));
-                        app.saveStatus = $"exported {Path.GetFileName(bps)}";
-                    }
+                    var (status, _) = RomBuilder.ExportBps(app.project, app.config.VanillaRomPath);
+                    app.saveStatus = status;
                 }
                 ImGui.Separator();
                 if (ImGui.MenuItem("ROM Info", "", app.romInfoPanel.Show)) app.romInfoPanel.Show = !app.romInfoPanel.Show;

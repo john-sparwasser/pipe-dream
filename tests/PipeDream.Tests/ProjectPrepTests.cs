@@ -54,6 +54,39 @@ public class ProjectPrepTests : IDisposable
         Assert.Contains("newer editor", re.AdoptBase(TestRom.RealRomPath));
     }
 
+    [RealRomFact]
+    public void exported_bps_applies_to_a_stock_vanilla_rom()
+    {
+        var p = Project.Create(Path.Combine(dir, "proj"), TestRom.RealRomPath);
+        p.Data.Level(0x105).Objects.Add(ProjectFile.ObjectDto.From(
+            new LevelObject(false, 0x14, 0, 0, 0x18, 0x2F, -1)));
+        p.Save();
+
+        var (status, bpsPath) = RomBuilder.ExportBps(p, TestRom.RealRomPath);
+        Assert.NotNull(bpsPath);
+        Assert.Contains("stock vanilla", status);
+
+        byte[] vanilla = RomHash.HeaderlessSpan(File.ReadAllBytes(TestRom.RealRomPath)).ToArray();
+        byte[] built = RomHash.HeaderlessSpan(
+            File.ReadAllBytes(Path.Combine(p.Folder, "build", p.Name + ".smc"))).ToArray();
+        Assert.Equal(built, BpsApplier.Apply(vanilla, File.ReadAllBytes(bpsPath!)));
+    }
+
+    [Fact]
+    public void bps_export_without_a_vanilla_source_diffs_the_project_base()
+    {
+        string src = Path.Combine(dir, "lmbase.smc");
+        File.WriteAllBytes(src, TestRom.Image(dm16: true));
+        var p = Project.Create(Path.Combine(dir, "projb"), src);
+        var (status, bpsPath) = RomBuilder.ExportBps(p, vanillaRomPath: null);
+        Assert.NotNull(bpsPath);
+        Assert.Contains("project's base", status);
+        byte[] baseRom = RomHash.HeaderlessSpan(File.ReadAllBytes(p.BaseRomPath)).ToArray();
+        byte[] built = RomHash.HeaderlessSpan(
+            File.ReadAllBytes(Path.Combine(p.Folder, "build", p.Name + ".smc"))).ToArray();
+        Assert.Equal(built, BpsApplier.Apply(baseRom, File.ReadAllBytes(bpsPath!)));
+    }
+
     [Fact]
     public void create_on_a_non_vanilla_base_stays_unprepped()
     {
