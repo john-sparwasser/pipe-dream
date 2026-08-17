@@ -164,9 +164,10 @@ internal sealed class ProjectWizard(EditorApp app)
         {
             if (!File.Exists(path)) return "";
             return RomHash.HeaderlessSha256File(path) == RomHash.VanillaUsSha256
-                ? "Verified: vanilla Super Mario World (U)."
-                : "Warning: not the known vanilla US ROM — some features need an LM-prepared " +
-                  "base, and collaborators will need this exact file.";
+                ? "Verified: vanilla Super Mario World (U). The base copy will be prepared " +
+                  "automatically for full editing (Map16, tile placement, palettes, sprites)."
+                : "Warning: not the known vanilla US ROM — it is used as-is (LM-prepared bases " +
+                  "work fully), and collaborators will need this exact file.";
         }
         catch (Exception e) { return "could not read: " + e.Message; }
     }

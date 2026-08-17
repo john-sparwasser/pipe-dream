@@ -28,6 +28,10 @@ public sealed class ProjectFile
         public string Sha256 { get; set; } = "";
         public int Size { get; set; }
         public string Title { get; set; } = "";
+        /// <summary>RomPrep version applied to the base copy (0 = base used as provided,
+        /// e.g. an LM-prepared ROM). When &gt; 0 the pinned hash is of the PREPPED image,
+        /// and a shared .pdp can be satisfied by prepping any verified-vanilla ROM.</summary>
+        public int PrepVersion { get; set; }
     }
 
     public sealed class Map16State

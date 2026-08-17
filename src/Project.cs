@@ -27,12 +27,19 @@ internal sealed class Project
 
     private Project(string folder, ProjectFile data) { Folder = folder; Data = data; }
 
-    /// <summary>Create a new project: folder, private base-ROM copy, initial project.pdp.</summary>
+    /// <summary>Create a new project: folder, private base-ROM copy, initial project.pdp.
+    /// A verified-vanilla base is automatically PREPPED (RomPrep: LM-equivalent structures
+    /// for the full editing feature set); the pinned hash is then of the prepped image —
+    /// deterministic, so a shared .pdp can be reproduced from any vanilla copy.</summary>
     internal static Project Create(string folder, string baseRomSource)
     {
         Directory.CreateDirectory(folder);
         string dest = Path.Combine(folder, RomName);
         File.Copy(baseRomSource, dest, overwrite: false);
+        int prepVersion = 0;
+        if (RomHash.HeaderlessSha256File(dest) == RomHash.VanillaUsSha256 &&
+            RomPrep.PrepInPlace(dest) is null)
+            prepVersion = RomPrep.Version;
         byte[] bytes = File.ReadAllBytes(dest);
         var data = new ProjectFile
         {
@@ -41,6 +48,7 @@ internal sealed class Project
                 Sha256 = RomHash.HeaderlessSha256(bytes),
                 Size = bytes.Length,
                 Title = Rom.Load(dest).Title,
+                PrepVersion = prepVersion,
             },
         };
         var p = new Project(folder, data);
@@ -69,13 +77,31 @@ internal sealed class Project
     }
 
     /// <summary>Recovery for a shared bare .pdp: verify a user-located ROM against the
-    /// pinned hash and copy it in as base.smc. Returns a problem string or null.</summary>
+    /// pinned hash and copy it in as base.smc. For prepped projects a raw VANILLA ROM
+    /// also works — it's prepped deterministically and must then match the pin.
+    /// Returns a problem string or null.</summary>
     internal string? AdoptBase(string romPath)
     {
-        if (RomHash.HeaderlessSha256File(romPath) != Data.BaseRom.Sha256)
-            return "that ROM's hash does not match this project's pinned base.";
-        File.Copy(romPath, BaseRomPath, overwrite: true);
-        return null;
+        string hash = RomHash.HeaderlessSha256File(romPath);
+        if (hash == Data.BaseRom.Sha256)
+        {
+            File.Copy(romPath, BaseRomPath, overwrite: true);
+            return null;
+        }
+        if (Data.BaseRom.PrepVersion > 0 && hash == RomHash.VanillaUsSha256)
+        {
+            if (Data.BaseRom.PrepVersion > RomPrep.Version)
+                return $"this project's base was prepared by a newer editor (prep v{Data.BaseRom.PrepVersion}) — update pipe-dream.";
+            File.Copy(romPath, BaseRomPath, overwrite: true);
+            if (RomPrep.PrepInPlace(BaseRomPath) is { } err) { File.Delete(BaseRomPath); return err; }
+            if (RomHash.HeaderlessSha256File(BaseRomPath) != Data.BaseRom.Sha256)
+            {
+                File.Delete(BaseRomPath);
+                return "prep of that vanilla ROM did not reproduce the pinned base — the project may need a newer editor.";
+            }
+            return null;
+        }
+        return "that ROM's hash does not match this project's pinned base.";
     }
 
     internal void MarkDirty()
