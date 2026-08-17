@@ -132,6 +132,26 @@ public sealed class Rom
         Data[fo] = (byte)snes; Data[fo + 1] = (byte)(snes >> 8); Data[fo + 2] = (byte)(snes >> 16);
     }
 
+    // Secondary entrances: four parallel 512-entry tables, one byte each (see
+    // SecondaryEntrance for the bit layout). Vanilla addresses — LM extends the index range
+    // but leaves the tables where they are.
+    public const int SecondaryEntranceCount = 0x200;
+    private static readonly int[] SecondaryEntranceTables =
+        [0x05F800, 0x05FA00, 0x05FC00, 0x05FE00];
+
+    public SecondaryEntrance ReadSecondaryEntrance(int index)
+    {
+        Span<byte> b = stackalloc byte[4];
+        for (int t = 0; t < 4; t++) b[t] = Data[FileOffset(SecondaryEntranceTables[t] + index)];
+        return new SecondaryEntrance(b);
+    }
+
+    public void WriteSecondaryEntrance(int index, SecondaryEntrance e)
+    {
+        byte[] b = e.ToBytes();
+        for (int t = 0; t < 4; t++) Data[FileOffset(SecondaryEntranceTables[t] + index)] = b[t];
+    }
+
     /// <summary>Layer 2 pointer. Bank $FF means "layer 2 is a background image", not object data.</summary>
     public int Layer2Pointer(int level) => ReadValue(Layer2TableSnes + level * 3, 3);
     public bool Layer2IsBackground(int level) => (Layer2Pointer(level) >> 16) == 0xFF;

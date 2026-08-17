@@ -71,6 +71,7 @@ internal sealed class LevelExitsDialog(EditorApp app)
         ImGui.PopTextWrapPos();
         ImGui.Spacing();
 
+        int openEntrance = -1;
         if (rows.Count == 0) ImGui.TextDisabled("This level has no screen exits.");
         else if (ImGui.BeginTable("exits", 6, ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.RowBg))
         {
@@ -109,6 +110,13 @@ internal sealed class LevelExitsDialog(EditorApp app)
                 ImGui.TextDisabled(r.Lm ? "LM word" : "vanilla");
 
                 ImGui.TableNextColumn();
+                // A secondary exit's destination is an entrance index, so offer the record
+                // it points at rather than making the user find it by number.
+                if (r.Secondary && !r.Lm)
+                {
+                    if (ImGui.Button("Entrance…")) openEntrance = r.Dest;
+                    ImGui.SameLine();
+                }
                 if (ImGui.Button("Remove")) remove = i;
                 ImGui.PopID();
             }
@@ -120,10 +128,19 @@ internal sealed class LevelExitsDialog(EditorApp app)
         if (ImGui.Button("Add exit"))
             rows.Add(new Row { IsNew = true, Screen = rows.Count == 0 ? 0 : rows[^1].Screen + 1, Dest = 0 });
         ImGui.SameLine();
+        // Always-available way into the entrance records, even for a level with no
+        // secondary exit to hang the per-row button off.
+        if (ImGui.Button("Entrances…"))
+            openEntrance = rows.FirstOrDefault(r => r.Secondary && !r.Lm)?.Dest ?? 0;
+        ImGui.SameLine();
         if (ImGui.Button("Apply")) { Commit(); show = false; ImGui.CloseCurrentPopup(); }
         ImGui.SameLine();
         if (ImGui.Button("Cancel")) { show = false; ImGui.CloseCurrentPopup(); }
+        // ImGui can't stack a second modal over this one, so jumping to the entrance record
+        // applies the staged rows and hands off rather than opening on top.
+        if (openEntrance >= 0) { Commit(); show = false; ImGui.CloseCurrentPopup(); }
         ImGui.EndPopup();
+        if (openEntrance >= 0) app.secondaryEntrance.Open(openEntrance);
     }
 
     /// <summary>Hex entry with step buttons, matching the level field in the header row.</summary>

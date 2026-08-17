@@ -109,6 +109,7 @@ public class EditorApp : App
     // Level header / screen exit editors (modals, opened from the level header row).
     internal LevelPropertiesDialog levelProps = null!;
     internal LevelExitsDialog levelExits = null!;
+    internal SecondaryEntranceDialog secondaryEntrance = null!;
     // Set by LEVEL-scoped edits (objects/sprites/palette/GFX overrides) so the session
     // stashes this level into the project; global Map16/acts edits don't set it — they
     // capture their own slots and must not freeze an unedited level into the project.
@@ -197,6 +198,7 @@ public class EditorApp : App
         projectWizard = new ProjectWizard(this);
         levelProps = new LevelPropertiesDialog(this);
         levelExits = new LevelExitsDialog(this);
+        secondaryEntrance = new SecondaryEntranceDialog(this);
         // Autosave rides the edit-state hook; non-history edit sites MarkDirty directly.
         history.Changed = () => project?.MarkDirty();
         SetWindowIcon();
@@ -276,6 +278,7 @@ public class EditorApp : App
         projectWizard.Draw();
         levelProps.Draw();
         levelExits.Draw();
+        secondaryEntrance.Draw();
 
         // Map16/GFX paint strokes commit when their button is up — at frame start, so the
         // graphics rebuild never disposes textures already submitted to this frame.

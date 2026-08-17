@@ -26,6 +26,10 @@ public sealed class ProjectFile
     /// base ROM's bit depth. Project-scoped (shared by all levels); which slot uses a file
     /// stays per-level in <see cref="LevelState.GfxOverrides"/>.</summary>
     public Dictionary<string, string> Gfx { get; set; } = new();
+    /// <summary>Edited secondary entrances: index hex ("0D4") → the 4 table bytes as hex.
+    /// Project-scoped like Map16 — an entrance is a global record that any level's
+    /// secondary exit can point at.</summary>
+    public Dictionary<string, string> Entrances { get; set; } = new();
 
     public sealed class BaseRomInfo
     {

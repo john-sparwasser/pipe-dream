@@ -243,6 +243,24 @@ public class ProjectPrepTests : IDisposable
                      (exits[1].ExitScreen, exits[1].ExitDestination, exits[1].ExitIsWater, exits[1].ExitUsesSecondary));
     }
 
+    [RealRomFact]
+    public void an_edited_secondary_entrance_survives_the_build()
+    {
+        var p = Project.Create(Path.Combine(dir, "proj"), TestRom.RealRomPath);
+        var baseRom = Rom.Load(p.BaseRomPath);
+        var edited = baseRom.ReadSecondaryEntrance(0xD4) with
+        { DestinationLevel = 0xC5, MarioX = 3, MarioY = 9, EntranceAction = 2 };
+        p.Data.Entrances["0D4"] = Convert.ToHexString(edited.ToBytes());
+        p.Save();
+
+        var (_, outPath) = RomBuilder.Build(p);
+        Assert.NotNull(outPath);
+        var built = Rom.Load(outPath!);
+        Assert.Equal(edited, built.ReadSecondaryEntrance(0xD4));
+        // an untouched neighbour still matches the base ROM
+        Assert.Equal(baseRom.ReadSecondaryEntrance(0xD5), built.ReadSecondaryEntrance(0xD5));
+    }
+
     [Fact]
     public void create_on_a_non_vanilla_base_stays_unprepped()
     {

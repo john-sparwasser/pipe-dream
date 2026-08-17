@@ -43,6 +43,19 @@ internal static class RomBuilder
         return null;
     }
 
+    /// <summary>Replay the project's secondary entrance edits into a ROM. Same code for the
+    /// session ROM and a fresh build copy, so the editor can't drift from the built game.</summary>
+    internal static void ReplayEntrances(Rom rom, ProjectFile data)
+    {
+        foreach (var (idxHex, hex) in data.Entrances)
+        {
+            if (hex.Length != 8) continue;               // unfilled placeholder
+            int index = Convert.ToInt32(idxHex, 16);
+            if (index is < 0 or >= Rom.SecondaryEntranceCount) continue;
+            rom.WriteSecondaryEntrance(index, new SecondaryEntrance(Convert.FromHexString(hex)));
+        }
+    }
+
     /// <summary>Build build\&lt;name&gt;.smc from the project. Returns a status line
     /// (including per-level warnings for LM-gated features on a vanilla base).</summary>
     internal static (string status, string? outPath) Build(Project project)
@@ -52,6 +65,7 @@ internal static class RomBuilder
             var rom = Rom.Load(project.BaseRomPath);
             var warnings = new List<string>();
             if (ReplayMap16(rom, project.Data) is { } err) return (err, null);
+            ReplayEntrances(rom, project.Data);
             WriteGfx(rom, project.Data, warnings);
 
             // Header edits are applied through the parse path (same as the session), so

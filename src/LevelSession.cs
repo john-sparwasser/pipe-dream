@@ -40,6 +40,7 @@ internal sealed class LevelSession(EditorApp app)
                 // uses on a fresh base, so session and built ROM can't drift.
                 if (RomBuilder.ReplayMap16(app.rom, app.project.Data) is { } replayErr)
                     app.saveStatus = replayErr;
+                RomBuilder.ReplayEntrances(app.rom, app.project.Data);
             }
             ParseLevel();
         }
@@ -68,6 +69,7 @@ internal sealed class LevelSession(EditorApp app)
         if (app.project is null) return;
         if (app.currentLevelTouched) StashCurrentLevel();
         RefreshCapturedMap16();
+        RefreshCapturedEntrances();
         if (app.rom is not null)
             app.project.Data.Gfx = app.rom.ImportedGfx
                 .ToDictionary(kv => kv.Key.ToString("X3"), kv => Convert.ToBase64String(kv.Value));
@@ -142,6 +144,16 @@ internal sealed class LevelSession(EditorApp app)
                 int fo = app.rom.FileOffset(app.rom.LmActsAsBase + Convert.ToInt32(t, 16) * 2);
                 m.ActsAs[t] = app.rom.Data[fo] | (app.rom.Data[fo + 1] << 8);
             }
+    }
+
+    // Re-read every captured secondary entrance's CURRENT bytes from the ROM — same
+    // re-read-at-save trick RefreshCapturedMap16 uses, so undo/redo needs no tracking.
+    private void RefreshCapturedEntrances()
+    {
+        if (app.rom is null || app.project is null) return;
+        foreach (var idx in app.project.Data.Entrances.Keys.ToArray())
+            app.project.Data.Entrances[idx] =
+                Convert.ToHexString(app.rom.ReadSecondaryEntrance(Convert.ToInt32(idx, 16)).ToBytes());
     }
 
     internal void ParseLevel()

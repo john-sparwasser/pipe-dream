@@ -16,6 +16,7 @@ static class DebugCommands
         ("--dumpcell",          DumpCell),
         ("--markers",           DumpMarkers),
         ("--exits",             DumpExits),
+        ("--entrances",         DumpEntrances),
         ("--gfxsheet",          GfxSheet),
         ("--blobsheet",         BlobSheet),
         ("--diff",              (a, i) => DiffRoms(a[i + 1], a[i + 2])),
@@ -122,6 +123,28 @@ static class DebugCommands
                                   $"  dest {o.ExitDestination:X2}" +
                                   (o.IsLmSecondaryExit ? "" : $"  water {o.ExitIsWater}  secondary {o.ExitUsesSecondary}"));
         }
+        return 0;
+    }
+
+    // --entrances <rom> [indexHex] : dump secondary entrance records (non-empty ones when
+    // no index is given), decoded out of the four $05F800/FA00/FC00/FE00 tables.
+    public static int DumpEntrances(string[] args, int ei)
+    {
+        var rom = Rom.Load(args.ElementAtOrDefault(ei + 1) ?? @"C:\SMW\Projects\.resources\SMW.smc");
+        string? one = args.ElementAtOrDefault(ei + 2);
+        IEnumerable<int> idx = one is not null
+            ? [Convert.ToInt32(one, 16)] : Enumerable.Range(0, Rom.SecondaryEntranceCount);
+        int shown = 0;
+        foreach (int i in idx)
+        {
+            var e = rom.ReadSecondaryEntrance(i);
+            if (one is null && e.ToBytes().All(b => b == 0)) continue;
+            shown++;
+            Console.WriteLine($"entrance {i:X3}: bytes {Convert.ToHexString(e.ToBytes())}  " +
+                              $"dest level {e.DestinationLevel:X2}  marioX {e.MarioX}  marioY {e.MarioY:X}  " +
+                              $"bndryY {e.ScreenBoundaryY}  vscroll {e.VerticalScroll}  action {e.EntranceAction}");
+        }
+        if (one is null) Console.WriteLine($"{shown} non-empty entrance(s)");
         return 0;
     }
 
