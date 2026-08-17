@@ -348,6 +348,73 @@ public static class Gfx
     }
 
     /// <summary>
+    /// Compress bytes as LC_LZ2 (the exact inverse consumer is <see cref="Lz2Decompress"/>
+    /// and the ROM decompressor $00B8DE). Greedy and deterministic: byte runs ≥ 3 → cmd 1,
+    /// word-period runs ≥ 6 → cmd 2 (chunked to even lengths so a chunk boundary never
+    /// flips the alternation phase), everything else accumulates into cmd-0 literals.
+    /// Chunks cap at the format's 10-bit length (0x400). Terminator 0xFF.
+    /// </summary>
+    public static byte[] Lz2Compress(byte[] data)
+    {
+        var outp = new List<byte>(data.Length / 2 + 16);
+        void Hdr(int cmd, int len)                       // len 1..0x400
+        {
+            if (len <= 0x20) outp.Add((byte)((cmd << 5) | (len - 1)));
+            else { outp.Add((byte)(0xE0 | (cmd << 2) | ((len - 1) >> 8))); outp.Add((byte)(len - 1)); }
+        }
+        // Bytes at 'at' matching a repeating pattern of 'period' bytes.
+        int Run(int at, int period)
+        {
+            int n = period;
+            while (at + n < data.Length && data[at + n] == data[at + n % period]) n++;
+            return at + period <= data.Length ? n : 0;
+        }
+        int lit = 0;                                     // start of the pending literal run
+        void FlushLit(int end)
+        {
+            for (; lit < end; lit += Math.Min(0x400, end - lit))
+            {
+                int n = Math.Min(0x400, end - lit);
+                Hdr(0, n);
+                outp.AddRange(data.AsSpan(lit, n).ToArray());
+            }
+        }
+        for (int i = 0; i < data.Length; )
+        {
+            int br = Run(i, 1);
+            if (br >= 3)
+            {
+                FlushLit(i);
+                for (int left = br; left > 0; )
+                {
+                    int n = Math.Min(0x400, left);
+                    Hdr(1, n); outp.Add(data[i]);
+                    left -= n;
+                }
+                i += br; lit = i;
+                continue;
+            }
+            int wr = Run(i, 2) & ~1;                     // even total keeps chunk phase aligned
+            if (wr >= 6)
+            {
+                FlushLit(i);
+                for (int left = wr; left > 0; )
+                {
+                    int n = Math.Min(0x400, left);
+                    Hdr(2, n); outp.Add(data[i]); outp.Add(data[i + 1]);
+                    left -= n;
+                }
+                i += wr; lit = i;
+                continue;
+            }
+            i++;
+        }
+        FlushLit(data.Length);
+        outp.Add(0xFF);
+        return outp.ToArray();
+    }
+
+    /// <summary>
     /// Decompress LC_LZ2 data starting at file offset <paramref name="p"/>. Reads contiguous
     /// PC bytes (LoROM bank-crossing is just contiguous in PC space). Terminates on a 0xFF
     /// command byte.

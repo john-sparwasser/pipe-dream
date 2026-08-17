@@ -59,7 +59,9 @@ internal sealed class ProjectWizard(EditorApp app)
         p.SyncBeforeSave = app.session.SyncProject;
         app.config.TouchRecentProject(p.FilePath);
         app.session.LoadRom(p.BaseRomPath);
-        app.saveStatus = $"project '{p.Name}' opened";
+        app.saveStatus = p.Data.BaseRom.PrepVersion is >= 1 && p.Data.BaseRom.PrepVersion < RomPrep.Version
+            ? $"project '{p.Name}' opened — base uses prep v{p.Data.BaseRom.PrepVersion}: GFX overrides are editor-preview only (File → Upgrade base to prep v{RomPrep.Version})"
+            : $"project '{p.Name}' opened";
     }
 
     internal void Draw()

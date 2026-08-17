@@ -46,6 +46,21 @@ internal sealed class MenuBar(EditorApp app)
                     var (status, _) = RomBuilder.ExportBps(app.project, app.config.VanillaRomPath);
                     app.saveStatus = status;
                 }
+                // Deliberate base migration: old prepped projects keep their frozen prep
+                // until the user opts in (new stamps change the pinned base hash).
+                if (ImGui.MenuItem($"Upgrade base to prep v{RomPrep.Version}",
+                        app.project is not null &&
+                        app.project.Data.BaseRom.PrepVersion is >= 1 && app.project.Data.BaseRom.PrepVersion < RomPrep.Version))
+                {
+                    app.project!.Save();       // flush edits before the base swap
+                    if (app.project.UpgradeBasePrep(app.config.VanillaRomPath) is { } prob)
+                        app.saveStatus = "upgrade failed: " + prob;
+                    else
+                    {
+                        app.saveStatus = $"base upgraded to prep v{RomPrep.Version}";
+                        app.projectWizard.OpenPath(app.project.FilePath);   // reload on the new base
+                    }
+                }
                 ImGui.Separator();
                 if (ImGui.MenuItem("ROM Info", "", app.romInfoPanel.Show)) app.romInfoPanel.Show = !app.romInfoPanel.Show;
                 ImGui.Separator();

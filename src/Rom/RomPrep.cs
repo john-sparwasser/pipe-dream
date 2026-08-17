@@ -30,7 +30,11 @@ namespace PipeDream;
 /// </summary>
 public static class RomPrep
 {
-    public const int Version = 1;
+    /// <summary>Current prep version. V1 = editing unlocks (DM16/Map16/acts/palette/sprite
+    /// banks); V2 adds the in-game GFX stage (Super-GFX-Bypass loader + ExGFX resolver).
+    /// Version-keyed stamp lists keep every released version BYTE-FROZEN: a v1 project's
+    /// pinned image must reproduce forever (golden-hash tested).</summary>
+    public const int Version = 2;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -46,23 +50,37 @@ public static class RomPrep
     public const int PalTrampoline = 0x0EFC50, PalApply = 0x0EFC90, PalThunk = 0x00FF93;
     public const int PalHook2Stub = 0x0EFC60;      // second hook: re-apply after $00A5BC
 
+    // ---- V2: in-game GFX stage (bank-0F FF tail $0FEF90-$0FFFFF + expansion tables) ----
+    public const int GfxArmStub = 0x0FF770;        // JSL target at $0583B8 (LoadLevel)
+    public const int GfxLoaderEntry = 0x0FF780;    // JSL target at $00AA50 (HasLmGfxLoader)
+    public const int GfxThunks = 0x00FF9A;         // JSR $B8DE:RTL / JSR $AA80:RTL (bank-00 tail)
+    public const int GfxBypassRecords = 0x129000;  // 0x20 B/level ×0x200 (RATS at pc 0x90FF8)
+    public const int GfxRecordsPc = 0x91000;
+    public const int ExGfxPtrTable = 0x138008;     // 3 B/file, files 0x100-0xFFF (RATS pc 0x98000)
+    public const int ExGfxPtrPc = 0x98008;
+    public const int GfxSlotTab = 0x0FF8A0;        // 8 words: record offset | $2117 page &lt;&lt; 8
+    public const int GfxResolve = 0x0FF810;        // file# → $8A-$8C src ptr (near JSR)
+
     /// <summary>The four vanilla `JSL $00F545` acts-like call sites (banks 00/01/02),
     /// repointed to our remap so gameplay collision resolves extended tiles.</summary>
     public static readonly int[] ActsCallSites = [0x00F4DD, 0x019533, 0x02961A, 0x02A6EB];
 
-    /// <summary>True when the prep's four structures are present (also true on any
+    /// <summary>True when the requested version's structures are present (also true on any
     /// LM-saved ROM — Apply must never stamp over foreign structures).</summary>
-    public static bool IsPrepped(Rom rom)
+    public static bool IsPrepped(Rom rom, int version = Version)
         => rom.HasDm16Hijack && rom.LmMap16Defs.Bank != 0
-           && rom.HasLmPaletteHook && rom.LmSpriteBankTable >= 0;
+           && rom.HasLmPaletteHook && rom.LmSpriteBankTable >= 0
+           && (version < 2 || rom.HasLmGfxLoader);
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
-    /// fix the checksum, and reset every LunarMagic scan cache on the Rom.</summary>
-    public static void Apply(Rom rom)
+    /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying
+    /// version 2 to a v1 image restamps the (byte-identical) v1 list + the v2 additions —
+    /// that is the upgrade path.</summary>
+    public static void Apply(Rom rom, int version = Version)
     {
-        if (IsPrepped(rom)) return;
+        if (IsPrepped(rom, version)) return;
         rom.ExpandTo(0x100000);                        // also writes size code at $FFD7
-        foreach (var (pc, bytes) in BuildStamps())
+        foreach (var (pc, bytes) in BuildStamps(version))
             Array.Copy(bytes, 0, rom.Data, pc + rom.HeaderOffset, bytes.Length);
         RatsWriter.FixChecksum(rom);
         ResetScanCaches(rom);
@@ -70,12 +88,12 @@ public static class RomPrep
 
     /// <summary>Prep a ROM file in place. The hash gate lives HERE (not in Apply) so unit
     /// tests can Apply to synthetic images. Returns an error message, or null on success.</summary>
-    public static string? PrepInPlace(string path)
+    public static string? PrepInPlace(string path, int version = Version)
     {
         if (RomHash.HeaderlessSha256File(path) != RomHash.VanillaUsSha256)
             return "base is not a verified vanilla SMW (US) ROM — prep refused.";
         var rom = Rom.Load(path);
-        Apply(rom);
+        Apply(rom, version);
         RatsWriter.SaveAs(rom, path);
         return null;
     }
@@ -93,7 +111,15 @@ public static class RomPrep
     private static int Pc(int snes) => Rom.SnesToPc(snes);
 
     // ---------------------------------------------------------------- stamps
-    private static List<(int Pc, byte[] Bytes)> BuildStamps()
+    private static List<(int Pc, byte[] Bytes)> BuildStamps(int version)
+    {
+        var s = BuildV1Stamps();
+        if (version >= 2) AppendV2Stamps(s);
+        return s;
+    }
+
+    // V1 list — BYTE-FROZEN (GoldenPrepV1 test): never edit, only append via versions.
+    private static List<(int Pc, byte[] Bytes)> BuildV1Stamps()
     {
         var s = new List<(int, byte[])>
         {
@@ -147,6 +173,45 @@ public static class RomPrep
         s.Add((ActsTablePc - 8, ActsBlock()));
         s.Add((Map16DefsPc - 8, DefsBlock()));
         return s;
+    }
+
+    /// <summary>
+    /// V2: the in-game GFX stage (CONTRACT §7d as the behavioral contract; LM ROMs used
+    /// only to observe which vanilla bytes get displaced). Hook layout:
+    ///   $0583B8  JSL ArmStub + NOP — LoadLevel arms $FE = level+1 ONCE per level load.
+    ///            $FE is NOT cleared by the loader: the load sequence runs UploadSpriteGFX
+    ///            twice (level-prepare $0095E9 and the fade-in GM04Load step), and with the
+    ///            cache tests NOPped the second call re-uploads the vanilla files — the
+    ///            record must be re-applied then too. This matches LM's own lifecycle
+    ///            (record ptr + enabled flag cached until the next LoadLevel re-fetch,
+    ///            §7d $7FC006/9). The overworld never reaches the hook: tileset ≥ $FE
+    ///            branches away before the FG/BG tail ($00AA1C).
+    ///   $00AA50  JSL GfxLoader : RTS (the HasLmGfxLoader detector) over the displaced
+    ///            cache-update loop; $00AA06/$00AA47 cache-skip tests → NOP NOP (without
+    ///            this, overrides silently no-op when the tileset was already cached).
+    ///   $00FF9A  two bank-00 thunks: JSR $00B8DE (LC_LZ2 core; $8A-8C src, [$00] dest)
+    ///            and JSR $00AA80 (the vanilla 3bpp expand-upload; needs 8-bit X/Y,
+    ///            Y = vanilla file# for its filter cases, Y=0 for ExGFX).
+    /// Tables: zeroed $0FF600 (ExGFX 0x80-0xFF), zeroed RATS blocks for the bypass records
+    /// ($129000) and ExGFX 0x100+ pointers ($138008) — zero-filled keeps SourceSnes = -1
+    /// and LmGfxBypass = null until a build writes real entries.
+    /// </summary>
+    private static void AppendV2Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        // Arm hook: displaced vanilla `LDA $1925 : CMP #$09` (5 bytes) → JSL + NOP.
+        s.Add((Pc(0x0583B8), [0x22, 0x70, 0xF7, 0x0F, 0xEA]));
+        // Loader hook over the cache-update loop (10 bytes): JSL : RTS : NOP×5.
+        s.Add((Pc(0x00AA50), [0x22, 0x80, 0xF7, 0x0F, 0x60, 0xEA, 0xEA, 0xEA, 0xEA, 0xEA]));
+        // Cache-skip tests (SP at $00AA06, FG/BG at $00AA47): BEQ +3 → NOP NOP.
+        s.Add((Pc(0x00AA06), [0xEA, 0xEA]));
+        s.Add((Pc(0x00AA47), [0xEA, 0xEA]));
+        // Bank-00 thunks: the decompressor core and the expand-upload are near-RTS bank-00
+        // routines; JSLable wrappers live in the verified-FF tail after V1's PalThunk.
+        s.Add((Pc(GfxThunks), [0x20, 0xDE, 0xB8, 0x6B, 0x20, 0x80, 0xAA, 0x6B]));
+        s.Add((Pc(Gfx.ExGfx80Table), new byte[0x180]));      // ExGFX 0x80-0xFF pointers: none
+        s.Add((Pc(GfxArmStub), GfxCode()));
+        s.Add((GfxRecordsPc - 8, Rats(new byte[0x200 * 0x20])));   // bypass records, all disabled
+        s.Add((ExGfxPtrPc - 8, Rats(new byte[0xF00 * 3])));        // ExGFX 0x100+ pointers: none
     }
 
     private static byte[] Rats(byte[] data)
@@ -488,6 +553,179 @@ public static class RomPrep
          .Ply().Plx().Pla()
          .Plp()
          .Rts();
+        return a.Bytes();
+    }
+
+    /// <summary>
+    /// V2 GFX stage code ($0FF770-$0FF8xx, bank-0F FF tail).
+    ///
+    /// ArmStub $0FF770 — JSL'd from LoadLevel $0583B8. Arms $FE (16-bit) = level+1 from
+    /// $010B (set by the sprite stub earlier in the load), then re-executes the displaced
+    /// `LDA $1925 : CMP #$09`; RTL preserves the compare flags for the branch at $0583BD.
+    ///
+    /// GfxLoader $0FF780 — JSL'd from the FG/BG tail hook at $00AA50 (entry: 8-bit M/X,
+    /// DBR=0). Runs the displaced cache-update loop, then, when $FE is armed and the
+    /// level's bypass record (base $129000, 0x20 B/level) has bit15 of w0 set, uploads
+    /// each non-0x7F slot: resolve file → src ptr $8A-$8C, decompress to $7E:AD00 (dest
+    /// [$00], not advanced by the core), point VRAM ($2115=#$80 defensive, $2116=0,
+    /// $2117 from SlotTab), and run the vanilla expand-upload with Y = file# (vanilla
+    /// files keep their filters) or 0 (ExGFX). The armed/record fetch emits the
+    /// LmGfxBypassBase scanner idiom (A5 FE F0 ?? 3A 0A×5 AA BF base) literally.
+    ///
+    /// Resolve (near JSR) — A = file 0x000-0xFFF → carry clear + $8A-$8C, or carry set
+    /// (skip): &lt;0x34 vanilla tables $00B992/B9C4/B9F6; 0x80-0xFF fixed $0FF600;
+    /// 0x100+ via the LmExGfxBase scanner idiom (38 E9 00 01 85 8A 0A 18 65 8A AA BF);
+    /// 0x34-0x7F and null/FFFFFF pointers skip.
+    ///
+    /// SlotTab — 8 words, low byte = record byte-offset (FG1=w7 … SP4=w8), high byte =
+    /// the $2117 VRAM page (FG1 $00/FG2 $08/BG1 $10/FG3 $18/SP1 $60/SP2 $68/SP3 $70/
+    /// SP4 $78). Derivation: $00A9E7/$00AA28 fill $04-$07 backwards (STA $04,X with X
+    /// counting 3→0 while the GFXLIST index counts up), and the upload loop pairs file
+    /// $04,X with page DATA_00A9D6/DATA_00A9D2[X] — so GFXLIST index 0 (FG1/SP1, record
+    /// word 7/11) lands in $07, i.e. X=3, i.e. page table entry 3. See
+    /// slot_table_pairs_each_slot_with_the_vanilla_vram_page.
+    /// Scratch: $03-$04 record base word, $06-$07 file# word, $0E/$0F slot recOff/vramHi,
+    /// $00-$02 dest ptr, $8A-$8C src ptr — chosen OUTSIDE what the reused vanilla routines
+    /// write (decompressor: $8A-$8F; expander: $0A/$0C + INC $00), and with 16-bit dp
+    /// operands owning BOTH their bytes (a 16-bit ADC $03 reads $03-$04).
+    /// </summary>
+    private static byte[] GfxCode()
+    {
+        var a = new Asm(GfxArmStub);
+        a.Rep(0x20)
+         .LdaAbs(0x010B)
+         .IncA()
+         .StaDp(0xFE)                        // arm: $FE-$FF = level+1
+         .Sep(0x20)
+         .LdaAbs(0x1925)                     // displaced vanilla bytes
+         .CmpImm8(0x09)
+         .Rtl();
+
+        a.PadTo(GfxLoaderEntry)
+         .LdxImm8(0x03)                      // displaced cache-update loop
+         .Label("cache")
+         .LdaDpX(0x04)
+         .StaAbsX(0x0105)
+         .Dex()
+         .Bpl("cache")
+         .Rep(0x30)
+         .LdaDp(0xFE)                        // [SCAN] armed level+1
+         .Beq("exit")                        // [SCAN]
+         .DecA()                             // [SCAN]
+         .Asl().Asl().Asl().Asl().Asl()      // [SCAN] level * 0x20
+         .Tax()                              // [SCAN]
+         .LdaLongX(GfxBypassRecords)         // [SCAN operand] record w0
+         .AndImm16(0x8000)
+         .Beq("exit")                        // record not enabled
+         .StxDp(0x03)                        // record byte offset — NOT $0C: the vanilla
+         .LdxImm16(0x0000)                   // expander writes $0A/$0C (and INC $00s the
+         .Label("slot")                      // dest); the decompressor writes $8A-$8F.
+         .Phx()                              // X = slot index * 2 (stack-preserved)
+         .LdaLongX(GfxSlotTab)               // lo = record offset, hi = $2117 page
+         .StaDp(0x0E)
+         .AndImm16(0x00FF)
+         .Clc().AdcDp(0x03)
+         .Tax()
+         .LdaLongX(GfxBypassRecords)         // slot word
+         .AndImm16(0x0FFF)
+         .CmpImm16(0x007F)
+         .Beq("skip")                        // slot uses the tileset default
+         .StaDp(0x06)                        // file# word ($06/$07 — clear of the $03/$04
+         .JsrL("resolve")                    // base word the 16-bit ADC $03 reads)
+         .Bcs("skip")                        // not inserted / invalid id
+         .Sep(0x20)
+         .StzDp(0x00)                        // decompress dest = $7E:AD00
+         .LdaImm8(0xAD).StaDp(0x01)
+         .LdaImm8(0x7E).StaDp(0x02)
+         .Jsl(GfxThunks)                     // LC_LZ2 core ($8A-$8C → [$00])
+         .LdaImm8(0x80).StaAbs(0x2115)       // defensive: word-increment VRAM mode
+         .StzAbs(0x2116)
+         .LdaDp(0x0F).StaAbs(0x2117)         // slot's VRAM page
+         .Sep(0x10)                          // expander requires 8-bit X/Y
+         .LdyImm8(0x00)
+         .LdaDp(0x07)
+         .Bne("upload")                      // ExGFX 0x100+: no vanilla filter
+         .LdaDp(0x06)
+         .CmpImm8(0x34)
+         .Bcs("upload")                      // ExGFX 0x80-0xFF: no filter
+         .Tay()                              // vanilla file keeps its filter cases
+         .Label("upload")
+         .Jsl(GfxThunks + 4)                 // vanilla expand-upload ($00AA80)
+         .Label("skip")
+         .Rep(0x30)
+         .Plx()
+         .Inx().Inx()
+         .CpxImm16(0x0010)
+         .Bcc("slot")
+         .Label("exit")
+         .Sep(0x30)
+         .Rtl();
+
+        // ---- Resolve: A = file# → $8A-$8C source pointer, carry set = skip ----
+        a.PadTo(GfxResolve)
+         .Label("resolve")
+         .CmpImm16(0x0034)
+         .Bcs("r1")
+         .Tax()                              // vanilla: three parallel byte tables
+         .Sep(0x20)
+         .LdaLongX(Gfx.PtrLow).StaDp(0x8A)
+         .LdaLongX(Gfx.PtrHigh).StaDp(0x8B)
+         .LdaLongX(Gfx.PtrBank).StaDp(0x8C)
+         .Rep(0x20)
+         .Clc()
+         .Rts()
+         .Label("r1")
+         .CmpImm16(0x0080)
+         .Bcc("bad")                         // 0x34-0x7F: invalid ids
+         .CmpImm16(0x0100)
+         .Bcc("e80")
+         // 0x100+ — the LmExGfxBase scanner idiom (kept ahead of the 0x80 path so a
+         // linear disasm sweep still carries 16-bit M through it)
+         .Sec()                              // [SCAN]
+         .SbcImm16(0x0100)                   // [SCAN]
+         .StaDp(0x8A)                        // [SCAN]
+         .Asl()                              // [SCAN]
+         .Clc()                              // [SCAN]
+         .AdcDp(0x8A)                        // [SCAN] *3
+         .Tax()                              // [SCAN]
+         .LdaLongX(ExGfxPtrTable)            // [SCAN operand] ptr low+mid
+         .StaDp(0x8A)
+         .Sep(0x20)
+         .LdaLongX(ExGfxPtrTable + 2)        // bank
+         .StaDp(0x8C)
+         .Bra("chk")
+         .Label("e80")                       // 0x80-0xFF via the fixed $0FF600 table
+         .Sec().SbcImm16(0x0080)
+         .StaDp(0x8A)
+         .Asl()                              // *3 (ASL leaves carry clear: A ≤ 0x7F)
+         .AdcDp(0x8A)
+         .Tax()
+         .LdaLongX(Gfx.ExGfx80Table)         // ptr low+mid (16-bit)
+         .StaDp(0x8A)
+         .Sep(0x20)
+         .LdaLongX(Gfx.ExGfx80Table + 2)     // bank
+         .StaDp(0x8C)
+         .Label("chk")                       // 8-bit M: reject 000000 / FFFFFF pointers
+         .LdaDp(0x8A).OraDp(0x8B).OraDp(0x8C).Beq("badr")
+         .LdaDp(0x8A).AndDp(0x8B).AndDp(0x8C).CmpImm8(0xFF).Beq("badr")
+         .Rep(0x20)
+         .Clc()
+         .Rts()
+         .Label("badr")
+         .Rep(0x20)
+         .Label("bad")
+         .Sec()
+         .Rts();
+
+        a.PadTo(GfxSlotTab)
+         .Db(0x0E, 0x00,                     // FG1 (w7) → VRAM page $00
+             0x0C, 0x08,                     // FG2 (w6) → $08
+             0x0A, 0x10,                     // BG1 (w5) → $10
+             0x08, 0x18,                     // FG3 (w4) → $18
+             0x16, 0x60,                     // SP1 (w11) → $60
+             0x14, 0x68,                     // SP2 (w10) → $68
+             0x12, 0x70,                     // SP3 (w9) → $70
+             0x10, 0x78);                    // SP4 (w8) → $78
         return a.Bytes();
     }
 }

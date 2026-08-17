@@ -70,23 +70,40 @@ public sealed class Asm(int orgSnes)
     public Asm LdyImm16(int v) => Imm16(0xA0, v);
     public Asm LdyDp(int d) => E(0xA4, (byte)d);
     public Asm StyDp(int d) => E(0x84, (byte)d);
+    public Asm LdxImm8(int v) => E(0xA2, (byte)v);
+    public Asm LdxImm16(int v) => Imm16(0xA2, v);
+    public Asm StxDp(int d) => E(0x86, (byte)d);
+    public Asm LdaDpX(int d) => E(0xB5, (byte)d);
+    public Asm StzDp(int d) => E(0x64, (byte)d);
+    public Asm StzAbs(int a) => Imm16(0x9C, a);
 
     // ---- arithmetic/logic ----
     public Asm AdcImm8(int v) => E(0x69, (byte)v);
     public Asm AdcImm16(int v) => Imm16(0x69, v);
     public Asm AdcDp(int d) => E(0x65, (byte)d);
     public Asm AdcAbs(int a) => Imm16(0x6D, a);
+    public Asm SbcImm16(int v) => Imm16(0xE9, v);
     public Asm AndImm8(int v) => E(0x29, (byte)v);
+    public Asm AndImm16(int v) => Imm16(0x29, v);
     public Asm AndDp(int d) => E(0x25, (byte)d);
     public Asm OraDp(int d) => E(0x05, (byte)d);
+    public Asm CmpImm8(int v) => E(0xC9, (byte)v);
     public Asm CmpImm16(int v) => Imm16(0xC9, v);
     public Asm CpyImm16(int v) => Imm16(0xC0, v);
+    public Asm CpxImm16(int v) => Imm16(0xE0, v);
     public Asm Asl() => E(0x0A);
     public Asm Lsr() => E(0x4A);
     public Asm Clc() => E(0x18);
+    public Asm Sec() => E(0x38);
+    public Asm IncA() => E(0x1A);
+    public Asm DecA() => E(0x3A);
+    /// <summary>Raw data bytes (inline tables).</summary>
+    public Asm Db(params byte[] bytes) => E(bytes);
     public Asm DecDp(int d) => E(0xC6, (byte)d);
     public Asm IncDp(int d) => E(0xE6, (byte)d);
     public Asm Iny() => E(0xC8);
+    public Asm Inx() => E(0xE8);
+    public Asm Dex() => E(0xCA);
 
     // ---- transfers/stack/flags ----
     public Asm Tax() => E(0xAA);

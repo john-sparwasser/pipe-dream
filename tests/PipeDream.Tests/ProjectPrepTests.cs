@@ -87,6 +87,118 @@ public class ProjectPrepTests : IDisposable
         Assert.Equal(built, BpsApplier.Apply(baseRom, File.ReadAllBytes(bpsPath!)));
     }
 
+    [RealRomFact]
+    public void adopt_base_reproduces_a_v1_pin_with_the_frozen_v1_stamps()
+    {
+        // Simulate a legacy project created by the v1 editor: v1-prepped base + v1 pin.
+        var p = Project.Create(Path.Combine(dir, "proj"), TestRom.RealRomPath);
+        File.Copy(TestRom.RealRomPath, p.BaseRomPath, overwrite: true);
+        Assert.Null(RomPrep.PrepInPlace(p.BaseRomPath, version: 1));
+        byte[] v1 = File.ReadAllBytes(p.BaseRomPath);
+        p.Data.BaseRom.Sha256 = RomHash.HeaderlessSha256(v1);
+        p.Data.BaseRom.Size = v1.Length;
+        p.Data.BaseRom.PrepVersion = 1;
+        p.Save();
+
+        File.Delete(p.BaseRomPath);                       // shared bare .pdp scenario
+        var re = Project.Open(p.FilePath);
+        Assert.Null(re.AdoptBase(TestRom.RealRomPath));   // raw vanilla → v1 stamps → v1 pin
+        Assert.Null(re.ValidateBase());
+        Assert.False(Rom.Load(re.BaseRomPath).HasLmGfxLoader);   // still a v1 image
+    }
+
+    [RealRomFact]
+    public void upgrade_base_prep_moves_a_v1_project_to_the_current_version()
+    {
+        var p = Project.Create(Path.Combine(dir, "proj"), TestRom.RealRomPath);
+        File.Copy(TestRom.RealRomPath, p.BaseRomPath, overwrite: true);
+        Assert.Null(RomPrep.PrepInPlace(p.BaseRomPath, version: 1));
+        p.Data.BaseRom.Sha256 = RomHash.HeaderlessSha256File(p.BaseRomPath);
+        p.Data.BaseRom.PrepVersion = 1;
+        p.Save();
+
+        Assert.Null(p.UpgradeBasePrep(TestRom.RealRomPath));
+        Assert.Equal(RomPrep.Version, p.Data.BaseRom.PrepVersion);
+        Assert.Null(p.ValidateBase());
+        var rom = Rom.Load(p.BaseRomPath);
+        Assert.True(rom.HasLmGfxLoader);
+        Assert.True(RomPrep.IsPrepped(rom));
+
+        // idempotent guard: a current-version project refuses to "upgrade"
+        Assert.NotNull(p.UpgradeBasePrep(TestRom.RealRomPath));
+    }
+
+    [RealRomFact]
+    public void build_writes_gfx_blobs_and_bypass_records_round_trip()
+    {
+        var p = Project.Create(Path.Combine(dir, "proj"), TestRom.RealRomPath);
+        // an imported ExGFX file (raw planar at the base's bpp = 3bpp) + a slot override
+        var import = new byte[0x300];                              // 32 tiles of 3bpp
+        for (int i = 0; i < import.Length; i++) import[i] = (byte)(i * 5 + 1);
+        p.Data.Gfx["100"] = Convert.ToBase64String(import);
+        p.Data.Level(0x105).GfxOverrides[7] = 0x100;               // FG1 ← ExGFX 0x100
+        p.Data.Level(0x105).GfxOverrides[3] = 0x101;               // BG2 (VRAM-patch warning)
+        p.Save();
+
+        var (status, outPath) = RomBuilder.Build(p);
+        Assert.NotNull(outPath);
+        Assert.Contains("BG2/BG3", status);                        // warning surfaced
+
+        var built = Rom.Load(outPath!);
+        var rec = built.LmGfxBypass(0x105);
+        Assert.NotNull(rec);
+        Assert.Equal(0x100, rec![7] & 0xFFF);
+        Assert.Equal(0x101, rec[3] & 0xFFF);
+        Assert.NotEqual(0, rec[0] & 0x8000);
+
+        byte[]? decoded = Gfx.Cached(built, 0x100);                // through SourceSnes + LZ2
+        Assert.NotNull(decoded);
+        Assert.Equal(0xC00, decoded!.Length);                      // zero-padded full file
+        Assert.Equal(import, decoded.Take(import.Length).ToArray());
+        Assert.All(decoded.Skip(import.Length), b => Assert.Equal(0, b));
+
+        // deterministic: building twice yields byte-identical ROMs
+        byte[] first = File.ReadAllBytes(outPath!);
+        RomBuilder.Build(p);
+        Assert.Equal(first, File.ReadAllBytes(outPath!));
+    }
+
+    [RealRomFact]
+    public void build_rewrites_vanilla_gfx_pointers_for_forked_stock_files()
+    {
+        var p = Project.Create(Path.Combine(dir, "proj"), TestRom.RealRomPath);
+        var baseRom = Rom.Load(p.BaseRomPath);
+        byte[] fork = (byte[])Gfx.DecompressFile(baseRom, 2).Clone();
+        fork[5] ^= 0x55;                                           // one edited byte
+        p.Data.Gfx["002"] = Convert.ToBase64String(fork);
+        p.Data.Level(0x105).Objects.Add(ProjectFile.ObjectDto.From(
+            new LevelObject(false, 0x14, 0, 0, 0x18, 0x2F, -1)));
+        p.Save();
+
+        var (_, outPath) = RomBuilder.Build(p);
+        Assert.NotNull(outPath);
+        var built = Rom.Load(outPath!);
+        Assert.Equal(fork, Gfx.DecompressFile(built, 2));          // vanilla pointer repointed
+    }
+
+    [RealRomFact]
+    public void build_on_a_v1_base_warns_instead_of_writing_gfx()
+    {
+        var p = Project.Create(Path.Combine(dir, "proj"), TestRom.RealRomPath);
+        File.Copy(TestRom.RealRomPath, p.BaseRomPath, overwrite: true);
+        Assert.Null(RomPrep.PrepInPlace(p.BaseRomPath, version: 1));
+        p.Data.BaseRom.Sha256 = RomHash.HeaderlessSha256File(p.BaseRomPath);
+        p.Data.BaseRom.PrepVersion = 1;
+        p.Data.Gfx["100"] = Convert.ToBase64String(new byte[0x60]);
+        p.Data.Level(0x105).GfxOverrides[7] = 0x100;
+        p.Save();
+
+        var (status, outPath) = RomBuilder.Build(p);
+        Assert.NotNull(outPath);
+        Assert.Contains("Upgrade base to prep v", status);
+        Assert.Null(Rom.Load(outPath!).LmGfxBypass(0x105));        // nothing written
+    }
+
     [Fact]
     public void create_on_a_non_vanilla_base_stays_unprepped()
     {

@@ -231,6 +231,11 @@ public static class LunarMagic
         /// 0x80-0xFF table at $0FF600 — on vanilla/prepped ROMs those bytes are arbitrary data.</summary>
         public bool HasLmGfxLoader => rom.ReadValue(0x00AA50, 4) == 0x0FF78022;
 
+        /// <summary>True if LM's VRAM reorganization patch is installed ($0081E2 = JML).
+        /// Without it the BG2/BG3 bypass slots are never uploaded (option_vram.htm) —
+        /// vanilla and prepped bases lack it, so those slots stay editor-only.</summary>
+        public bool HasLmVramPatch => rom.ReadByte(0x0081E2) == 0x5C;
+
         /// <summary>True if LM's palette engine is installed: a JML hook at $0095E9 replaces the
         /// vanilla JSR UploadSpriteGFX / JSR LoadPalette pair (CONTRACT §7e).</summary>
         public bool HasLmPaletteHook => rom.ReadByte(0x0095E9) == 0x5C;

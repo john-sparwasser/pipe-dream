@@ -52,8 +52,7 @@ internal static class RomBuilder
             var rom = Rom.Load(project.BaseRomPath);
             var warnings = new List<string>();
             if (ReplayMap16(rom, project.Data) is { } err) return (err, null);
-            if (project.Data.Gfx.Count > 0)
-                warnings.Add($"{project.Data.Gfx.Count} imported GFX file(s) are editor-preview only until the ExGFX build stage");
+            WriteGfx(rom, project.Data, warnings);
 
             foreach (var (key, state) in project.Data.Levels.OrderBy(kv => kv.Key, StringComparer.Ordinal))
             {
@@ -105,8 +104,7 @@ internal static class RomBuilder
                     }
                 }
 
-                if (state.GfxOverrides.Count > 0)
-                    warnings.Add($"level {key}: GFX slot overrides are editor-preview only until the ExGFX build stage");
+                WriteGfxRecord(rom, level, key, state, warnings);
             }
 
             Directory.CreateDirectory(Path.Combine(project.Folder, "build"));
@@ -153,14 +151,100 @@ internal static class RomBuilder
         return ($"exported {Path.GetFileName(bps)} ({new FileInfo(bps).Length} bytes, {sourceNote})", bps);
     }
 
-    // Level/sprite streams ride 16-bit runtime pointers — always bank-cross-safe.
-    private static int AllocateAutoExpand(Rom rom, byte[] data)
+    /// <summary>The in-game GFX stage needs the GFX-bypass loader + a locatable record
+    /// table — present on V2-prepped bases and on LM-saved bases (their own layout).</summary>
+    private static bool GfxCapable(Rom rom) => rom.HasLmGfxLoader && rom.LmGfxBypassBase > 0;
+
+    /// <summary>
+    /// Write the project's imported GFX files into the ROM: zero-pad each blob to a full
+    /// 128-tile file at the ROM's bit depth (the in-game expander always uploads 0x80
+    /// tiles), LC_LZ2-compress, allocate (GFX pointers are 24-bit — bank-crossing is fine,
+    /// the decompressor's reads wrap LoROM banks), and point the id's pointer at it:
+    /// vanilla ids (&lt;0x34, copy-on-write forks of stock files) through the vanilla three
+    /// tables — works on ANY base; 0x80-0xFF through the fixed $0FF600 table; 0x100+
+    /// through the per-ROM ExGFX table. Deterministic: ids ascending.
+    /// </summary>
+    private static void WriteGfx(Rom rom, ProjectFile data, List<string> warnings)
     {
-        try { return RatsWriter.Allocate(rom, data, avoidBankCross: true); }
+        int full = 128 * Gfx.TileBytes(Gfx.RomBpp(rom));
+        foreach (var (idHex, b64) in data.Gfx.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+        {
+            int id = Convert.ToInt32(idHex, 16);
+            if (id >= 0x34 && !GfxCapable(rom))
+            {
+                warnings.Add($"GFX{id:X3} skipped (base lacks the in-game GFX loader — File → Upgrade base to prep v{RomPrep.Version})");
+                continue;
+            }
+            if (id is >= 0x34 and < 0x80)
+            {
+                warnings.Add($"GFX{id:X2} skipped (0x34-0x7F are not loadable ids)");
+                continue;
+            }
+            if (id >= 0x100 && rom.LmExGfxBase <= 0)
+            {
+                warnings.Add($"GFX{id:X3} skipped (base lacks the ExGFX 0x100+ pointer table)");
+                continue;
+            }
+            byte[] raw = Convert.FromBase64String(b64);
+            if (raw.Length < full) { var p = new byte[full]; raw.CopyTo(p, 0); raw = p; }
+            int snes = AllocateAutoExpand(rom, Gfx.Lz2Compress(raw), avoidBankCross: false);
+            int fo = id switch
+            {
+                < 0x34 => -1,                                                  // three parallel tables
+                < 0x100 => rom.FileOffset(Gfx.ExGfx80Table + (id - 0x80) * 3),
+                _ => rom.FileOffset(rom.LmExGfxBase + (id - 0x100) * 3),
+            };
+            if (fo < 0)
+            {
+                rom.Data[rom.FileOffset(Gfx.PtrLow) + id] = (byte)snes;
+                rom.Data[rom.FileOffset(Gfx.PtrHigh) + id] = (byte)(snes >> 8);
+                rom.Data[rom.FileOffset(Gfx.PtrBank) + id] = (byte)(snes >> 16);
+            }
+            else
+            {
+                rom.Data[fo] = (byte)snes; rom.Data[fo + 1] = (byte)(snes >> 8); rom.Data[fo + 2] = (byte)(snes >> 16);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Write a level's Super-GFX-Bypass record (16 words at LmGfxBypassBase + level*0x20):
+    /// the base ROM's record (or an all-default one) with the project's slot overrides
+    /// applied and the w0 enable bit set — byte-parity with the session overlay
+    /// (LunarMagic.LmGfxBypass) by construction.
+    /// </summary>
+    private static void WriteGfxRecord(Rom rom, int level, string key, ProjectFile.LevelState state,
+                                       List<string> warnings)
+    {
+        if (state.GfxOverrides.Count == 0) return;
+        if (!GfxCapable(rom))
+        {
+            warnings.Add($"level {key}: GFX slot overrides skipped (base lacks the in-game GFX loader — File → Upgrade base to prep v{RomPrep.Version})");
+            return;
+        }
+        var w = rom.LmGfxBypass(level);
+        if (w is null) { w = new ushort[16]; Array.Fill(w, (ushort)0x7F); w[0] = 0x807F; }
+        foreach (var (word, file) in state.GfxOverrides)
+            if (word is >= 0 and < 16) w[word] = (ushort)((w[word] & ~0xFFF) | (file & 0xFFF));
+        w[0] |= 0x8000;
+        int fo = rom.FileOffset(rom.LmGfxBypassBase + level * 0x20);
+        for (int i = 0; i < 16; i++) { rom.Data[fo + i * 2] = (byte)w[i]; rom.Data[fo + i * 2 + 1] = (byte)(w[i] >> 8); }
+
+        if (!rom.HasLmVramPatch && state.GfxOverrides.Keys.Any(k => k is 2 or 3))
+            warnings.Add($"level {key}: BG2/BG3 slot overrides stay editor-only (base lacks LM's VRAM patch)");
+        if (state.GfxOverrides.Keys.Any(k => k is 0 or 1))
+            warnings.Add($"level {key}: AN1/AN2 slot overrides stay editor-only (ExAnimation sources aren't inserted)");
+    }
+
+    // Level/sprite streams ride 16-bit runtime pointers — those stay bank-cross-safe;
+    // GFX blobs are 24-bit-addressed and may cross banks (avoidBankCross: false).
+    private static int AllocateAutoExpand(Rom rom, byte[] data, bool avoidBankCross = true)
+    {
+        try { return RatsWriter.Allocate(rom, data, avoidBankCross); }
         catch (InvalidOperationException)
         {
             rom.ExpandTo(Math.Min(0x400000, Math.Max(0x200000, rom.ActualRomSize * 2)));
-            return RatsWriter.Allocate(rom, data, avoidBankCross: true);
+            return RatsWriter.Allocate(rom, data, avoidBankCross);
         }
     }
 }

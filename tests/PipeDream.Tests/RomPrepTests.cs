@@ -17,11 +17,14 @@ public class RomPrepTests
 {
     public const string AfterRomPath = @"C:\SMW\Projects\.resources\after.smc";
 
-    /// <summary>Golden SHA-256 (headerless) of the prepped vanilla US ROM, computed from
-    /// RomPrep V1's frozen stamp tables (2026-08-16, incl. the B-preservation fix and the
-    /// second palette hook at $00A5BF). Any stamp drift fails here — this hash is the
-    /// shared-.pdp determinism guarantee.</summary>
-    private const string GoldenPrepSha256 = "a73872c55badc79300a7858c812d47d7286f1412e01f9d015305ce78c4df8898";
+    /// <summary>Golden SHA-256 (headerless) of the V1-prepped vanilla US ROM (frozen stamp
+    /// list, 2026-08-16, incl. the B-preservation fix and the second palette hook). V1
+    /// projects pin this image — the list must reproduce it forever.</summary>
+    private const string GoldenPrepV1Sha256 = "a73872c55badc79300a7858c812d47d7286f1412e01f9d015305ce78c4df8898";
+
+    /// <summary>Golden SHA-256 (headerless) of the V2-prepped vanilla US ROM (V1 stamps +
+    /// the in-game GFX stage, 2026-08-17). Any stamp drift fails here.</summary>
+    private const string GoldenPrepV2Sha256 = "f8b57e912c501197a8ac4e4ff2df569acf06c87ee5aec66be3336991e5a61af9";
 
     private static Rom Prepped()
     {
@@ -49,6 +52,13 @@ public class RomPrepTests
         var once = (byte[])a.Data.Clone();
         RomPrep.Apply(a);                        // IsPrepped → no-op
         Assert.Equal(once, a.Data);
+
+        // v1 is deterministic too, and upgrading a v1 image to v2 equals a direct v2 prep
+        var v1a = TestRom.Create(); RomPrep.Apply(v1a, 1);
+        var v1b = TestRom.Create(); RomPrep.Apply(v1b, 1);
+        Assert.Equal(v1a.Data, v1b.Data);
+        RomPrep.Apply(v1a, 2);
+        Assert.Equal(a.Data, v1a.Data);
     }
 
     [Fact]
@@ -83,6 +93,15 @@ public class RomPrepTests
         // extended defs: LM's default-empty word 0x1004 ×4 for the seeded page
         int fo = rom.FileOffset(0x128008);
         for (int i = 0; i < 8; i += 2) { Assert.Equal(0x04, rom.Data[fo + i]); Assert.Equal(0x10, rom.Data[fo + i + 1]); }
+
+        // V2: GFX loader + zeroed tables (records disabled, no ExGFX inserted yet)
+        Assert.True(rom.HasLmGfxLoader);
+        Assert.Equal(RomPrep.GfxBypassRecords, rom.LmGfxBypassBase);
+        Assert.Equal(RomPrep.ExGfxPtrTable, rom.LmExGfxBase);
+        Assert.False(rom.HasLmVramPatch);            // BG2/BG3 stay editor-only
+        Assert.Null(rom.LmGfxBypass(0x105));         // zeroed record = no bypass
+        Assert.Equal(-1, Gfx.SourceSnes(rom, 0x100));
+        Assert.Equal(-1, Gfx.SourceSnes(rom, 0x85));
     }
 
     [Fact]
@@ -90,13 +109,23 @@ public class RomPrepTests
     {
         var rom = Prepped();
         Assert.Equal(-1, rom.LmSpriteSizeBase);
-        Assert.Equal(-1, rom.LmGfxBypassBase);
-        Assert.Equal(-1, rom.LmExGfxBase);
         Assert.Equal(-1, rom.LmExAnimBase);
         Assert.Equal(-1, rom.LmGlobalExAnimPtr);
         Assert.Equal(-1, rom.LmExAnimSetupEntry);
         Assert.Equal(-1, rom.LmExAnimProcEntry);
         Assert.False(rom.HasPixiSpriteHook);
+    }
+
+    [Fact]
+    public void prep_v1_stays_scanner_negative_for_the_v2_structures()
+    {
+        var rom = TestRom.Create();
+        RomPrep.Apply(rom, 1);
+        Assert.False(rom.HasLmGfxLoader);
+        Assert.Equal(-1, rom.LmGfxBypassBase);
+        Assert.Equal(-1, rom.LmExGfxBase);
+        Assert.True(RomPrep.IsPrepped(rom, 1));
+        Assert.False(RomPrep.IsPrepped(rom, 2));
     }
 
     [Fact]
@@ -196,6 +225,23 @@ public class RomPrepTests
         Assert.Contains("LDA $010B", pal);
         Assert.Contains("STA $0701,Y", pal);
         Assert.Contains("CPY #$0202", pal);
+
+        string arm = Disasm.Dis(rom, RomPrep.GfxArmStub, 8, m8: true, x8: true);
+        Assert.Contains("LDA $010B", arm);
+        Assert.Contains("STA $FE", arm);
+        Assert.Contains("CMP #$09", arm);
+
+        string loader = Disasm.Dis(rom, RomPrep.GfxLoaderEntry, 50, m8: true, x8: true);
+        Assert.Contains("LDA $FE", loader);
+        Assert.Contains("LDA $129000,X", loader);
+        Assert.Contains("AND #$8000", loader);
+        Assert.Contains("JSL $00FF9A", loader);
+        Assert.Contains("STA $2117", loader);
+
+        string res = Disasm.Dis(rom, RomPrep.GfxResolve, 45, m8: false, x8: false);
+        Assert.Contains("SBC #$0100", res);          // the LmExGfxBase scanner idiom
+        Assert.Contains("LDA $138008,X", res);
+        Assert.Contains("LDA $00B992,X", res);       // vanilla pointer tables
     }
 
     [Fact]
@@ -273,11 +319,20 @@ public class RomPrepTests
         AllFf(LunarMagic.LmPaletteTable, 0x600);   // palette pointer table
         AllFf(RomPrep.PalTrampoline, 0x100);       // palette stubs
         AllFf(RomPrep.PalThunk, 0x07);             // bank-00 thunk
+        AllFf(RomPrep.GfxThunks, 0x08);            // V2 bank-00 thunks
+        AllFf(Gfx.ExGfx80Table, 0x180);            // V2 ExGFX 0x80-0xFF table
+        AllFf(RomPrep.GfxArmStub, 0x150);          // V2 armstub + loader + resolver + SlotTab
 
         // patch sites hold the exact vanilla bytes we displace
         Assert.Equal([0xC2, 0x20, 0xB9, 0xBE, 0x0F], rom.Data.AsSpan(rom.FileOffset(0x00C17A), 5).ToArray());
         Assert.Equal([0x20, 0xDA, 0xA9, 0x20, 0xED, 0xAB], rom.Data.AsSpan(rom.FileOffset(0x0095E9), 6).ToArray());
         Assert.Equal([0x22, 0x8A, 0xBE, 0x05], rom.Data.AsSpan(rom.FileOffset(0x00A5BF), 4).ToArray());
+        // V2 hook sites: displaced vanilla bytes
+        Assert.Equal([0xAD, 0x25, 0x19, 0xC9, 0x09], rom.Data.AsSpan(rom.FileOffset(0x0583B8), 5).ToArray());
+        Assert.Equal([0xA2, 0x03, 0xB5, 0x04, 0x9D, 0x05, 0x01, 0xCA, 0x10, 0xF8],
+                     rom.Data.AsSpan(rom.FileOffset(0x00AA50), 10).ToArray());
+        Assert.Equal([0xF0, 0x03], rom.Data.AsSpan(rom.FileOffset(0x00AA06), 2).ToArray());
+        Assert.Equal([0xF0, 0x03], rom.Data.AsSpan(rom.FileOffset(0x00AA47), 2).ToArray());
         Assert.Equal([0xA9, 0x07, 0x85, 0xD0], rom.Data.AsSpan(rom.FileOffset(0x05D8F5), 4).ToArray());
         foreach (int site in RomPrep.ActsCallSites)
             Assert.Equal([0x22, 0x45, 0xF5, 0x00], rom.Data.AsSpan(rom.FileOffset(site), 4).ToArray());
@@ -291,16 +346,137 @@ public class RomPrepTests
     }
 
     [RealRomFact]
-    public void prepped_vanilla_matches_the_golden_hash()
+    public void prepped_vanilla_matches_the_golden_hashes_for_both_versions()
     {
         string tmp = Path.Combine(Path.GetTempPath(), "pd_prep_golden.smc");
-        File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
         try
         {
-            Assert.Null(RomPrep.PrepInPlace(tmp));
-            Assert.Equal(GoldenPrepSha256, RomHash.HeaderlessSha256File(tmp));
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 1));      // frozen V1 stamp list
+            Assert.Equal(GoldenPrepV1Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V2)
+            Assert.Equal(GoldenPrepV2Sha256, RomHash.HeaderlessSha256File(tmp));
         }
         finally { File.Delete(tmp); }
+    }
+
+    /// <summary>SlotTab must send each record word to the VRAM page vanilla would have used
+    /// for that GFXLIST index. $00A9E7/$00AA28 fill $04-$07 backwards (STA $04,X, X counting
+    /// 3→0, index counting up) and the upload loop pairs file $04,X with page table entry X,
+    /// so GFXLIST index i uses page-table entry 3-i. Derived from the ROM's own tables here
+    /// rather than restated as constants — a silently wrong page uploads imported GFX to
+    /// VRAM nobody reads, which looks exactly like "the loader never ran".</summary>
+    [RealRomFact]
+    public void slot_table_pairs_each_slot_with_the_vanilla_vram_page()
+    {
+        var rom = PreppedReal();
+        int tab = rom.FileOffset(RomPrep.GfxSlotTab);
+        // record byte-offsets in SlotTab order: FG1,FG2,BG1,FG3 then SP1..SP4
+        int[] recOff = [0x0E, 0x0C, 0x0A, 0x08, 0x16, 0x14, 0x12, 0x10];
+        for (int i = 0; i < 8; i++)
+        {
+            bool sprite = i >= 4;
+            int pageTable = sprite ? 0x00A9D2 : 0x00A9D6;   // DATA_00A9D2 / DATA_00A9D6
+            int expected = rom.ReadByte(pageTable + (3 - i % 4));
+            Assert.Equal(recOff[i], rom.Data[tab + i * 2]);
+            Assert.Equal(expected, rom.Data[tab + i * 2 + 1]);
+        }
+    }
+
+    [RealRomFact]
+    public void gfx_arm_stub_arms_fe_and_preserves_the_mode_compare()
+    {
+        var rom = PreppedReal();
+        (int Fe, byte Marker) Run(int mode)
+        {
+            var cpu = new Cpu65816(rom);
+            cpu.Ram7E[0x010B] = 0x05; cpu.Ram7E[0x010C] = 0x01;    // level 0x105
+            cpu.Ram7E[0x1925] = (byte)mode;
+            // driver: JSL armstub : BEQ eq : LDA #$01 : BRA w / eq: LDA #$02 / w: STA $7FF000 : RTL
+            byte[] d =
+            [
+                0x22, 0x70, 0xF7, 0x0F,        // JSL GfxArmStub
+                0xF0, 0x04,                    // BEQ eq (flags must survive the RTL)
+                0xA9, 0x01, 0x80, 0x02,        // LDA #$01 : BRA w
+                0xA9, 0x02,                    // eq: LDA #$02
+                0x8F, 0x00, 0xF0, 0x7F,        // w: STA $7FF000
+                0x6B,
+            ];
+            d.CopyTo(cpu.Ram7F, 0x9000);
+            cpu.CallLong(0x7F9000, 100_000);
+            return (cpu.Ram7E[0xFE] | (cpu.Ram7E[0xFF] << 8), cpu.Ram7F[0xF000]);
+        }
+        Assert.Equal((0x0106, (byte)0x02), Run(0x09));   // boss mode: displaced CMP sets Z
+        Assert.Equal((0x0106, (byte)0x01), Run(0x00));   // normal mode: Z clear
+    }
+
+    /// <summary>THE V2 emulator end-to-end: armed record + pointer + compressed blob →
+    /// the loader decompresses the import to $7E:AD00 and runs the vanilla expand-upload
+    /// over the full file. The arm persists (the fade-in load step re-runs UploadSpriteGFX
+    /// with the cache tests NOPped, so the record must re-apply there too — LM lifecycle);
+    /// unarmed and disabled variants touch nothing.</summary>
+    [RealRomFact]
+    public void gfx_loader_uploads_an_armed_override_end_to_end()
+    {
+        var rom = PreppedReal();
+        int full = 128 * Gfx.TileBytes(Gfx.RomBpp(rom));           // 0xC00 (3bpp vanilla)
+        var import = new byte[0x400];                              // partial file: zero-padded
+        for (int i = 0; i < import.Length; i++) import[i] = (byte)(i * 7 + 3);
+        var padded = new byte[full];
+        import.CopyTo(padded, 0);
+        int blobSnes = RatsWriter.Allocate(rom, Gfx.Lz2Compress(padded));
+
+        int pfo = rom.FileOffset(RomPrep.ExGfxPtrTable);           // ExGFX 0x100 pointer
+        rom.Data[pfo] = (byte)blobSnes; rom.Data[pfo + 1] = (byte)(blobSnes >> 8); rom.Data[pfo + 2] = (byte)(blobSnes >> 16);
+
+        int rfo = rom.FileOffset(RomPrep.GfxBypassRecords + 5 * 0x20);   // level 5 record
+        for (int w = 0; w < 16; w++) { rom.Data[rfo + w * 2] = 0x7F; rom.Data[rfo + w * 2 + 1] = 0; }
+        rom.Data[rfo + 1] = 0x80;                                  // w0 = 0x807F (enabled)
+        rom.Data[rfo + 0x0E] = 0x00; rom.Data[rfo + 0x0F] = 0x01;  // FG1 (w7) = file 0x100
+
+        Cpu65816 Armed()
+        {
+            var cpu = new Cpu65816(rom);
+            cpu.Ram7E[0xFE] = 6;                                   // level 5 + 1
+            cpu.Ram7E[0x1931] = 0;                                 // tileset (expander filter path)
+            return cpu;
+        }
+
+        var c = Armed();
+        c.CallLong(RomPrep.GfxLoaderEntry, 20_000_000);
+        for (int i = 0; i < full; i++)
+            if (c.Ram7E[0xAD00 + i] != padded[i])
+                Assert.Fail($"upload buffer diverges at +{i:X}: {c.Ram7E[0xAD00 + i]:X2} != {padded[i]:X2}");
+        Assert.Equal(6, c.Ram7E[0xFE] | (c.Ram7E[0xFF] << 8));     // arm persists
+        Assert.Equal(0xAD00 + full, c.Ram7E[0x00] | (c.Ram7E[0x01] << 8));   // expander consumed all
+
+        // second call re-applies (the fade-in step's re-upload needs this)
+        c.Ram7E[0xAD00] ^= 0xFF;
+        c.CallLong(RomPrep.GfxLoaderEntry, 20_000_000);
+        Assert.Equal(padded[0], c.Ram7E[0xAD00]);
+
+        // unarmed: nothing happens
+        var u = Armed(); u.Ram7E[0xFE] = 0; u.Ram7E[0xAD00] = 0xEE;
+        u.CallLong(RomPrep.GfxLoaderEntry, 20_000_000);
+        Assert.Equal(0xEE, u.Ram7E[0xAD00]);
+
+        // disabled record (w0 bit15 clear): nothing happens
+        rom.Data[rfo + 1] = 0x00;
+        var dis = Armed(); dis.Ram7E[0xAD00] = 0xEE;
+        dis.CallLong(RomPrep.GfxLoaderEntry, 20_000_000);
+        Assert.Equal(0xEE, dis.Ram7E[0xAD00]);
+        rom.Data[rfo + 1] = 0x80;
+
+        // vanilla-file override resolves through the vanilla tables (filters keep working)
+        rom.Data[rfo + 0x0E] = 0x02; rom.Data[rfo + 0x0F] = 0x00;  // FG1 = vanilla GFX02
+        var v = Armed();
+        v.CallLong(RomPrep.GfxLoaderEntry, 20_000_000);
+        byte[] gfx2 = Gfx.DecompressFile(rom, 2);
+        for (int i = 0; i < gfx2.Length; i++)
+            if (v.Ram7E[0xAD00 + i] != gfx2[i])
+                Assert.Fail($"vanilla-file upload diverges at +{i:X}");
     }
 
     [RealRomFact]

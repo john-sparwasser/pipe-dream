@@ -93,7 +93,9 @@ internal sealed class Project
             if (Data.BaseRom.PrepVersion > RomPrep.Version)
                 return $"this project's base was prepared by a newer editor (prep v{Data.BaseRom.PrepVersion}) — update pipe-dream.";
             File.Copy(romPath, BaseRomPath, overwrite: true);
-            if (RomPrep.PrepInPlace(BaseRomPath) is { } err) { File.Delete(BaseRomPath); return err; }
+            // Prep with the PROJECT'S version — released stamp lists are byte-frozen, so
+            // a v1 pin reproduces exactly even after the editor moves to v2.
+            if (RomPrep.PrepInPlace(BaseRomPath, Data.BaseRom.PrepVersion) is { } err) { File.Delete(BaseRomPath); return err; }
             if (RomHash.HeaderlessSha256File(BaseRomPath) != Data.BaseRom.Sha256)
             {
                 File.Delete(BaseRomPath);
@@ -102,6 +104,28 @@ internal sealed class Project
             return null;
         }
         return "that ROM's hash does not match this project's pinned base.";
+    }
+
+    /// <summary>Upgrade a prepped project's base to the current prep version: prep a fresh
+    /// copy of the user's verified vanilla ROM to a temp file, swap it in as base.smc, and
+    /// re-pin. Deliberate (menu action), never automatic. Returns a problem or null.</summary>
+    internal string? UpgradeBasePrep(string? vanillaRomPath)
+    {
+        if (Data.BaseRom.PrepVersion is < 1 || Data.BaseRom.PrepVersion >= RomPrep.Version)
+            return "base is already at the current prep version.";
+        if (vanillaRomPath is null || !File.Exists(vanillaRomPath) ||
+            RomHash.HeaderlessSha256File(vanillaRomPath) != RomHash.VanillaUsSha256)
+            return "no verified vanilla SMW ROM configured — set one first (first-run prompt / config).";
+        string tmp = BaseRomPath + ".upgrade";
+        File.Copy(vanillaRomPath, tmp, overwrite: true);
+        if (RomPrep.PrepInPlace(tmp) is { } err) { File.Delete(tmp); return err; }
+        File.Move(tmp, BaseRomPath, overwrite: true);
+        byte[] bytes = File.ReadAllBytes(BaseRomPath);
+        Data.BaseRom.Sha256 = RomHash.HeaderlessSha256(bytes);
+        Data.BaseRom.Size = bytes.Length;
+        Data.BaseRom.PrepVersion = RomPrep.Version;
+        Save();
+        return null;
     }
 
     internal void MarkDirty()
