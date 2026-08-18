@@ -219,14 +219,19 @@ public static class Map16
     }
 
     /// <summary>
-    /// The 4 words (TL, BL, TR, BR) of an extended Map16 tile (0x200-0xFFF) from LM's def
-    /// region: def(tile) = bank:(imm + tile*8) (CONTRACT §7a-rev). Caller must ensure
-    /// rom.LmMap16Base >= 0 and tile &lt; rom.Map16TileCount.
+    /// The 4 words (TL, BL, TR, BR) of an extended Map16 tile (0x200+) from LM's def region:
+    /// def(tile) = bank:(imm + tile*8) with (imm, bank) taken from the lookup slot covering
+    /// tile's 0x1000-tile range (CONTRACT §7a-rev). Caller must ensure tile &lt;
+    /// rom.Map16TileCount, which only counts ranges that have a slot.
     /// </summary>
     public static Word[] LmExtendedDef(Rom rom, int tile)
     {
-        var (imm, bank) = rom.LmMap16Defs;
-        int fo = rom.FileOffset((bank << 16) | (imm + tile * 8));
+        int addr = rom.LmMap16DefAddr(tile);
+        // A hack can populate range 1 while leaving a hole below it; Map16TileCount stops at
+        // the hole, but nothing stops a caller asking anyway. LM's default-empty def beats a
+        // negative file offset.
+        if (addr < 0) return [new Word(0x1004), new Word(0x1004), new Word(0x1004), new Word(0x1004)];
+        int fo = rom.FileOffset(addr);
         var w = new Word[4];
         for (int i = 0; i < 4; i++)
             w[i] = new Word((ushort)(rom.Data[fo + i * 2] | (rom.Data[fo + i * 2 + 1] << 8)));
@@ -242,11 +247,7 @@ public static class Map16
     public static int DefFileOffset(Rom rom, int tileset, int tile)
     {
         if (tile < 0x200) return rom.FileOffset(BuildDefPointers(rom, tileset)[tile]);
-        if (tile < rom.Map16TileCount)
-        {
-            var (imm, bank) = rom.LmMap16Defs;
-            return rom.FileOffset((bank << 16) | (imm + tile * 8));
-        }
+        if (tile < rom.Map16TileCount) return rom.FileOffset(rom.LmMap16DefAddr(tile));
         if (tile is >= 0x4000 and < 0x4200) return rom.FileOffset(0x0D9100 + (tile - 0x4000) * 8);
         return -1;
     }

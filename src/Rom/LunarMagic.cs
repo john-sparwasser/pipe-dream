@@ -18,6 +18,10 @@ public static class LunarMagic
     /// <summary>LM per-level custom palette pointer table (3 bytes/level, fixed address §7e).</summary>
     public const int LmPaletteTable = 0x0EF600;
 
+    /// <summary>How many 0x1000-tile ranges the Map16 def lookup ladder can address
+    /// (tiles 0x200-0x7FFF). One slot per range — see <c>LmMap16Slot</c>.</summary>
+    public const int Map16RangeCount = 8;
+
     extension(Rom rom)
     {
         /// <summary>
@@ -34,14 +38,53 @@ public static class LunarMagic
         /// def(tile) = bank:(imm + tile*8). Returns (imm, bank), bank 0 = no extended defs.
         /// NOTE: the RATS pointer at $02C2E1 is NOT reliable (points at a stale block in ShaoBase).
         /// </summary>
-        public (int Imm, int Bank) LmMap16Defs
+        public (int Imm, int Bank) LmMap16Defs => rom.LmMap16Slot(0);
+
+        /// <summary>
+        /// Address of range <paramref name="range"/>'s `ADC #imm16 : LDY #bank&lt;&lt;8` pair in the
+        /// lookup ladder. One slot covers 0x1000 tiles and no more, because def =
+        /// bank:(imm + tile*8) is 16-bit addressing into a 32KB LoROM window — 0x8000/8 =
+        /// 0x1000 defs per bank. So the ladder is one slot per 0x1000 tiles:
+        ///
+        ///   range 0 = tiles 0x200-0x0FFF   $06F552    range 2 = 0x2000-0x2FFF  $06F566
+        ///   range 1 = tiles 0x1000-0x1FFF  $06F55B    range 3 = 0x3000-0x3FFF  $06F56F
+        ///
+        /// Ranges 4-7 (0x4000+) live in a second chain at $06F593/$06F59C/$06F5A7/$06F5B0;
+        /// no sampled ROM populates them, so they are read but never written.
+        /// </summary>
+        private static int SlotAddr(int range) => range switch
         {
-            get
-            {
-                if (rom.ReadByte(0x00C17A) != 0x22 || rom.ReadValue(0x00C17B, 3) != 0x06F5D0) return (0, 0);
-                if (rom.ReadByte(0x06F552) != 0x69 || rom.ReadByte(0x06F555) != 0xA0) return (0, 0);
-                return (rom.ReadValue(0x06F553, 2), rom.ReadValue(0x06F556, 2) >> 8);
-            }
+            0 => 0x06F552, 1 => 0x06F55B, 2 => 0x06F566, 3 => 0x06F56F,
+            4 => 0x06F593, 5 => 0x06F59C, 6 => 0x06F5A7, 7 => 0x06F5B0,
+            _ => -1,
+        };
+
+        /// <summary>
+        /// One range's def base: (imm, bank), bank 0 = that range has no defs installed.
+        /// DogsOfWar is the reference for a populated range 1 ($1D:$4E5E) — every other
+        /// sampled hack leaves ranges 1+ at bank 0, which is why they once looked unusable.
+        /// </summary>
+        public (int Imm, int Bank) LmMap16Slot(int range)
+        {
+            if (rom.ReadByte(0x00C17A) != 0x22 || rom.ReadValue(0x00C17B, 3) != 0x06F5D0) return (0, 0);
+            int at = SlotAddr(range);
+            if (at < 0) return (0, 0);
+            // The slot must really be `ADC #imm16 : LDY #imm16` — a range our own prep left
+            // as an untouched $FF region, or LM's `LDA #imm16` blank fallback, is not a slot.
+            if (rom.ReadByte(at) != 0x69 || rom.ReadByte(at + 3) != 0xA0) return (0, 0);
+            return (rom.ReadValue(at + 1, 2), rom.ReadValue(at + 4, 2) >> 8);
+        }
+
+        /// <summary>Def address for an extended tile, honouring which range it falls in.
+        /// -1 when that range has no defs. The `& 0xFFFF` matters: the ladder reaches a slot
+        /// after shifting, so range 2+ arrive with tile*8 already wrapped mod 0x10000, and
+        /// the stored imm is chosen against that wrapped value.</summary>
+        public int LmMap16DefAddr(int tile)
+        {
+            if (tile is < 0x200 or >= 0x8000) return -1;
+            var (imm, bank) = rom.LmMap16Slot(tile >> 12);
+            if (bank == 0) return -1;
+            return (bank << 16) | ((imm + tile * 8) & 0xFFFF);
         }
 
         /// <summary>Kept for callers that just need a presence check: >= 0 when extended defs exist.</summary>
@@ -51,68 +94,131 @@ public static class LunarMagic
         /// acts as. Base 0 = the LM code slot exists but no table was allocated (all-vanilla behavior).</summary>
         public int ActsAs(int tile) => rom.LmActsAsBase <= 0 ? tile : rom.ReadValue(rom.LmActsAsBase + tile * 2, 2);
 
+        /// <summary>First tile a range's defs cover (range 0 starts past the vanilla defs).</summary>
+        private static int RangeStart(int range) => range == 0 ? 0x200 : range << 12;
+
         /// <summary>
-        /// Total Map16 tile count: 0x200 vanilla; with LM extended defs, bounded by the RATS
-        /// block holding the def region — LM only allocates defs for the pages the hack uses,
-        /// and the next allocation's "STAR" tag sits right past the last real def (reading to
-        /// the bank end shows neighboring blocks as garbage tiles). Capped at 0x1000, the
-        /// range the in-game lookup hijack covers.
+        /// Exclusive tile ceiling for one range, bounded by the RATS block holding its def
+        /// block — LM only allocates defs for the pages the hack uses, and the next
+        /// allocation's "STAR" tag sits right past the last real def (reading to the bank end
+        /// shows neighboring blocks as garbage tiles). Returns the range start when the range
+        /// has no defs at all.
+        /// </summary>
+        private int RangeCeiling(int range)
+        {
+            int startTile = RangeStart(range);
+            int addr = rom.LmMap16DefAddr(startTile);
+            if (addr < 0) return startTile;
+            int cap = (range + 1) << 12;
+            int start = rom.FileOffset(addr) - rom.HeaderOffset;                   // first def (pc)
+            foreach (var rat in RatsWriter.EnumerateRats(rom))
+                if (start >= rat.PcOffset + 8 && start < rat.PcOffset + 8 + rat.Size)
+                    return Math.Min(cap, startTile + (rat.PcOffset + 8 + rat.Size - start) / 8);
+            return Math.Min(cap, startTile + (0x10000 - (addr & 0xFFFF)) / 8);     // no RATS: clip at bank end
+        }
+
+        /// <summary>
+        /// Total Map16 tile count: 0x200 vanilla, plus every CONTIGUOUS extended range the
+        /// ladder addresses. Contiguity matters because the editor treats the count as a flat
+        /// ceiling: a hack with defs in range 2 but not range 1 has a hole the editor cannot
+        /// paint through, so the count stops at the hole rather than aliasing across it.
         /// </summary>
         public int Map16TileCount
         {
             get
             {
                 if (rom.map16TileCount >= 0) return rom.map16TileCount;
-                var (imm, bank) = rom.LmMap16Defs;
-                if (bank == 0) return rom.map16TileCount = 0x200;
-                int start = rom.FileOffset((bank << 16) | (imm + 0x200 * 8)) - rom.HeaderOffset;  // first extended def (pc)
-                foreach (var rat in RatsWriter.EnumerateRats(rom))
-                    if (start >= rat.PcOffset + 8 && start < rat.PcOffset + 8 + rat.Size)
-                        return rom.map16TileCount = Math.Min(0x1000, 0x200 + (rat.PcOffset + 8 + rat.Size - start) / 8);
-                return rom.map16TileCount = Math.Min(0x1000, (0x10000 - imm) / 8);   // no RATS found: clip at bank end
+                int count = 0x200;
+                for (int r = 0; r < Map16RangeCount; r++)
+                {
+                    if (RangeStart(r) > count) break;            // hole: stop before it
+                    int end = rom.RangeCeiling(r);
+                    if (end <= count) break;
+                    count = end;
+                    if (end < (r + 1) << 12) break;              // range only partly allocated
+                }
+                return rom.map16TileCount = count;
             }
+        }
+
+        /// <summary>Whether the in-game lookup ladder has a slot for this range at all — i.e.
+        /// whether repatching it would actually be honoured in-game. True with bank 0 for a
+        /// range whose slot exists but holds no defs yet, which is the state EnsureMap16Tiles
+        /// grows out of; false for a base whose ladder stops short (our own prep v2 only ever
+        /// emitted range 0, and routed everything above it to the blank fallback).</summary>
+        public bool HasMap16Range(int range)
+        {
+            if (rom.ReadByte(0x00C17A) != 0x22 || rom.ReadValue(0x00C17B, 3) != 0x06F5D0) return false;
+            int at = SlotAddr(range);
+            return at >= 0 && rom.ReadByte(at) == 0x69 && rom.ReadByte(at + 3) == 0xA0;
         }
 
         /// <summary>
         /// Grow the LM extended Map16 def region to cover at least <paramref name="minCount"/>
-        /// tiles (page-granular, tiles 0x200-0xFFF) — the LM-free allocation path. Reproduces
-        /// LM's own layout, learned from a before/after diff of an LM page allocation:
-        /// a RATS block at a fresh bank (tag at the bank start, defs at +8, so imm = $7008),
-        /// existing defs copied over, new tiles filled with LM's default-empty def (word
-        /// 0x1004 x4), and the in-game lookup slot ($06F553 imm / $06F556 bank) repatched.
-        /// The old block is left in place (stale), exactly as LM leaves stale blocks.
-        /// ponytail: tiles 0x1000+ (the other lookup slots) + BG chunks when needed.
+        /// tiles (page-granular) — the LM-free allocation path. Reproduces LM's own layout,
+        /// learned from a before/after diff of an LM page allocation: a RATS block at a fresh
+        /// bank (tag at the bank start, defs at +8), existing defs copied over, new tiles
+        /// filled with LM's default-empty def (word 0x1004 x4), and the in-game lookup slot
+        /// for that range repatched. The old block is left in place (stale), exactly as LM
+        /// leaves stale blocks.
+        ///
+        /// One bank per range, because that IS the shape of the hijack: def =
+        /// bank:(imm + tile*8) is 16-bit addressing into a 32KB LoROM window, so 0x8000/8 =
+        /// 0x1000 defs is the hard per-slot ceiling. Growing past 0xFFF therefore means
+        /// allocating range 1's bank and patching range 1's slot, not extending range 0's.
         /// </summary>
         public string? EnsureMap16Tiles(int minCount)
         {
-            var (imm, bank) = rom.LmMap16Defs;
-            if (bank == 0) return "ROM lacks LM's Map16 hijack — save it in Lunar Magic once first.";
-            if (minCount > 0x1000) return "Map16 tiles past 0xFFF aren't supported yet.";
-            int oldCount = rom.Map16TileCount;
+            if (!rom.HasMap16Range(0)) return "ROM lacks LM's Map16 hijack — save it in Lunar Magic once first.";
             int newCount = (Math.Max(minCount, 0x201) + 0xFF) & ~0xFF;      // whole pages
-            if (newCount <= oldCount) return null;
+            int top = (newCount - 1) >> 12;
+            if (top >= Map16RangeCount) return $"Map16 tiles past 0x{(Map16RangeCount << 12) - 1:X} aren't supported.";
+            for (int r = 0; r <= top; r++)
+                if (!rom.HasMap16Range(r))
+                    return $"this base's Map16 lookup only reaches tile 0x{RangeStart(r) - 1:X} — "
+                         + "upgrade the base to prep v3 (File → Upgrade base).";
 
-            int tagPc = rom.ActualRomSize;                       // fresh bank at the ROM end
-            rom.ExpandTo(rom.ActualRomSize + 0x8000);
-            int dataBytes = (newCount - 0x200) * 8;
+            if (newCount <= rom.Map16TileCount) return null;
+            for (int r = 0; r <= top; r++)
+                rom.GrowRange(r, Math.Min(newCount, (r + 1) << 12));
+            rom.map16TileCount = -1;
+            return null;
+        }
+
+        /// <summary>Reallocate one range's def block so it covers tiles up to <paramref name="want"/>
+        /// (exclusive), copying whatever the range already had.</summary>
+        private void GrowRange(int range, int want)
+        {
+            int startTile = RangeStart(range);
+            int have = rom.RangeCeiling(range);
+            if (have >= want) return;
+
+            // A bank's LoROM window is $8000-$FFFF, so a block whose tag sits at the bank
+            // start has 0x7FF8 bytes for defs — 8 short of a FULL 0x1000-tile range. Rather
+            // than leave every high range one tile shy of its last page, a full range takes
+            // two fresh banks and parks its tag in the first one's tail, so the defs fill
+            // $8000-$FFFF exactly. The slack costs 32KB per full high range and nothing else.
+            int dataBytes = (want - startTile) * 8;
+            bool wholeBank = dataBytes > 0x7FF8;
+            int tagPc = rom.ActualRomSize + (wholeBank ? 0x7FF8 : 0);
+            rom.ExpandTo(rom.ActualRomSize + (wholeBank ? 0x10000 : 0x8000));
             int tagFo = tagPc + rom.HeaderOffset;
             rom.Data[tagFo] = 0x53; rom.Data[tagFo + 1] = 0x54; rom.Data[tagFo + 2] = 0x41; rom.Data[tagFo + 3] = 0x52;  // "STAR"
             rom.Data[tagFo + 4] = (byte)(dataBytes - 1); rom.Data[tagFo + 5] = (byte)((dataBytes - 1) >> 8);
             rom.Data[tagFo + 6] = (byte)~(dataBytes - 1); rom.Data[tagFo + 7] = (byte)(~(dataBytes - 1) >> 8);
 
             int dataFo = tagFo + 8;
-            int oldFo = rom.FileOffset((bank << 16) | (imm + 0x200 * 8));
-            Array.Copy(rom.Data, oldFo, rom.Data, dataFo, (oldCount - 0x200) * 8);
-            for (int i = (oldCount - 0x200) * 8; i < dataBytes; i += 2)     // LM default-empty def
+            int copied = (have - startTile) * 8;
+            if (copied > 0) Array.Copy(rom.Data, rom.FileOffset(rom.LmMap16DefAddr(startTile)), rom.Data, dataFo, copied);
+            for (int i = copied; i < dataBytes; i += 2)                      // LM default-empty def
             { rom.Data[dataFo + i] = 0x04; rom.Data[dataFo + i + 1] = 0x10; }
 
-            int dataSnes = Rom.PcToSnes(tagPc + 8);                         // bankaddr $8008
-            int newImm = (dataSnes & 0xFFFF) - 0x200 * 8;                   // = $7008
-            int slot = rom.FileOffset(0x06F553);
+            int dataSnes = Rom.PcToSnes(tagPc + 8);                          // bankaddr $8008 or $8000
+            int newImm = ((dataSnes & 0xFFFF) - startTile * 8) & 0xFFFF;     // range 0: $7008
+            int slot = rom.FileOffset(SlotAddr(range) + 1);
             rom.Data[slot] = (byte)newImm; rom.Data[slot + 1] = (byte)(newImm >> 8);
             rom.Data[slot + 3] = 0x00; rom.Data[slot + 4] = (byte)(dataSnes >> 16); // LDY #bank<<8
-            rom.map16TileCount = -1;
-            return null;
+            rom.map16TileCount = -1;                                         // the next range's growth re-reads the count
         }
 
         // --- LM expanded-table bases (CONTRACT §7d) -----------------------------

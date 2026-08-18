@@ -131,8 +131,17 @@ public sealed class Cpu65816(Rom rom)
     }
 
     /// <summary>Preset the X register (e.g. the sprite slot index) before a call.</summary>
-    public void PresetX(int v) => X = v & 0xFF;
-    public void PresetY(int v) => Y = v & 0xFF;
+    public void PresetX(int v) => X = v & 0xFFFF;
+    public void PresetY(int v) => Y = v & 0xFFFF;
+
+    /// <summary>Preset the register widths a call is entered with. Hijacks placed mid-routine
+    /// inherit the host code's REP/SEP state rather than a fresh one — the Map16 def lookup,
+    /// for one, is entered with 16-bit index registers already selected and Y = tile*2.</summary>
+    public void PresetWidths(bool m8, bool x8)
+    { M = m8; XF = x8; if (x8) { X &= 0xFF; Y &= 0xFF; } }
+
+    /// <summary>The accumulator after a call, 16-bit view — for hijacks that return a value.</summary>
+    public int Acc => A;
 
     /// <summary>Preset the data bank register. Bank-1 sprite code runs with DBR=1 in-game
     /// (PHK/PLB in the sprite loop); absolute table reads (SprTilemap etc.) depend on it.</summary>

@@ -59,8 +59,12 @@ internal sealed class ProjectWizard(EditorApp app)
         p.SyncBeforeSave = app.session.SyncProject;
         app.config.TouchRecentProject(p.FilePath);
         app.session.LoadRom(p.BaseRomPath);
-        app.saveStatus = p.Data.BaseRom.PrepVersion is >= 1 && p.Data.BaseRom.PrepVersion < RomPrep.Version
-            ? $"project '{p.Name}' opened — base uses prep v{p.Data.BaseRom.PrepVersion}: GFX overrides are editor-preview only (File → Upgrade base to prep v{RomPrep.Version})"
+        int pv = p.Data.BaseRom.PrepVersion;
+        // Name what the OLD base actually lacks, so the notice stays true as versions land.
+        string missing = pv < 2 ? "GFX overrides are editor-preview only"
+                                : "Map16 pages past 0x0F cannot be created";
+        app.saveStatus = pv is >= 1 && pv < RomPrep.Version
+            ? $"project '{p.Name}' opened — base uses prep v{pv}: {missing} (File → Upgrade base to prep v{RomPrep.Version})"
             : $"project '{p.Name}' opened";
     }
 

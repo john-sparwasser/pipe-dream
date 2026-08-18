@@ -49,29 +49,28 @@ public class Map16AllocTests : IDisposable
         Assert.Equal(sizeBefore, rom.ActualRomSize);           // no bank wasted
     }
 
-    /// <summary>The editor used to label EVERY empty page "click to allocate", across all three
-    /// banks and all 0x20 pages each — but only bank 0 below page 0x10 can grow, because
-    /// EnsureMap16Tiles patches the single lookup slot covering tiles 0x200-0xFFF. So roughly
-    /// 7 of every 8 pages advertised something that could not happen.</summary>
+    /// <summary>Both FG banks (tiles 0x200-0x3FFF) can be created — four lookup-ladder ranges,
+    /// which is also exactly what LM's Direct-Map16 objects can address (6-bit page byte).
+    /// Bank 2 is the fixed BG table and can never grow.</summary>
     [Fact]
-    public void only_bank_0_below_page_10_can_be_created()
+    public void both_fg_banks_can_be_created_but_the_bg_table_cannot()
     {
         Assert.True(Map16Editor.CanAllocate(0x200));      // first extended tile
-        Assert.True(Map16Editor.CanAllocate(0xFFF));      // last supported
+        Assert.True(Map16Editor.CanAllocate(0xFFF));      // last of range 0
+        Assert.True(Map16Editor.CanAllocate(0x1000));     // range 1 — the page 0x10 wall is gone
+        Assert.True(Map16Editor.CanAllocate(0x2000));     // bank 1 / range 2
+        Assert.True(Map16Editor.CanAllocate(0x3FFF));     // last level-placeable tile
         Assert.False(Map16Editor.CanAllocate(0x1FF));     // vanilla defs already exist
-        Assert.False(Map16Editor.CanAllocate(0x1000));    // past the lookup slot
-        Assert.False(Map16Editor.CanAllocate(0x2000));    // bank 1
         Assert.False(Map16Editor.CanAllocate(0x4000));    // bank 2 = the fixed BG table
     }
 
     [Fact]
     public void empty_pages_describe_themselves_without_promising_allocation()
     {
-        // Bank 0 under page 0x10: the only place editing creates anything.
+        // Both FG banks: editing creates the page.
         Assert.Contains("paint", Map16Editor.UnusedPageNote(0, 0x05));
-        // Bank 0 at or past page 0x10, and bank 1: unreachable, and must not say "paint".
-        Assert.DoesNotContain("paint", Map16Editor.UnusedPageNote(0, 0x10));
-        Assert.DoesNotContain("paint", Map16Editor.UnusedPageNote(1, 0x20));
+        Assert.Contains("paint", Map16Editor.UnusedPageNote(0, 0x10));
+        Assert.Contains("paint", Map16Editor.UnusedPageNote(1, 0x20));
         // Bank 2 is the BG table — fixed size, so it is a different explanation entirely.
         Assert.Contains("BG", Map16Editor.UnusedPageNote(2, 0x42));
         Assert.DoesNotContain("paint", Map16Editor.UnusedPageNote(2, 0x42));
@@ -90,7 +89,88 @@ public class Map16AllocTests : IDisposable
     {
         var p = Project.Create(Path.Combine(dir, "proj"), TestRom.RealRomPath);
         var rom = Rom.Load(p.BaseRomPath);
-        Assert.Contains("0xFFF", rom.EnsureMap16Tiles(0x1001) ?? "");
-        Assert.Null(rom.EnsureMap16Tiles(0x1000));             // the ceiling itself is fine
+        Assert.Contains("0x7FFF", rom.EnsureMap16Tiles(0x8001) ?? "");
+        Assert.Null(rom.EnsureMap16Tiles(0x1000));             // range 0's ceiling is unremarkable now
+    }
+
+    /// <summary>The point of prep v3: a page past 0xF needs its OWN lookup slot and its own
+    /// bank, because def = bank:(imm + tile*8) is 16-bit addressing into a 32KB window — one
+    /// slot can never cover more than 0x1000 tiles. Growing across the boundary must therefore
+    /// leave BOTH ranges readable and independently writable.</summary>
+    [RealRomFact]
+    public void pages_past_0x0F_allocate_into_their_own_range()
+    {
+        var p = Project.Create(Path.Combine(dir, "proj"), TestRom.RealRomPath);
+        var rom = Rom.Load(p.BaseRomPath);
+        Assert.True(Map16.DefFileOffset(rom, 0, 0x1000) < 0);       // page 0x10 absent to begin with
+
+        Assert.Null(rom.EnsureMap16Tiles(0x1100));
+        // 0x1100 rather than 0x1000 proves range 0 was filled to ITS ceiling on the way past:
+        // the count stops at the first hole, so a gap anywhere below would cap it lower.
+        Assert.Equal(0x1100, rom.Map16TileCount);
+
+        // Different ranges land in different banks, and neither aliases the other.
+        int lo = Map16.DefFileOffset(rom, 0, 0xFFF), hi = Map16.DefFileOffset(rom, 0, 0x1000);
+        Assert.True(lo > 0 && hi > 0);
+        Assert.NotEqual(rom.LmMap16Slot(0).Bank, rom.LmMap16Slot(1).Bank);
+        rom.Data[lo] = 0xAA; rom.Data[hi] = 0x55;
+        Assert.Equal(0xAA, rom.Data[lo]);
+        Assert.Equal(0x55, rom.Data[hi]);
+        Assert.Equal(0x55, rom.Data[Map16.DefFileOffset(rom, 0, 0x1000)]);
+
+        // Tile 0x1100 is still past the end — growth is page-granular, not bank-granular.
+        Assert.True(Map16.DefFileOffset(rom, 0, 0x1100) < 0);
+    }
+
+    /// <summary>Prep v3 emits ranges 0-3 and stops; that is what makes the write path refuse
+    /// a range the base's in-game lookup would never reach, instead of writing defs that
+    /// render blank on hardware.</summary>
+    [RealRomFact]
+    public void the_base_declares_which_ranges_its_lookup_reaches()
+    {
+        var p = Project.Create(Path.Combine(dir, "proj"), TestRom.RealRomPath);
+        var rom = Rom.Load(p.BaseRomPath);
+        for (int r = 0; r < 4; r++) Assert.True(rom.HasMap16Range(r), $"range {r} missing");
+        Assert.False(rom.HasMap16Range(4));
+        Assert.False(rom.HasMap16Range(7));
+        Assert.Contains("0x3FFF", rom.EnsureMap16Tiles(0x4001) ?? "");
+    }
+
+    /// <summary>A project stores extended defs keyed by TILE NUMBER, because the region moves
+    /// on every allocation — so replaying one into a fresh base has to allocate first and
+    /// resolve offsets after. Four-hex-digit keys (tile 0x1000+) must survive that round trip
+    /// exactly like three-digit ones.</summary>
+    [RealRomFact]
+    public void a_high_page_edit_replays_into_a_freshly_prepped_build()
+    {
+        var p = Project.Create(Path.Combine(dir, "proj"), TestRom.RealRomPath);
+        p.Data.Map16.TileCount = 0x1100;
+        p.Data.Map16.Ext[0x1005.ToString("X3")] = "AABBCCDDEEFF0011";
+        p.Data.Map16.Ext[0x0205.ToString("X3")] = "1122334455667788";
+
+        var rom = Rom.Load(p.BaseRomPath);
+        Assert.Null(RomBuilder.ReplayMap16(rom, p.Data));
+        Assert.True(rom.Map16TileCount >= 0x1100);
+
+        Assert.Equal("AABBCCDDEEFF0011",
+                     Convert.ToHexString(rom.Data.AsSpan(Map16.DefFileOffset(rom, 0, 0x1005), 8)));
+        Assert.Equal("1122334455667788",
+                     Convert.ToHexString(rom.Data.AsSpan(Map16.DefFileOffset(rom, 0, 0x0205), 8)));
+    }
+
+    /// <summary>A prep-v2 base only has range 0, so asking for a high page must produce the
+    /// upgrade hint rather than a silent no-op or a corrupt patch of a slot that isn't there.</summary>
+    [RealRomFact]
+    public void a_prep_v2_base_is_told_to_upgrade_rather_than_half_allocating()
+    {
+        var tmp = Path.Combine(dir, "v2.smc");
+        File.Copy(TestRom.RealRomPath, tmp);
+        Assert.Null(RomPrep.PrepInPlace(tmp, 2));
+        var rom = Rom.Load(tmp);
+        Assert.True(rom.HasMap16Range(0));
+        Assert.False(rom.HasMap16Range(1));
+        Assert.Null(rom.EnsureMap16Tiles(0x1000));              // range 0 still grows normally
+        Assert.Contains("upgrade", rom.EnsureMap16Tiles(0x1100) ?? "");
+        Assert.Equal(0x1000, rom.Map16TileCount);               // and nothing was half-written
     }
 }

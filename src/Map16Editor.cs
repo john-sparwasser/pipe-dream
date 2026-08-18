@@ -54,19 +54,20 @@ internal sealed class Map16Editor(EditorApp app)
         if (m16Stroke.Count > 0 && !ImGui.IsMouseDown(ImGuiMouseButton.Right)) CommitM16Stroke();
     }
 
-    /// <summary>Whether a tile's page can be brought into existence. EnsureMap16Tiles patches
-    /// the ONE lookup slot covering tiles 0x200-0xFFF, so only bank 0 below page 0x10 grows:
-    /// bank 1 is past that slot and bank 2 is the BG table, a fixed 0x200 defs at $0D9100 that
-    /// cannot grow at all.</summary>
-    internal static bool CanAllocate(int tile) => tile is >= 0x200 and < 0x1000;
+    /// <summary>Whether a tile's page can be brought into existence. Banks 0-1 (tiles
+    /// 0x200-0x3FFF) are the four lookup-ladder ranges EnsureMap16Tiles can allocate and
+    /// prep v3 dispatches to; bank 2 is the BG table, a fixed 0x200 defs at $0D9100 that
+    /// cannot grow at all. Whether a specific BASE honours a range is EnsureMap16Tiles'
+    /// answer, not this one — a prep-v2 base reports the upgrade hint instead.</summary>
+    internal static bool CanAllocate(int tile) => tile is >= 0x200 and < 0x4000;
 
     /// <summary>What to say over an empty page, so the editor never advertises an allocation
     /// that cannot happen — the old label promised "click to allocate" on every unused page in
-    /// every bank, including the ~7/8 of them that could not.</summary>
+    /// every bank, including the ones that could not.</summary>
     internal static string UnusedPageNote(int bank, int page) =>
         bank == 2 ? "BG definitions are a fixed table"
-        : bank == 0 && page < 0x10 ? "unused — paint here to create it"
-        : "past the supported 0xFFF tiles";
+        : bank < 2 ? "unused — paint here to create it"
+        : "past the supported 0x3FFF tiles";
 
     // Deferred Map16 page allocation, requested by PAINTING on an empty page — runs before
     // any drawing so texture rebuilds never race the frame's draw data, then replays the
@@ -222,7 +223,7 @@ internal sealed class Map16Editor(EditorApp app)
                     m16Lasso = null;
                     m16Sel = rw == 1 && rh == 1 ? null : (rx, ry, rw, rh);
                     app.selectedMap16 = map16Bank * BankTiles + ry * Cols + rx;
-                    if (rw == 1 && rh == 1 && app.selectedMap16 < 0x1000)   // plain click: arm level brush
+                    if (rw == 1 && rh == 1 && app.selectedMap16 < 0x4000)   // plain click: arm level brush
                     { app.brushTiles = new[] { (ushort)app.selectedMap16 }; app.brushW = app.brushH = 1; app.selectedObjCat = -1; }
                 }
             }
@@ -341,7 +342,7 @@ internal sealed class Map16Editor(EditorApp app)
     private void CaptureDefSlot(int tile)
     {
         if (app.project is null || app.rom is null || app.level is null) return;
-        if (tile is >= 0x200 and < 0x1000)
+        if (tile is >= 0x200 and < 0x4000)
             app.project.Data.Map16.Ext.TryAdd(tile.ToString("X3"), "");
         else
         {

@@ -14,8 +14,9 @@ namespace PipeDream;
 ///
 /// Layout (all code in verified-0xFF vanilla freespace, tables in the expansion):
 ///   $00C17A  JSL $06F5D0 + NOP        Map16 def-lookup hijack (detector: LmMap16Defs)
-///   $06F54F+ def math ($06F552 ADC #$7008 / $06F555 LDY #$1200 — EnsureMap16Tiles slots)
-///   $06F5D0  lookup entry (tile<0x200 vanilla $0FBE path; 0x200-0xFFF extended; else blank)
+///   $06F538+ range dispatch (v3) + def math; slots at LM's $06F552/$06F55B/$06F566/$06F56F
+///            (ADC #imm / LDY #bank<<8 pairs — the EnsureMap16Tiles repatch targets)
+///   $06F5D0  lookup entry (tile<0x200 vanilla $0FBE path; 0x200-0x3FFF extended; else blank)
 ///   $06F5F0  acts-like remap ($118000 table) — 4 vanilla JSL $00F545 sites repointed here
 ///   5 dispatch tables  objs 0x22/0x23/0x26/0x27/0x28/0x29 → $0DF08A/8E/130/150/160/FF50
 ///   ext table          0x02 → $0DE1B0 (secondary exit), 0x03 → $0DE1E0 (screen jump)
@@ -31,10 +32,11 @@ namespace PipeDream;
 public static class RomPrep
 {
     /// <summary>Current prep version. V1 = editing unlocks (DM16/Map16/acts/palette/sprite
-    /// banks); V2 adds the in-game GFX stage (Super-GFX-Bypass loader + ExGFX resolver).
+    /// banks); V2 adds the in-game GFX stage (Super-GFX-Bypass loader + ExGFX resolver);
+    /// V3 widens the Map16 def lookup from one range to four (tiles 0x200-0x3FFF).
     /// Version-keyed stamp lists keep every released version BYTE-FROZEN: a v1 project's
     /// pinned image must reproduce forever (golden-hash tested).</summary>
-    public const int Version = 2;
+    public const int Version = 3;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -70,7 +72,8 @@ public static class RomPrep
     public static bool IsPrepped(Rom rom, int version = Version)
         => rom.HasDm16Hijack && rom.LmMap16Defs.Bank != 0
            && rom.HasLmPaletteHook && rom.LmSpriteBankTable >= 0
-           && (version < 2 || rom.HasLmGfxLoader);
+           && (version < 2 || rom.HasLmGfxLoader)
+           && (version < 3 || rom.HasMap16Range(1));   // the widened lookup ladder
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying
@@ -115,6 +118,9 @@ public static class RomPrep
     {
         var s = BuildV1Stamps();
         if (version >= 2) AppendV2Stamps(s);
+        // V3 restamps the whole Map16-lookup block over V1's — later stamps win, so the
+        // single-range lookup is replaced wholesale rather than V1's frozen list being edited.
+        if (version >= 3) s.Add((Pc(0x06F538), Map16Lookup(3)));
         return s;
     }
 
@@ -154,7 +160,7 @@ public static class RomPrep
             s.Add((Pc(d + 0x0A + (0x26 - 1) * 3), e26));
         }
 
-        s.Add((Pc(0x06F54F), Map16Lookup()));
+        s.Add((Pc(0x06F54F), Map16Lookup(1)));
         s.Add((Pc(0x0DE1B0), ExtHandlers()));
         s.Add((Pc(Handler22), Dm16Handlers()));
         s.Add((Pc(Handler29), Handler29Code()));
@@ -257,7 +263,23 @@ public static class RomPrep
     ///  - 0x200-0xFFF:     def = bank:(imm + tile*8); the ADC imm at fixed $06F552 and LDY
     ///                     #bank&lt;&lt;8 at $06F555 are the EnsureMap16Tiles repatch slots
     ///                     (STY $05 puts the bank in $06; $05 is rewritten by the caller).
-    ///  - ≥ 0x1000:        blank fallback $00:8000 (same family LM uses, §7a-rev).
+    ///  - ≥ 0x1000:        v1/v2: blank fallback $00:8000 (same family LM uses, §7a-rev).
+    ///                     v3: three more slots at LM's own addresses — see below.
+    ///
+    /// V3 adds ranges 1-3 (tiles 0x1000-0x3FFF). A slot cannot cover more than 0x1000 tiles
+    /// because `imm + tile*8` is 16-bit addressing into a 32KB LoROM window, so growing past
+    /// 0xFFF means MORE slots, which is exactly why LM has a ladder. The slots go at LM's
+    /// addresses ($06F55B/$06F566/$06F56F) so one reader and one EnsureMap16Tiles serve both
+    /// LM-saved ROMs and ours; the dispatcher in front of them is our own.
+    ///
+    /// The dispatcher ($06F538-$06F551, filling the freespace right up to slot 0) reads the
+    /// range out of the shifts it has to do anyway. Entering with A = tile*2:
+    ///   ASL → C = tile bit14 (range ≥ 4, unsupported: our editor stops at 0x3FFF because
+    ///         LM's Direct-Map16 page byte is 6 bits); A = tile*4
+    ///   ASL → C = tile bit13 (range bit 1), N = tile bit12 (range bit 0); A = tile*8
+    /// So two branches pick one of four slots with A already shifted, and the not-taken BCS
+    /// leaves C clear for the ADC (the C=1 path CLCs). Slots 4-7 ($06F593+) are never
+    /// emitted, which is what makes HasMap16Range(4) false on our bases and true on LM's.
     ///
     /// Acts remap $06F5F0 — JSL'd from the 4 vanilla `JSL $00F545` sites. Entry: M/X 8-bit,
     /// A = tile page (high plane byte), $1693 = tile low byte, X precious. Reads the acts
@@ -266,17 +288,43 @@ public static class RomPrep
     /// identical to vanilla for tiles &lt; 0x200 (identity table). The TAY/ASL/TAX/BMI/LDA
     /// long,X + CMP #$0200 sequence is the LmActsAsBase scanner contract.
     /// </summary>
-    private static byte[] Map16Lookup()
+    private static byte[] Map16Lookup(int version)
     {
-        var a = new Asm(0x06F54F);
-        a.Label("extdef")                    // A = tile*2 (16-bit)
-         .Asl().Asl()                        // tile*8
-         .Clc()
-         .AssertAt(0x06F552).AdcImm16(0x7008)   // [SCAN slot] imm — def addr low16
-         .AssertAt(0x06F555).LdyImm16(0x1200)   // [SCAN slot] bank<<8
+        var a = new Asm(version >= 3 ? 0x06F538 : 0x06F54F);
+        if (version >= 3)
+            a.Label("disp")                  // A = tile*2 (16-bit), tile >= 0x200
+             .Asl()                          // A = tile*4, C = tile >= 0x4000
+             .Bcs("toblank")
+             .Asl()                          // A = tile*8, C = range bit1, N = range bit0
+             .Bcs("hi")                      // ranges 2-3
+             .Bmi("to1")
+             .Bra("slot0")                   // range 0 (C clear: the BCS above fell through)
+             .Label("hi").Clc()               // ranges 2-3 arrive with C set
+             .Bmi("to3")
+             .Jmp("slot2")
+             .Label("to3").Jmp("slot3")
+             .Label("to1").Jmp("slot1")
+             .Label("toblank").Jmp("blank")
+             .PadTo(0x06F552);               // the dispatcher ends flush against slot 0
+        else
+            a.Label("extdef")                // A = tile*2 (16-bit)
+             .Asl().Asl()                    // tile*8
+             .Clc();
+
+        a.Label("slot0")
+         .AssertAt(0x06F552).AdcImm16(0x7008)   // [SCAN slot 0] imm — def addr low16
+         .AssertAt(0x06F555).LdyImm16(0x1200)   // [SCAN slot 0] bank<<8
          .StyDp(0x05)                        // $06 = bank ($05 is overwritten by the caller)
-         .Rtl()
-         .Label("blank")                     // tile >= 0x1000: defined blank region
+         .Rtl();
+
+        if (version >= 3)
+            // Ranges 1-3, bank 0 = "no defs here yet" — EnsureMap16Tiles fills them in.
+            // Each block is 9 bytes, which is exactly LM's slot spacing.
+            a.AssertAt(0x06F55B).Label("slot1").AdcImm16(0x0008).LdyImm16(0x0000).StyDp(0x05).Rtl()
+             .PadTo(0x06F566).Label("slot2").AdcImm16(0x0008).LdyImm16(0x0000).StyDp(0x05).Rtl()
+             .AssertAt(0x06F56F).Label("slot3").AdcImm16(0x0008).LdyImm16(0x0000).StyDp(0x05).Rtl();
+
+        a.Label("blank")                     // out of range: defined blank region
          .LdaImm16(0x8000)
          .LdyImm16(0x0000)
          .StyDp(0x05)
@@ -289,12 +337,15 @@ public static class RomPrep
          .Bcs("ext")
          .LdaAbsY(0x0FBE)                    // vanilla def-pointer table read
          .Rtl()
-         .Label("ext")
-         .CmpImm16(0x2000)
-         .Bcs("toblank")
-         .Jmp("extdef")
-         .Label("toblank")
-         .Jmp("blank");
+         .Label("ext");
+        if (version >= 3)
+            a.Jmp("disp");
+        else
+            a.CmpImm16(0x2000)
+             .Bcs("toblank")
+             .Jmp("extdef")
+             .Label("toblank")
+             .Jmp("blank");
 
         // NOTE the hidden accumulator byte: vanilla $00F545 is pure 8-bit code, so the
         // caller's B (high accumulator byte) survives it. SMW's loaders run 8-bit LDA +

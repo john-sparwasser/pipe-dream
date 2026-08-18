@@ -293,17 +293,44 @@ consumer (LM's Map16-lookup hijack, identical code in every LM ROM):
 - `$06F5D0` → piecewise def-pointer math at **fixed $06F540**. Entry A = tile*2:
   - tile < 0x200 → vanilla RAM table $0FBE path (our BuildDefPointers equivalent);
     def bank = $0D, or a per-ROM bank for LM custom tilesets ($1930 >= 0x1000).
-  - tile 0x200-0xFFF → **def = bank:(imm + tile*8)** where `imm` = 16-bit ADC operand at
-    fixed **$06F553** and `bank` = high byte of LDY operand at **$06F556**
-    (`69 imm16 A0 bank<<8` at $06F552). bank == 0 → no extended defs installed.
-    Observed: map16_after $10:7008 (≡ the old $108008+(t-0x200)*8), DoW $14:7000,
-    ShaoBase/BigEye $15:8274/$15:CB42, juz $10:DE94, after/gfx_after $00:F000 (= none).
-  - tile >= 0x1000 → fallback blank regions (ADC #$8000/#$FFFF/#$7FFF, bank 0) +
-    a tileset-specific path at $06F578 gated by a per-ROM CMP constant (0 = disabled in
-    all sampled ROMs). Not implemented; cap tileCount at min(0x1000, (0x10000-imm)/8).
+  - tile 0x200+ → **def = bank:((imm + tile*8) & 0xFFFF)** where `imm` is the 16-bit ADC
+    operand and `bank` the high byte of the LDY operand of the SLOT covering that tile's
+    range (`69 imm16 A0 bank<<8`). bank == 0 → that range has no defs installed.
+
+**The ladder — one slot per 0x1000 tiles.** `imm + tile*8` is 16-bit addressing into a 32KB
+LoROM window, so a slot can address at most `$8000/8` = 0x1000 defs. That is the whole reason
+LM has a ladder rather than one slot, and it is a hard hardware limit, not an LM policy:
+
+| range | tiles | slot | | range | tiles | slot |
+|---|---|---|---|---|---|---|
+| 0 | 0x200-0x0FFF | `$06F552` | | 4 | 0x4000-0x4FFF | `$06F593` |
+| 1 | 0x1000-0x1FFF | `$06F55B` | | 5 | 0x5000-0x5FFF | `$06F59C` |
+| 2 | 0x2000-0x2FFF | `$06F566` | | 6 | 0x6000-0x6FFF | `$06F5A7` |
+| 3 | 0x3000-0x3FFF | `$06F56F` | | 7 | 0x7000-0x7FFF | `$06F5B0` |
+
+Ranges 4-7 are a second chain further along. A slot's opcode bytes (`69`/`A0`) are present
+even when unused, with junk imms (`$FFFF`, `$7FFF`, `$8000`) and bank 0 — so **only the bank
+distinguishes populated from empty**, never the imm.
+
+Observed slot 0: map16_after $10:7008 (≡ the old $108008+(t-0x200)*8), DoW-backup $14:7000,
+ShaoBase/BigEye $15:8274/$15:CB42, juz $10:DE94, after/gfx_after $00:F000 (= none).
+Populated high ranges: **dogs_of_war.smc** r0 $1D:AEAE + **r1 $1D:4E5E**;
+dogs_of_war-backup3 r1 $1B:2C3A; **sgdq2024.smc r4 $89:C770 + r5 $89:5778** (the only
+sampled use of the second chain). Everything else leaves ranges 1+ at bank 0.
+
+**Holes are legal.** DogsOfWar's range 0 stops well short of 0xFFF while range 1 is
+populated. `Map16TileCount` is a flat ceiling for the editor, so it stops AT the hole rather
+than aliasing across it; the high pages appear once ordinary allocation fills the gap.
+
 - Unedited tiles in the region read FF → def FFFF×4 (renders as t3FF pal7 flips); levels
   don't reference them. LM's .s16 export stores such tiles as zeros.
-- Reader: `Rom.LmMap16Defs` (imm, bank), `Rom.Map16TileCount`, `Map16.LmExtendedDef`.
+- Reader: `Rom.LmMap16Slot(range)`, `Rom.LmMap16DefAddr(tile)`, `Rom.HasMap16Range(range)`,
+  `Rom.Map16TileCount`, `Map16.LmExtendedDef`. `Rom.LmMap16Defs` is range 0 only.
+- Writer: `Rom.EnsureMap16Tiles(minCount)` allocates one fresh bank per range and repatches
+  that range's slot. A FULL range needs all 0x8000 window bytes, which leaves no room for a
+  RATS tag at the bank start — so a full range takes two banks and parks its tag in the
+  first one's tail. Our own prep emits ranges 0-3 (the editor's ceiling is 0x3FFF, which is
+  also all LM's Direct-Map16 objects can address: the page byte is masked `& 0x3F`).
 
 ### 7a. LM extended Map16 table  [SUPERSEDED by 7a-rev — kept for the diff history]
 

@@ -26,6 +26,10 @@ public class RomPrepTests
     /// the in-game GFX stage, 2026-08-17). Any stamp drift fails here.</summary>
     private const string GoldenPrepV2Sha256 = "f8b57e912c501197a8ac4e4ff2df569acf06c87ee5aec66be3336991e5a61af9";
 
+    /// <summary>Golden SHA-256 (headerless) of the V3-prepped vanilla US ROM (V2 stamps + the
+    /// four-range Map16 lookup ladder, 2026-08-18).</summary>
+    private const string GoldenPrepV3Sha256 = "aa39003b7d17d49bd083fa118e76ba11d5191dcf63769d811b2b44ff29afed11";
+
     private static Rom Prepped()
     {
         var rom = TestRom.Create();
@@ -53,11 +57,12 @@ public class RomPrepTests
         RomPrep.Apply(a);                        // IsPrepped → no-op
         Assert.Equal(once, a.Data);
 
-        // v1 is deterministic too, and upgrading a v1 image to v2 equals a direct v2 prep
+        // Every released version is deterministic, and upgrading through them lands on
+        // exactly the image a direct prep at the current version produces.
         var v1a = TestRom.Create(); RomPrep.Apply(v1a, 1);
         var v1b = TestRom.Create(); RomPrep.Apply(v1b, 1);
         Assert.Equal(v1a.Data, v1b.Data);
-        RomPrep.Apply(v1a, 2);
+        for (int v = 2; v <= RomPrep.Version; v++) RomPrep.Apply(v1a, v);
         Assert.Equal(a.Data, v1a.Data);
     }
 
@@ -79,6 +84,10 @@ public class RomPrepTests
         Assert.True(rom.HasDm16Hijack);
         Assert.Equal((0x7008, 0x12), rom.LmMap16Defs);
         Assert.Equal(0x300, rom.Map16TileCount);
+        // Ranges 1-3 exist as slots but hold no defs, so they neither resolve nor extend
+        // the count — they are the empty sockets EnsureMap16Tiles fills.
+        Assert.Equal((0x0008, 0x00), rom.LmMap16Slot(1));
+        Assert.True(rom.HasMap16Range(3) && !rom.HasMap16Range(4));
         Assert.Equal(RomPrep.ActsTableSnes, rom.LmActsAsBase);
         Assert.True(rom.HasLmPaletteHook);
         Assert.Equal(RomPrep.SpriteBankTable, rom.LmSpriteBankTable);
@@ -194,9 +203,23 @@ public class RomPrepTests
         Assert.Contains("CMP #$0400", lookup);
         Assert.Contains("LDA $0FBE,Y", lookup);
 
-        string extdef = Disasm.Dis(rom, 0x06F54F, 6, m8: false, x8: false);
+        // The range dispatcher: two shifts, and the carry/sign they fall out of pick the slot.
+        string disp = Disasm.Dis(rom, 0x06F538, 11, m8: false, x8: false);
+        Assert.Contains("ASL", disp);
+        Assert.Contains("JMP $F55B", disp);          // range 1's slot, at LM's address
+        Assert.Contains("JMP $F566", disp);          // range 2
+        Assert.Contains("JMP $F56F", disp);          // range 3
+
+        string extdef = Disasm.Dis(rom, 0x06F552, 4, m8: false, x8: false);
         Assert.Contains("ADC #$7008", extdef);
         Assert.Contains("LDY #$1200", extdef);
+        // Ranges 1-3 are real code, so EnsureMap16Tiles' repatch lands on instructions.
+        foreach (int slot in new[] { 0x06F55B, 0x06F566, 0x06F56F })
+        {
+            string s = Disasm.Dis(rom, slot, 4, m8: false, x8: false);
+            Assert.Contains("ADC #$0008", s);
+            Assert.Contains("LDY #$0000", s);
+        }
 
         string remap = Disasm.Dis(rom, RomPrep.ActsRemapEntry, 22, m8: true, x8: true);
         Assert.Contains("LDA $118000,X", remap);
@@ -299,6 +322,56 @@ public class RomPrepTests
         Assert.Equal(0xAB, cpu.Ram7E[0x0701]);
     }
 
+    /// <summary>
+    /// Run the inserted Map16 def lookup and check it returns the address the C# reader
+    /// predicts, for a tile in EVERY range. The dispatcher derives the range from the carry
+    /// and sign the two shifts produce as a side effect, which is compact but entirely
+    /// hand-derived — the only honest check is executing it.
+    ///
+    /// Entry contract (from the vanilla consumer at $00C143-$00C17A): M 8-bit, X/Y 16-bit,
+    /// Y = tile*2, $06 pre-set to the def bank. Exit: 16-bit A = def low16, $06 = def bank.
+    /// </summary>
+    [Fact]
+    public void the_inserted_lookup_dispatches_every_range_to_its_own_slot()
+    {
+        var rom = Prepped();
+        Assert.Null(rom.EnsureMap16Tiles(0x3100));         // populate all four ranges
+        foreach (int r in new[] { 0, 1, 2, 3 })
+            Assert.NotEqual(0, rom.LmMap16Slot(r).Bank);
+
+        (int addr, int bank) Run(int tile)
+        {
+            var cpu = new Cpu65816(rom);
+            cpu.PresetWidths(m8: true, x8: false);
+            cpu.PresetY(tile * 2);
+            cpu.Ram7E[0x06] = 0x0D;                        // vanilla pre-set (def bank)
+            cpu.CallLong(RomPrep.Map16LookupEntry, 100_000);
+            return (cpu.Acc & 0xFFFF, cpu.Ram7E[0x06]);
+        }
+
+        // One tile per range, plus each range's first and last, all against the reader.
+        foreach (int tile in new[] { 0x200, 0x205, 0xFFF, 0x1000, 0x1234, 0x1FFF,
+                                     0x2000, 0x2ABC, 0x2FFF, 0x3000, 0x30FF })
+        {
+            int want = rom.LmMap16DefAddr(tile);
+            Assert.True(want > 0, $"reader has no def for tile {tile:X}");
+            Assert.Equal((want & 0xFFFF, want >> 16), Run(tile));
+        }
+
+        // Tiles below 0x200 still take the vanilla $0FBE RAM-table path, untouched.
+        var cpu0 = new Cpu65816(rom);
+        cpu0.PresetWidths(m8: true, x8: false);
+        cpu0.PresetY(0x105 * 2);
+        cpu0.Ram7E[0x0FBE + 0x105 * 2] = 0x34;
+        cpu0.Ram7E[0x0FBF + 0x105 * 2] = 0x12;
+        cpu0.CallLong(RomPrep.Map16LookupEntry, 100_000);
+        Assert.Equal(0x1234, cpu0.Acc & 0xFFFF);
+
+        // 0x4000+ is past the emitted ladder: the defined blank, never a wrapped slot read.
+        Assert.Equal((0x8000, 0x00), Run(0x4000));
+        Assert.Equal((0x8000, 0x00), Run(0x7FFF));
+    }
+
     // ---------------------------------------------------------------- real ROM
 
     [RealRomFact]
@@ -310,7 +383,7 @@ public class RomPrepTests
             int fo = rom.FileOffset(snes);
             for (int i = 0; i < len; i++) Assert.Equal(0xFF, rom.Data[fo + i]);
         }
-        AllFf(0x06F540, 0x110);                    // Map16 lookup + acts remap
+        AllFf(0x06F538, 0x118);                    // range dispatch + Map16 lookup + acts remap
         AllFf(RomPrep.ExtHandler02, 0x50);         // ext handlers
         AllFf(RomPrep.Handler22, 0x276);           // DM16 handlers ($0DF08A-$0DF2FF)
         AllFf(RomPrep.Handler29, 0xB0);            // BG form
@@ -356,8 +429,12 @@ public class RomPrepTests
             Assert.Equal(GoldenPrepV1Sha256, RomHash.HeaderlessSha256File(tmp));
 
             File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
-            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V2)
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 2));      // frozen V2 stamp list
             Assert.Equal(GoldenPrepV2Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V3)
+            Assert.Equal(GoldenPrepV3Sha256, RomHash.HeaderlessSha256File(tmp));
         }
         finally { File.Delete(tmp); }
     }
