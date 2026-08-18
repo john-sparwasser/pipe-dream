@@ -109,13 +109,27 @@ internal sealed class Project
         return "that ROM's hash does not match this project's pinned base.";
     }
 
-    /// <summary>Upgrade a prepped project's base to the current prep version: prep a fresh
-    /// copy of the user's verified vanilla ROM to a temp file, swap it in as base.smc, and
-    /// re-pin. Deliberate (menu action), never automatic. Returns a problem or null.</summary>
+    /// <summary>Whether "upgrade base" applies: a project already on an older prep, or one
+    /// whose base is an UNPREPPED verified vanilla. The latter exists because projects created
+    /// before prep landed pinned a raw vanilla image — with no LM structures at all, every
+    /// feature that needs them (Map16 pages, acts-like, custom palettes, DM16 objects, in-game
+    /// GFX) reports "save it in Lunar Magic once first" and there was no way out from the UI.
+    /// A PrepVersion-0 base that is NOT vanilla is a foreign/LM ROM: prepping would replace it
+    /// with vanilla and throw the hack away, so those are excluded.</summary>
+    internal bool CanUpgradeBasePrep =>
+        Data.BaseRom.PrepVersion is >= 1 && Data.BaseRom.PrepVersion < RomPrep.Version
+        || Data.BaseRom.PrepVersion == 0 && File.Exists(BaseRomPath)
+           && RomHash.HeaderlessSha256File(BaseRomPath) == RomHash.VanillaUsSha256;
+
+    /// <summary>Upgrade a project's base to the current prep version: prep a fresh copy of the
+    /// user's verified vanilla ROM to a temp file, swap it in as base.smc, and re-pin.
+    /// Deliberate (menu action), never automatic. Returns a problem or null.</summary>
     internal string? UpgradeBasePrep(string? vanillaRomPath)
     {
-        if (Data.BaseRom.PrepVersion is < 1 || Data.BaseRom.PrepVersion >= RomPrep.Version)
-            return "base is already at the current prep version.";
+        if (!CanUpgradeBasePrep)
+            return Data.BaseRom.PrepVersion == 0
+                ? "this project's base is not a verified vanilla ROM — prep would discard it."
+                : "base is already at the current prep version.";
         if (vanillaRomPath is null || !File.Exists(vanillaRomPath) ||
             RomHash.HeaderlessSha256File(vanillaRomPath) != RomHash.VanillaUsSha256)
             return "no verified vanilla SMW ROM configured — set one first (first-run prompt / config).";

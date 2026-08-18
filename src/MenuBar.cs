@@ -49,8 +49,7 @@ internal sealed class MenuBar(EditorApp app)
                 // Deliberate base migration: old prepped projects keep their frozen prep
                 // until the user opts in (new stamps change the pinned base hash).
                 if (ImGui.MenuItem($"Upgrade base to prep v{RomPrep.Version}",
-                        app.project is not null &&
-                        app.project.Data.BaseRom.PrepVersion is >= 1 && app.project.Data.BaseRom.PrepVersion < RomPrep.Version))
+                        app.project?.CanUpgradeBasePrep == true))
                 {
                     app.project!.Save();       // flush edits before the base swap
                     if (app.project.UpgradeBasePrep(app.config.VanillaRomPath) is { } prob)

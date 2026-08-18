@@ -126,6 +126,51 @@ public class ProjectPrepTests : IDisposable
 
         // idempotent guard: a current-version project refuses to "upgrade"
         Assert.NotNull(p.UpgradeBasePrep(TestRom.RealRomPath));
+        Assert.False(p.CanUpgradeBasePrep);
+    }
+
+    /// <summary>Projects created before prep existed pinned a RAW vanilla base (PrepVersion 0).
+    /// With no LM structures at all, every feature that needs them refuses — Map16 page
+    /// allocation says "save it in Lunar Magic once first" — and the upgrade action used to
+    /// require PrepVersion >= 1, so the menu item was disabled and there was no way out of
+    /// that state from the UI. A vanilla v0 base must be upgradeable.</summary>
+    [RealRomFact]
+    public void an_unprepped_vanilla_base_can_be_prepped_after_the_fact()
+    {
+        var p = Project.Create(Path.Combine(dir, "proj"), TestRom.RealRomPath);
+        File.Copy(TestRom.RealRomPath, p.BaseRomPath, overwrite: true);   // raw vanilla, as v0 pinned it
+        p.Data.BaseRom.Sha256 = RomHash.HeaderlessSha256File(p.BaseRomPath);
+        p.Data.BaseRom.Size = (int)new FileInfo(p.BaseRomPath).Length;
+        p.Data.BaseRom.PrepVersion = 0;
+        p.Save();
+
+        // The state the user was stuck in: nothing can be allocated at all.
+        Assert.Contains("Lunar Magic", Rom.Load(p.BaseRomPath).EnsureMap16Tiles(0x300));
+
+        Assert.True(p.CanUpgradeBasePrep);
+        Assert.Null(p.UpgradeBasePrep(TestRom.RealRomPath));
+        Assert.Equal(RomPrep.Version, p.Data.BaseRom.PrepVersion);
+        Assert.Null(p.ValidateBase());
+        var rom = Rom.Load(p.BaseRomPath);
+        Assert.True(RomPrep.IsPrepped(rom));
+        Assert.Null(rom.EnsureMap16Tiles(0x1100));           // and high pages now work
+    }
+
+    /// <summary>A PrepVersion-0 base that is NOT vanilla is a foreign/LM ROM the user adopted.
+    /// Prepping replaces base.smc with a prepped vanilla, so offering it there would silently
+    /// throw the hack away.</summary>
+    [RealRomFact]
+    public void a_foreign_v0_base_is_not_offered_the_prep_upgrade()
+    {
+        var p = Project.Create(Path.Combine(dir, "proj"), TestRom.RealRomPath);
+        var bytes = File.ReadAllBytes(p.BaseRomPath);
+        bytes[^1] ^= 0xFF;                                   // no longer verified vanilla
+        File.WriteAllBytes(p.BaseRomPath, bytes);
+        p.Data.BaseRom.PrepVersion = 0;
+        p.Save();
+
+        Assert.False(p.CanUpgradeBasePrep);
+        Assert.Contains("not a verified vanilla", p.UpgradeBasePrep(TestRom.RealRomPath) ?? "");
     }
 
     [RealRomFact]

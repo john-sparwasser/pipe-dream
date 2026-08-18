@@ -61,9 +61,12 @@ internal sealed class ProjectWizard(EditorApp app)
         app.session.LoadRom(p.BaseRomPath);
         int pv = p.Data.BaseRom.PrepVersion;
         // Name what the OLD base actually lacks, so the notice stays true as versions land.
-        string missing = pv < 2 ? "GFX overrides are editor-preview only"
-                                : "Map16 pages past 0x0F cannot be created";
-        app.saveStatus = pv is >= 1 && pv < RomPrep.Version
+        // v0 is the worst case and the easiest to miss: a raw vanilla base has NO LM
+        // structures, so Map16 pages, acts-like, palettes and DM16 objects all refuse.
+        string missing = pv == 0 ? "base has no editing structures at all"
+                       : pv < 2 ? "GFX overrides are editor-preview only"
+                       : "Map16 pages past 0x0F cannot be created";
+        app.saveStatus = p.CanUpgradeBasePrep
             ? $"project '{p.Name}' opened — base uses prep v{pv}: {missing} (File → Upgrade base to prep v{RomPrep.Version})"
             : $"project '{p.Name}' opened";
     }
