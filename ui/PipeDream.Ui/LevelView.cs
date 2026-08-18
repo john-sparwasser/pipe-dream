@@ -6,14 +6,22 @@ using Avalonia.Media;
 namespace PipeDream.Ui;
 
 /// <summary>
-/// The level canvas as a retained control: blits the composed level bitmap and draws the
-/// overlays (grid, selection) with <see cref="DrawingContext"/>. The ImGui version drew the
-/// same things into a per-frame draw list; the translation is close to 1:1
-/// (AddRectFilled → FillRectangle, AddRect/AddLine → DrawRectangle/DrawLine).
+/// The level canvas. Controls are a deliberate match for the ImGui editor's ObjectTool, so
+/// muscle memory carries over:
 ///
-/// Interaction arrives as pointer events instead of being re-derived from the mouse position
-/// every frame, so hit-testing lives in one place and can be exercised headlessly. Cell
-/// coordinates are exposed through <see cref="CellAt"/> for exactly that reason.
+///   RIGHT click/drag   stamp the drawer's tile brush as Direct Map16 objects. Right-click
+///                      with a selection DUPLICATES it at the cursor instead.
+///   LEFT click         on a selected object → drag to move it
+///                      elsewhere            → rubber-band select (live, while dragging)
+///   LEFT click, still  cycle the overlap stack under the cursor (LM-style: topmost, then
+///                      the one beneath, wrapping)
+///   CTRL + LEFT drag   grab the covered tiles as the stamp brush instead of selecting
+///   DELETE             delete the selection
+///   WHEEL              scroll horizontally (SHIFT: vertically). Vertical levels keep the
+///                      normal up/down wheel.
+///
+/// Painting on the LEFT button was the obvious guess and the wrong one — in this editor the
+/// left button belongs to selection, exactly as in Lunar Magic.
 /// </summary>
 public class LevelView : Control
 {
@@ -30,28 +38,33 @@ public class LevelView : Control
     public Point Origin { get; set; }
 
     public LevelBitmap? Source { get; set; }
+    public LevelEdit? Edit { get; set; }
     public int Phase { get; set; }
     public bool ShowGrid { get; set; } = true;
+    public bool Vertical { get; set; }
 
-    /// <summary>Last cell the pointer went down on — what a headless test asserts on.</summary>
+    public (int X, int Y)? HoverCell { get; private set; }
     public (int X, int Y)? LastClickedCell { get; private set; }
 
-    /// <summary>Cell under the pointer, for the status readout and the hover outline.</summary>
-    public (int X, int Y)? HoverCell { get; private set; }
-
+    /// <summary>Raised for every cell a RIGHT drag passes through — the paint stroke.</summary>
+    public event EventHandler<(int X, int Y)>? CellPainted;
+    public event EventHandler? StrokeEnded;
     public event EventHandler<(int X, int Y)>? CellPressed;
 
-    /// <summary>Raised for every cell a drag passes through, including the first — the paint
-    /// stroke. <see cref="StrokeEnded"/> closes the undo group.</summary>
-    public event EventHandler<(int X, int Y)>? CellPainted;
+    /// <summary>Right-click with a selection: duplicate it here rather than stamping.</summary>
+    public event EventHandler<(int X, int Y)>? DuplicateRequested;
 
-    public event EventHandler? StrokeEnded;
+    /// <summary>Ctrl+drag finished: take these cells as the stamp brush.</summary>
+    public event EventHandler<(int X, int Y, int W, int H)>? GrabRequested;
 
-    static LevelView()
-    {
-        // Custom-drawn content: repaint when the things it is drawn from change.
-        AffectsRender<LevelView>(ZoomProperty);
-    }
+    public event EventHandler? SelectionChanged;
+    public event EventHandler? DeleteRequested;
+
+    /// <summary>Wheel scrolling is handled here (horizontal by default) and applied by the
+    /// host, which owns the scroll viewer.</summary>
+    public event EventHandler<(double Dx, double Dy)>? ScrollRequested;
+
+    static LevelView() => AffectsRender<LevelView>(ZoomProperty);
 
     public LevelView() => Focusable = true;
 
@@ -64,20 +77,48 @@ public class LevelView : Control
         return (lx / 16, ly / 16);
     }
 
+    // ---- drag state, mirroring the ImGui tool's dragStart/dragEnd/moveDrag ----
+    private (int X, int Y)? bandStart, bandEnd, moveStart;
+    private bool painting, grabbing;
+    private (int X, int Y)? lastPainted;
+
+    public (int X, int Y, int W, int H)? Band =>
+        bandStart is { } a && bandEnd is { } b
+            ? (Math.Min(a.X, b.X), Math.Min(a.Y, b.Y), Math.Abs(b.X - a.X) + 1, Math.Abs(b.Y - a.Y) + 1)
+            : null;
+
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
+        Focus();
         if (CellAt(e.GetPosition(this)) is not { } cell) return;
+        var props = e.GetCurrentPoint(this).Properties;
         LastClickedCell = cell;
         CellPressed?.Invoke(this, cell);
-        if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+
+        if (props.IsRightButtonPressed)
         {
-            painting = true;
-            e.Pointer.Capture(this);            // keep the stroke even if it leaves the control
-            CellPainted?.Invoke(this, cell);
-            // Seed the interpolation from the press cell, or the gap between it and the
-            // first move sample is never filled and every stroke starts with a hole.
-            lastPainted = cell;
+            // Right-click with a selection duplicates it; otherwise it stamps the brush.
+            if (Edit is { Selection.Count: > 0 }) DuplicateRequested?.Invoke(this, cell);
+            else
+            {
+                painting = true;
+                lastPainted = cell;
+                e.Pointer.Capture(this);
+                CellPainted?.Invoke(this, cell);
+            }
+        }
+        else if (props.IsLeftButtonPressed)
+        {
+            grabbing = e.KeyModifiers.HasFlag(KeyModifiers.Control);
+            // Grabbing always bands, even over a selected object — Ctrl+drag is "take these
+            // tiles", not "move this".
+            if (!grabbing && Edit?.ObjectAt(cell.X, cell.Y) is int hit && Edit.Selection.Contains(hit))
+                moveStart = cell;
+            else
+                bandStart = cell;
+            bandEnd = cell;
+            e.Pointer.Capture(this);
         }
         InvalidateVisual();
     }
@@ -87,34 +128,87 @@ public class LevelView : Control
         base.OnPointerMoved(e);
         var cell = CellAt(e.GetPosition(this));
         if (cell != HoverCell) { HoverCell = cell; InvalidateVisual(); }
-        // Every cell the drag crosses paints, not just the ones a move event happens to land
-        // on — at speed the pointer skips cells, and a stroke with holes in it is a bug.
-        if (painting && cell is { } c)
+        if (cell is not { } c) return;
+
+        if (painting)
         {
+            // Every cell the drag crosses stamps, not just the ones a move event lands on —
+            // at speed the pointer skips cells and a stroke with holes in it is a bug.
             if (lastPainted is { } prev) foreach (var s in Between(prev, c)) CellPainted?.Invoke(this, s);
             else CellPainted?.Invoke(this, c);
             lastPainted = c;
+            return;
+        }
+        if (bandStart is not null || moveStart is not null)
+        {
+            bandEnd = c;
+            // Live selection while banding, as the ImGui tool does — you see what you will get
+            // before releasing. Ctrl+drag is a grab, so it selects nothing.
+            if (bandStart is not null && !grabbing && Band is { } b && bandStart != bandEnd)
+            {
+                Edit?.SelectInRect(b.X, b.Y, b.W, b.H);
+                SelectionChanged?.Invoke(this, EventArgs.Empty);
+            }
+            InvalidateVisual();
         }
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
-        if (!painting) return;
-        painting = false;
-        lastPainted = null;
+        if (painting)
+        {
+            painting = false;
+            lastPainted = null;
+            e.Pointer.Capture(null);
+            StrokeEnded?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
+        if (bandStart is { } a && bandEnd is { } b)
+        {
+            if (a == b) { Edit?.CycleSelectionAt(a.X, a.Y); SelectionChanged?.Invoke(this, EventArgs.Empty); }
+            else if (grabbing && Band is { } g) GrabRequested?.Invoke(this, g);
+        }
+        else if (moveStart is { } m && bandEnd is { } n)
+        {
+            if (m == n) { Edit?.CycleSelectionAt(m.X, m.Y); SelectionChanged?.Invoke(this, EventArgs.Empty); }
+            else if (Edit?.MoveSelected(n.X - m.X, n.Y - m.Y) == true)
+                SelectionChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        bandStart = bandEnd = moveStart = null;
+        grabbing = false;
         e.Pointer.Capture(null);
-        StrokeEnded?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
     }
 
-    private bool painting;
-    private (int X, int Y)? lastPainted;
+    protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
+    {
+        base.OnPointerWheelChanged(e);
+        // Horizontal levels scroll sideways with the wheel (Shift = vertical); vertical
+        // levels keep the normal up/down wheel. Same rule as the ImGui viewport.
+        double step = e.Delta.Y * 64 * Zoom;
+        if (Vertical) return;                       // let the scroll viewer handle it
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) ScrollRequested?.Invoke(this, (0, -step));
+        else ScrollRequested?.Invoke(this, (-step, 0));
+        e.Handled = true;
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        if (e.Key == Key.Delete && Edit is { Selection.Count: > 0 })
+        {
+            DeleteRequested?.Invoke(this, EventArgs.Empty);
+            e.Handled = true;
+        }
+    }
 
     /// <summary>Cells on the line between two drag samples, exclusive of the start.</summary>
     private static IEnumerable<(int X, int Y)> Between((int X, int Y) a, (int X, int Y) b)
     {
-        int dx = Math.Abs(b.X - a.X), dy = Math.Abs(b.Y - a.Y);
-        int steps = Math.Max(dx, dy);
+        int steps = Math.Max(Math.Abs(b.X - a.X), Math.Abs(b.Y - a.Y));
         if (steps == 0) { yield return b; yield break; }
         for (int i = 1; i <= steps; i++)
             yield return (a.X + (b.X - a.X) * i / steps, a.Y + (b.Y - a.Y) * i / steps);
@@ -135,12 +229,26 @@ public class LevelView : Control
         ctx.DrawImage(bmp, src, dst);
 
         if (ShowGrid) DrawScreenBoundaries(ctx, dst, z);
-        // Hover outline only — the "last clicked" marker was spike scaffolding, and with
-        // painting wired up the cell under the cursor is the useful thing to show.
+
+        // Selection: the object's real footprint, from the tracked render.
+        if (Edit is { } ed)
+        {
+            var pen = new Pen(Brushes.DodgerBlue, 1.5);
+            foreach (int i in ed.Selection)
+                if (ed.BBox(i) is { } b) ctx.DrawRectangle(null, pen, CellRect(b.X, b.Y, b.W, b.H, z));
+        }
+
+        // Rubber band: cyan while selecting, green while grabbing tiles — the ImGui colours.
+        if (Band is { } band && (bandStart is not null || moveStart is not null))
+            ctx.DrawRectangle(null, new Pen(grabbing ? Brushes.Lime : Brushes.Cyan, 1.5),
+                              CellRect(band.X, band.Y, band.W, band.H, z));
+
         if (HoverCell is { } h)
-            ctx.DrawRectangle(null, new Pen(Brushes.White, 1),
-                              new Rect(h.X * 16 * z - Origin.X, h.Y * 16 * z - Origin.Y, 16 * z, 16 * z));
+            ctx.DrawRectangle(null, new Pen(Brushes.White, 1), CellRect(h.X, h.Y, 1, 1, z));
     }
+
+    private Rect CellRect(int x, int y, int w, int h, double z)
+        => new(x * 16 * z - Origin.X, y * 16 * z - Origin.Y, w * 16 * z, h * 16 * z);
 
     // SMW screens are 16 cells wide; the boundary lines are the editor's main orientation cue.
     private void DrawScreenBoundaries(DrawingContext ctx, Rect dst, double z)

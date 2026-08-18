@@ -219,9 +219,9 @@ public class EditingTests(ITestOutputHelper log)
 
         // A fast drag: two pointer samples five cells apart. Every cell between them must
         // still be painted, or strokes have holes in them at speed.
-        w.MouseDown(Cell(canvas, w, 2, 10), MouseButton.Left);
+        w.MouseDown(Cell(canvas, w, 2, 10), MouseButton.Right);
         w.MouseMove(Cell(canvas, w, 7, 10));
-        w.MouseUp(Cell(canvas, w, 7, 10), MouseButton.Left);
+        w.MouseUp(Cell(canvas, w, 7, 10), MouseButton.Right);
 
         log.WriteLine("painted: " + string.Join(" ", painted));
         for (int x = 2; x <= 7; x++) Assert.Contains((x, 10), painted);
@@ -239,9 +239,9 @@ public class EditingTests(ITestOutputHelper log)
             .GetValue(w)!;
         int before = edit.Objects.Count;
 
-        w.MouseDown(Cell(canvas, w, 2, 10), MouseButton.Left);
+        w.MouseDown(Cell(canvas, w, 2, 10), MouseButton.Right);
         w.MouseMove(Cell(canvas, w, 7, 10));
-        w.MouseUp(Cell(canvas, w, 7, 10), MouseButton.Left);
+        w.MouseUp(Cell(canvas, w, 7, 10), MouseButton.Right);
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(edit.Objects.Count > before, "the drag added no objects");

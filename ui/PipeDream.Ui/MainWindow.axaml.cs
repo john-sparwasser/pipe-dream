@@ -1,5 +1,7 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
@@ -59,7 +61,8 @@ public partial class MainWindow : Window
         canvas.Source = bitmap;
         canvas.PointerMoved += (_, _) => UpdateHover();
 
-        // Paint the drawer's selected tile, one undo entry per stroke.
+        // RIGHT drag stamps the drawer's tile, one undo entry per stroke (ImGui parity: the
+        // left button belongs to selection).
         canvas.CellPainted += (_, c) =>
         {
             if (edit is null) return;
@@ -72,6 +75,22 @@ public partial class MainWindow : Window
             PushDirty();
             UpdateStatus();
         };
+        canvas.DuplicateRequested += (_, c) =>
+        {
+            if (edit?.DuplicateSelected(c.X, c.Y) == true) { PushDirty(); UpdateStatus(); }
+        };
+        canvas.DeleteRequested += (_, _) =>
+        {
+            if (edit?.DeleteSelected() == true) { PushDirty(); UpdateStatus(); }
+        };
+        canvas.GrabRequested += (_, g) =>
+        {
+            if (edit is null) return;
+            var (tiles, w, h) = edit.GrabTiles(g.X, g.Y, g.W, g.H);
+            brush = (tiles, w, h);
+            status.Text = $"grabbed {w}x{h} tiles as the brush";
+        };
+        canvas.SelectionChanged += (_, _) => UpdateStatus();
 
         zoomSlider.PropertyChanged += (_, e) =>
         {
@@ -110,6 +129,15 @@ public partial class MainWindow : Window
         palette.Zoom = tileZoom.Value;
         FitDrawerToPalette();
 
+        KeyDown += OnWindowKeyDown;
+        // Wheel scrolls the level sideways (Shift: vertically) — the canvas decides, the
+        // scroll viewer applies, since it owns the offsets.
+        canvas.ScrollRequested += (_, d) =>
+        {
+            var sv = this.GetControl<ScrollViewer>("CanvasScroll");
+            sv.Offset = new Vector(Math.Max(0, sv.Offset.X + d.Dx), Math.Max(0, sv.Offset.Y + d.Dy));
+        };
+
         string? path = Program.RomPath is { } p && File.Exists(p) ? p
                      : File.Exists(DefaultRom()) ? DefaultRom() : null;
         if (path is not null) LoadRom(path);
@@ -137,6 +165,8 @@ public partial class MainWindow : Window
         scene = session.Scene;
         edit = session.Edit;
         levelNum = session.LevelNum;
+        canvas.Edit = edit;
+        canvas.Vertical = rom is not null && scene is not null && rom.IsVerticalMode(scene.Level.Header.LevelMode);
         if (scene is null || rom is null) return;
 
         bitmap.SetImages(scene.Phases, scene.Width, scene.Height, 0);
@@ -164,6 +194,31 @@ public partial class MainWindow : Window
             : "pipe-dream";
 
     private double composeMs;
+
+    /// <summary>Multi-tile stamp brush from a Ctrl+drag grab; null = the drawer's single tile.
+    /// ponytail: stamping still places the selected tile — wiring the multi-tile brush through
+    /// Dm16Saver.FromBrush is the next step and needs the brush preview with it.</summary>
+    private (ushort[] Tiles, int W, int H)? brush;
+
+    /// <summary>Global keys, matching the ImGui editor: Ctrl+Z undo, Ctrl+Shift+Z redo, and
+    /// Esc leaving a non-Level canvas mode before it touches selection.</summary>
+    private void OnWindowKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Z && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            bool ok = e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? edit?.Redo() == true
+                                                                 : edit?.Undo() == true;
+            if (ok) { PushDirty(); UpdateStatus(); }
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            if (modeLevel.IsChecked != true) OnMode(modeLevel, new RoutedEventArgs());
+            else if (edit is { Selection.Count: > 0 })
+            { edit.Selection.Clear(); canvas.InvalidateVisual(); UpdateStatus(); }
+            e.Handled = true;
+        }
+    }
 
     private void UpdateStatus()
     {

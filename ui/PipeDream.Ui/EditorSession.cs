@@ -109,10 +109,13 @@ internal sealed class EditorSession
                 : [.. Scene.Level.Objects];
 
             Edit = new LevelEdit(Rom, Scene, objects);
-            // A hydrated level must render from the OBJECT LIST, not the parsed grid: the
-            // parsed grid is the base ROM's content. A vanilla parse keeps the parsed grid,
-            // which is byte-identical and survives a render failure.
-            if (saved is not null) Edit.Rerender();
+            // Always run the TRACKED render, as the ImGui editor does on every parse. It is
+            // what gives each cell an owning object, and without it nothing on a freshly
+            // opened level can be selected or hit-tested. It also puts a hydrated level's
+            // pixels on screen from its OBJECT LIST rather than the base ROM's parsed grid;
+            // for an unedited level the two are identical, and a render failure leaves the
+            // parsed grid in place.
+            Edit.Rerender();
 
             if (saved is not null && Scene.Sprites is not null)
             {

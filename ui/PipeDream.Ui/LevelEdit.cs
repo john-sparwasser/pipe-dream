@@ -136,9 +136,9 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
     /// <summary>Sprites restored from the project, which win over the ROM's parsed list.</summary>
     public SpriteData? HydratedSprites { get; set; }
 
-    /// <summary>Render the object stream over the scene without recording an edit — used when
-    /// a level is hydrated from the project, where the pixels must come from the saved
-    /// objects rather than the base ROM's parse.</summary>
+    /// <summary>Run the tracked render without recording an edit. Needed on every level load:
+    /// it produces the per-cell object attribution that selection and hit-testing read, and it
+    /// puts a project-hydrated level's own objects on screen instead of the ROM's parse.</summary>
     public void Rerender() => Reconcile();
 
     /// <summary>Layer-2 objects are not editable here yet; carrying the base stream through
@@ -157,17 +157,179 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
     /// makes the optimistic paint honest: if the engine renders something different from what
     /// was painted (a clipped object, an overlap), the canvas ends up showing the ENGINE's
     /// answer rather than the guess.</summary>
+    // ---- selection, from the tracked render ----
+
+    /// <summary>Selected object indices.</summary>
+    public HashSet<int> Selection { get; } = [];
+
+    private Map16Grid? owners;                                   // per-cell topmost writer, id = index+1
+    private Dictionary<int, ushort[]>? stacks;                   // per-cell full writer stack, bottom→top
+    private (int x0, int y0, int x1, int y1)?[] bounds = [];
+
+    /// <summary>Footprint bounding box from the tracked render, so a selection hugs what the
+    /// object actually drew rather than its declared size.</summary>
+    public (int X, int Y, int W, int H)? BBox(int i)
+        => i >= 0 && i < bounds.Length && bounds[i] is { } b ? (b.x0, b.y0, b.x1 - b.x0 + 1, b.y1 - b.y0 + 1) : null;
+
+    /// <summary>Topmost object at a cell, or null.</summary>
+    public int? ObjectAt(int cx, int cy)
+    {
+        if (owners is null || cx < 0 || cy < 0 || cx >= owners.Width || cy >= owners.Height) return null;
+        int v = owners.Get(cx, cy);
+        return v >= 1 && v <= objects.Count ? v - 1 : null;
+    }
+
+    /// <summary>Indices stacked under a cell, bottom→top (z = stream order).</summary>
+    private int[] StackAt(int cx, int cy)
+    {
+        if (owners is { } og && stacks?.TryGetValue(cy * og.Width + cx, out var ids) == true)
+            return ids.Where(v => v >= 1 && v <= objects.Count).Select(v => (int)v - 1).ToArray();
+        return ObjectAt(cx, cy) is int i ? [i] : [];
+    }
+
+    /// <summary>LM-style stationary click on overlapping objects: select the topmost, and
+    /// clicking again steps to the one beneath, wrapping. A multi-selection collapses to the
+    /// topmost under the cursor.</summary>
+    public void CycleSelectionAt(int cx, int cy)
+    {
+        var stack = StackAt(cx, cy);
+        if (stack.Length == 0) { Selection.Clear(); return; }
+        int pick = stack[^1];
+        if (Selection.Count == 1)
+        {
+            int pi = Array.IndexOf(stack, Selection.First());
+            if (pi >= 0) pick = stack[(pi - 1 + stack.Length) % stack.Length];
+        }
+        Selection.Clear();
+        Selection.Add(pick);
+    }
+
+    /// <summary>Select every object whose footprint overlaps a cell rectangle.</summary>
+    public void SelectInRect(int rx, int ry, int rw, int rh)
+    {
+        Selection.Clear();
+        for (int i = 0; i < objects.Count; i++)
+            if (BBox(i) is { } b && b.X < rx + rw && b.X + b.W > rx && b.Y < ry + rh && b.Y + b.H > ry)
+                Selection.Add(i);
+    }
+
+    /// <summary>The tiles under a rectangle, as a brush — Ctrl+drag "grab" in the ImGui editor.</summary>
+    public (ushort[] Tiles, int W, int H) GrabTiles(int rx, int ry, int rw, int rh)
+    {
+        var t = new ushort[rw * rh];
+        for (int y = 0; y < rh; y++)
+            for (int x = 0; x < rw; x++)
+            {
+                int gx = rx + x, gy = ry + y;
+                t[y * rw + x] = gx >= 0 && gy >= 0 && gx < Scene.Grid.Width && gy < Scene.Grid.Height
+                    ? (ushort)Scene.Grid.Get(gx, gy) : Map16Grid.Empty;
+            }
+        return (t, rw, rh);
+    }
+
+    public bool MoveSelected(int dx, int dy)
+    {
+        if (Selection.Count == 0 || (dx == 0 && dy == 0)) return false;
+        undo.Push([.. objects]);
+        redo.Clear();
+        foreach (int i in Selection)
+        {
+            var o = objects[i];
+            objects[i] = ObjectAtCell(o, o.AbsoluteX + dx, Math.Clamp(o.Y + dy, 0, 0x1F));
+        }
+        Dirty = true;
+        Reconcile();
+        return true;
+    }
+
+    public bool DeleteSelected()
+    {
+        if (Selection.Count == 0) return false;
+        undo.Push([.. objects]);
+        redo.Clear();
+        foreach (int i in Selection.OrderByDescending(i => i))
+            if (i >= 0 && i < objects.Count) objects.RemoveAt(i);
+        Selection.Clear();
+        Dirty = true;
+        Reconcile();
+        return true;
+    }
+
+    /// <summary>Copy the selection so its top-left lands on (cx,cy) — the ImGui editor's
+    /// right-click-with-a-selection.</summary>
+    public bool DuplicateSelected(int cx, int cy)
+    {
+        if (Selection.Count == 0) return false;
+        var picked = Selection.OrderBy(i => i).Where(i => i >= 0 && i < objects.Count).ToList();
+        if (picked.Count == 0) return false;
+        int ox = picked.Min(i => BBox(i)?.X ?? objects[i].AbsoluteX);
+        int oy = picked.Min(i => BBox(i)?.Y ?? objects[i].Y);
+
+        undo.Push([.. objects]);
+        redo.Clear();
+        var added = picked.Select(i =>
+        {
+            var o = objects[i];
+            return ObjectAtCell(o, o.AbsoluteX + (cx - ox), Math.Clamp(o.Y + (cy - oy), 0, 0x1F));
+        }).ToList();
+        objects.AddRange(added);
+        Selection.Clear();
+        for (int k = 0; k < added.Count; k++) Selection.Add(objects.Count - added.Count + k);
+        Dirty = true;
+        Reconcile();
+        return true;
+    }
+
+    private static LevelObject ObjectAtCell(LevelObject o, int x, int y)
+        => new(o.NewScreen, o.Number, (x >> 4) & 0x1F, x & 15, y, o.Byte3, o.ExtraByte,
+               o.Dm16Tile, o.Dm16Page, o.Dm16ExtX, o.Dm16ExtH);
+
     private void Reconcile()
     {
         // Encode and run the EMULATED engine, which is what produced the baseline grid and
         // what the ImGui editor re-renders with. PortedObjectEngine is a C# reimplementation
         // and does not agree with it cell-for-cell, so mixing the two makes every edit look
         // like it changed parts of the level nobody touched.
-        var norm = LevelEncoder.NormalizeStream(objects);
-        byte[] encoded = LevelEncoder.Encode(Scene.Level, norm);
+        //
+        // The render is TRACKED — every cell remembers which stream record wrote it — because
+        // selection has to hug an object's real footprint, not its declared rectangle.
+        var prov = new List<int>();
+        var norm = LevelEncoder.NormalizeStream(objects, prov);
+        var offsets = new List<int>();
+        byte[] encoded = LevelEncoder.Encode(Scene.Level, norm, offsets);
+        var streamOwner = new ushort[encoded.Length];
+        for (int i = 0; i < norm.Count; i++)
+        {
+            if (prov[i] < 0) continue;                      // inserted screen jump: owned by nobody
+            int end = i + 1 < norm.Count ? offsets[i + 1] : encoded.Length - 1;   // stop before 0xFF
+            for (int b = offsets[i]; b < end; b++) streamOwner[b] = (ushort)(prov[i] + 1);
+        }
+
         Map16Grid next;
-        try { next = ObjectEngine.RenderEmulatedStream(rom, Scene.Level.Header, encoded, 0); }
+        try
+        {
+            next = ObjectEngine.RenderEmulatedStream(rom, Scene.Level.Header, encoded, 0,
+                                                     streamOwner, out owners, out stacks);
+        }
         catch { return; }                      // emulation failed: keep the optimistic pixels
+
+        // Bounds from the FULL writer stacks, so an object buried under a later one keeps its
+        // real extent instead of shrinking to whatever is still visible.
+        var b2 = new (int x0, int y0, int x1, int y1)?[objects.Count];
+        if (owners is not null && stacks is not null)
+            foreach (var (cell, ids) in stacks)
+            {
+                int x = cell % owners.Width, y = cell / owners.Width;
+                foreach (ushort v in ids)
+                {
+                    if (v < 1 || v > objects.Count) continue;
+                    b2[v - 1] = b2[v - 1] is { } e
+                        ? (Math.Min(e.x0, x), Math.Min(e.y0, y), Math.Max(e.x1, x), Math.Max(e.y1, y))
+                        : (x, y, x, y);
+                }
+            }
+        bounds = b2;
+
         foreach (var cell in Changed(Scene.Grid, next)) dirty.Add(cell);
         Scene.ReplaceGrid(next);
     }
