@@ -185,12 +185,28 @@ static class DebugCommands
         }
         var lv = LevelParser.Parse(rom, level);
 
-        // Two known test placements in empty sky (screen 0): Form A (0x105) and Form B (0x205).
-        var added = new[]
+        // Optional 4th arg: place ONE specific tile instead of the two defaults, allocating
+        // its Map16 page and giving it a visible definition first. This is how the headless
+        // Mesen check gets an extended tile (0x200+, including the ranges past 0xFFF) into a
+        // real level — nothing else in the pipeline places one on demand.
+        LevelObject[] added;
+        if (args.ElementAtOrDefault(wi + 4) is { } tileArg)
         {
-            LevelObject.MakeDm16(0x105, screen: 0, xNib: 2, y: 8),
-            LevelObject.MakeDm16(0x205, screen: 0, xNib: 5, y: 8),
-        };
+            int tile = Convert.ToInt32(tileArg, 16);
+            if (rom.EnsureMap16Tiles(tile + 1) is { } allocErr)
+            { Console.WriteLine("ERROR: " + allocErr); return 1; }
+            int defFo = Map16.DefFileOffset(rom, lv.Header.Tileset, tile);
+            if (defFo < 0) { Console.WriteLine($"ERROR: tile 0x{tile:X} has no definition slot"); return 1; }
+            for (int q = 0; q < 4; q++)      // all four quadrants = 8x8 tile $130, palette 2
+            { rom.Data[defFo + q * 2] = 0x30; rom.Data[defFo + q * 2 + 1] = 0x09; }
+            added = [LevelObject.MakeDm16(tile, screen: 0, xNib: 2, y: 8)];
+            Console.WriteLine($"tile 0x{tile:X} def at pc 0x{defFo - rom.HeaderOffset:X}, " +
+                              $"Map16TileCount now 0x{rom.Map16TileCount:X}");
+        }
+        else
+            // Two known test placements in empty sky (screen 0): Form A (0x105), Form B (0x205).
+            added = [LevelObject.MakeDm16(0x105, screen: 0, xNib: 2, y: 8),
+                     LevelObject.MakeDm16(0x205, screen: 0, xNib: 5, y: 8)];
         var newObjs = added.Concat(lv.Objects).ToList();
 
         byte[] data = LevelEncoder.Encode(lv, newObjs);
@@ -199,12 +215,14 @@ static class DebugCommands
         rom.SetLayer1Pointer(level, addr);
         RatsWriter.SaveAs(rom, outPath);
         Console.WriteLine($"wrote {outPath}: level 0x{level:X3}, added DM16 tiles " +
-                          "0x105 @ (2,8) [Form A] and 0x205 @ (5,8) [Form B]; pointer -> $" + addr.ToString("X6"));
+                          string.Join(", ", added.Select(o => $"0x{o.Dm16Tile:X3}")) +
+                          "; pointer -> $" + addr.ToString("X6"));
 
         // verify by reloading + re-parsing
         var re = Rom.Load(outPath);
         var rl = LevelParser.Parse(re, level);
-        var dm = rl.Objects.Where(o => o.IsDm16 && (o.Dm16Tile == 0x105 || o.Dm16Tile == 0x205)).ToList();
+        var want = added.Select(o => o.Dm16Tile).ToHashSet();
+        var dm = rl.Objects.Where(o => o.IsDm16 && want.Contains(o.Dm16Tile)).ToList();
         Console.WriteLine("reload check: " + string.Join(" ", dm.Select(o => $"0x{o.Dm16Tile:X3}@({o.AbsoluteX},{o.Y})")));
         return 0;
     }
