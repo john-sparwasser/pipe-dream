@@ -181,6 +181,7 @@ public partial class MainWindow : Window
     {
         if (scene is null || edit is null) return;
         if (edit.TakeDirty().Count == 0) return;
+        scene.RedrawOverlay();      // sprites straddle cells; a per-cell recompose clips them
         bitmap.SetImages(scene.Phases, scene.Width, scene.Height, 0);
         canvas.InvalidateVisual();
     }
