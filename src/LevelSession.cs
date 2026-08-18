@@ -36,28 +36,10 @@ internal sealed class LevelSession(EditorApp app)
             app.objectEditor.objCatTileset = -1;   // force object catalog rebuild for the new ROM
             // Project GFX overrides are session state on the Rom instance — refill them
             // for every recorded level so any level renders with its overrides on open.
-            if (app.project is not null)
-            {
-                // Imported ExGFX files are session state on the Rom too — hydrate them
-                // before the first parse so the initial render already resolves imports
-                // through Gfx.Cached.
-                foreach (var (id, b64) in app.project.Data.Gfx)
-                    app.rom.ImportedGfx[Convert.ToInt32(id, 16)] = Convert.FromBase64String(b64);
-                foreach (var (id, name) in app.project.Data.GfxNames)
-                    app.rom.ImportedGfxNames[Convert.ToInt32(id, 16)] = name;
-                foreach (var (key, state) in app.project.Data.Levels)
-                {
-                    int lvl = Convert.ToInt32(key, 16);
-                    foreach (var (word, file) in state.GfxOverrides)
-                        app.rom.GfxSlotOverrides[(lvl, word)] = file;
-                    if (state.Header is { } hx) app.rom.LevelHeaderOverrides[lvl] = Convert.FromHexString(hx);
-                }
-                // Replay the Map16/acts snapshot into the session ROM: same code Build
-                // uses on a fresh base, so session and built ROM can't drift.
-                if (RomBuilder.ReplayMap16(app.rom, app.project.Data) is { } replayErr)
-                    app.saveStatus = replayErr;
-                RomBuilder.ReplayEntrances(app.rom, app.project.Data);
-            }
+            // Replaying the project onto the fresh base is UI-free (ProjectSession.Hydrate),
+            // so the second front end and the tests use the very same code.
+            if (app.project is not null && ProjectSession.Hydrate(app.rom, app.project.Data) is { } replayErr)
+                app.saveStatus = replayErr;
             ParseLevel();
         }
         catch (Exception e)
@@ -89,41 +71,31 @@ internal sealed class LevelSession(EditorApp app)
         if (app.project is null) return;
         if (app.currentLevelTouched) StashCurrentLevel();
         if (app.rom is null) return;
-        ProjectCapture.Refresh(app.rom, app.project.Data, app.level?.Header.Tileset ?? 1);
-        app.project.Data.Gfx = app.rom.ImportedGfx
-            .ToDictionary(kv => kv.Key.ToString("X3"), kv => Convert.ToBase64String(kv.Value));
-        // Names only for ids that still exist, so a removed import can't leave a stray name.
-        app.project.Data.GfxNames = app.rom.ImportedGfxNames
-            .Where(kv => kv.Value.Length > 0 && app.rom.ImportedGfx.ContainsKey(kv.Key))
-            .ToDictionary(kv => kv.Key.ToString("X3"), kv => kv.Value);
+        LevelEditState.StashRomWide(app.project.Data, app.rom, app.level?.Header.Tileset ?? 1);
     }
 
-    // Write the current level's session state into the project snapshot.
+    // Write the current level's session state into the project snapshot. The shape of that
+    // state, and the rules for what gets recorded, live in LevelEditState — this only gathers
+    // the editor's scattered fields into it.
     private void StashCurrentLevel()
     {
         if (app.project is null || app.rom is null) return;
-        var s = app.project.Data.Level(app.levelNum);
-        s.Objects = layerObjects[0]?.Select(ProjectFile.ObjectDto.From).ToList() ?? new();
-        // Layer 2 is only recorded once it differs from the base ROM's stream — otherwise
-        // every touched level would pin its unedited layer 2 into the project. An EMPTY list
-        // still counts when the base had no stream at all: that is the background-image ->
-        // object-mode conversion, and dropping it would silently undo the conversion.
-        bool converted = baseLayer2 is null && layerObjects[1] is not null;
-        bool edited = baseLayer2 is not null && layerObjects[1] is { } l2 && !l2.SequenceEqual(baseLayer2);
-        s.Layer2Objects = converted || edited
-            ? layerObjects[1]!.Select(ProjectFile.ObjectDto.From).ToList() : null;
-        if (app.sprites is not null)
-        {
-            s.SpriteMemory = app.sprites.SpriteMemory;
-            s.Buoyancy = app.sprites.Buoyancy;
-            s.Sprites = app.sprites.Sprites.Select(ProjectFile.SpriteDto.From).ToList();
-        }
-        s.Palette = app.paletteEditor.palEdits.ToDictionary(kv => kv.Key, kv => (int)kv.Value);
-        s.GfxOverrides = app.rom.GfxSlotOverrides.Where(kv => kv.Key.Level == app.levelNum)
-                            .ToDictionary(kv => kv.Key.Word, kv => kv.Value);
-        s.Header = app.rom.LevelHeaderOverrides.TryGetValue(app.levelNum, out var hb)
-            ? Convert.ToHexString(hb) : null;
+        CurrentEditState().Stash(app.project.Data, app.rom, app.levelNum);
         app.project.MarkDirty();
+    }
+
+    /// <summary>The editor's live per-level state, as the UI-free shape the save path takes.</summary>
+    internal LevelEditState CurrentEditState()
+    {
+        var st = new LevelEditState
+        {
+            Layer1 = layerObjects[0] ?? [],
+            Layer2 = layerObjects[1],
+            BaseLayer2 = baseLayer2,
+            Sprites = app.sprites,
+        };
+        foreach (var (k, v) in app.paletteEditor.palEdits) st.PaletteEdits[k] = v;
+        return st;
     }
 
     /// <summary>Replace the current level's header. The override lives on the Rom (session

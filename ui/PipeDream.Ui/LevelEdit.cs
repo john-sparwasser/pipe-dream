@@ -119,6 +119,24 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         return true;
     }
 
+    /// <summary>
+    /// This level's state in the shape the save path takes. The UI holds no opinion about
+    /// what a .pdp records — it hands over the object streams and the sprites, and
+    /// LevelEditState.Stash applies the same rules the ImGui editor's save uses, because it
+    /// IS the same code.
+    /// </summary>
+    public LevelEditState EditState() => new()
+    {
+        Layer1 = [.. objects],
+        Layer2 = Scene.Layer2 is null ? null : baseLayer2,
+        BaseLayer2 = baseLayer2,
+        Sprites = Scene.Sprites,
+    };
+
+    /// <summary>Layer-2 objects are not editable here yet; carrying the base stream through
+    /// unchanged is what keeps Stash from recording an edit that never happened.</summary>
+    private List<LevelObject>? baseLayer2;
+
     private void Replace(List<LevelObject> next)
     {
         objects.Clear();
