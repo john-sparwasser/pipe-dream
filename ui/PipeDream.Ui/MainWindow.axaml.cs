@@ -24,12 +24,15 @@ public partial class MainWindow : Window
     private LevelScene? scene;
     private int levelNum = 0x105;
 
+    private LevelEdit? edit;
+
     private LevelView canvas = null!;
     private Map16PaletteView palette = null!;
     private ComboBox levelBox = null!, bankBox = null!;
-    private Slider zoomSlider = null!;
+    private Slider zoomSlider = null!, tileZoom = null!;
     private TextBlock status = null!, hover = null!, zoomLabel = null!, selLabel = null!;
     private Border drawer = null!;
+    private Grid split = null!;
     private ToggleButton modeLevel = null!, modeMap16 = null!, modeGfx = null!;
 
     public MainWindow()
@@ -41,6 +44,8 @@ public partial class MainWindow : Window
         levelBox = this.GetControl<ComboBox>("LevelBox");
         bankBox = this.GetControl<ComboBox>("BankBox");
         zoomSlider = this.GetControl<Slider>("ZoomSlider");
+        tileZoom = this.GetControl<Slider>("TileZoom");
+        split = this.GetControl<Grid>("Split");
         status = this.GetControl<TextBlock>("Status");
         hover = this.GetControl<TextBlock>("Hover");
         zoomLabel = this.GetControl<TextBlock>("ZoomLabel");
@@ -51,17 +56,18 @@ public partial class MainWindow : Window
         modeGfx = this.GetControl<ToggleButton>("ModeGfx");
 
         canvas.Source = bitmap;
-        canvas.CellPressed += (_, c) => hover.Text = $"cell ({c.X}, {c.Y})";
-        canvas.PointerMoved += (_, e) =>
+        canvas.PointerMoved += (_, _) => UpdateHover();
+
+        // Paint the drawer's selected tile, one undo entry per stroke.
+        canvas.CellPainted += (_, c) =>
         {
-            if (canvas.CellAt(e.GetPosition(canvas)) is { } c && scene is not null)
-            {
-                int tile = scene.Grid.Get(c.X, c.Y);
-                hover.Text = tile == Map16Grid.Empty
-                    ? $"({c.X}, {c.Y})  empty"
-                    : $"({c.X}, {c.Y})  tile 0x{tile:X3}";
-            }
-            else hover.Text = "";
+            if (edit is null) return;
+            if (edit.Paint(c.X, c.Y, palette.Selected)) PushDirty();
+        };
+        canvas.StrokeEnded += (_, _) =>
+        {
+            edit?.EndStroke();
+            UpdateStatus();
         };
 
         zoomSlider.PropertyChanged += (_, e) =>
@@ -81,8 +87,21 @@ public partial class MainWindow : Window
         };
         palette.SelectionChanged += (_, tile) => selLabel.Text = $"0x{tile:X4}";
 
+        tileZoom.PropertyChanged += (_, e) =>
+        {
+            if (e.Property != RangeBase.ValueProperty) return;
+            palette.Zoom = tileZoom.Value;
+            palette.InvalidateMeasure();
+            palette.InvalidateVisual();
+        };
+
         for (int i = 0; i < Rom.LevelCount; i++) levelBox.Items.Add($"${i:X3}");
         levelBox.SelectionChanged += OnLevelChanged;
+
+        drawer.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == IsVisibleProperty) OnDrawerVisibilityChanged();
+        };
 
         string? path = Program.RomPath is { } p && File.Exists(p) ? p
                      : File.Exists(DefaultRom()) ? DefaultRom() : null;
@@ -121,10 +140,45 @@ public partial class MainWindow : Window
             var (px, w, h) = scene.Sheet();
             palette.SetSheet(px, w, h, rom.Map16TileCount);
 
-            status.Text = $"level ${num:X3}   {scene.Width}x{scene.Height}px   " +
-                          $"{scene.Level.Objects.Count} objects   composed in {ms:F0}ms";
+            if (edit is null) edit = new LevelEdit(scene); else edit.Reset(scene);
+            composeMs = ms;
+            UpdateStatus();
         }
         catch (Exception ex) { status.Text = $"level ${num:X3}: {ex.Message}"; }
+    }
+
+    private double composeMs;
+
+    private void UpdateStatus()
+    {
+        if (scene is null) return;
+        string undoNote = edit is { UndoDepth: > 0 } ? $"   {edit.UndoDepth} edit(s)" : "";
+        status.Text = $"level ${levelNum:X3}   {scene.Width}x{scene.Height}px   " +
+                      $"{scene.Level.Objects.Count} objects   composed in {composeMs:F0}ms{undoNote}";
+    }
+
+    private void UpdateHover()
+    {
+        if (canvas.HoverCell is { } c && scene is not null)
+        {
+            int tile = scene.Grid.Get(c.X, c.Y);
+            hover.Text = tile == Map16Grid.Empty
+                ? $"({c.X,3},{c.Y,2})  empty"
+                : $"({c.X,3},{c.Y,2})  tile 0x{tile:X3}";
+        }
+        else hover.Text = "";
+    }
+
+    /// <summary>Push the cells an edit touched into the bitmap. The composition already
+    /// happened in the scene's phase images, so this is only the copy — and because the
+    /// bitmap takes whole images, a repaint is one 13MB push rather than per-cell blits.
+    /// If that ever shows up in a profile, LevelBitmap grows a dirty-rect upload.</summary>
+    private void PushDirty()
+    {
+        if (scene is null || edit is null) return;
+        if (edit.TakeDirty().Count == 0) return;
+        bitmap.SetImages(scene.Phases, scene.Width, scene.Height, 0);
+        canvas.InvalidateVisual();
     }
 
     // ---- handlers referenced from XAML ----
@@ -143,7 +197,40 @@ public partial class MainWindow : Window
 
     private void OnExit(object? sender, RoutedEventArgs e) => Close();
 
+    private void OnUndo(object? sender, RoutedEventArgs e)
+    {
+        if (edit?.Undo() == true) { PushDirty(); UpdateStatus(); }
+    }
+
+    private void OnRedo(object? sender, RoutedEventArgs e)
+    {
+        if (edit?.Redo() == true) { PushDirty(); UpdateStatus(); }
+    }
+
     private void OnTogglePalette(object? sender, RoutedEventArgs e) => drawer.IsVisible = !drawer.IsVisible;
+
+    /// <summary>Hiding the drawer has to collapse its grid column too, or the canvas keeps
+    /// its old width and the space just goes blank. Driven off the visibility property rather
+    /// than the menu handler, so any caller gets the same behaviour — the width the user
+    /// dragged the splitter to is remembered and restored.</summary>
+    private void OnDrawerVisibilityChanged()
+    {
+        var cols = split.ColumnDefinitions;
+        if (drawer.IsVisible)
+        {
+            cols[0].Width = new GridLength(drawerWidth);
+            cols[1].Width = GridLength.Auto;
+        }
+        else
+        {
+            if (cols[0].Width.IsAbsolute && cols[0].Width.Value > 0) drawerWidth = cols[0].Width.Value;
+            cols[0].Width = new GridLength(0);
+            cols[1].Width = new GridLength(0);
+        }
+        split.InvalidateMeasure();
+    }
+
+    private double drawerWidth = 420;
 
     private void OnToggleGrid(object? sender, RoutedEventArgs e)
     {

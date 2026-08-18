@@ -1,0 +1,46 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <!--
+    One place for every colour, so the editor can be re-skinned without hunting hex literals
+    through XAML. Chosen to keep attention on the CANVAS: chrome is low-contrast and slightly
+    blue-cool, the artwork is the only saturated thing on screen, and the single warm accent
+    marks "what you are editing right now".
+  -->
+
+  <!-- surfaces, darkest (the void behind the level) to lightest (raised controls) -->
+  <Color x:Key="VoidColor">#0F1114</Color>
+  <Color x:Key="SurfaceColor">#181B20</Color>
+  <Color x:Key="PanelColor">#1E2229</Color>
+  <Color x:Key="RaisedColor">#272C34</Color>
+  <Color x:Key="BorderColor">#333944</Color>
+
+  <!-- text -->
+  <Color x:Key="TextColor">#DFE3E9</Color>
+  <Color x:Key="TextDimColor">#8A93A0</Color>
+  <Color x:Key="TextFaintColor">#5C6472</Color>
+
+  <!-- one warm accent for "active", one cool for "selected/hover" -->
+  <Color x:Key="AccentColor">#D2691E</Color>
+  <Color x:Key="AccentHoverColor">#E67E33</Color>
+  <Color x:Key="SelectionColor">#4FC1E9</Color>
+
+  <SolidColorBrush x:Key="VoidBrush" Color="{StaticResource VoidColor}"/>
+  <SolidColorBrush x:Key="SurfaceBrush" Color="{StaticResource SurfaceColor}"/>
+  <SolidColorBrush x:Key="PanelBrush" Color="{StaticResource PanelColor}"/>
+  <SolidColorBrush x:Key="RaisedBrush" Color="{StaticResource RaisedColor}"/>
+  <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource BorderColor}"/>
+  <SolidColorBrush x:Key="TextBrush" Color="{StaticResource TextColor}"/>
+  <SolidColorBrush x:Key="TextDimBrush" Color="{StaticResource TextDimColor}"/>
+  <SolidColorBrush x:Key="TextFaintBrush" Color="{StaticResource TextFaintColor}"/>
+  <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}"/>
+  <SolidColorBrush x:Key="AccentHoverBrush" Color="{StaticResource AccentHoverColor}"/>
+  <SolidColorBrush x:Key="SelectionBrush" Color="{StaticResource SelectionColor}"/>
+
+  <!-- Fluent's own tokens, repointed so stock controls inherit the palette instead of
+       fighting it. Without this the combo boxes and menus stay default-blue. -->
+  <SolidColorBrush x:Key="SystemControlBackgroundAltHighBrush" Color="{StaticResource PanelColor}"/>
+  <SolidColorBrush x:Key="SystemAccentColorLight1" Color="{StaticResource AccentHoverColor}"/>
+  <SolidColorBrush x:Key="SystemAccentColorDark1" Color="{StaticResource AccentColor}"/>
+
+</ResourceDictionary>

@@ -33,11 +33,19 @@ public class LevelView : Control
     public int Phase { get; set; }
     public bool ShowGrid { get; set; } = true;
 
-    /// <summary>Last cell the pointer went down on — the spike's stand-in for the editor's
-    /// paint/select dispatch, and what a headless test asserts on.</summary>
+    /// <summary>Last cell the pointer went down on — what a headless test asserts on.</summary>
     public (int X, int Y)? LastClickedCell { get; private set; }
 
+    /// <summary>Cell under the pointer, for the status readout and the hover outline.</summary>
+    public (int X, int Y)? HoverCell { get; private set; }
+
     public event EventHandler<(int X, int Y)>? CellPressed;
+
+    /// <summary>Raised for every cell a drag passes through, including the first — the paint
+    /// stroke. <see cref="StrokeEnded"/> closes the undo group.</summary>
+    public event EventHandler<(int X, int Y)>? CellPainted;
+
+    public event EventHandler? StrokeEnded;
 
     static LevelView()
     {
@@ -59,12 +67,57 @@ public class LevelView : Control
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
-        if (CellAt(e.GetPosition(this)) is { } cell)
+        if (CellAt(e.GetPosition(this)) is not { } cell) return;
+        LastClickedCell = cell;
+        CellPressed?.Invoke(this, cell);
+        if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
         {
-            LastClickedCell = cell;
-            CellPressed?.Invoke(this, cell);
-            InvalidateVisual();
+            painting = true;
+            e.Pointer.Capture(this);            // keep the stroke even if it leaves the control
+            CellPainted?.Invoke(this, cell);
+            // Seed the interpolation from the press cell, or the gap between it and the
+            // first move sample is never filled and every stroke starts with a hole.
+            lastPainted = cell;
         }
+        InvalidateVisual();
+    }
+
+    protected override void OnPointerMoved(PointerEventArgs e)
+    {
+        base.OnPointerMoved(e);
+        var cell = CellAt(e.GetPosition(this));
+        if (cell != HoverCell) { HoverCell = cell; InvalidateVisual(); }
+        // Every cell the drag crosses paints, not just the ones a move event happens to land
+        // on — at speed the pointer skips cells, and a stroke with holes in it is a bug.
+        if (painting && cell is { } c)
+        {
+            if (lastPainted is { } prev) foreach (var s in Between(prev, c)) CellPainted?.Invoke(this, s);
+            else CellPainted?.Invoke(this, c);
+            lastPainted = c;
+        }
+    }
+
+    protected override void OnPointerReleased(PointerReleasedEventArgs e)
+    {
+        base.OnPointerReleased(e);
+        if (!painting) return;
+        painting = false;
+        lastPainted = null;
+        e.Pointer.Capture(null);
+        StrokeEnded?.Invoke(this, EventArgs.Empty);
+    }
+
+    private bool painting;
+    private (int X, int Y)? lastPainted;
+
+    /// <summary>Cells on the line between two drag samples, exclusive of the start.</summary>
+    private static IEnumerable<(int X, int Y)> Between((int X, int Y) a, (int X, int Y) b)
+    {
+        int dx = Math.Abs(b.X - a.X), dy = Math.Abs(b.Y - a.Y);
+        int steps = Math.Max(dx, dy);
+        if (steps == 0) { yield return b; yield break; }
+        for (int i = 1; i <= steps; i++)
+            yield return (a.X + (b.X - a.X) * i / steps, a.Y + (b.Y - a.Y) * i / steps);
     }
 
     public override void Render(DrawingContext ctx)
@@ -82,11 +135,11 @@ public class LevelView : Control
         ctx.DrawImage(bmp, src, dst);
 
         if (ShowGrid) DrawScreenBoundaries(ctx, dst, z);
-        if (LastClickedCell is { } c)
-        {
-            var pen = new Pen(Brushes.Cyan, 1.5);
-            ctx.DrawRectangle(null, pen, new Rect(c.X * 16 * z - Origin.X, c.Y * 16 * z - Origin.Y, 16 * z, 16 * z));
-        }
+        // Hover outline only — the "last clicked" marker was spike scaffolding, and with
+        // painting wired up the cell under the cursor is the useful thing to show.
+        if (HoverCell is { } h)
+            ctx.DrawRectangle(null, new Pen(Brushes.White, 1),
+                              new Rect(h.X * 16 * z - Origin.X, h.Y * 16 * z - Origin.Y, 16 * z, 16 * z));
     }
 
     // SMW screens are 16 cells wide; the boundary lines are the editor's main orientation cue.
