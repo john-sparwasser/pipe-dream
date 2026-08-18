@@ -100,6 +100,12 @@ public partial class MainWindow : Window
             status.Text = $"grabbed {w}x{h} tiles as the brush — Esc or pick a tile to drop it";
         };
         canvas.SelectionChanged += (_, _) => UpdateStatus();
+        canvas.SpritesChanged += (_, _) =>
+        {
+            // A sprite edit changes what the overlay draws, so the level has to recompose.
+            session.RecomposeSprites(canvas.Sprites?.Sprites);
+            AdoptSession();
+        };
 
         // ---- Map16 canvas mode ----
         map16Canvas = this.GetControl<Map16CanvasView>("Map16Canvas");
@@ -223,6 +229,9 @@ public partial class MainWindow : Window
         levelNum = session.LevelNum;
         canvas.Edit = edit;
         canvas.Vertical = rom is not null && scene is not null && rom.IsVerticalMode(scene.Level.Header.LevelMode);
+        // Sprite editing works on the scene's parsed list; the overlay is the hit target.
+        canvas.Sprites = scene?.Sprites is { } sd
+            ? new SpriteEdit(sd, scene.Overlay, canvas.Vertical) : null;
         if (scene is null || rom is null) return;
 
         bitmap.SetImages(scene.Phases, scene.Width, scene.Height, 0);
@@ -283,8 +292,19 @@ public partial class MainWindow : Window
         {
             if (modeLevel.IsChecked != true) OnMode(modeLevel, new RoutedEventArgs());
             else if (brush is not null) { SetBrush(null, 1, 1); status.Text = "brush dropped"; }
-            else if (edit is { Selection.Count: > 0 })
-            { edit.Selection.Clear(); canvas.InvalidateVisual(); UpdateStatus(); }
+            else
+            {
+                // Esc cycles Layer 1 <-> sprite selection, as the ImGui editor does, and
+                // drops whatever was selected on the way.
+                canvas.Mode = canvas.Mode == LevelView.EditMode.Objects
+                    ? LevelView.EditMode.Sprites : LevelView.EditMode.Objects;
+                edit?.Selection.Clear();
+                canvas.Sprites?.Selection.Clear();
+                canvas.InvalidateVisual();
+                status.Text = canvas.Mode == LevelView.EditMode.Sprites
+                    ? "sprite mode — left-drag selects by what a sprite DRAWS, right-click places"
+                    : $"level ${levelNum:X3}";
+            }
             e.Handled = true;
         }
     }

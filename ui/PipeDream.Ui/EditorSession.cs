@@ -149,6 +149,32 @@ internal sealed class EditorSession
         catch (Exception ex) { Report($"recompose failed: {ex.Message}"); }
     }
 
+    /// <summary>
+    /// Rebuild the sprite overlay and redraw the level after a sprite edit. The overlay is an
+    /// expensive OAM capture, so it is rebuilt once per edit rather than per frame — and the
+    /// whole level image is recomposed because a moved sprite leaves its old pixels behind.
+    /// </summary>
+    public void RecomposeSprites(SpriteData? edited)
+    {
+        if (Rom is null || Scene is null || edited is null) return;
+        try
+        {
+            var overlay = SpriteOverlay.Build(Rom, edited, Scene.Level.Header, LevelNum);
+            var objects = Edit?.Objects.ToList() ?? [];
+            Scene = LevelScene.Build(Rom, LevelNum, showSprites: false);
+            // Rebuilt without sprites, then the edited overlay is drawn over every phase —
+            // LevelScene.Build would otherwise re-parse the ROM's sprite list and lose the edit.
+            for (int p = 0; p < 4; p++)
+                if (Scene.Phases[p] is { } img && Scene.Palettes[p] is { } pal)
+                    overlay.Draw(img, Scene.Width, Scene.Height, pal);
+            var next = new LevelEdit(Rom, Scene, objects);
+            next.Rerender();
+            Edit = next;
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception ex) { Report($"sprite recompose failed: {ex.Message}"); }
+    }
+
     // ---- saving ----
 
     /// <summary>Fold the live level into the project snapshot. Called before every write, and

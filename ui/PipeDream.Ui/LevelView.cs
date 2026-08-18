@@ -39,6 +39,18 @@ public class LevelView : Control
 
     public LevelBitmap? Source { get; set; }
     public LevelEdit? Edit { get; set; }
+
+    /// <summary>Sprite editing, active in <see cref="EditMode.Sprites"/>. Esc toggles between
+    /// the two modes, exactly as in the ImGui editor.</summary>
+    public SpriteEdit? Sprites { get; set; }
+
+    public enum EditMode { Objects, Sprites }
+    public EditMode Mode { get; set; } = EditMode.Objects;
+
+    /// <summary>Sprite number armed from the catalog, or -1. Right-click places it.</summary>
+    public int CatalogSprite { get; set; } = -1;
+
+    public event EventHandler? SpritesChanged;
     public int Phase { get; set; }
     public bool ShowGrid { get; set; } = true;
     public bool Vertical { get; set; }
@@ -87,6 +99,12 @@ public class LevelView : Control
     private bool painting, grabbing;
     private (int X, int Y)? lastPainted;
     private (int Obj, int Edges, int Cx, int Cy)? resizeDrag;
+    // Sprite lasso works in LEVEL PIXELS, not cells: a sprite is selected by what it draws,
+    // and its drawn area rarely lines up with its spawn cell.
+    private (int X, int Y)? pixelStart, pixelEnd;
+
+    private (int X, int Y) LevelPixel(Point p)
+        => ((int)((p.X + Origin.X) / Zoom), (int)((p.Y + Origin.Y) / Zoom));
 
     /// <summary>Edge bitmask under a screen point for the single selected object: 1 left,
     /// 2 right, 4 top, 8 bottom (corners combine). 0 = not on a handle. Mirrors the ImGui
@@ -123,6 +141,12 @@ public class LevelView : Control
         _ => StandardCursorType.Arrow,
     });
 
+    /// <summary>The sprite lasso rectangle, in level pixels.</summary>
+    public (int X, int Y, int W, int H)? PixelBand =>
+        pixelStart is { } a && pixelEnd is { } b
+            ? (Math.Min(a.X, b.X), Math.Min(a.Y, b.Y), Math.Abs(b.X - a.X), Math.Abs(b.Y - a.Y))
+            : null;
+
     public (int X, int Y, int W, int H)? Band =>
         bandStart is { } a && bandEnd is { } b
             ? (Math.Min(a.X, b.X), Math.Min(a.Y, b.Y), Math.Abs(b.X - a.X) + 1, Math.Abs(b.Y - a.Y) + 1)
@@ -136,6 +160,28 @@ public class LevelView : Control
         var props = e.GetCurrentPoint(this).Properties;
         LastClickedCell = cell;
         CellPressed?.Invoke(this, cell);
+
+        if (Mode == EditMode.Sprites && Sprites is { } sp)
+        {
+            var lp = LevelPixel(e.GetPosition(this));
+            if (props.IsRightButtonPressed)
+            {
+                // Same rule as objects: duplicate a selection, else place from the catalog.
+                bool did = sp.Selection.Count > 0 ? sp.DuplicateSelected(cell.X, cell.Y)
+                         : CatalogSprite >= 0 && sp.Place(CatalogSprite, cell.X, cell.Y);
+                if (did) SpritesChanged?.Invoke(this, EventArgs.Empty);
+            }
+            else if (props.IsLeftButtonPressed)
+            {
+                if (sp.IndexAtCell(cell.X, cell.Y) is int hit && sp.Selection.Contains(hit))
+                    moveStart = cell;
+                else { pixelStart = lp; pixelEnd = lp; }
+                bandEnd = cell;
+                e.Pointer.Capture(this);
+            }
+            InvalidateVisual();
+            return;
+        }
 
         if (props.IsRightButtonPressed)
         {
@@ -183,6 +229,21 @@ public class LevelView : Control
             lastPainted = c;
             return;
         }
+
+        if (Mode == EditMode.Sprites && Sprites is { } sp)
+        {
+            if (pixelStart is not null)
+            {
+                pixelEnd = LevelPixel(e.GetPosition(this));
+                // Live selection, in pixels: what the band touches is selected as you drag.
+                var (rx, ry, rw, rh) = PixelBand!.Value;
+                sp.SelectInPixelRect(rx, ry, rw, rh);
+                SelectionChanged?.Invoke(this, EventArgs.Empty);
+                InvalidateVisual();
+            }
+            else if (moveStart is not null) { bandEnd = c; InvalidateVisual(); }
+            return;
+        }
         // Hovering an edge of a lone selection shows the resize cursor, as the ImGui tool does.
         if (resizeDrag is null && bandStart is null && moveStart is null)
         {
@@ -216,6 +277,17 @@ public class LevelView : Control
             lastPainted = null;
             e.Pointer.Capture(null);
             StrokeEnded?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
+        if (Mode == EditMode.Sprites && Sprites is { } sp)
+        {
+            if (moveStart is { } sm && bandEnd is { } sn && sp.MoveSelected(sn.X - sm.X, sn.Y - sm.Y))
+                SpritesChanged?.Invoke(this, EventArgs.Empty);
+            pixelStart = pixelEnd = null;
+            moveStart = bandEnd = null;
+            e.Pointer.Capture(null);
+            InvalidateVisual();
             return;
         }
 
@@ -258,7 +330,13 @@ public class LevelView : Control
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
-        if (e.Key == Key.Delete && Edit is { Selection.Count: > 0 })
+        if (e.Key != Key.Delete) return;
+        if (Mode == EditMode.Sprites && Sprites is { Selection.Count: > 0 } sp)
+        {
+            if (sp.DeleteSelected()) SpritesChanged?.Invoke(this, EventArgs.Empty);
+            e.Handled = true;
+        }
+        else if (Edit is { Selection.Count: > 0 })
         {
             DeleteRequested?.Invoke(this, EventArgs.Empty);
             e.Handled = true;
@@ -290,8 +368,23 @@ public class LevelView : Control
 
         if (ShowGrid) DrawScreenBoundaries(ctx, dst, z);
 
+        if (Mode == EditMode.Sprites && Sprites is { } spv)
+        {
+            // Sprites highlight over their whole PIXEL display, not their spawn cell — the
+            // cell is often nowhere near what you can see.
+            var fill = new SolidColorBrush(Color.FromArgb(0x30, 0x00, 0xFF, 0x00));
+            var pen = new Pen(Brushes.Lime, 2);
+            foreach (int i in spv.Selection)
+            {
+                if (i >= spv.Sprites.Sprites.Count) continue;
+                var (x0, y0, x1, y1) = spv.PixelRect(i);
+                ctx.DrawRectangle(fill, pen, PixelRect(x0, y0, x1 - x0, y1 - y0, z));
+            }
+            if (PixelBand is { } pb)
+                ctx.DrawRectangle(null, new Pen(Brushes.Cyan, 1.5), PixelRect(pb.X, pb.Y, pb.W, pb.H, z));
+        }
         // Selection: the object's real footprint, from the tracked render.
-        if (Edit is { } ed)
+        else if (Edit is { } ed)
         {
             var pen = new Pen(Brushes.DodgerBlue, 1.5);
             foreach (int i in ed.Selection)
@@ -319,6 +412,9 @@ public class LevelView : Control
 
     private Rect CellRect(int x, int y, int w, int h, double z)
         => new(x * 16 * z - Origin.X, y * 16 * z - Origin.Y, w * 16 * z, h * 16 * z);
+
+    private Rect PixelRect(int x, int y, int w, int h, double z)
+        => new(x * z - Origin.X, y * z - Origin.Y, w * z, h * z);
 
     /// <summary>Knobs on the enabled edges' midpoints and on all corners (a corner resizes
     /// whichever axes are enabled), vector-editor style — same layout as the ImGui tool.</summary>
