@@ -111,6 +111,44 @@ public class BgImageTests
         Assert.Contains(cat, c => c.Page == 1);
     }
 
+    /// <summary>BG tiles resolve through their OWN Map16 table (fixed $0D9100 + idx*8), indexed
+    /// by the 9-bit page&lt;&lt;8|low — not the tileset-dependent FG tables, and not the low byte
+    /// alone. Since the page comes from the stream's address, masking the index to 8 bits would
+    /// silently render every page-1 background with page-0 definitions. This pins the renderer's
+    /// side of that contract: a page-1 index must select the page-1 cache entry.</summary>
+    [Fact]
+    public void the_renderer_indexes_bg_defs_with_the_full_9_bit_page_index()
+    {
+        // A cache where entry n is a solid colour encoding n, so the drawn pixel names the
+        // definition that was chosen.
+        var cache = new uint[0x200][];
+        for (int i = 0; i < cache.Length; i++)
+        {
+            cache[i] = new uint[16 * 16];
+            Array.Fill(cache[i], (uint)(0xFF000000 | i));
+        }
+        var bg = new ushort[BgImage.Tiles];
+        Array.Fill(bg, (ushort)0x125);          // page 1, tile $25
+        bg[0] = 0x1AB;                          // page 1, tile $AB in the top-left cell
+
+        var img = new uint[16 * 16];
+        Map16.DrawBgImage(img, 16, 16, 1, bg, cache);
+        Assert.Equal(0xFF0001ABu, img[0]);      // page bit honoured, def $1AB chosen
+        Assert.NotEqual(0xFF0000ABu, img[0]);   // NOT the page-0 twin
+    }
+
+    [RealRomFact]
+    public void bg_defs_come_from_the_fixed_table_not_the_tileset_fg_tables()
+    {
+        var rom = Rom.Load(TestRom.RealRomPath);
+        // Map16.DefFileOffset routes the BG range ($4000-$41FF) at the fixed table, which is
+        // what the Map16 editor writes through — the same 0x200 defs the renderer composes.
+        for (int idx = 0; idx < 0x200; idx += 0x7F)
+            Assert.Equal(rom.FileOffset(0x0D9100 + idx * 8), Map16.DefFileOffset(rom, 0, 0x4000 + idx));
+        // A different TILESET must not move them: BG defs are tileset-independent.
+        Assert.Equal(Map16.DefFileOffset(rom, 0, 0x4100), Map16.DefFileOffset(rom, 7, 0x4100));
+    }
+
     // Decode straight from a byte[] so the codec can be exercised without a ROM.
     private static byte[] DecodeBytes(byte[] rle)
     {
