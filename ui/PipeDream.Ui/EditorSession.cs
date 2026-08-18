@@ -175,6 +175,50 @@ internal sealed class EditorSession
         catch (Exception ex) { Report($"sprite recompose failed: {ex.Message}"); }
     }
 
+    /// <summary>
+    /// Apply a level-header edit. The header is session state on the Rom (an override keyed by
+    /// level), and every field of it changes how the level parses — the tileset drives object
+    /// dispatch, the palette fields drive every tile cache — so this stashes the current level
+    /// first and then reparses from scratch.
+    /// </summary>
+    public void ApplyHeader(LevelHeader header)
+    {
+        if (Rom is null || Scene is null) return;
+        StashCurrent();
+        Rom.LevelHeaderOverrides[LevelNum] = header.ToBytes();
+        ShowLevel(LevelNum);
+        Project?.MarkDirty();
+    }
+
+    /// <summary>Drop the header edit and go back to the base ROM's header.</summary>
+    public void RevertHeader()
+    {
+        if (Rom is null) return;
+        StashCurrent();
+        Rom.LevelHeaderOverrides.Remove(LevelNum);
+        ShowLevel(LevelNum);
+        Project?.MarkDirty();
+    }
+
+    /// <summary>
+    /// Write the main-entrance record. It is per level but lives OUTSIDE the level's data, in
+    /// its own bank-05 tables, so like Map16 it is written straight into the session ROM and
+    /// re-read from there at save time rather than being carried in the level state.
+    /// </summary>
+    public void ApplyEntry(MainEntrance entry)
+    {
+        if (Rom is null || Rom.ReadMainEntrance(LevelNum) == entry) return;
+        Rom.WriteMainEntrance(LevelNum, entry);
+        if (Project is not null)
+        {
+            Project.Data.Level(LevelNum).MainEntrance = Convert.ToHexString(entry.ToBytes());
+            Project.MarkDirty();
+        }
+        touched.Add(LevelNum);
+    }
+
+    public bool HasHeaderOverride => Rom?.LevelHeaderOverrides.ContainsKey(LevelNum) == true;
+
     // ---- saving ----
 
     /// <summary>Fold the live level into the project snapshot. Called before every write, and

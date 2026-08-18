@@ -418,6 +418,26 @@ public partial class MainWindow : Window
         UpdateTitle();
     }
 
+    /// <summary>Level header + main entrance, staged in a dialog and applied in one go: every
+    /// header field forces a full reparse, so live-applying a slider would be unusable.</summary>
+    private async void OnLevelProperties(object? sender, RoutedEventArgs e)
+    {
+        if (rom is null || scene is null) return;
+        var dlg = new LevelPropertiesWindow(scene.Level.Header, rom.ReadMainEntrance(levelNum),
+                                            session.HasHeaderOverride);
+        await dlg.ShowDialog(this);
+
+        if (dlg.RevertRequested) { session.RevertHeader(); AdoptSession(); status.Text = "header reverted"; return; }
+        if (dlg.AppliedEntry is { } en) session.ApplyEntry(en);
+        if (dlg.AppliedHeader is { } h && h != scene.Level.Header)
+        {
+            session.ApplyHeader(h);
+            AdoptSession();
+            status.Text = $"header applied — {Convert.ToHexString(h.ToBytes())}";
+        }
+        UpdateTitle();
+    }
+
     private async void OnSetVanilla(object? sender, RoutedEventArgs e)
     {
         if (await PickFile("Choose your verified vanilla SMW ROM", RomType) is not { } p) return;

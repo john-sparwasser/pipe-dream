@@ -75,6 +75,9 @@
         <MenuItem Header="_Undo" Click="OnUndo" InputGesture="Ctrl+Z"/>
         <MenuItem Header="_Redo" Click="OnRedo" InputGesture="Ctrl+Y"/>
       </MenuItem>
+      <MenuItem Header="_Level">
+        <MenuItem Header="_Properties…" Click="OnLevelProperties" InputGesture="Ctrl+L"/>
+      </MenuItem>
       <MenuItem Header="_View">
         <MenuItem Header="Toggle _palette" Click="OnTogglePalette" InputGesture="Ctrl+P"/>
         <MenuItem Header="Screen _grid" Click="OnToggleGrid" InputGesture="Ctrl+G"/>
