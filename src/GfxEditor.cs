@@ -107,12 +107,27 @@ internal sealed class GfxEditor(EditorApp app)
 
     /// <summary>Replay stroke bytes into the file's CURRENT array — re-looked-up by id and
     /// bounds-checked, so a re-import that replaced (or removed) the array can't crash or
-    /// corrupt a replay.</summary>
+    /// corrupt a replay.
+    ///
+    /// UNDO WALKS BACKWARD. A stroke records one entry per byte WRITE, not per byte, and a
+    /// single plane byte carries 8 pixels of a tile row — so painting along a row (or any
+    /// fill) rewrites the same offset repeatedly: (off,A,B), (off,B,C), (off,C,D). Restoring
+    /// those front-to-back ends on C, the second-to-last value, leaving most of the stroke
+    /// painted. Last-to-first unwinds D→C→B→A and lands on the original. Redo is order-
+    /// independent for a given offset (the last write wins either way) but stays forward so
+    /// it mirrors the paint order. AbortStroke already reverses for the same reason.</summary>
     internal static void ApplyStroke(Rom rom, int file, (int off, byte before, byte after)[] edits, bool redo)
     {
         if (!rom.ImportedGfx.TryGetValue(file, out var g)) return;
-        foreach (var (off, before, after) in edits)
-            if (off >= 0 && off < g.Length) g[off] = redo ? after : before;
+        if (redo)
+            foreach (var (off, _, after) in edits)
+                { if (off >= 0 && off < g.Length) g[off] = after; }
+        else
+            for (int i = edits.Length - 1; i >= 0; i--)
+            {
+                var (off, before, _) = edits[i];
+                if (off >= 0 && off < g.Length) g[off] = before;
+            }
     }
 
     // ---- stroke lifecycle ----

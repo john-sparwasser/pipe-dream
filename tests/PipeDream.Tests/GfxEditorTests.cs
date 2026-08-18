@@ -143,4 +143,39 @@ public class GfxEditorTests
         rom.ImportedGfx.Remove(0x100);
         GfxEditor.ApplyStroke(rom, 0x100, edits, redo: false);  // missing id: silent no-op
     }
+
+    /// <summary>Regression: undo has to walk the stroke BACKWARD. A stroke records one entry
+    /// per byte WRITE, and one plane byte carries 8 pixels of a tile row, so painting along a
+    /// row rewrites the same offsets repeatedly — (off,A,B) then (off,B,C). Replaying those
+    /// forward on undo ends at B, the second-to-last value, so most of the stroke stays
+    /// painted. The single-pixel case above cannot catch it: its three offsets are distinct.</summary>
+    [Fact]
+    public void undo_restores_the_original_bytes_when_a_stroke_rewrites_one_offset_repeatedly()
+    {
+        var rom = TestRom.Create();
+        var g = new byte[24];
+        rom.ImportedGfx[0x100] = g;
+        byte[] original = (byte[])g.Clone();
+
+        // Four pixels along row 0 of the same tile: every write hits offsets 0, 1 and 16.
+        var stroke = new List<(int off, byte before, byte after)>();
+        for (int x = 0; x < 4; x++) GfxEditor.WritePixel(g, 0, 3, x, 0, 7, stroke);
+        Assert.True(stroke.Count > 4, "expected repeated writes to the same plane offsets");
+        var painted = (byte[])g.Clone();
+        Assert.NotEqual(original, painted);
+
+        GfxEditor.ApplyStroke(rom, 0x100, stroke.ToArray(), redo: false);
+        Assert.Equal(original, g);          // the WHOLE stroke is gone, not just its tail
+
+        GfxEditor.ApplyStroke(rom, 0x100, stroke.ToArray(), redo: true);
+        Assert.Equal(painted, g);           // and redo puts all of it back
+
+        // A fill covers a whole region, so it repeats offsets even harder.
+        var fill = new List<(int off, byte before, byte after)>();
+        byte[] beforeFill = (byte[])g.Clone();
+        GfxEditor.FillTile(g, 3, 0, 0, 3, fill);
+        Assert.NotEqual(beforeFill, g);
+        GfxEditor.ApplyStroke(rom, 0x100, fill.ToArray(), redo: false);
+        Assert.Equal(beforeFill, g);
+    }
 }

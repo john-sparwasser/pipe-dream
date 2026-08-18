@@ -331,8 +331,14 @@ internal sealed class Map16Editor(EditorApp app)
         var r = app.rom!;
         void Apply(bool redo)
         {
-            foreach (var (fo, before, after) in edits)
+            // Undo walks backward, for the reason spelled out on GfxEditor.ApplyStroke: a
+            // stroke records one entry per WRITE, so a repeated offset would otherwise be
+            // restored to an intermediate value. StampDefWord skips same-value rewrites, so
+            // repeats need the value at one offset to change mid-stroke — reversing costs
+            // nothing when offsets are distinct and removes the hazard either way.
+            for (int i = 0; i < edits.Length; i++)
             {
+                var (fo, before, after) = edits[redo ? i : edits.Length - 1 - i];
                 ushort v = redo ? after : before;
                 r.Data[fo] = (byte)v; r.Data[fo + 1] = (byte)(v >> 8);
             }
