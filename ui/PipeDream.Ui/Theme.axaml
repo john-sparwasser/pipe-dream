@@ -38,9 +38,21 @@
   <SolidColorBrush x:Key="SelectionBrush" Color="{StaticResource SelectionColor}"/>
 
   <!-- Fluent's own tokens, repointed so stock controls inherit the palette instead of
-       fighting it. Without this the combo boxes and menus stay default-blue. -->
+       fighting it. Without this the combo boxes and menus stay default-blue.
+
+       MIND THE TYPE. Fluent's SystemAccentColor* keys are Color resources, not brushes: its
+       templates do Color="{DynamicResource SystemAccentColorLight1}", so handing them a
+       SolidColorBrush throws InvalidCastException the moment a control resolves the style —
+       which is on pointer-over, not at startup, so it looks like a random crash while using
+       the app. Keys ending in "Brush" take a brush; the rest take a Color. -->
+  <Color x:Key="SystemAccentColor">#D2691E</Color>
+  <Color x:Key="SystemAccentColorLight1">#E67E33</Color>
+  <Color x:Key="SystemAccentColorLight2">#EE9455</Color>
+  <Color x:Key="SystemAccentColorLight3">#F3AC7C</Color>
+  <Color x:Key="SystemAccentColorDark1">#B4571A</Color>
+  <Color x:Key="SystemAccentColorDark2">#8F4514</Color>
+  <Color x:Key="SystemAccentColorDark3">#6B330F</Color>
+
   <SolidColorBrush x:Key="SystemControlBackgroundAltHighBrush" Color="{StaticResource PanelColor}"/>
-  <SolidColorBrush x:Key="SystemAccentColorLight1" Color="{StaticResource AccentHoverColor}"/>
-  <SolidColorBrush x:Key="SystemAccentColorDark1" Color="{StaticResource AccentColor}"/>
 
 </ResourceDictionary>
