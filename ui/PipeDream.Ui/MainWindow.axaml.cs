@@ -20,6 +20,7 @@ namespace PipeDream.Ui;
 public partial class MainWindow : Window
 {
     private readonly LevelBitmap bitmap = new();
+    private readonly EditorSession session = new();
     private Rom? rom;
     private LevelScene? scene;
     private int levelNum = 0x105;
@@ -120,38 +121,47 @@ public partial class MainWindow : Window
 
     private void LoadRom(string path)
     {
-        try
-        {
-            rom = Rom.Load(path);
-            levelNum = Program.LevelNum;
-            levelBox.SelectedIndex = levelNum;      // fires OnLevelChanged → ShowLevel
-            if (scene is null) ShowLevel(levelNum); // ...unless the index was already there
-        }
-        catch (Exception ex) { status.Text = "could not open: " + ex.Message; }
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        if (!session.OpenRom(path)) { status.Text = session.Status; return; }
+        composeMs = sw.Elapsed.TotalMilliseconds;
+        AdoptSession();
+        levelBox.SelectedIndex = session.LevelNum;
+    }
+
+    /// <summary>Pull the window's views onto whatever the session currently holds. One path
+    /// for every way the session can change — opening a ROM, opening a project, switching
+    /// level — so a new entry point cannot forget half the refresh.</summary>
+    private void AdoptSession()
+    {
+        rom = session.Rom;
+        scene = session.Scene;
+        edit = session.Edit;
+        levelNum = session.LevelNum;
+        if (scene is null || rom is null) return;
+
+        bitmap.SetImages(scene.Phases, scene.Width, scene.Height, 0);
+        canvas.InvalidateMeasure();
+        canvas.InvalidateVisual();
+
+        var (px, w, h) = scene.Sheet();
+        palette.SetSheet(px, w, h, rom.Map16TileCount);
+        UpdateStatus();
+        UpdateTitle();
     }
 
     private void ShowLevel(int num)
     {
-        if (rom is null) return;
-        try
-        {
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            scene = LevelScene.Build(rom, num);
-            double ms = sw.Elapsed.TotalMilliseconds;
-
-            bitmap.SetImages(scene.Phases, scene.Width, scene.Height, 0);
-            canvas.InvalidateMeasure();
-            canvas.InvalidateVisual();
-
-            var (px, w, h) = scene.Sheet();
-            palette.SetSheet(px, w, h, rom.Map16TileCount);
-
-            edit = new LevelEdit(rom, scene, scene.Level.Objects);
-            composeMs = ms;
-            UpdateStatus();
-        }
-        catch (Exception ex) { status.Text = $"level ${num:X3}: {ex.Message}"; }
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        session.ShowLevel(num);
+        composeMs = sw.Elapsed.TotalMilliseconds;
+        AdoptSession();
     }
+
+    private void UpdateTitle()
+        => Title = session.Project is { } p
+            ? $"pipe-dream — {p.Name}{(session.HasUnsavedWork ? " *" : "")}"
+            : session.RomPath is { } r ? $"pipe-dream — {Path.GetFileName(r)} (no project)"
+            : "pipe-dream";
 
     private double composeMs;
 
@@ -193,16 +203,83 @@ public partial class MainWindow : Window
 
     // ---- handlers referenced from XAML ----
 
+    private static FilePickerFileType RomType => new("SNES ROM") { Patterns = ["*.smc", "*.sfc"] };
+    private static FilePickerFileType ProjectType => new("pipe-dream project") { Patterns = ["*.pdp"] };
+
+    private async Task<string?> PickFile(string title, FilePickerFileType type)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = title, AllowMultiple = false, FileTypeFilter = [type],
+        });
+        return files.Count > 0 ? files[0].TryGetLocalPath() : null;
+    }
+
     private async void OnOpenRom(object? sender, RoutedEventArgs e)
     {
         // A real native file dialog, which ImGui cannot do — it draws its own.
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        if (await PickFile("Open SMW ROM", RomType) is { } p) LoadRom(p);
+    }
+
+    private async void OnOpenProject(object? sender, RoutedEventArgs e)
+    {
+        if (await PickFile("Open project", ProjectType) is not { } p) return;
+        session.OpenProject(p);
+        status.Text = session.Status;
+        AdoptSession();
+        levelBox.SelectedIndex = session.LevelNum;
+    }
+
+    /// <summary>New project: pick the folder to create it in, then the base ROM. A verified
+    /// vanilla base is prepped automatically, which is why no "prep?" question is asked.</summary>
+    private async void OnNewProject(object? sender, RoutedEventArgs e)
+    {
+        var dirs = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
-            Title = "Open SMW ROM",
-            AllowMultiple = false,
-            FileTypeFilter = [new FilePickerFileType("SNES ROM") { Patterns = ["*.smc", "*.sfc"] }],
+            Title = "Choose a folder for the new project", AllowMultiple = false,
         });
-        if (files.Count > 0 && files[0].TryGetLocalPath() is { } p) LoadRom(p);
+        if (dirs.Count == 0 || dirs[0].TryGetLocalPath() is not { } folder) return;
+
+        string? baseRom = session.Config.VanillaRomPath is { } v && File.Exists(v)
+            ? v : await PickFile("Choose the base ROM", RomType);
+        if (baseRom is null) return;
+
+        // Project.Create refuses to overwrite an existing base, so give it its own folder and
+        // step the name until one is free rather than failing on the second project.
+        string stem = Path.GetFileNameWithoutExtension(baseRom) + "-project";
+        string target = Path.Combine(folder, stem);
+        for (int n = 2; Directory.Exists(target); n++) target = Path.Combine(folder, $"{stem}-{n}");
+
+        session.NewProject(target, baseRom);
+        status.Text = session.Status;
+        AdoptSession();
+        levelBox.SelectedIndex = session.LevelNum;
+    }
+
+    private void OnSave(object? sender, RoutedEventArgs e)
+    {
+        status.Text = session.Save();
+        UpdateTitle();
+    }
+
+    private void OnBuild(object? sender, RoutedEventArgs e)
+    {
+        status.Text = session.Build();
+        UpdateTitle();
+    }
+
+    private void OnExportBps(object? sender, RoutedEventArgs e)
+    {
+        status.Text = session.ExportBps();
+        UpdateTitle();
+    }
+
+    private async void OnSetVanilla(object? sender, RoutedEventArgs e)
+    {
+        if (await PickFile("Choose your verified vanilla SMW ROM", RomType) is not { } p) return;
+        session.Config.VanillaRomPath = p;
+        session.Config.Save();
+        status.Text = "vanilla ROM set — new projects will prep from it";
     }
 
     private void OnExit(object? sender, RoutedEventArgs e) => Close();

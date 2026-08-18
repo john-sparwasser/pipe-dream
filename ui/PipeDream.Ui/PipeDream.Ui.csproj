@@ -19,8 +19,14 @@
     <PackageReference Include="Tmds.DBus.Protocol" Version="0.21.3" />
   </ItemGroup>
 
-  <!-- Spike only: reference the existing app project for the ROM/level core. Phase 1
-       extracts a real PipeDream.Core library; this keeps the spike cheap. -->
+  <!-- EditorSession is internal because the project layer it wraps is; the UI tests drive
+       the whole open/edit/save/build cycle through it. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="PipeDream.Ui.Tests" />
+  </ItemGroup>
+
+  <!-- Mid-migration: reference the existing app project for the ROM/level core. Phase 1
+       extracts a real PipeDream.Core library. -->
   <ItemGroup>
     <ProjectReference Include="..\..\PipeDream.csproj" />
   </ItemGroup>

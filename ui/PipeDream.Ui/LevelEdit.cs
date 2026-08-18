@@ -130,8 +130,16 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         Layer1 = [.. objects],
         Layer2 = Scene.Layer2 is null ? null : baseLayer2,
         BaseLayer2 = baseLayer2,
-        Sprites = Scene.Sprites,
+        Sprites = HydratedSprites ?? Scene.Sprites,
     };
+
+    /// <summary>Sprites restored from the project, which win over the ROM's parsed list.</summary>
+    public SpriteData? HydratedSprites { get; set; }
+
+    /// <summary>Render the object stream over the scene without recording an edit — used when
+    /// a level is hydrated from the project, where the pixels must come from the saved
+    /// objects rather than the base ROM's parse.</summary>
+    public void Rerender() => Reconcile();
 
     /// <summary>Layer-2 objects are not editable here yet; carrying the base stream through
     /// unchanged is what keeps Stash from recording an edit that never happened.</summary>

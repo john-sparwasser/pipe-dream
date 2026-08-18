@@ -59,7 +59,15 @@
 
     <Menu DockPanel.Dock="Top">
       <MenuItem Header="_File">
-        <MenuItem Header="_Open ROM…" Click="OnOpenRom" InputGesture="Ctrl+O"/>
+        <MenuItem Header="_New Project…" Click="OnNewProject" InputGesture="Ctrl+N"/>
+        <MenuItem Header="_Open Project…" Click="OnOpenProject" InputGesture="Ctrl+O"/>
+        <MenuItem Header="Open _ROM…" Click="OnOpenRom"/>
+        <Separator/>
+        <MenuItem Header="_Save" Click="OnSave" InputGesture="Ctrl+S"/>
+        <MenuItem Header="_Build ROM" Click="OnBuild" InputGesture="Ctrl+B"/>
+        <MenuItem Header="Export _BPS patch" Click="OnExportBps"/>
+        <Separator/>
+        <MenuItem Header="Set vanilla ROM…" Click="OnSetVanilla"/>
         <Separator/>
         <MenuItem Header="E_xit" Click="OnExit"/>
       </MenuItem>

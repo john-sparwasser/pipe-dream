@@ -1,0 +1,122 @@
+using Avalonia.Headless.XUnit;
+using PipeDream.Ui;
+using Xunit;
+using Xunit.Abstractions;
+
+namespace PipeDream.Ui.Tests;
+
+/// <summary>
+/// The whole cycle without a window: new project → edit → save → reopen → build.
+///
+/// This is the test the ImGui editor could never have. Its save path was welded to the view,
+/// so "does an edit actually reach the built ROM" was only answerable by a human clicking
+/// through the GUI and then inspecting a ROM — which is how an edit that renders perfectly
+/// and saves nothing survives review.
+/// </summary>
+public class SessionTests(ITestOutputHelper log) : IDisposable
+{
+    private readonly ITestOutputHelper log = log;
+    // Project.Create makes the folder (and its parents), so nothing needs creating here.
+    private readonly string dir = Path.Combine(Path.GetTempPath(), "pduisess-" + Guid.NewGuid().ToString("N")[..8]);
+
+    public void Dispose() { try { Directory.Delete(dir, recursive: true); } catch { } }
+
+    private static string Vanilla => Path.Combine(
+        Environment.GetEnvironmentVariable("PIPEDREAM_SMW_ROOT") ?? @"C:\SMW\Projects",
+        ".resources", "SMW.smc");
+
+    private static bool HaveRom => File.Exists(Vanilla);
+
+    [Fact]
+    public void a_painted_stroke_reaches_the_project_and_then_the_built_rom()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+
+        var session = new EditorSession();
+        Assert.True(session.NewProject(Path.Combine(dir, "proj"), Vanilla), session.Status);
+        Assert.NotNull(session.Project);
+        Assert.NotNull(session.Edit);
+
+        // A vanilla base is prepped on create, so Direct Map16 placement works.
+        Assert.Null(session.Edit!.TilePlacementBlocked);
+        int before = session.Edit.Objects.Count;
+
+        session.ShowLevel(0x105);
+        for (int x = 4; x < 14; x++) session.Edit!.Paint(x, 6, 0x100);
+        session.Edit!.EndStroke();
+        Assert.True(session.Edit.Objects.Count > before);
+
+        session.Save();
+        log.WriteLine(session.Status);
+
+        // The .pdp on disk carries the objects — not just the in-memory project.
+        var reopened = Project.Open(session.Project!.FilePath);
+        var lvl = reopened.Data.Level(0x105);
+        Assert.NotEmpty(lvl.Objects);
+        Assert.Contains(lvl.Objects, o => o.ToLevelObject().IsDm16);
+
+        // ...and the build turns them into a real ROM.
+        var (status, outPath) = RomBuilder.Build(reopened);
+        Assert.NotNull(outPath);
+        Assert.True(File.Exists(outPath), status);
+        log.WriteLine($"built {outPath}");
+
+        // The built ROM's level really contains the placed tile.
+        var built = Rom.Load(outPath!);
+        var parsed = LevelParser.Parse(built, 0x105);
+        Assert.Contains(parsed.Objects, o => o.IsDm16 && o.Dm16Tile == 0x100);
+    }
+
+    [Fact]
+    public void reopening_a_saved_project_restores_the_edits()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+
+        var a = new EditorSession();
+        Assert.True(a.NewProject(Path.Combine(dir, "proj"), Vanilla), a.Status);
+        string pdp = a.Project!.FilePath;
+        a.ShowLevel(0x105);
+        for (int x = 4; x < 10; x++) a.Edit!.Paint(x, 6, 0x100);
+        a.Edit!.EndStroke();
+        int objects = a.Edit.Objects.Count;
+        a.Save();
+
+        var b = new EditorSession();
+        Assert.True(b.OpenProject(pdp), b.Status);
+        b.ShowLevel(0x105);
+
+        Assert.Equal(objects, b.Edit!.Objects.Count);
+        Assert.Equal(0x100, b.Scene!.Grid.Get(6, 6));
+    }
+
+    /// <summary>Switching level must not lose the level you are leaving — the session stashes
+    /// on the way out, which is the difference between "autosave" and "autolose".</summary>
+    [Fact]
+    public void leaving_a_level_commits_its_edits()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+
+        var s = new EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), Vanilla), s.Status);
+        s.ShowLevel(0x105);
+        for (int x = 4; x < 10; x++) s.Edit!.Paint(x, 6, 0x100);
+        s.Edit!.EndStroke();
+
+        s.ShowLevel(0x106);                       // walk away without saving explicitly
+        Assert.NotEmpty(s.Project!.Data.Level(0x105).Objects);
+
+        s.ShowLevel(0x105);                       // and coming back finds them
+        Assert.Equal(0x100, s.Scene!.Grid.Get(6, 6));
+    }
+
+    [Fact]
+    public void a_rom_opened_without_a_project_says_so_rather_than_pretending_to_save()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new EditorSession();
+        Assert.True(s.OpenRom(Vanilla));
+        Assert.Null(s.Project);
+        Assert.Contains("no project", s.Save());
+        Assert.Contains("no project", s.Build());
+    }
+}
