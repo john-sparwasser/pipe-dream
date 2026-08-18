@@ -1,0 +1,105 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="clr-namespace:PipeDream.Ui"
+        x:Class="PipeDream.Ui.MainWindow"
+        Title="pipe-dream" Width="1400" Height="860"
+        Background="#1B1B1B" RequestedThemeVariant="Dark">
+
+  <Window.Styles>
+    <!-- Header mode toggle: the canvas IS the editor, so switching editors is a canvas mode
+         rather than another panel competing for the drawer. -->
+    <Style Selector="ToggleButton.mode">
+      <Setter Property="Padding" Value="14,5"/>
+      <Setter Property="MinWidth" Value="76"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="CornerRadius" Value="4"/>
+      <Setter Property="Foreground" Value="#9A9A9A"/>
+    </Style>
+    <Style Selector="ToggleButton.mode:checked /template/ ContentPresenter">
+      <Setter Property="Background" Value="#C05A17"/>
+      <Setter Property="TextBlock.Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Border.panel">
+      <Setter Property="Background" Value="#222222"/>
+      <Setter Property="BorderBrush" Value="#333333"/>
+    </Style>
+    <Style Selector="TextBlock.dim">
+      <Setter Property="Foreground" Value="#7C7C7C"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+  </Window.Styles>
+
+  <DockPanel>
+
+    <Menu DockPanel.Dock="Top" Background="#242424">
+      <MenuItem Header="_File">
+        <MenuItem Header="_Open ROM…" Click="OnOpenRom" InputGesture="Ctrl+O"/>
+        <Separator/>
+        <MenuItem Header="E_xit" Click="OnExit"/>
+      </MenuItem>
+      <MenuItem Header="_View">
+        <MenuItem Header="Toggle _palette" Click="OnTogglePalette" InputGesture="Ctrl+P"/>
+        <MenuItem Header="Show screen _grid" Click="OnToggleGrid" InputGesture="Ctrl+G"/>
+      </MenuItem>
+    </Menu>
+
+    <!-- Header: canvas-mode toggle + per-mode controls -->
+    <Border DockPanel.Dock="Top" Classes="panel" BorderThickness="0,0,0,1" Padding="8,6">
+      <StackPanel Orientation="Horizontal" Spacing="6">
+        <ToggleButton x:Name="ModeLevel" Classes="mode" Content="Level" IsChecked="True" Click="OnMode"/>
+        <ToggleButton x:Name="ModeMap16" Classes="mode" Content="Map16" Click="OnMode"/>
+        <ToggleButton x:Name="ModeGfx"   Classes="mode" Content="GFX"   Click="OnMode"/>
+
+        <Rectangle Width="1" Margin="8,2" Fill="#3A3A3A"/>
+
+        <TextBlock Classes="dim" Text="level"/>
+        <ComboBox x:Name="LevelBox" Width="104" SelectionChanged="OnLevelChanged"/>
+
+        <TextBlock Classes="dim" Text="zoom" Margin="8,0,0,0"/>
+        <Slider x:Name="ZoomSlider" Width="130" Minimum="1" Maximum="6" Value="2"
+                TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center"/>
+        <TextBlock x:Name="ZoomLabel" Classes="dim" Width="28"/>
+      </StackPanel>
+    </Border>
+
+    <!-- Status bar -->
+    <Border DockPanel.Dock="Bottom" Classes="panel" BorderThickness="0,1,0,0" Padding="10,4">
+      <Grid ColumnDefinitions="*,Auto">
+        <TextBlock x:Name="Status" Classes="dim" Text="no ROM loaded — File ▸ Open ROM"/>
+        <TextBlock x:Name="Hover" Grid.Column="1" Classes="dim"/>
+      </Grid>
+    </Border>
+
+    <!-- Left palette drawer: what you pick here is what you paint in the canvas -->
+    <Border x:Name="Drawer" DockPanel.Dock="Left" Classes="panel"
+            BorderThickness="0,0,1,0" Width="290">
+      <DockPanel>
+        <TabStrip x:Name="PaletteTabs" DockPanel.Dock="Top" Background="#1E1E1E">
+          <TabStripItem Content="Map16" IsSelected="True"/>
+          <TabStripItem Content="Sprites"/>
+          <TabStripItem Content="Objects"/>
+        </TabStrip>
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="4" Margin="8,6">
+          <TextBlock Classes="dim" Text="bank"/>
+          <ComboBox x:Name="BankBox" Width="66" SelectedIndex="0">
+            <ComboBoxItem Content="0 FG"/>
+            <ComboBoxItem Content="1 FG"/>
+            <ComboBoxItem Content="2 BG"/>
+          </ComboBox>
+          <TextBlock x:Name="SelLabel" Classes="dim" Margin="6,0,0,0"/>
+        </StackPanel>
+        <ScrollViewer HorizontalScrollBarVisibility="Auto">
+          <ui:Map16PaletteView x:Name="Palette"/>
+        </ScrollViewer>
+      </DockPanel>
+    </Border>
+
+    <!-- Canvas fills whatever is left -->
+    <ScrollViewer x:Name="CanvasScroll" Background="#101010"
+                  HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+      <ui:LevelView x:Name="Canvas"/>
+    </ScrollViewer>
+
+  </DockPanel>
+</Window>

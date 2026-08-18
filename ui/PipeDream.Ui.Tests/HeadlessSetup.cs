@@ -14,7 +14,7 @@ namespace PipeDream.Ui.Tests;
 public static class HeadlessSetup
 {
     public static AppBuilder BuildAvaloniaApp()
-        => AppBuilder.Configure<SpikeApp>().UseHeadless(new AvaloniaHeadlessPlatformOptions
+        => AppBuilder.Configure<App>().UseHeadless(new AvaloniaHeadlessPlatformOptions
         {
             // Skia off: these tests assert layout, hit-testing and state, not pixels.
             UseHeadlessDrawing = true,

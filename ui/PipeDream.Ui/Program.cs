@@ -9,10 +9,10 @@ namespace PipeDream.Ui;
 ///
 /// Usage: PipeDream.Ui.exe [romPath] [levelHex]
 /// </summary>
-internal static class Program
+public static class Program
 {
-    internal static string? RomPath;
-    internal static int LevelNum = 0x105;
+    public static string? RomPath;
+    public static int LevelNum = 0x105;
 
     [STAThread]
     public static void Main(string[] args)
@@ -24,5 +24,5 @@ internal static class Program
     }
 
     public static AppBuilder BuildAvaloniaApp()
-        => AppBuilder.Configure<SpikeApp>().UsePlatformDetect().LogToTrace();
+        => AppBuilder.Configure<App>().UsePlatformDetect().LogToTrace();
 }

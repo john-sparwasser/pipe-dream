@@ -82,4 +82,27 @@ public sealed class LevelBitmap : IDisposable
     {
         for (int p = 0; p < 4; p++) { bmps[p]?.Dispose(); bmps[p] = null; imgs[p] = null; }
     }
+
+    /// <summary>One-shot: composed RGBA pixels to a bitmap, for the static sheets (Map16
+    /// picker, GFX sheets) that do not animate per phase.</summary>
+    public static WriteableBitmap FromPixels(uint[] px, int w, int h)
+    {
+        var bmp = new WriteableBitmap(new PixelSize(w, h), new Vector(96, 96),
+                                      PixelFormat.Rgba8888, AlphaFormat.Premul);
+        using var fb = bmp.Lock();
+        int rowBytes = w * 4;
+        unsafe
+        {
+            fixed (uint* src = px)
+            {
+                var dst = (byte*)fb.Address;
+                if (fb.RowBytes == rowBytes)
+                    Buffer.MemoryCopy(src, dst, (long)rowBytes * h, (long)rowBytes * h);
+                else
+                    for (int y = 0; y < h; y++)
+                        Buffer.MemoryCopy(src + (long)y * w, dst + (long)y * fb.RowBytes, rowBytes, rowBytes);
+            }
+        }
+        return bmp;
+    }
 }

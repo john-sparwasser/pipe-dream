@@ -54,33 +54,10 @@ internal sealed class Map16Editor(EditorApp app)
         if (m16Stroke.Count > 0 && !ImGui.IsMouseDown(ImGuiMouseButton.Right)) CommitM16Stroke();
     }
 
-    /// <summary>Whether a tile's page can be brought into existence. Banks 0-1 (tiles
-    /// 0x200-0x3FFF) are the four lookup-ladder ranges EnsureMap16Tiles can allocate and
-    /// prep v3 dispatches to; bank 2 is the BG table, a fixed 0x200 defs at $0D9100 that
-    /// cannot grow at all. Whether a specific BASE honours a range is EnsureMap16Tiles'
-    /// answer, not this one — a prep-v2 base reports the upgrade hint instead.</summary>
-    internal static bool CanAllocate(int tile) => tile is >= 0x200 and < 0x4000;
-
-    internal const int BankTiles = 0x2000, BankRows = BankTiles / 16;
-
-    /// <summary>
-    /// Which rows of the shared FG sheet belong to <paramref name="bank"/>, and how many of
-    /// its tiles are allocated: (v0, v1, rows, count). Rows 0 means the bank shows nothing.
-    ///
-    /// Pure arithmetic on purpose — this is where "bank 1 renders nothing" lived. The FG
-    /// sheet is ONE texture covering every allocated tile, and only bank 0 ever drew it, so
-    /// raising the allocation ceiling to 0x3FFF made tiles past 0x1FFF paintable and
-    /// permanently invisible. Welded to a Foster texture that defect is untestable; as a
-    /// function of (bank, sheet height, tile count) it is three assertions.
-    /// </summary>
-    internal static (float V0, float V1, int Rows, int Count) SheetWindow(int bank, int sheetH, int tileCount)
-    {
-        if (bank is < 0 or > 1 || sheetH <= 0) return default;
-        int rows = Math.Clamp(sheetH / 16 - bank * BankRows, 0, BankRows);
-        if (rows <= 0) return default;
-        int count = Math.Clamp(tileCount - bank * BankTiles, 0, BankTiles);
-        return (bank * BankRows * 16f / sheetH, (bank * BankRows + rows) * 16f / sheetH, rows, count);
-    }
+    // Bank geometry, allocatability and the sheet window live in Map16Layout: they are
+    // geometry rather than UI, and a second front end has to agree with this one about
+    // where a tile is.
+    internal static bool CanAllocate(int tile) => Map16Layout.CanAllocate(tile);
 
     /// <summary>
     /// The slice of a sheet texture belonging to the selected bank, as (texture, uv, size in
@@ -96,7 +73,7 @@ internal sealed class Map16Editor(EditorApp app)
         }
         var tex = map16Texs[app.AnimPhase] ?? map16Texs[0];
         if (tex is null) return default;
-        var (v0, v1, rows, count) = SheetWindow(map16Bank, map16H, app.tileCaches?[0].Length ?? 0);
+        var (v0, v1, rows, count) = Map16Layout.SheetWindow(map16Bank, map16H, app.tileCaches?[0].Length ?? 0);
         if (rows <= 0) return default;
         return (tex, new Vector2(0, v0), new Vector2(1, v1), map16W, rows, count);
     }
@@ -104,21 +81,9 @@ internal sealed class Map16Editor(EditorApp app)
     /// <summary>Tiles of the selected bank the user may paint: everything in the FG banks,
     /// whether or not its page exists yet, because painting creates the page. The BG bank is
     /// a fixed table, so only its real tiles qualify.</summary>
-    private int PaintableTiles(int realCount) => PaintableIn(map16Bank, realCount);
+    private int PaintableTiles(int realCount) => Map16Layout.PaintableIn(map16Bank, realCount);
 
-    /// <summary>As <see cref="PaintableTiles"/>, as a function of the bank — an FG bank is
-    /// paintable end to end (its top tile is allocatable), anything else only where it is
-    /// already backed.</summary>
-    internal static int PaintableIn(int bank, int realCount) =>
-        CanAllocate(bank * BankTiles + BankTiles - 1) ? BankTiles : realCount;
-
-    /// <summary>What to say over a page that CANNOT be painted. The FG banks never need this
-    /// — an empty page there is drawn as ordinary empty tiles and comes into existence when
-    /// painted — so this only explains the two genuinely fixed cases.</summary>
-    internal static string UnusedPageNote(int bank, int page) =>
-        bank == 2 ? "BG definitions are a fixed table"
-        : bank < 2 ? "empty — paint to fill it"
-        : "past the supported 0x3FFF tiles";
+    internal static string UnusedPageNote(int bank, int page) => Map16Layout.UnusedPageNote(bank, page);
 
     // Deferred Map16 page allocation, requested by PAINTING on an empty page — runs before
     // any drawing so texture rebuilds never race the frame's draw data, then replays the
