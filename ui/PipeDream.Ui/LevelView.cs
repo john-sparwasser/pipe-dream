@@ -46,6 +46,11 @@ public class LevelView : Control
     public (int X, int Y)? HoverCell { get; private set; }
     public (int X, int Y)? LastClickedCell { get; private set; }
 
+    /// <summary>Footprint of the stamp brush, outlined under the cursor so a grabbed 4x3
+    /// brush is visible before it is committed rather than after.</summary>
+    public int BrushW { get; set; } = 1;
+    public int BrushH { get; set; } = 1;
+
     /// <summary>Raised for every cell a RIGHT drag passes through — the paint stroke.</summary>
     public event EventHandler<(int X, int Y)>? CellPainted;
     public event EventHandler? StrokeEnded;
@@ -77,10 +82,46 @@ public class LevelView : Control
         return (lx / 16, ly / 16);
     }
 
-    // ---- drag state, mirroring the ImGui tool's dragStart/dragEnd/moveDrag ----
+    // ---- drag state, mirroring the ImGui tool's dragStart/dragEnd/moveDrag/resizeDrag ----
     private (int X, int Y)? bandStart, bandEnd, moveStart;
     private bool painting, grabbing;
     private (int X, int Y)? lastPainted;
+    private (int Obj, int Edges, int Cx, int Cy)? resizeDrag;
+
+    /// <summary>Edge bitmask under a screen point for the single selected object: 1 left,
+    /// 2 right, 4 top, 8 bottom (corners combine). 0 = not on a handle. Mirrors the ImGui
+    /// tool's 6px tolerance and its "nearest edge wins" tie-break.</summary>
+    private int HandleEdgesAt(Point m)
+    {
+        if (Edit is not { Selection.Count: 1 } ed) return 0;
+        int sel = ed.Selection.First();
+        if (ed.BBox(sel) is not { } b || sel >= ed.Objects.Count) return 0;
+        var rz = ed.ResizeInfo(ed.Objects[sel]);
+        bool wOk = rz.W != ObjectEngine.SizeSrc.None, hOk = rz.H != ObjectEngine.SizeSrc.None;
+        if (!wOk && !hOk) return 0;
+
+        var r = CellRect(b.X, b.Y, b.W, b.H, Zoom);
+        const double t = 6;
+        bool inX = m.X > r.Left - t && m.X < r.Right + t;
+        bool inY = m.Y > r.Top - t && m.Y < r.Bottom + t;
+        int e = 0;
+        if (wOk && inY && Math.Abs(m.X - r.Left) <= t) e |= 1;
+        if (wOk && inY && Math.Abs(m.X - r.Right) <= t) e |= 2;
+        if (hOk && inX && Math.Abs(m.Y - r.Top) <= t) e |= 4;
+        if (hOk && inX && Math.Abs(m.Y - r.Bottom) <= t) e |= 8;
+        if ((e & 3) == 3) e &= Math.Abs(m.X - r.Left) < Math.Abs(m.X - r.Right) ? ~2 : ~1;
+        if ((e & 12) == 12) e &= Math.Abs(m.Y - r.Top) < Math.Abs(m.Y - r.Bottom) ? ~8 : ~4;
+        return e;
+    }
+
+    private static Cursor CursorForEdges(int e) => new(e switch
+    {
+        1 or 2 => StandardCursorType.SizeWestEast,
+        4 or 8 => StandardCursorType.SizeNorthSouth,
+        5 or 10 => StandardCursorType.TopLeftCorner,      // TL / BR
+        6 or 9 => StandardCursorType.TopRightCorner,      // TR / BL
+        _ => StandardCursorType.Arrow,
+    });
 
     public (int X, int Y, int W, int H)? Band =>
         bandStart is { } a && bandEnd is { } b
@@ -111,9 +152,12 @@ public class LevelView : Control
         else if (props.IsLeftButtonPressed)
         {
             grabbing = e.KeyModifiers.HasFlag(KeyModifiers.Control);
+            int edges = grabbing ? 0 : HandleEdgesAt(e.GetPosition(this));
+            if (edges != 0 && Edit is { Selection.Count: 1 } ed)
+                resizeDrag = (ed.Selection.First(), edges, cell.X, cell.Y);
             // Grabbing always bands, even over a selected object — Ctrl+drag is "take these
             // tiles", not "move this".
-            if (!grabbing && Edit?.ObjectAt(cell.X, cell.Y) is int hit && Edit.Selection.Contains(hit))
+            else if (!grabbing && Edit?.ObjectAt(cell.X, cell.Y) is int hit && Edit.Selection.Contains(hit))
                 moveStart = cell;
             else
                 bandStart = cell;
@@ -139,7 +183,17 @@ public class LevelView : Control
             lastPainted = c;
             return;
         }
-        if (bandStart is not null || moveStart is not null)
+        // Hovering an edge of a lone selection shows the resize cursor, as the ImGui tool does.
+        if (resizeDrag is null && bandStart is null && moveStart is null)
+        {
+            int edges = HandleEdgesAt(e.GetPosition(this));
+            Cursor = edges != 0 ? CursorForEdges(edges)
+                   : Edit?.ObjectAt(c.X, c.Y) is int ov && Edit.Selection.Contains(ov)
+                       ? new Cursor(StandardCursorType.Hand)
+                       : Cursor.Default;
+        }
+
+        if (resizeDrag is not null || bandStart is not null || moveStart is not null)
         {
             bandEnd = c;
             // Live selection while banding, as the ImGui tool does — you see what you will get
@@ -165,7 +219,12 @@ public class LevelView : Control
             return;
         }
 
-        if (bandStart is { } a && bandEnd is { } b)
+        if (resizeDrag is { } rd && bandEnd is { } rc)
+        {
+            if (Edit?.Resize(rd.Obj, rd.Edges, rc.X - rd.Cx, rc.Y - rd.Cy) == true)
+                SelectionChanged?.Invoke(this, EventArgs.Empty);
+        }
+        else if (bandStart is { } a && bandEnd is { } b)
         {
             if (a == b) { Edit?.CycleSelectionAt(a.X, a.Y); SelectionChanged?.Invoke(this, EventArgs.Empty); }
             else if (grabbing && Band is { } g) GrabRequested?.Invoke(this, g);
@@ -178,6 +237,7 @@ public class LevelView : Control
         }
 
         bandStart = bandEnd = moveStart = null;
+        resizeDrag = null;
         grabbing = false;
         e.Pointer.Capture(null);
         InvalidateVisual();
@@ -238,17 +298,49 @@ public class LevelView : Control
                 if (ed.BBox(i) is { } b) ctx.DrawRectangle(null, pen, CellRect(b.X, b.Y, b.W, b.H, z));
         }
 
+        // Resize preview while dragging an edge, then handles on a lone idle selection.
+        if (resizeDrag is { } rd && bandEnd is { } rc && Edit is { } re
+            && re.PreviewResize(rd.Obj, rd.Edges, rc.X - rd.Cx, rc.Y - rd.Cy) is { } pv)
+            ctx.DrawRectangle(null, new Pen(Brushes.DodgerBlue, 1.5), CellRect(pv.X, pv.Y, pv.W, pv.H, z));
+        else if (Edit is { Selection.Count: 1 } he && bandStart is null && moveStart is null)
+            DrawHandles(ctx, he, z);
+
         // Rubber band: cyan while selecting, green while grabbing tiles — the ImGui colours.
         if (Band is { } band && (bandStart is not null || moveStart is not null))
             ctx.DrawRectangle(null, new Pen(grabbing ? Brushes.Lime : Brushes.Cyan, 1.5),
                               CellRect(band.X, band.Y, band.W, band.H, z));
 
+        // Hover shows the BRUSH footprint, not a single cell — with a multi-tile brush the
+        // difference between "this cell" and "these twelve" matters before you commit.
         if (HoverCell is { } h)
-            ctx.DrawRectangle(null, new Pen(Brushes.White, 1), CellRect(h.X, h.Y, 1, 1, z));
+            ctx.DrawRectangle(null, new Pen(Brushes.White, 1),
+                              CellRect(h.X, h.Y, Math.Max(1, BrushW), Math.Max(1, BrushH), z));
     }
 
     private Rect CellRect(int x, int y, int w, int h, double z)
         => new(x * 16 * z - Origin.X, y * 16 * z - Origin.Y, w * 16 * z, h * 16 * z);
+
+    /// <summary>Knobs on the enabled edges' midpoints and on all corners (a corner resizes
+    /// whichever axes are enabled), vector-editor style — same layout as the ImGui tool.</summary>
+    private void DrawHandles(DrawingContext ctx, LevelEdit ed, double z)
+    {
+        int sel = ed.Selection.First();
+        if (ed.BBox(sel) is not { } b || sel >= ed.Objects.Count) return;
+        var rz = ed.ResizeInfo(ed.Objects[sel]);
+        bool wOk = rz.W != ObjectEngine.SizeSrc.None, hOk = rz.H != ObjectEngine.SizeSrc.None;
+        if (!wOk && !hOk) return;
+
+        var r = CellRect(b.X, b.Y, b.W, b.H, z);
+        var fill = Brushes.DodgerBlue;
+        var edge = new Pen(Brushes.Black);
+        void Knob(double x, double y)
+            => ctx.DrawRectangle(fill, edge, new Rect(x - 3, y - 3, 6, 6));
+
+        double mx = (r.Left + r.Right) / 2, my = (r.Top + r.Bottom) / 2;
+        if (wOk) { Knob(r.Left, my); Knob(r.Right, my); }
+        if (hOk) { Knob(mx, r.Top); Knob(mx, r.Bottom); }
+        Knob(r.Left, r.Top); Knob(r.Right, r.Top); Knob(r.Left, r.Bottom); Knob(r.Right, r.Bottom);
+    }
 
     // SMW screens are 16 cells wide; the boundary lines are the editor's main orientation cue.
     private void DrawScreenBoundaries(DrawingContext ctx, Rect dst, double z)

@@ -67,7 +67,11 @@ public partial class MainWindow : Window
         {
             if (edit is null) return;
             if (edit.TilePlacementBlocked is { } why) { status.Text = why; return; }
-            if (edit.Paint(c.X, c.Y, palette.Selected)) PushDirty();
+            // A grabbed multi-tile brush wins over the drawer's single selected tile.
+            bool changed = brush is { } b
+                ? edit.PaintBrush(c.X, c.Y, b.Tiles, b.W, b.H)
+                : edit.Paint(c.X, c.Y, palette.Selected);
+            if (changed) PushDirty();
         };
         canvas.StrokeEnded += (_, _) =>
         {
@@ -87,8 +91,8 @@ public partial class MainWindow : Window
         {
             if (edit is null) return;
             var (tiles, w, h) = edit.GrabTiles(g.X, g.Y, g.W, g.H);
-            brush = (tiles, w, h);
-            status.Text = $"grabbed {w}x{h} tiles as the brush";
+            SetBrush(tiles, w, h);
+            status.Text = $"grabbed {w}x{h} tiles as the brush — Esc or pick a tile to drop it";
         };
         canvas.SelectionChanged += (_, _) => UpdateStatus();
 
@@ -107,7 +111,11 @@ public partial class MainWindow : Window
             palette.Bank = Math.Max(0, bankBox.SelectedIndex);
             palette.InvalidateVisual();
         };
-        palette.SelectionChanged += (_, tile) => selLabel.Text = $"0x{tile:X4}";
+        palette.SelectionChanged += (_, tile) =>
+        {
+            selLabel.Text = $"0x{tile:X4}";
+            SetBrush(null, 1, 1);          // picking a tile replaces a grabbed brush
+        };
 
         tileZoom.PropertyChanged += (_, e) =>
         {
@@ -195,10 +203,18 @@ public partial class MainWindow : Window
 
     private double composeMs;
 
-    /// <summary>Multi-tile stamp brush from a Ctrl+drag grab; null = the drawer's single tile.
-    /// ponytail: stamping still places the selected tile — wiring the multi-tile brush through
-    /// Dm16Saver.FromBrush is the next step and needs the brush preview with it.</summary>
+    /// <summary>Multi-tile stamp brush from a Ctrl+drag grab; null = the drawer's single tile.</summary>
     private (ushort[] Tiles, int W, int H)? brush;
+
+    private void SetBrush(ushort[]? tiles, int w, int h)
+    {
+        brush = tiles is null ? null : (tiles, w, h);
+        // The canvas outlines the footprint under the cursor, so a 4x3 brush is visible
+        // before it is committed rather than after.
+        canvas.BrushW = tiles is null ? 1 : w;
+        canvas.BrushH = tiles is null ? 1 : h;
+        canvas.InvalidateVisual();
+    }
 
     /// <summary>Global keys, matching the ImGui editor: Ctrl+Z undo, Ctrl+Shift+Z redo, and
     /// Esc leaving a non-Level canvas mode before it touches selection.</summary>
@@ -214,6 +230,7 @@ public partial class MainWindow : Window
         else if (e.Key == Key.Escape)
         {
             if (modeLevel.IsChecked != true) OnMode(modeLevel, new RoutedEventArgs());
+            else if (brush is not null) { SetBrush(null, 1, 1); status.Text = "brush dropped"; }
             else if (edit is { Selection.Count: > 0 })
             { edit.Selection.Clear(); canvas.InvalidateVisual(); UpdateStatus(); }
             e.Handled = true;

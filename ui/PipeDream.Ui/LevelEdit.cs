@@ -48,6 +48,26 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         : "this base has no Direct Map16 support — use a prepped project base, "
           + "or open the ROM in Lunar Magic once";
 
+    /// <summary>
+    /// Stamp a whole brush with its top-left at (cx, cy). Empty cells are skipped, so a
+    /// grabbed brush with holes in it stamps holes rather than a solid block.
+    ///
+    /// Every stamped cell joins the SAME stroke, so dragging a 2x2 brush along a row still
+    /// ends as one undo and one run-merged set of objects.
+    /// </summary>
+    public bool PaintBrush(int cx, int cy, ReadOnlySpan<ushort> tiles, int w, int h)
+    {
+        bool any = false;
+        for (int j = 0; j < h; j++)
+            for (int i = 0; i < w; i++)
+            {
+                ushort t = tiles[j * w + i];
+                if (t == Map16Grid.Empty) continue;
+                any |= Paint(cx + i, cy + j, t);
+            }
+        return any;
+    }
+
     /// <summary>Paint one cell into the current stroke. Optimistic: the pixels change now so
     /// the drag feels immediate, and the object stream catches up at <see cref="EndStroke"/>.
     /// Returns false when nothing visibly changed.</summary>
@@ -275,6 +295,77 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         objects.AddRange(added);
         Selection.Clear();
         for (int k = 0; k < added.Count; k++) Selection.Add(objects.Count - added.Count + k);
+        Dirty = true;
+        Reconcile();
+        return true;
+    }
+
+    // ---- resize ----
+
+    private readonly Dictionary<(int Tileset, int Num), ObjectEngine.ObjResize> resizeCache = [];
+
+    /// <summary>Which axes an object can be resized on. DM16 tiles have their own size model
+    /// (nibbles, or LM's extended Form B up to 128x256); standard objects use the probed
+    /// byte-3 nibble sources, which is a per-tileset property and worth caching.</summary>
+    public ObjectEngine.ObjResize ResizeInfo(LevelObject o)
+    {
+        const ObjectEngine.SizeSrc N = ObjectEngine.SizeSrc.None;
+        var rect = new ObjectEngine.ObjResize(ObjectEngine.SizeSrc.Lo, ObjectEngine.SizeSrc.Hi);
+        if (o.Extended || o.IsScreenExit) return new(N, N);
+        if (o.IsDm16) return rect;
+        var key = (Scene.Level.Header.Tileset, o.Number);
+        if (resizeCache.TryGetValue(key, out var r)) return r;
+        return resizeCache[key] = ObjectEngine.ProbeResize(rom, Scene.Level, o.Number);
+    }
+
+    /// <summary>The size a drag would produce, without committing: (x, y, w, h) in cells.
+    /// <paramref name="edges"/> is the ImGui bitmask — 1 left, 2 right, 4 top, 8 bottom.</summary>
+    public (int X, int Y, int W, int H)? PreviewResize(int index, int edges, int dx, int dy)
+    {
+        if (index < 0 || index >= objects.Count) return null;
+        var o = objects[index];
+        var rz = ResizeInfo(o);
+        bool dm = o.IsDm16;
+        var (w0, h0) = dm ? o.Dm16Size()
+                          : (ObjectEngine.SizeOf(o.Byte3, rz.W), ObjectEngine.SizeOf(o.Byte3, rz.H));
+        int maxW = dm ? 128 : ObjectEngine.MaxSize(rz.W), maxH = dm ? 256 : ObjectEngine.MaxSize(rz.H);
+        int nx = o.AbsoluteX, ny = o.Y, nw = w0, nh = h0;
+        if ((edges & 2) != 0) nw = Math.Clamp(w0 + dx, 1, maxW);
+        if ((edges & 1) != 0) { nw = Math.Clamp(w0 - dx, 1, maxW); nx = Math.Max(0, nx + (w0 - nw)); }
+        if ((edges & 8) != 0) nh = Math.Clamp(h0 + dy, 1, maxH);
+        if ((edges & 4) != 0) { nh = Math.Clamp(h0 - dy, 1, maxH); ny = Math.Clamp(ny + (h0 - nh), 0, 0x1F); }
+        // Clamp at the level bottom (LM parity): the engine will happily write past the last
+        // row, bleeding into the next screen's RAM — a drag must not be able to do that.
+        int maxRows = rom.IsVerticalMode(Scene.Level.Header.LevelMode) ? Scene.Grid.Height : 27;
+        nh = Math.Max(1, Math.Min(nh, maxRows - ny));
+        return (nx, ny, nw, nh);
+    }
+
+    /// <summary>Commit a resize drag. Returns false when the drag produced no change.</summary>
+    public bool Resize(int index, int edges, int dx, int dy)
+    {
+        if (PreviewResize(index, edges, dx, dy) is not { } p) return false;
+        var o = objects[index];
+        var rz = ResizeInfo(o);
+        bool dm = o.IsDm16;
+        var (w0, h0) = dm ? o.Dm16Size()
+                          : (ObjectEngine.SizeOf(o.Byte3, rz.W), ObjectEngine.SizeOf(o.Byte3, rz.H));
+        if (p.X == o.AbsoluteX && p.Y == o.Y && p.W == w0 && p.H == h0) return false;
+
+        undo.Push([.. objects]);
+        redo.Clear();
+        var moved = ObjectAtCell(o, p.X, p.Y);
+        if (dm) objects[index] = moved.Dm16Resized(p.W, p.H);
+        else
+        {
+            // Same source on both axes (diagonal slopes): one nibble drives both, so apply
+            // whichever the drag actually changed.
+            int b3 = rz.W == rz.H
+                ? ObjectEngine.WithSize(o.Byte3, rz.W, p.W != w0 ? p.W : p.H)
+                : ObjectEngine.WithSize(ObjectEngine.WithSize(o.Byte3, rz.W, p.W), rz.H, p.H);
+            objects[index] = new LevelObject(false, o.Number, (p.X >> 4) & 0x1F, p.X & 15, p.Y,
+                                             b3, o.ExtraByte, o.Dm16Tile, o.Dm16Page, o.Dm16ExtX, o.Dm16ExtH);
+        }
         Dirty = true;
         Reconcile();
         return true;
