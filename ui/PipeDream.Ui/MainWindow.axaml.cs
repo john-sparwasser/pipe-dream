@@ -93,6 +93,7 @@ public partial class MainWindow : Window
             palette.Zoom = tileZoom.Value;
             palette.InvalidateMeasure();
             palette.InvalidateVisual();
+            FitDrawerToPalette();
         };
 
         for (int i = 0; i < Rom.LevelCount; i++) levelBox.Items.Add($"${i:X3}");
@@ -102,6 +103,9 @@ public partial class MainWindow : Window
         {
             if (e.Property == IsVisibleProperty) OnDrawerVisibilityChanged();
         };
+
+        palette.Zoom = tileZoom.Value;
+        FitDrawerToPalette();
 
         string? path = Program.RomPath is { } p && File.Exists(p) ? p
                      : File.Exists(DefaultRom()) ? DefaultRom() : null;
@@ -230,7 +234,28 @@ public partial class MainWindow : Window
         split.InvalidateMeasure();
     }
 
-    private double drawerWidth = 420;
+    private double drawerWidth = DrawerWidthFor(2);
+
+    /// <summary>
+    /// Chrome around the palette content inside the drawer: the drawer's right border plus
+    /// the scroll viewer's vertical scrollbar, which is always present because the sheet is
+    /// 512 rows tall. Without allowing for it the scrollbar sits ON the last tile column.
+    /// </summary>
+    private const double DrawerChrome = 1 + 18;
+
+    private static double DrawerWidthFor(double tileZoom)
+        => Map16PaletteView.ContentWidth(tileZoom) + DrawerChrome;
+
+    /// <summary>Size the drawer to hold a whole row of Map16 tiles. The splitter can still
+    /// widen it; this only ever sets the width that stops tiles being cut off.</summary>
+    private void FitDrawerToPalette()
+    {
+        drawerWidth = DrawerWidthFor(palette.Zoom);
+        var col = split.ColumnDefinitions[0];
+        col.MinWidth = drawerWidth;
+        if (drawer.IsVisible && (!col.Width.IsAbsolute || col.Width.Value < drawerWidth))
+            col.Width = new GridLength(drawerWidth);
+    }
 
     private void OnToggleGrid(object? sender, RoutedEventArgs e)
     {

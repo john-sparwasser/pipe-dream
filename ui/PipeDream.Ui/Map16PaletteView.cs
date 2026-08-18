@@ -51,8 +51,19 @@ public class Map16PaletteView : Control
         return idx >= Map16Layout.BankTiles ? null : Bank * Map16Layout.BankTiles + idx;
     }
 
+    /// <summary>Margin around the sheet inside the drawer (matches the XAML).</summary>
+    public const double Pad = 8;
+
+    /// <summary>
+    /// How wide the picker's CONTENT is at a given tile zoom: a full row of Map16 tiles plus
+    /// its margins. The drawer is sized from this rather than from a guessed constant —
+    /// a hardcoded width clips the right-hand tiles the moment the tile size changes, which
+    /// is not a rendering bug the user can diagnose, it just looks like missing tiles.
+    /// </summary>
+    public static double ContentWidth(double zoom) => Map16Layout.Cols * 16 * zoom + Pad * 2;
+
     protected override Size MeasureOverride(Size availableSize)
-        => new(16 * 16 * Zoom, Map16Layout.BankRows * 16 * Zoom);
+        => new(Map16Layout.Cols * 16 * Zoom, Map16Layout.BankRows * 16 * Zoom);
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
