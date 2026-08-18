@@ -118,18 +118,7 @@ internal sealed class ShellLayout(EditorApp app)
     private void PaletteTabItem(int idx, string label, EditorApp.EditMode? mode, Action draw)
     {
         var flags = pendingTabSelect == idx ? ImGuiTabItemFlags.SetSelected : ImGuiTabItemFlags.None;
-        // ImGui.NET has no BeginTabItem(label, flags) overload (only ref-bool with a
-        // close button) — call the native one with p_open = null.
-        bool open;
-        unsafe
-        {
-            int len = System.Text.Encoding.UTF8.GetByteCount(label);
-            Span<byte> buf = stackalloc byte[len + 1];
-            System.Text.Encoding.UTF8.GetBytes(label, buf);
-            buf[len] = 0;
-            fixed (byte* p = buf) open = ImGuiNative.igBeginTabItem(p, null, flags) != 0;
-        }
-        if (!open) return;
+        if (!ImGuiCompat.BeginTabItem(label, flags)) return;
         if (paletteTab != idx)
         {
             paletteTab = idx;

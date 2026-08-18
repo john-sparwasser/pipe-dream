@@ -162,7 +162,7 @@ internal sealed class GfxEditor(EditorApp app)
 
     // ---- the edit canvas ----
 
-    internal unsafe void DrawCanvas()
+    internal void DrawCanvas()
     {
         if (app.rom is null || app.imgui is null) return;
         var io = ImGui.GetIO();
@@ -170,10 +170,9 @@ internal sealed class GfxEditor(EditorApp app)
         // Header row: file id + badge, zoom, tool, hint.
         ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 7);
         ImGui.SetNextItemWidth(64);
-        int v = gfxFile, step = 1;
-        if (ImGui.InputScalar("GFX##gfxfile", ImGuiDataType.S32, (IntPtr)(&v), (IntPtr)(&step),
-                              IntPtr.Zero, "%03X", ImGuiInputTextFlags.CharsHexadecimal) && v != gfxFile)
-        { AbortStroke(); gfxFile = Math.Clamp(v, 0, 0xFFF); }
+        int file = gfxFile;
+        if (ImGuiCompat.HexInput("GFX##gfxfile", ref file, 0xFFF, "%03X") && file != gfxFile)
+        { AbortStroke(); gfxFile = file; }
         var bytes = Gfx.Cached(app.rom, gfxFile);
         ImGui.SameLine();
         ImGui.TextDisabled(app.rom.ImportedGfx.ContainsKey(gfxFile) ? "(imported)"

@@ -86,8 +86,8 @@ internal sealed class LevelSession(EditorApp app)
     {
         if (app.project is null) return;
         if (app.currentLevelTouched) StashCurrentLevel();
-        RefreshCapturedMap16();
-        RefreshCapturedEntrances();
+        if (app.rom is not null)
+            ProjectCapture.Refresh(app.rom, app.project.Data, app.level?.Header.Tileset ?? 1);
         if (app.rom is not null)
             app.project.Data.Gfx = app.rom.ImportedGfx
                 .ToDictionary(kv => kv.Key.ToString("X3"), kv => Convert.ToBase64String(kv.Value));
@@ -144,46 +144,6 @@ internal sealed class LevelSession(EditorApp app)
         ParseLevel();
         app.currentLevelTouched = true;
         app.project?.MarkDirty();
-    }
-
-    // Re-read every captured Map16/acts slot's CURRENT bytes from the ROM. Values are
-    // never tracked at edit time — re-reading at save makes undo/redo and the extended
-    // region's relocation-on-allocation free.
-    private void RefreshCapturedMap16()
-    {
-        if (app.rom is null || app.project is null) return;
-        var m = app.project.Data.Map16;
-        int tileset = app.level?.Header.Tileset ?? 1;
-        foreach (var addr in m.Slots.Keys.ToArray())
-        {
-            int fo = app.rom.FileOffset(Convert.ToInt32(addr, 16));
-            m.Slots[addr] = Convert.ToHexString(app.rom.Data.AsSpan(fo, 8));
-        }
-        foreach (var t in m.Ext.Keys.ToArray())
-        {
-            int fo = Map16.DefFileOffset(app.rom, tileset, Convert.ToInt32(t, 16));
-            if (fo >= 0) m.Ext[t] = Convert.ToHexString(app.rom.Data.AsSpan(fo, 8));
-        }
-        if (app.rom.LmActsAsBase > 0)
-            foreach (var t in m.ActsAs.Keys.ToArray())
-            {
-                int fo = app.rom.FileOffset(app.rom.LmActsAsBase + Convert.ToInt32(t, 16) * 2);
-                m.ActsAs[t] = app.rom.Data[fo] | (app.rom.Data[fo + 1] << 8);
-            }
-    }
-
-    // Re-read every captured secondary entrance's CURRENT bytes from the ROM — same
-    // re-read-at-save trick RefreshCapturedMap16 uses, so undo/redo needs no tracking.
-    private void RefreshCapturedEntrances()
-    {
-        if (app.rom is null || app.project is null) return;
-        foreach (var idx in app.project.Data.Entrances.Keys.ToArray())
-            app.project.Data.Entrances[idx] =
-                Convert.ToHexString(app.rom.ReadSecondaryEntrance(Convert.ToInt32(idx, 16)).ToBytes());
-        foreach (var (levelHex, state) in app.project.Data.Levels)
-            if (state.MainEntrance is not null)
-                state.MainEntrance =
-                    Convert.ToHexString(app.rom.ReadMainEntrance(Convert.ToInt32(levelHex, 16)).ToBytes());
     }
 
     /// <summary>Render one layer's grid from an object list — the untracked counterpart of

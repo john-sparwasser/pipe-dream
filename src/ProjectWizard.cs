@@ -73,17 +73,7 @@ internal sealed class ProjectWizard(EditorApp app)
     private void DrawNewModal()
     {
         if (!showNew) return;
-        ImGui.OpenPopup("New Project");
-        ImGui.SetNextWindowPos(ImGui.GetMainViewport().GetCenter(), ImGuiCond.Appearing,
-                               new System.Numerics.Vector2(0.5f, 0.5f));
-        bool open;
-        unsafe
-        {
-            var name = "New Project\0"u8;
-            fixed (byte* n = name)
-                open = ImGuiNative.igBeginPopupModal(n, null, ImGuiWindowFlags.AlwaysAutoResize) != 0;
-        }
-        if (!open) return;
+        if (!ImGuiCompat.BeginCenteredModal("New Project")) return;
         ImGui.PushTextWrapPos(ImGui.GetFontSize() * 30);
 
         ImGui.TextUnformatted("Project folder (holds project.pdp + a private base ROM copy):");
@@ -129,17 +119,7 @@ internal sealed class ProjectWizard(EditorApp app)
     private void DrawRecoverModal()
     {
         if (pendingOpen is null) return;
-        ImGui.OpenPopup("Locate base ROM");
-        ImGui.SetNextWindowPos(ImGui.GetMainViewport().GetCenter(), ImGuiCond.Appearing,
-                               new System.Numerics.Vector2(0.5f, 0.5f));
-        bool open;
-        unsafe
-        {
-            var name = "Locate base ROM\0"u8;
-            fixed (byte* n = name)
-                open = ImGuiNative.igBeginPopupModal(n, null, ImGuiWindowFlags.AlwaysAutoResize) != 0;
-        }
-        if (!open) return;
+        if (!ImGuiCompat.BeginCenteredModal("Locate base ROM")) return;
         ImGui.PushTextWrapPos(ImGui.GetFontSize() * 30);
         ImGui.TextWrapped($"'{pendingOpen.Name}': {recoverStatus}");
         ImGui.TextWrapped($"Pinned base: {pendingOpen.Data.BaseRom.Title} " +

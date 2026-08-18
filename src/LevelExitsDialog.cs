@@ -52,17 +52,7 @@ internal sealed class LevelExitsDialog(EditorApp app)
     {
         if (!show) return;
         if (app.objList is null) { show = false; return; }
-        ImGui.OpenPopup("Screen Exits");
-        ImGui.SetNextWindowPos(ImGui.GetMainViewport().GetCenter(), ImGuiCond.Appearing,
-                               new System.Numerics.Vector2(0.5f, 0.5f));
-        bool open;
-        unsafe
-        {
-            var name = "Screen Exits\0"u8;
-            fixed (byte* n = name)
-                open = ImGuiNative.igBeginPopupModal(n, null, ImGuiWindowFlags.AlwaysAutoResize) != 0;
-        }
-        if (!open) return;
+        if (!ImGuiCompat.BeginCenteredModal("Screen Exits")) return;
 
         ImGui.PushTextWrapPos(ImGui.GetFontSize() * 34);
         ImGui.TextDisabled("Each row says where one screen of this level leads. " +
@@ -146,15 +136,8 @@ internal sealed class LevelExitsDialog(EditorApp app)
     /// <summary>Hex entry with step buttons, matching the level field in the header row.</summary>
     private static void HexField(string id, ref int value, int max, string fmt)
     {
-        int v = value, step = 1;
         ImGui.SetNextItemWidth(ImGui.GetFontSize() * 8);
-        bool changed;
-        unsafe
-        {
-            changed = ImGui.InputScalar(id, ImGuiDataType.S32, (IntPtr)(&v), (IntPtr)(&step),
-                                        IntPtr.Zero, fmt, ImGuiInputTextFlags.CharsHexadecimal);
-        }
-        if (changed) value = Math.Clamp(v, 0, max);
+        ImGuiCompat.HexInput(id, ref value, max, fmt);
     }
 
     /// <summary>Rewrite the level's exit objects from the staged rows, as one undoable edit.

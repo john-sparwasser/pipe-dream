@@ -26,13 +26,9 @@ internal sealed class LevelViewport(EditorApp app)
                                           // (total = 1 + ItemSpacing.Y 6 ≈ 7px)
         ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 7);   // matching left margin
         ImGui.SetNextItemWidth(120);
-        unsafe
-        {
-            int v = app.levelNum, step = 1;
-            if (ImGui.InputScalar("Level", ImGuiDataType.S32, (IntPtr)(&v), (IntPtr)(&step),
-                                  IntPtr.Zero, "%03X", ImGuiInputTextFlags.CharsHexadecimal))
-                app.session.SwitchLevel(Math.Clamp(v, 0, Rom.LevelCount - 1));   // stashes project edits first
-        }
+        int level = app.levelNum;
+        if (ImGuiCompat.HexInput("Level", ref level, Rom.LevelCount - 1, "%03X"))
+            app.session.SwitchLevel(level);        // stashes project edits first
         ImGui.SameLine();
         if (ImGui.Button("Reload")) app.session.ParseLevel();
         ImGui.SameLine();

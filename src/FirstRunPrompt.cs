@@ -16,21 +16,7 @@ internal sealed class FirstRunPrompt(EditorApp app)
     internal void Draw()
     {
         if (app.config.VanillaRomPath is not null) return;
-        ImGui.OpenPopup("Welcome to Pipe Dream");
-        var vp = ImGui.GetMainViewport();
-        // Pivot on Appearing only — with Always the pivot math fights the modal's own
-        // positioning and the window lands top-left-at-center.
-        ImGui.SetNextWindowPos(vp.GetCenter(), ImGuiCond.Appearing, new System.Numerics.Vector2(0.5f, 0.5f));
-        // ImGui.NET's flags overload demands ref-bool p_open (which adds an unwanted X
-        // close button on a mandatory modal) — call the native one with p_open = null.
-        bool open;
-        unsafe
-        {
-            var name = "Welcome to Pipe Dream\0"u8;
-            fixed (byte* n = name)
-                open = ImGuiNative.igBeginPopupModal(n, null, ImGuiWindowFlags.AlwaysAutoResize) != 0;
-        }
-        if (!open) return;
+        if (!ImGuiCompat.BeginCenteredModal("Welcome to Pipe Dream")) return;
         ImGui.PushTextWrapPos(ImGui.GetFontSize() * 24);
         ImGui.TextWrapped("Locate an unedited Super Mario World ROM (.smc/.sfc). Projects start " +
                           "from a private copy of it; the ROM itself is never part of shared files.");

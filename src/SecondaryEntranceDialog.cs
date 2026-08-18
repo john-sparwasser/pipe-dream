@@ -31,17 +31,7 @@ internal sealed class SecondaryEntranceDialog(EditorApp app)
     {
         if (!show) return;
         if (app.rom is null) { show = false; return; }
-        ImGui.OpenPopup("Secondary Entrance");
-        ImGui.SetNextWindowPos(ImGui.GetMainViewport().GetCenter(), ImGuiCond.Appearing,
-                               new System.Numerics.Vector2(0.5f, 0.5f));
-        bool open;
-        unsafe
-        {
-            var name = "Secondary Entrance\0"u8;
-            fixed (byte* n = name)
-                open = ImGuiNative.igBeginPopupModal(n, null, ImGuiWindowFlags.AlwaysAutoResize) != 0;
-        }
-        if (!open) return;
+        if (!ImGuiCompat.BeginCenteredModal("Secondary Entrance")) return;
 
         // Switching index abandons unapplied edits — reload from the ROM so the fields
         // always describe the entrance named above them.
@@ -101,22 +91,12 @@ internal sealed class SecondaryEntranceDialog(EditorApp app)
 
     private void Field(string label, int value, int min, int max, Func<int, SecondaryEntrance> set)
     {
-        int v = value;
-        ImGui.SetNextItemWidth(ImGui.GetFontSize() * 10);
-        if (ImGui.SliderInt(label, ref v, min, max)) edit = set(v);
+        if (ImGuiCompat.Slider(label, value, min, max, out int v)) edit = set(v);
     }
 
     private static bool HexField(string label, ref int value, int max, string fmt)
     {
-        int v = value, step = 1;
         ImGui.SetNextItemWidth(ImGui.GetFontSize() * 8);
-        bool changed;
-        unsafe
-        {
-            changed = ImGui.InputScalar(label, ImGuiDataType.S32, (IntPtr)(&v), (IntPtr)(&step),
-                                        IntPtr.Zero, fmt, ImGuiInputTextFlags.CharsHexadecimal);
-        }
-        if (changed) value = Math.Clamp(v, 0, max);
-        return changed;
+        return ImGuiCompat.HexInput(label, ref value, max, fmt);
     }
 }

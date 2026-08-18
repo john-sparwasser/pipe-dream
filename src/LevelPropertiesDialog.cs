@@ -31,17 +31,7 @@ internal sealed class LevelPropertiesDialog(EditorApp app)
     {
         if (!show) return;
         if (app.level is null) { show = false; return; }
-        ImGui.OpenPopup("Level Properties");
-        ImGui.SetNextWindowPos(ImGui.GetMainViewport().GetCenter(), ImGuiCond.Appearing,
-                               new System.Numerics.Vector2(0.5f, 0.5f));
-        bool open;
-        unsafe
-        {
-            var name = "Level Properties\0"u8;
-            fixed (byte* n = name)
-                open = ImGuiNative.igBeginPopupModal(n, null, ImGuiWindowFlags.AlwaysAutoResize) != 0;
-        }
-        if (!open) return;
+        if (!ImGuiCompat.BeginCenteredModal("Level Properties")) return;
 
         // Header + entry settings together are taller than a small window, so the fields
         // scroll and the buttons stay pinned below.
@@ -133,15 +123,11 @@ internal sealed class LevelPropertiesDialog(EditorApp app)
 
     private void Field(string label, int value, int min, int max, Func<int, LevelHeader> set)
     {
-        int v = value;
-        ImGui.SetNextItemWidth(ImGui.GetFontSize() * 10);
-        if (ImGui.SliderInt(label, ref v, min, max)) edit = set(v);
+        if (ImGuiCompat.Slider(label, value, min, max, out int v)) edit = set(v);
     }
 
     private void EntryField(string label, int value, int min, int max, Func<int, MainEntrance> set)
     {
-        int v = value;
-        ImGui.SetNextItemWidth(ImGui.GetFontSize() * 10);
-        if (ImGui.SliderInt(label, ref v, min, max)) entry = set(v);
+        if (ImGuiCompat.Slider(label, value, min, max, out int v)) entry = set(v);
     }
 }
