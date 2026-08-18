@@ -23,7 +23,8 @@ internal sealed class Map16Editor(EditorApp app)
     private int map16Bank;
     private readonly Texture?[] map16BgTexs = new Texture?[4];
     private int map16BgW, map16BgH;
-    private int? map16AllocPending;   // tile clicked on an unallocated page; allocated next frame
+    private int? map16AllocPending;   // tile painted on an empty page; allocated next frame
+    private (int tile, int quad, ushort raw)? map16AllocStamp;   // the paint that asked for it
 
     private Texture? m16ChrTex;                    // 8x8 GFX palette sheet (one palette row)
     internal int m16ChrPal = -1;                   // sheet cache key (reset on RebuildGraphics)
@@ -53,30 +54,45 @@ internal sealed class Map16Editor(EditorApp app)
         if (m16Stroke.Count > 0 && !ImGui.IsMouseDown(ImGuiMouseButton.Right)) CommitM16Stroke();
     }
 
-    // Deferred Map16 page allocation (from a click on an empty page in the picker) —
-    // runs before any drawing so texture rebuilds never race the frame's draw data.
+    /// <summary>Whether a tile's page can be brought into existence. EnsureMap16Tiles patches
+    /// the ONE lookup slot covering tiles 0x200-0xFFF, so only bank 0 below page 0x10 grows:
+    /// bank 1 is past that slot and bank 2 is the BG table, a fixed 0x200 defs at $0D9100 that
+    /// cannot grow at all.</summary>
+    internal static bool CanAllocate(int tile) => tile is >= 0x200 and < 0x1000;
+
+    /// <summary>What to say over an empty page, so the editor never advertises an allocation
+    /// that cannot happen — the old label promised "click to allocate" on every unused page in
+    /// every bank, including the ~7/8 of them that could not.</summary>
+    internal static string UnusedPageNote(int bank, int page) =>
+        bank == 2 ? "BG definitions are a fixed table"
+        : bank == 0 && page < 0x10 ? "unused — paint here to create it"
+        : "past the supported 0xFFF tiles";
+
+    // Deferred Map16 page allocation, requested by PAINTING on an empty page — runs before
+    // any drawing so texture rebuilds never race the frame's draw data, then replays the
+    // stamp that asked for it so the edit that triggered allocation is not swallowed.
     internal void RunPendingAlloc()
     {
         if (map16AllocPending is not int allocTile) return;
         map16AllocPending = null;
+        var stamp = map16AllocStamp;
+        map16AllocStamp = null;
         var err = app.rom is null ? "no ROM loaded" : app.rom.EnsureMap16Tiles(allocTile + 1);
-        if (err is null)
-        {
-            // Allocation relocates the extended def region: undo entries recorded before
-            // it hold file offsets into the now-dead block — replaying them would write
-            // garbage into abandoned bytes and silently no-op on screen. Drop them.
-            app.history.Clear();
-            if (app.project is not null)
-            { app.project.Data.Map16.TileCount = app.rom!.Map16TileCount; app.project.MarkDirty(); }
-            app.session.RebuildGraphics();     // recompose caches/sheets with the new count
-            app.levelDirty = true;             // the def region rides along on the next save
-            app.selectedMap16 = allocTile;
-            app.brushTiles = new[] { (ushort)allocTile };
-            app.brushW = app.brushH = 1;
-            app.selectedObjCat = -1;
-            app.saveStatus = $"allocated Map16 pages through 0x{allocTile >> 8:X2} (blank tiles; save writes them to the ROM)";
-        }
-        else app.saveStatus = err;
+        if (err is not null) { app.saveStatus = err; return; }
+
+        // Allocation relocates the extended def region: recorded file offsets into the
+        // now-dead block would write garbage into abandoned bytes and silently no-op on
+        // screen. Drop the undo stack AND any stroke still buffering such offsets — the
+        // bytes themselves survive, because the old defs are copied into the new block.
+        app.history.Clear();
+        m16Stroke.Clear();
+        if (app.project is not null)
+        { app.project.Data.Map16.TileCount = app.rom!.Map16TileCount; app.project.MarkDirty(); }
+        app.session.RebuildGraphics();     // recompose caches/sheets with the new count
+        app.levelDirty = true;             // the def region rides along on the next save
+        app.saveStatus = $"Map16 page 0x{allocTile >> 8:X2} created";
+        // Apply the edit that caused the allocation, now that its page exists.
+        if (stamp is { } s) StampDefWord(s.tile, s.quad, s.raw);
     }
 
     // The Map16 edit canvas: the unified tile space at 2x, editable per 8x8 quadrant.
@@ -131,7 +147,7 @@ internal sealed class Map16Editor(EditorApp app)
                     float y = origin.Y + pg * 16 * ts;
                     dl.AddLine(new Vector2(pp0.X, y), new Vector2(pp1.X, y), 0xFF2A2A2Au);
                     dl.AddText(new Vector2(pp0.X + 6, y + 6), 0xFF585858u,
-                               $"page {map16Bank * 0x20 + pg:X2} — unused (click to allocate)");
+                               $"page {map16Bank * 0x20 + pg:X2} — {UnusedPageNote(map16Bank, map16Bank * 0x20 + pg)}");
                 }
                 ImGui.Dummy(new Vector2(Cols * ts, (totalRows - realRows) * ts));
             }
@@ -155,18 +171,30 @@ internal sealed class Map16Editor(EditorApp app)
             {
                 var q0 = new Vector2(origin.X + qcol * qs, origin.Y + qrow * qs);
                 dl.AddRect(q0, new Vector2(q0.X + m16BrushW * qs, q0.Y + m16BrushH * qs), 0xFF00FFFF, 0, 0, 1.5f);
-                if (hReal && ImGui.IsMouseDown(ImGuiMouseButton.Right))
+                if (ImGui.IsMouseDown(ImGuiMouseButton.Right))
                     for (int j = 0; j < m16BrushH; j++)
                         for (int i = 0; i < m16BrushW; i++)
                         {
                             int qx = qcol + i, qy = qrow + j;
                             if (qx >= Cols * 2 || qy >= totalRows * 2) continue;
-                            int tTile = map16Bank * BankTiles + (qy >> 1) * Cols + (qx >> 1);
-                            if ((qy >> 1) * Cols + (qx >> 1) >= realCount) continue;
-                            if (Map16.DefFileOffset(app.rom!, tileset, tTile) < 0) continue;
+                            int cell = (qy >> 1) * Cols + (qx >> 1);
+                            int tTile = map16Bank * BankTiles + cell;
                             ushort raw = (ushort)((m16BrushChr[j * m16BrushW + i] & 0x3FF) | (m16BrushPal << 10) |
                                                   (m16BrushP ? 0x2000 : 0) | (m16BrushFX ? 0x4000 : 0) | (m16BrushFY ? 0x8000 : 0));
-                            StampDefWord(tTile, ((qy & 1) << 1) | (qx & 1), raw);
+                            int quad = ((qy & 1) << 1) | (qx & 1);
+                            if (cell >= realCount)
+                            {
+                                // Painting an empty page CREATES it — allocation is a
+                                // consequence of editing, not a separate thing to ask for.
+                                // Deferred to frame start (it relocates the def region and
+                                // rebuilds textures), carrying this stamp so the stroke that
+                                // triggered it still lands.
+                                if (CanAllocate(tTile) && map16AllocPending is null)
+                                { map16AllocPending = tTile; map16AllocStamp = (tTile, quad, raw); }
+                                continue;
+                            }
+                            if (Map16.DefFileOffset(app.rom!, tileset, tTile) < 0) continue;
+                            StampDefWord(tTile, quad, raw);
                         }
             }
 
@@ -176,8 +204,10 @@ internal sealed class Map16Editor(EditorApp app)
                 if (m16Sel is { } s && col >= s.x && col < s.x + s.w && row >= s.y && row < s.y + s.h)
                     m16Move = (col, row);
                 else if (hReal) m16Lasso = (col, row);
-                else if (hTile < 0x1000) map16AllocPending = hTile;
-                else app.saveStatus = $"Map16 0x{hTile:X4}: pages past 0xF aren't supported yet.";
+                // An empty cell isn't selectable — painting it is what creates its page, so
+                // there is no allocate-by-clicking to explain. Just say what it is.
+                else app.saveStatus = $"Map16 page 0x{hTile >> 8:X2}: " +
+                                      UnusedPageNote(map16Bank, hTile >> 8);
             }
             if (m16Lasso is { } la)
             {
@@ -595,7 +625,7 @@ internal sealed class Map16Editor(EditorApp app)
                     float y = origin.Y + pg * 16 * ts;
                     dl.AddLine(new Vector2(p0.X, y), new Vector2(p1.X, y), 0xFF303030u);
                     dl.AddText(new Vector2(p0.X + 4, y + 4), 0xFF585858u,
-                               $"page {map16Bank * 0x20 + pg:X2} — unused");
+                               $"page {map16Bank * 0x20 + pg:X2} — {UnusedPageNote(map16Bank, map16Bank * 0x20 + pg)}");
                 }
                 ImGui.Dummy(new Vector2(Cols * ts, (totalRows - realRows) * ts));
             }
@@ -614,10 +644,11 @@ internal sealed class Map16Editor(EditorApp app)
                 }
                 else if (idx >= realCount && idx < BankTiles)
                 {
-                    // Seamless allocation: clicking an empty FG page allocates it (LM-free).
-                    int tile = map16Bank * BankTiles + idx;
-                    if (tile < 0x1000) map16AllocPending = tile;
-                    else app.saveStatus = $"Map16 0x{tile:X4}: pages past 0xF aren't supported yet.";
+                    // This is a PICKER — there is nothing to paint here, so an empty page just
+                    // says what it is. Pages come into existence by painting them in the Map16
+                    // canvas, not by being clicked in a list.
+                    int page = (map16Bank * BankTiles + idx) >> 8;
+                    app.saveStatus = $"Map16 page 0x{page:X2}: " + UnusedPageNote(map16Bank, page);
                 }
             }
             // Selection ring (when the selected tile lives in this bank).
