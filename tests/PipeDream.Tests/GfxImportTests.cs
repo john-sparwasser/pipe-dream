@@ -6,7 +6,7 @@ namespace PipeDream.Tests;
 /// bypass installed) is not on this machine.</summary>
 public sealed class LmRomFactAttribute : FactAttribute
 {
-    public const string LmRomPath = @"C:\SMW\Projects\ShaoBase\base.smc";
+    public static string LmRomPath => ReferenceRoms.ShaoBase;
 
     public LmRomFactAttribute()
     {

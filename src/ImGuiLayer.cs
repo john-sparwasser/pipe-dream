@@ -168,15 +168,11 @@ public class ImGuiLayer : IDisposable
         const float uiFontSize = 10f; // virtual units — same space as the style metrics
         io.FontGlobalScale = 1f / Scale;
 
-        // Prefer an explicit override, then Cascadia Mono (ships with Win11) or
-        // Consolas — monospace with crisp pixel widths at any DPI.
-        // ponytail: Mac/Linux falls back to embedded Roboto (not monospace).
-        string cascadia = @"C:\Windows\Fonts\CascadiaMono.ttf";
-        string consolas = @"C:\Windows\Fonts\consola.ttf";
+        // Prefer an explicit override, then the platform's stock monospace — crisp pixel
+        // widths at any DPI — and fall back to the embedded Roboto if none is installed.
         byte[] fontBytes =
             customFontPath != null && File.Exists(customFontPath) ? File.ReadAllBytes(customFontPath)
-            : File.Exists(cascadia) ? File.ReadAllBytes(cascadia)
-            : File.Exists(consolas) ? File.ReadAllBytes(consolas)
+            : MonospaceCandidates().FirstOrDefault(File.Exists) is { } stock ? File.ReadAllBytes(stock)
             : LoadEmbeddedFont();
         fontDataHandle = GCHandle.Alloc(fontBytes, GCHandleType.Pinned);
         unsafe
@@ -301,6 +297,35 @@ public class ImGuiLayer : IDisposable
         style.IndentSpacing     = 16.0f;
         style.ScrollbarSize     = 12.0f;
         style.GrabMinSize       = 8.0f;
+    }
+
+    /// <summary>Stock monospace faces to try, in preference order, for the host platform.
+    /// Windows 11 ships Cascadia Mono; macOS has SF Mono then Menlo; Linux depends on which
+    /// font package is installed, so try where the common ones land. A .ttc collection is
+    /// fine — the atlas builder takes face 0, which is the Regular weight. Anything absent
+    /// just falls through to the embedded (proportional) font.</summary>
+    internal static IEnumerable<string> MonospaceCandidates()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            string fonts = Environment.GetFolderPath(Environment.SpecialFolder.Fonts);
+            yield return Path.Combine(fonts, "CascadiaMono.ttf");
+            yield return Path.Combine(fonts, "consola.ttf");
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            yield return "/System/Library/Fonts/SFNSMono.ttf";
+            yield return "/System/Library/Fonts/Menlo.ttc";
+            yield return "/System/Library/Fonts/Monaco.ttf";
+        }
+        else
+        {
+            yield return "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf";   // Debian/Ubuntu
+            yield return "/usr/share/fonts/TTF/DejaVuSansMono.ttf";               // Arch
+            yield return "/usr/share/fonts/dejavu/DejaVuSansMono.ttf";            // Fedora
+            yield return "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf";
+            yield return "/usr/share/fonts/liberation/LiberationMono-Regular.ttf";
+        }
     }
 
     private static byte[] LoadEmbeddedFont()

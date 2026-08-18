@@ -8,7 +8,7 @@ namespace PipeDream.Tests;
 /// </summary>
 internal static class TestRom
 {
-    public const string RealRomPath = @"C:\SMW\Projects\.resources\SMW.smc";
+    public static string RealRomPath => ReferenceRoms.Vanilla;
 
     public const int TestLevel = 0x105;
     /// <summary>SNES address of the synthetic level's data (pc 0x70000 — empty area).</summary>

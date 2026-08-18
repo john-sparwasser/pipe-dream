@@ -77,7 +77,7 @@ static class DebugCommands
     // --render <rom> <levelHex> <out.png> [cropTilesW] : compose a level to PNG for inspection.
     public static int RenderLevel(string[] args, int ri)
     {
-        string romPath = args.ElementAtOrDefault(ri + 1) ?? @"C:\SMW\Projects\.resources\SMW.smc";
+        string romPath = args.ElementAtOrDefault(ri + 1) ?? ReferenceRoms.Vanilla;
         int level = Convert.ToInt32(args.ElementAtOrDefault(ri + 2) ?? "105", 16);
         string outPath = args.ElementAtOrDefault(ri + 3) ?? "level.png";
         int cropW = int.TryParse(args.ElementAtOrDefault(ri + 4), out var cw) ? cw : 0;
@@ -108,7 +108,7 @@ static class DebugCommands
     // "Y field is the screen" contract stays checkable against a real ROM.
     public static int DumpExits(string[] args, int ei)
     {
-        var rom = Rom.Load(args.ElementAtOrDefault(ei + 1) ?? @"C:\SMW\Projects\.resources\SMW.smc");
+        var rom = Rom.Load(args.ElementAtOrDefault(ei + 1) ?? ReferenceRoms.Vanilla);
         string? one = args.ElementAtOrDefault(ei + 2);
         IEnumerable<int> levels = one is not null ? [Convert.ToInt32(one, 16)] : Enumerable.Range(0, Rom.LevelCount);
         foreach (int level in levels)
@@ -131,7 +131,7 @@ static class DebugCommands
     // no index is given), decoded out of the four $05F800/FA00/FC00/FE00 tables.
     public static int DumpEntrances(string[] args, int ei)
     {
-        var rom = Rom.Load(args.ElementAtOrDefault(ei + 1) ?? @"C:\SMW\Projects\.resources\SMW.smc");
+        var rom = Rom.Load(args.ElementAtOrDefault(ei + 1) ?? ReferenceRoms.Vanilla);
         string? one = args.ElementAtOrDefault(ei + 2);
         IEnumerable<int> idx = one is not null
             ? [Convert.ToInt32(one, 16)] : Enumerable.Range(0, Rom.SecondaryEntranceCount);
@@ -152,7 +152,7 @@ static class DebugCommands
     // --mainentrance <rom> [levelHex] : dump a level's main entrance / entry settings.
     public static int DumpMainEntrance(string[] args, int mi)
     {
-        var rom = Rom.Load(args.ElementAtOrDefault(mi + 1) ?? @"C:\SMW\Projects\.resources\SMW.smc");
+        var rom = Rom.Load(args.ElementAtOrDefault(mi + 1) ?? ReferenceRoms.Vanilla);
         string? one = args.ElementAtOrDefault(mi + 2);
         IEnumerable<int> levels = one is not null
             ? [Convert.ToInt32(one, 16)] : Enumerable.Range(0, Rom.LevelCount);
@@ -173,9 +173,9 @@ static class DebugCommands
     // so the result can be opened in Lunar Magic to verify the encoding round-trips.
     public static int WriteDm16(string[] args, int wi)
     {
-        string romPath = args.ElementAtOrDefault(wi + 1) ?? @"C:\SMW\Projects\.resources\after.smc";
+        string romPath = args.ElementAtOrDefault(wi + 1) ?? ReferenceRoms.LmAfter;
         int level = Convert.ToInt32(args.ElementAtOrDefault(wi + 2) ?? "105", 16);
-        string outPath = args.ElementAtOrDefault(wi + 3) ?? @"C:\SMW\Projects\.resources\test_dm16.smc";
+        string outPath = args.ElementAtOrDefault(wi + 3) ?? ReferenceRoms.Resource("test_dm16.smc");
 
         var rom = Rom.Load(romPath);
         if (!rom.HasDm16Hijack)
@@ -496,7 +496,7 @@ static class DebugCommands
     // --gen-spritedisplay [rom] [out.json] : regenerate the static sprite display table.
     public static int GenSpriteDisplay(string[] args, int si)
     {
-        var rom = Rom.Load(args.ElementAtOrDefault(si + 1) ?? @"C:\SMW\Projects\.resources\SMW.smc");
+        var rom = Rom.Load(args.ElementAtOrDefault(si + 1) ?? ReferenceRoms.Vanilla);
         string outp = args.ElementAtOrDefault(si + 2) ?? @"src\Data\SpriteDisplay.json";
         File.WriteAllText(outp, SpriteDisplay.Generate(rom));
         var parsed = SpriteDisplay.Parse(File.ReadAllText(outp));

@@ -15,7 +15,7 @@ public sealed class LmRefRomFactAttribute : FactAttribute
 
 public class RomPrepTests
 {
-    public const string AfterRomPath = @"C:\SMW\Projects\.resources\after.smc";
+    public static string AfterRomPath => ReferenceRoms.LmAfter;
 
     /// <summary>Golden SHA-256 (headerless) of the V1-prepped vanilla US ROM (frozen stamp
     /// list, 2026-08-16, incl. the B-preservation fix and the second palette hook). V1

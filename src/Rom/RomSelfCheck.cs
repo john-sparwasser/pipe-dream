@@ -7,8 +7,8 @@ namespace PipeDream;
 /// </summary>
 public static class RomSelfCheck
 {
-    const string CleanRom = @"C:\SMW\Projects\.resources\SMW.smc";
-    const string EditedRom = @"C:\SMW\Projects\ShaoBase\base.smc";
+    static string CleanRom => ReferenceRoms.Vanilla;
+    static string EditedRom => ReferenceRoms.ShaoBase;
 
     public static int Run()
     {
@@ -405,7 +405,7 @@ public static class RomSelfCheck
             Check("sprite data re-encodes byte-identical",
                   senc.AsSpan().SequenceEqual(rs.Data.AsSpan(sfo, senc.Length)));
 
-            string dow = @"C:\SMW\Projects\DogsOfWar\dogs_of_war-backup.smc";
+            string dow = ReferenceRoms.InProject("DogsOfWar", "dogs_of_war-backup.smc");
             if (File.Exists(dow))
             {
                 var dr = Rom.Load(dow);
@@ -423,7 +423,7 @@ public static class RomSelfCheck
             }
         }
 
-        string map16After = @"C:\SMW\Projects\.resources\map16_after.smc";
+        string map16After = ReferenceRoms.Resource("map16_after.smc");
         if (File.Exists(map16After))
         {
             Console.WriteLine("LM extended Map16 def read (map16_after.smc, tile 0x300):");
@@ -448,7 +448,7 @@ public static class RomSelfCheck
             Check("acts-as table: 0x166 acts as 0x130", mr.ActsAs(0x166) == 0x130);
         }
 
-        string gfxAfter = @"C:\SMW\Projects\.resources\gfx_after.smc";
+        string gfxAfter = ReferenceRoms.Resource("gfx_after.smc");
         if (File.Exists(gfxAfter))
         {
             Console.WriteLine("LM Super GFX Bypass read (gfx_after.smc, level 0x105, CONTRACT §7d):");
@@ -479,7 +479,7 @@ public static class RomSelfCheck
             Check("FgTiles.Load(level) applies the bypass (tiles differ from default)", differs);
         }
 
-        string shaoRom = @"C:\SMW\Projects\ShaoBase\base.smc";
+        string shaoRom = ReferenceRoms.ShaoBase;
         if (File.Exists(shaoRom))
         {
             Console.WriteLine("LM extended defs via $06F540 constants (ShaoBase, CONTRACT §7a-rev):");
@@ -572,7 +572,7 @@ public static class RomSelfCheck
                   animTiles.Any(t => !fgA.Fetch(t).AsSpan().SequenceEqual(fgB.Fetch(t))));
         }
 
-        string dowRom = @"C:\SMW\Projects\DogsOfWar\dogs_of_war-backup.smc";
+        string dowRom = ReferenceRoms.InProject("DogsOfWar", "dogs_of_war-backup.smc");
         if (File.Exists(dowRom))
         {
             Console.WriteLine("LM custom palettes (DogsOfWar, CONTRACT §7e):");
@@ -612,7 +612,7 @@ public static class RomSelfCheck
                   dr.ReadValue(LunarMagic.LmPaletteTable + 0x107 * 3, 3) == ptr107Before);
         }
 
-        string juzRom = @"C:\SMW\Projects\juz\SMW.smc";
+        string juzRom = ReferenceRoms.InProject("juz", "SMW.smc");
         if (File.Exists(juzRom))
         {
             // Regression: these tables move per-ROM; juz's ExGFX table sits where other ROMs
@@ -623,7 +623,7 @@ public static class RomSelfCheck
             Check("juz ExGFX base found per-ROM ($118000)", jr.LmExGfxBase == 0x118000);
         }
 
-        string afterRom = @"C:\SMW\Projects\.resources\after.smc";
+        string afterRom = ReferenceRoms.LmAfter;
         if (File.Exists(afterRom))
         {
             Console.WriteLine("Direct Map16 parse + round-trip (after.smc, level 0x105):");
