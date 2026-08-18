@@ -136,19 +136,46 @@
             </StackPanel>
           </Border>
 
-          <ScrollViewer HorizontalScrollBarVisibility="Auto">
-            <ui:Map16PaletteView x:Name="Palette" Margin="8"/>
-          </ScrollViewer>
+          <!-- The drawer follows the canvas mode: Map16 tiles for the level, 8x8 GFX for
+               the Map16 editor. Pick here, stamp there — one grammar at both levels. -->
+          <Panel>
+            <ScrollViewer x:Name="PaletteScroll" HorizontalScrollBarVisibility="Auto">
+              <ui:Map16PaletteView x:Name="Palette" Margin="8"/>
+            </ScrollViewer>
+            <DockPanel x:Name="ChrPanel" IsVisible="False">
+              <Border DockPanel.Dock="Top" Padding="10,8" Background="{DynamicResource SurfaceBrush}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <TextBlock Classes="dim" Text="palette"/>
+                  <ComboBox x:Name="PalRowBox" Width="66" SelectedIndex="2"/>
+                  <CheckBox x:Name="ChrFlipX" Content="X"/>
+                  <CheckBox x:Name="ChrFlipY" Content="Y"/>
+                  <CheckBox x:Name="ChrPrio" Content="Pri"/>
+                </StackPanel>
+              </Border>
+              <ScrollViewer HorizontalScrollBarVisibility="Auto">
+                <ui:ChrPaletteView x:Name="Chr" Margin="8"/>
+              </ScrollViewer>
+            </DockPanel>
+          </Panel>
         </DockPanel>
       </Border>
 
       <GridSplitter Grid.Column="1" ResizeDirection="Columns"/>
 
-      <ScrollViewer x:Name="CanvasScroll" Grid.Column="2"
-                    Background="{DynamicResource VoidBrush}"
-                    HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-        <ui:LevelView x:Name="Canvas"/>
-      </ScrollViewer>
+      <!-- Canvas modes share the region: exactly one is visible, and the drawer keeps
+           feeding whichever it is. -->
+      <Panel Grid.Column="2">
+        <ScrollViewer x:Name="CanvasScroll"
+                      Background="{DynamicResource VoidBrush}"
+                      HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+          <ui:LevelView x:Name="Canvas"/>
+        </ScrollViewer>
+        <ScrollViewer x:Name="Map16Scroll" IsVisible="False"
+                      Background="{DynamicResource VoidBrush}"
+                      HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+          <ui:Map16CanvasView x:Name="Map16Canvas" Margin="8"/>
+        </ScrollViewer>
+      </Panel>
     </Grid>
 
   </DockPanel>

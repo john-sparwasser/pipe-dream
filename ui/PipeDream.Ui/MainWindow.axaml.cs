@@ -30,6 +30,11 @@ public partial class MainWindow : Window
     private LevelEdit? edit;
 
     private LevelView canvas = null!;
+    private Map16CanvasView map16Canvas = null!;
+    private ChrPaletteView chr = null!;
+    private ComboBox palRowBox = null!;
+    private CheckBox chrFlipX = null!, chrFlipY = null!, chrPrio = null!;
+    private Map16Edit? map16;
     private Map16PaletteView palette = null!;
     private ComboBox levelBox = null!, bankBox = null!;
     private Slider zoomSlider = null!, tileZoom = null!;
@@ -95,6 +100,49 @@ public partial class MainWindow : Window
             status.Text = $"grabbed {w}x{h} tiles as the brush — Esc or pick a tile to drop it";
         };
         canvas.SelectionChanged += (_, _) => UpdateStatus();
+
+        // ---- Map16 canvas mode ----
+        map16Canvas = this.GetControl<Map16CanvasView>("Map16Canvas");
+        chr = this.GetControl<ChrPaletteView>("Chr");
+        palRowBox = this.GetControl<ComboBox>("PalRowBox");
+        chrFlipX = this.GetControl<CheckBox>("ChrFlipX");
+        chrFlipY = this.GetControl<CheckBox>("ChrFlipY");
+        chrPrio = this.GetControl<CheckBox>("ChrPrio");
+        for (int i = 0; i < 8; i++) palRowBox.Items.Add($"{i}");
+        palRowBox.SelectedIndex = 2;
+        palRowBox.SelectionChanged += (_, _) => { RebuildChrSheet(); RefreshMap16Sheet(); };
+        chr.BrushChanged += (_, _) =>
+        {
+            map16Canvas.BrushW = chr.Brush.W;
+            map16Canvas.BrushH = chr.Brush.H;
+            map16Canvas.InvalidateVisual();
+        };
+        map16Canvas.QuadPainted += (_, q) =>
+        {
+            if (map16 is null) return;
+            // Painting an empty page CREATES it; the allocation relocates the def region, so
+            // it has to happen before the quadrant offset is taken.
+            if (map16.EnsurePage(q.Tile) is { } why) { status.Text = why; return; }
+            map16.StampQuad(q.Tile, q.Quad, GfxBrushWord(q.Bx, q.By));
+        };
+        map16Canvas.StrokeEnded += (_, _) => map16?.EndStroke();
+        map16Canvas.QuadFlagToggled += (_, f) =>
+        {
+            if (map16?.ReadDef(f.Tile) is not { } def) return;
+            map16.StampQuad(f.Tile, f.Quad, (ushort)(def[f.Quad].Raw ^ f.Bit));
+            map16.EndStroke();
+        };
+        map16Canvas.TilePicked += (_, tile) =>
+        {
+            selLabel.Text = $"0x{tile:X4}";
+            SetBrush(null, 1, 1);
+        };
+        map16Canvas.MoveRequested += (_, m) =>
+        {
+            if (map16?.MoveTiles(map16Canvas.Bank, m.X, m.Y, m.W, m.H, m.Dx, m.Dy) is { } why)
+                status.Text = why;
+            map16?.EndStroke();
+        };
 
         zoomSlider.PropertyChanged += (_, e) =>
         {
@@ -183,6 +231,10 @@ public partial class MainWindow : Window
 
         var (px, w, h) = scene.Sheet();
         palette.SetSheet(px, w, h, rom.Map16TileCount);
+        // The Map16 editor writes defs straight into the session ROM, so it is rebuilt with
+        // the level: a new tileset means new def offsets.
+        map16 = new Map16Edit(rom, scene.Level.Header.Tileset, session.Project);
+        map16.Committed += OnMap16Committed;
         UpdateStatus();
         UpdateTitle();
     }
@@ -425,13 +477,63 @@ public partial class MainWindow : Window
         ShowLevel(levelNum);
     }
 
-    // Radio behaviour without a group: exactly one canvas mode is active.
+    // Radio behaviour without a group: exactly one canvas mode is active. Switching drops
+    // every mode's in-flight drag, as the ImGui view toggle does.
     private void OnMode(object? sender, RoutedEventArgs e)
     {
         foreach (var b in new[] { modeLevel, modeMap16, modeGfx })
             b.IsChecked = ReferenceEquals(b, sender);
-        status.Text = ReferenceEquals(sender, modeLevel)
-            ? $"level ${levelNum:X3}"
-            : $"{(sender as ToggleButton)?.Content} mode — not ported yet (canvas mode, same window)";
+
+        bool map16 = ReferenceEquals(sender, modeMap16);
+        this.GetControl<ScrollViewer>("CanvasScroll").IsVisible = !map16;
+        this.GetControl<ScrollViewer>("Map16Scroll").IsVisible = map16;
+        edit?.Selection.Clear();
+        map16Canvas.ClearSelection();
+
+        this.GetControl<ScrollViewer>("PaletteScroll").IsVisible = !map16;
+        this.GetControl<DockPanel>("ChrPanel").IsVisible = map16;
+        if (map16) { RefreshMap16Sheet(); map16Canvas.Focus(); status.Text = "Map16 — right-drag stamps the 8x8 brush; X/Y/P flip the quadrant under the cursor"; }
+        else if (ReferenceEquals(sender, modeLevel)) UpdateStatus();
+        else status.Text = "GFX mode — not ported yet (canvas mode, same window)";
+        canvas.InvalidateVisual();
+    }
+
+    private void RefreshMap16Sheet()
+    {
+        if (scene is null || rom is null) return;
+        var (px, w, h) = scene.Sheet();
+        map16Canvas.SetSheet(px, w, h, rom.Map16TileCount);
+        map16Canvas.Bank = Math.Max(0, bankBox.SelectedIndex);
+        map16Canvas.SelectedTile = palette.Selected;
+        RebuildChrSheet();
+    }
+
+    private void RebuildChrSheet()
+    {
+        if (rom is null || scene?.Palettes[0] is not { } pal) return;
+        chr.Build(rom, scene.Level.Header, levelNum, 0, pal, Math.Max(0, palRowBox.SelectedIndex));
+    }
+
+    /// <summary>
+    /// The Map16 word a brush cell stamps: the 8x8 tile number in the low 10 bits, then the
+    /// palette row and the flip/priority flags from the drawer. This packing IS the Map16
+    /// format (CONTRACT §5), which is why the flags live with the brush rather than being
+    /// applied afterwards.
+    /// </summary>
+    private ushort GfxBrushWord(int bx, int by)
+        => (ushort)((chr.TileOfBrushCell(bx, by) & 0x3FF)
+                    | (Math.Max(0, palRowBox.SelectedIndex) << 10)
+                    | (chrPrio.IsChecked == true ? 0x2000 : 0)
+                    | (chrFlipX.IsChecked == true ? 0x4000 : 0)
+                    | (chrFlipY.IsChecked == true ? 0x8000 : 0));
+
+    /// <summary>Rebuild everything a committed Map16 edit invalidates: the tile caches feed
+    /// both the level canvas and the picker, so a def change has to reach all three.</summary>
+    private void OnMap16Committed()
+    {
+        if (rom is null || scene is null) return;
+        session.RecomposeScene();
+        AdoptSession();
+        RefreshMap16Sheet();
     }
 }

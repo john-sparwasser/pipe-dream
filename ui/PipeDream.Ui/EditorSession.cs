@@ -129,6 +129,26 @@ internal sealed class EditorSession
         catch (Exception ex) { Report($"level ${num:X3}: {ex.Message}"); }
     }
 
+    /// <summary>
+    /// Recompose the current level from the ROM, keeping the object edits. Needed after a
+    /// Map16 definition changes: the tile caches are built from the defs, so every tile that
+    /// uses the edited one has to be redrawn — in the level, in the picker, and in the sheet.
+    /// </summary>
+    public void RecomposeScene()
+    {
+        if (Rom is null || Edit is null) return;
+        var objects = Edit.Objects.ToList();
+        try
+        {
+            Scene = LevelScene.Build(Rom, LevelNum);
+            var next = new LevelEdit(Rom, Scene, objects) { HydratedSprites = Edit.HydratedSprites };
+            next.Rerender();
+            Edit = next;
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+        catch (Exception ex) { Report($"recompose failed: {ex.Message}"); }
+    }
+
     // ---- saving ----
 
     /// <summary>Fold the live level into the project snapshot. Called before every write, and
