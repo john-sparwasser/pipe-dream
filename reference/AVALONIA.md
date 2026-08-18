@@ -1,0 +1,124 @@
+# Migrating the UI to Avalonia — scope
+
+Status: **plan only, nothing started.** Written 2026-08-18.
+
+## Why this is tractable
+
+The core does not know the UI exists. Measured:
+
+| | files | lines | touches Foster/ImGui |
+|---|---|---|---|
+| `src/Rom` (ROM, level, GFX, prep, LM) | 34 | 6,593 | **0** |
+| UI layer | 16 | 3,227 | all |
+| everything in `src` | 72 | 13,085 | 25 reference ImGui, 10 Foster |
+
+So a migration rewrites ~3,200 lines and leaves the 6,593-line core — and the 259 tests
+over it — untouched. The expensive, subtle work (object engine, Map16 composition, LZ2,
+prep) is already framework-agnostic and stays.
+
+The UI files, largest first:
+
+```
+Map16Editor 707   ImGuiLayer 519   GfxEditor 332   EditorApp 316   LevelGfxPanel 204
+LevelViewport 192 GfxBrowser 184   ProjectWizard 145 ShellLayout 128 LevelCanvas 112
+MenuBar 87        SpriteOverlay 74 BackgroundPicker 73 ImGuiCompat 62 GfxViewerPanel 58
+RomInfoPanel 34
+```
+
+`ImGuiLayer` (519) and `ImGuiCompat` (62) are pure adapter — they are **deleted**, not ported.
+
+## What Avalonia actually buys
+
+1. **Headless UI tests.** `Avalonia.Headless.XUnit` runs a real visual tree with no window:
+   click a point, assert state, in the same `dotnet test` run. Every UI bug this project has
+   hit — "click to allocate does nothing", "bank 1 renders nothing" — is that shape. This is
+   the reason to do it.
+2. **Drops Foster + SDL3.** One less native dependency to ship per RID; see PORTABILITY.md.
+   Avalonia still has native bits (SkiaSharp) but desktop packaging for it is well trodden.
+3. **Real native UI**: file pickers, menus, dialogs, text input/IME, per-monitor DPI,
+   clipboard, keyboard navigation, accessibility. ImGui reimplements these, badly, and we
+   have already written per-OS font-picking and modal-centering helpers to compensate.
+4. **Retained rendering.** ImGui redraws the whole UI every frame; Avalonia invalidates only
+   what changed. An editor that is mostly static chrome around one busy canvas is the good
+   case for that.
+
+**Precedent worth noting: Mesen 2's own UI is Avalonia** (its binary references
+`Avalonia.Headless`). A cross-platform emulator with a custom-rendered viewport, memory
+viewers and debug tools is a close analogue of this app.
+
+## The canvas — the part that decides the whole thing
+
+Today: compose tiles into `uint[]` RGBA CPU-side (`Map16.ComposeAll`, `ComposeSheet`,
+`LevelCanvas`) → upload to a Foster `Texture` → `ImGui.Image`.
+
+In Avalonia the composition **carries over unchanged**: write the same `uint[]` into a
+`WriteableBitmap` (BGRA8888) and blit it from a custom `Control.Render(DrawingContext)`. The
+incremental dirty-cell path (`canvasFull`) ports as-is. Overlays are close to 1:1:
+
+| ImGui | Avalonia |
+|---|---|
+| `dl.AddRectFilled` | `DrawingContext.FillRectangle` |
+| `dl.AddRect` / `AddLine` | `DrawRectangle(pen)` / `DrawLine` |
+| `dl.AddText` | `DrawText(FormattedText)` |
+| `ImGui.Image(tex, size, uv0, uv1)` | `DrawImage(bitmap, srcRect, dstRect)` — the Map16 bank window is already expressed as a UV rect (`Map16Editor.SheetWindow`) |
+
+Per-frame hit testing becomes `PointerPressed/Moved/Released` on the canvas control, which is
+also where the paint/select/lasso intent logic wants to live anyway.
+
+## Phases
+
+Run the Avalonia app **in parallel** in its own project referencing the same core; keep the
+ImGui app buildable and switch the default entry point only at parity. Never a broken editor.
+
+- **Phase 0 — spikes.** Prove the two risky things before committing: (a) a `WriteableBitmap`
+  canvas rendering a real composed level, measured at target zoom with animation phases;
+  (b) one `Avalonia.Headless.XUnit` test that clicks a canvas and asserts editor state;
+  (c) confirm single-file publish per RID still works. If (a) or (b) disappoints, stop here —
+  cost so far is one session.
+- **Phase 1 — extract `PipeDream.Core`.** Move `src/Rom` plus the project/build layer into a
+  library the UI references. `src/Rom` already has zero UI coupling so this is mechanical;
+  `LevelSession` is the one genuinely tangled piece (it holds an `EditorApp`) and needs its
+  session state separated from its UI callbacks.
+- **Phase 2 — shell.** Window, menu bar, left palette drawer, canvas region, status bar, and
+  the canvas-mode switching from the header. Keeps the UI paradigm: canvas centre, palette
+  drawer left, new editors are canvas modes, never drawer panels.
+- **Phase 3 — level canvas.** Render, pan/zoom, selection, paint, object and sprite overlays.
+  The bulk of the work.
+- **Phase 4 — palette drawer.** Map16 picker, sprites, objects tabs.
+- **Phase 5 — other canvas modes.** Map16 editor (707 lines) and GFX editor (332).
+- **Phase 6 — dialogs and panels.** Project wizard, GFX browser, background picker, ROM info,
+  GFX viewers — these become ordinary Avalonia windows and get *smaller*.
+- **Phase 7 — delete.** Foster, ImGui.NET, `ImGuiLayer`, `ImGuiCompat`; update `install/`,
+  PORTABILITY.md and CI to the new RIDs.
+
+## Sizing
+
+Soft, and the canvas dominates: roughly **13–16 focused sessions**, with phases 3 and 5 about
+half of it. This is a weeks-not-days project. The estimate assumes UI features are frozen
+during phases 2–3; if the ImGui app keeps gaining features they get built twice.
+
+## Risks
+
+1. **Canvas performance.** WriteableBitmap blit at high zoom with 4 animation phases is the
+   one thing that could invalidate the approach. Phase 0 spike (a) exists to find out cheaply.
+2. **Shared mutable state.** `EditorApp` carries ~65 fields that every component reaches into.
+   Retained UI wants view models with change notification. This is the boring, large,
+   unavoidable middle of the work — and the reason to do it phase by phase rather than at once.
+3. **Feature drift during migration**, per the sizing note.
+4. **Two UIs in the tree** for the duration: some duplicated wiring, and a period where a
+   core change means touching both. Bounded by keeping the phases short.
+
+## The alternative, for the record
+
+Headless testing does **not** require Avalonia. Measured this session
+(`HeadlessImGuiProbe`): an ImGui context lays out, hit-tests and renders draw data in a plain
+xunit process with no GPU, and a synthetic click reaches a button — in 19 ms. What blocks a
+headless *editor* today is not ImGui, it is that `EditorApp` derives from Foster's `App` and
+the draw paths construct Foster `Texture`s.
+
+So the cheap version of the feedback loop is: make the UI components depend on something
+smaller than `EditorApp`, and let textures be null in tests (the draw paths already tolerate
+that — `BankSheet` returns no texture and the callers skip the blit). That buys click-level
+UI tests for a fraction of a migration.
+
+Choose Avalonia for the other four reasons, not for testability alone.
