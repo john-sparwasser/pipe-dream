@@ -21,3 +21,7 @@ reference/lm-help/
 imgui.ini
 *.user
 *.png
+
+# Avalonia UI project build output
+ui/**/bin/
+ui/**/obj/

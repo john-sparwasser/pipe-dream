@@ -10,9 +10,10 @@
     <ApplicationIcon>assets\pipe-dream.ico</ApplicationIcon>
   </PropertyGroup>
 
-  <!-- The app globs **/*.cs from the repo root; keep the sibling test project out. -->
+  <!-- The app globs **/*.cs from the repo root; keep the sibling projects out. -->
   <ItemGroup>
     <Compile Remove="tests\**\*.cs" />
+    <Compile Remove="ui\**\*.cs" />
   </ItemGroup>
 
   <!-- Tests exercise the internal project layer (Project, Config). -->

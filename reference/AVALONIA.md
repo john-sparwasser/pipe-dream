@@ -1,6 +1,39 @@
 # Migrating the UI to Avalonia — scope
 
-Status: **plan only, nothing started.** Written 2026-08-18.
+Status: **Phase 0 done and green — the approach is viable.** Written 2026-08-18.
+
+## Phase 0 results (measured, not estimated)
+
+Avalonia 11.3.11, `ui/PipeDream.Ui` (spike shell) + `ui/PipeDream.Ui.Tests` (headless).
+
+**(a) Canvas cost — the thing that could have killed it.** Level `$105` is 8192x432px,
+**13.5 MB per animation phase**, the widest SMW can express:
+
+| | |
+|---|---|
+| compose 4 phases | **81.7 ms** — core work, unchanged by the migration |
+| first upload (allocates the bitmap) | 6.1 ms |
+| **steady-state repaint** | **2.28 ms** |
+
+A full 13.5 MB push costs 2.3 ms, comfortably inside a 16.6 ms frame — and that is the *worst*
+case, since the editor's dirty-cell path repaints a few cells rather than the whole level.
+The canvas is not a problem.
+
+**(b) Headless UI tests — the reason to migrate.** `Avalonia.Headless.XUnit` boots the real
+application with a real visual tree, layout and pointer input, no window and no GPU: 7 tests
+in ~2 s, including clicks landing on the right cell at different zooms and scroll offsets,
+clicks outside the level selecting nothing, and rendering not throwing. This is the loop the
+ImGui editor never had.
+
+**(c) Packaging.** Single-file self-contained win-x64 publish works: one 101 MB exe, 10.5 s.
+For comparison the current ImGui/Foster app is 76 MB the same way — **+25 MB** for Skia and
+the Avalonia stack. `Tmds.DBus.Protocol` comes in transitively with a high-severity advisory
+(GHSA-xrw6-gwf8-vvr9) and is pinned to 0.21.3 to clear it.
+
+**What the spike also confirmed about the port itself:** `LevelCanvas` is already CPU
+composition plus ~6 lines of GPU upload, so `LevelBitmap` (its Avalonia twin) is a
+like-for-like swap of `Texture` for `WriteableBitmap`. Composition packs 0xAABBGGRR, which is
+`PixelFormat.Rgba8888` — no per-pixel swizzle on the way in.
 
 ## Why this is tractable
 
@@ -70,11 +103,7 @@ also where the paint/select/lasso intent logic wants to live anyway.
 Run the Avalonia app **in parallel** in its own project referencing the same core; keep the
 ImGui app buildable and switch the default entry point only at parity. Never a broken editor.
 
-- **Phase 0 — spikes.** Prove the two risky things before committing: (a) a `WriteableBitmap`
-  canvas rendering a real composed level, measured at target zoom with animation phases;
-  (b) one `Avalonia.Headless.XUnit` test that clicks a canvas and asserts editor state;
-  (c) confirm single-file publish per RID still works. If (a) or (b) disappoints, stop here —
-  cost so far is one session.
+- ~~**Phase 0 — spikes.**~~ **Done**, see the results above. All three green.
 - **Phase 1 — extract `PipeDream.Core`.** Move `src/Rom` plus the project/build layer into a
   library the UI references. `src/Rom` already has zero UI coupling so this is mechanical;
   `LevelSession` is the one genuinely tangled piece (it holds an `EditorApp`) and needs its
@@ -99,8 +128,7 @@ during phases 2–3; if the ImGui app keeps gaining features they get built twic
 
 ## Risks
 
-1. **Canvas performance.** WriteableBitmap blit at high zoom with 4 animation phases is the
-   one thing that could invalidate the approach. Phase 0 spike (a) exists to find out cheaply.
+1. ~~**Canvas performance.**~~ **Retired by Phase 0**: 2.28 ms for a full 13.5 MB repaint.
 2. **Shared mutable state.** `EditorApp` carries ~65 fields that every component reaches into.
    Retained UI wants view models with change notification. This is the boring, large,
    unavoidable middle of the work — and the reason to do it phase by phase rather than at once.

@@ -1,0 +1,100 @@
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Media;
+
+namespace PipeDream.Ui;
+
+/// <summary>
+/// The level canvas as a retained control: blits the composed level bitmap and draws the
+/// overlays (grid, selection) with <see cref="DrawingContext"/>. The ImGui version drew the
+/// same things into a per-frame draw list; the translation is close to 1:1
+/// (AddRectFilled → FillRectangle, AddRect/AddLine → DrawRectangle/DrawLine).
+///
+/// Interaction arrives as pointer events instead of being re-derived from the mouse position
+/// every frame, so hit-testing lives in one place and can be exercised headlessly. Cell
+/// coordinates are exposed through <see cref="CellAt"/> for exactly that reason.
+/// </summary>
+public class LevelView : Control
+{
+    public static readonly StyledProperty<double> ZoomProperty =
+        AvaloniaProperty.Register<LevelView, double>(nameof(Zoom), 2.0);
+
+    public double Zoom
+    {
+        get => GetValue(ZoomProperty);
+        set => SetValue(ZoomProperty, value);
+    }
+
+    /// <summary>Scroll offset in level pixels (not screen pixels).</summary>
+    public Point Origin { get; set; }
+
+    public LevelBitmap? Source { get; set; }
+    public int Phase { get; set; }
+    public bool ShowGrid { get; set; } = true;
+
+    /// <summary>Last cell the pointer went down on — the spike's stand-in for the editor's
+    /// paint/select dispatch, and what a headless test asserts on.</summary>
+    public (int X, int Y)? LastClickedCell { get; private set; }
+
+    public event EventHandler<(int X, int Y)>? CellPressed;
+
+    static LevelView()
+    {
+        // Custom-drawn content: repaint when the things it is drawn from change.
+        AffectsRender<LevelView>(ZoomProperty);
+    }
+
+    public LevelView() => Focusable = true;
+
+    /// <summary>Screen point → 16x16 cell, or null when outside the composed level.</summary>
+    public (int X, int Y)? CellAt(Point p)
+    {
+        if (Source is not { HasImages: true } src || Zoom <= 0) return null;
+        int lx = (int)((p.X + Origin.X) / Zoom), ly = (int)((p.Y + Origin.Y) / Zoom);
+        if (lx < 0 || ly < 0 || lx >= src.PxW || ly >= src.PxH) return null;
+        return (lx / 16, ly / 16);
+    }
+
+    protected override void OnPointerPressed(PointerPressedEventArgs e)
+    {
+        base.OnPointerPressed(e);
+        if (CellAt(e.GetPosition(this)) is { } cell)
+        {
+            LastClickedCell = cell;
+            CellPressed?.Invoke(this, cell);
+            InvalidateVisual();
+        }
+    }
+
+    public override void Render(DrawingContext ctx)
+    {
+        var bounds = new Rect(Bounds.Size);
+        ctx.FillRectangle(Brushes.Black, bounds);
+        if (Source?.For(Phase) is not { } bmp) return;
+
+        // Draw only the visible slice, scaled — the level is far wider than the viewport, so
+        // blitting the whole bitmap every frame would scale megabytes for nothing.
+        double z = Zoom;
+        var src = new Rect(Origin.X / z, Origin.Y / z, Math.Min(bounds.Width / z, bmp.PixelSize.Width),
+                           Math.Min(bounds.Height / z, bmp.PixelSize.Height));
+        var dst = new Rect(0, 0, src.Width * z, src.Height * z);
+        ctx.DrawImage(bmp, src, dst);
+
+        if (ShowGrid) DrawScreenBoundaries(ctx, dst, z);
+        if (LastClickedCell is { } c)
+        {
+            var pen = new Pen(Brushes.Cyan, 1.5);
+            ctx.DrawRectangle(null, pen, new Rect(c.X * 16 * z - Origin.X, c.Y * 16 * z - Origin.Y, 16 * z, 16 * z));
+        }
+    }
+
+    // SMW screens are 16 cells wide; the boundary lines are the editor's main orientation cue.
+    private void DrawScreenBoundaries(DrawingContext ctx, Rect dst, double z)
+    {
+        var pen = new Pen(new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF)));
+        double step = 16 * 16 * z;
+        for (double x = -Origin.X % step; x < dst.Width; x += step)
+            ctx.DrawLine(pen, new Point(x, 0), new Point(x, dst.Height));
+    }
+}
