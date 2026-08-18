@@ -130,11 +130,16 @@ internal sealed class Project
             return Data.BaseRom.PrepVersion == 0
                 ? "this project's base is not a verified vanilla ROM — prep would discard it."
                 : "base is already at the current prep version.";
-        if (vanillaRomPath is null || !File.Exists(vanillaRomPath) ||
-            RomHash.HeaderlessSha256File(vanillaRomPath) != RomHash.VanillaUsSha256)
+        // A v0 base IS the vanilla image, so it can seed its own prep — no configured ROM
+        // needed for the case that most needs fixing.
+        string? source = vanillaRomPath is not null && File.Exists(vanillaRomPath) &&
+                         RomHash.HeaderlessSha256File(vanillaRomPath) == RomHash.VanillaUsSha256
+            ? vanillaRomPath
+            : Data.BaseRom.PrepVersion == 0 ? BaseRomPath : null;
+        if (source is null)
             return "no verified vanilla SMW ROM configured — set one first (first-run prompt / config).";
         string tmp = BaseRomPath + ".upgrade";
-        File.Copy(vanillaRomPath, tmp, overwrite: true);
+        File.Copy(source, tmp, overwrite: true);
         if (RomPrep.PrepInPlace(tmp) is { } err) { File.Delete(tmp); return err; }
         File.Move(tmp, BaseRomPath, overwrite: true);
         byte[] bytes = File.ReadAllBytes(BaseRomPath);

@@ -67,14 +67,16 @@ public class Map16AllocTests : IDisposable
     [Fact]
     public void empty_pages_describe_themselves_without_promising_allocation()
     {
-        // Both FG banks: interacting creates the page, and the note says the gesture that
-        // actually does it — the user tried the one the note named and nothing happened.
-        Assert.Contains("click", Map16Editor.UnusedPageNote(0, 0x05));
-        Assert.Contains("click", Map16Editor.UnusedPageNote(0, 0x10));
-        Assert.Contains("click", Map16Editor.UnusedPageNote(1, 0x20));
+        // FG banks: an empty page is just empty tiles, filled by painting — never an
+        // "unlock" the user has to perform first.
+        Assert.Contains("paint", Map16Editor.UnusedPageNote(0, 0x05));
+        Assert.Contains("paint", Map16Editor.UnusedPageNote(0, 0x10));
+        Assert.Contains("paint", Map16Editor.UnusedPageNote(1, 0x20));
+        Assert.All([Map16Editor.UnusedPageNote(0, 0x05), Map16Editor.UnusedPageNote(1, 0x20)],
+                   s => Assert.DoesNotContain("creat", s));   // nothing to create, nothing to click
         // Bank 2 is the BG table — fixed size, so it is a different explanation entirely.
         Assert.Contains("BG", Map16Editor.UnusedPageNote(2, 0x42));
-        Assert.DoesNotContain("click", Map16Editor.UnusedPageNote(2, 0x42));
+        Assert.DoesNotContain("paint", Map16Editor.UnusedPageNote(2, 0x42));
     }
 
     [RealRomFact]

@@ -87,12 +87,18 @@ internal sealed class Map16Editor(EditorApp app)
                 map16W, rows, count);
     }
 
-    /// <summary>What to say over an empty page, so the editor never advertises an allocation
-    /// that cannot happen — the old label promised "click to allocate" on every unused page in
-    /// every bank, including the ones that could not.</summary>
+    /// <summary>Tiles of the selected bank the user may paint: everything in the FG banks,
+    /// whether or not its page exists yet, because painting creates the page. The BG bank is
+    /// a fixed table, so only its real tiles qualify.</summary>
+    private int PaintableTiles(int realCount) =>
+        CanAllocate(map16Bank * 0x2000 + 0x1FFF) ? 0x2000 : realCount;   // the bank's top tile
+
+    /// <summary>What to say over a page that CANNOT be painted. The FG banks never need this
+    /// — an empty page there is drawn as ordinary empty tiles and comes into existence when
+    /// painted — so this only explains the two genuinely fixed cases.</summary>
     internal static string UnusedPageNote(int bank, int page) =>
         bank == 2 ? "BG definitions are a fixed table"
-        : bank < 2 ? "unused — click to create it"
+        : bank < 2 ? "empty — paint to fill it"
         : "past the supported 0x3FFF tiles";
 
     // Deferred Map16 page allocation, requested by PAINTING on an empty page — runs before
@@ -117,7 +123,8 @@ internal sealed class Map16Editor(EditorApp app)
         { app.project.Data.Map16.TileCount = app.rom!.Map16TileCount; app.project.MarkDirty(); }
         app.session.RebuildGraphics();     // recompose caches/sheets with the new count
         app.levelDirty = true;             // the def region rides along on the next save
-        app.saveStatus = $"Map16 page 0x{allocTile >> 8:X2} created";
+        // No status line: allocation is bookkeeping the user did not ask for and should not
+        // have to acknowledge. Only a FAILURE is worth interrupting them for (above).
         // Apply the edit that caused the allocation, now that its page exists.
         if (stamp is { } s) StampDefWord(s.tile, s.quad, s.raw);
     }
@@ -157,24 +164,29 @@ internal sealed class Map16Editor(EditorApp app)
             var (tex, uv0, uv1, texW, realRows, realCount) = BankSheet();
             if (tex is not null)
                 ImGui.Image(app.imgui!.GetTextureID(tex), new Vector2(texW * Z, realRows * 16 * Z), uv0, uv1);
+            // Tiles whose page does not exist yet are drawn as plain empty tiles, not as a
+            // roped-off region: they behave like every other tile, and painting one brings
+            // its page into being underneath. Only genuinely unreachable banks stay labelled.
+            int paintRows = PaintableTiles(realCount) / Cols;
             int totalRows = BankTiles / Cols;
             var dl = ImGui.GetWindowDrawList();
             if (totalRows > realRows)
             {
                 var pp0 = new Vector2(origin.X, origin.Y + realRows * ts);
                 var pp1 = new Vector2(origin.X + Cols * ts, origin.Y + totalRows * ts);
-                dl.AddRectFilled(pp0, pp1, 0xFF1C1C1Cu);
-                for (int pg = (realRows + 15) / 16; pg < BankTiles / 0x100; pg++)
+                dl.AddRectFilled(pp0, pp1, 0xFF000000u);                       // empty tiles
+                if (paintRows < totalRows)                                     // the BG table / past 0x3FFF
                 {
-                    float y = origin.Y + pg * 16 * ts;
-                    dl.AddLine(new Vector2(pp0.X, y), new Vector2(pp1.X, y), 0xFF2A2A2Au);
-                    dl.AddText(new Vector2(pp0.X + 6, y + 6), 0xFF585858u,
-                               $"page {map16Bank * 0x20 + pg:X2} — {UnusedPageNote(map16Bank, map16Bank * 0x20 + pg)}");
+                    float y0 = origin.Y + Math.Max(realRows, paintRows) * ts;
+                    dl.AddRectFilled(new Vector2(pp0.X, y0), pp1, 0xFF1C1C1Cu);
+                    for (int pg = (Math.Max(realRows, paintRows) + 15) / 16; pg < BankTiles / 0x100; pg++)
+                        dl.AddText(new Vector2(pp0.X + 6, origin.Y + pg * 16 * ts + 6), 0xFF585858u,
+                                   $"page {map16Bank * 0x20 + pg:X2} — {UnusedPageNote(map16Bank, map16Bank * 0x20 + pg)}");
                 }
                 ImGui.Dummy(new Vector2(Cols * ts, (totalRows - realRows) * ts));
             }
-            // Page separators over the real region too, LM-style.
-            for (int pg = 1; pg <= (realRows + 15) / 16; pg++)
+            // Page separators across the whole bank, LM-style — the empty pages are pages too.
+            for (int pg = 1; pg < BankTiles / 0x100; pg++)
                 dl.AddLine(new Vector2(origin.X, origin.Y + pg * 16 * ts),
                            new Vector2(origin.X + Cols * ts, origin.Y + pg * 16 * ts), 0x30FFFFFFu);
 
@@ -184,7 +196,7 @@ internal sealed class Map16Editor(EditorApp app)
             int qcol = (int)((m.X - origin.X) / qs), qrow = (int)((m.Y - origin.Y) / qs);
             bool hovered = ImGui.IsWindowHovered() && col is >= 0 and < Cols && row >= 0 && row < totalRows;
             int hTile = map16Bank * BankTiles + row * Cols + col;
-            bool hReal = hovered && row * Cols + col < realCount;
+            bool hReal = hovered && row * Cols + col < PaintableTiles(realCount);
             int tileset = app.level!.Header.Tileset;
 
             // Right-click: stamp the drawer's 8x8 block at the hovered quadrant (drag
@@ -226,11 +238,9 @@ internal sealed class Map16Editor(EditorApp app)
                 if (m16Sel is { } s && col >= s.x && col < s.x + s.w && row >= s.y && row < s.y + s.h)
                     m16Move = (col, row);
                 else if (hReal) m16Lasso = (col, row);
-                // Clicking an empty page CREATES it. Painting does too, but a click is what
-                // people actually try first, and an empty cell has no other meaning for the
-                // left button — so it allocates rather than explaining why it won't.
-                else if (CanAllocate(hTile) && map16AllocPending is null)
-                { map16AllocPending = hTile; map16AllocStamp = null; }
+                // Not a click-to-unlock: a tile whose page does not exist yet selects like any
+                // other. The page appears when it is PAINTED, which is the point at which
+                // there is something to store. Only truly unreachable cells explain themselves.
                 else app.saveStatus = $"Map16 page 0x{hTile >> 8:X2}: " +
                                       UnusedPageNote(map16Bank, hTile >> 8);
             }
@@ -632,21 +642,27 @@ internal sealed class Map16Editor(EditorApp app)
             var (tex, uv0, uv1, texW, realRows, realCount) = BankSheet();
             if (tex is not null)
                 ImGui.Image(app.imgui!.GetTextureID(tex), new Vector2(texW * pz, realRows * 16 * pz), uv0, uv1);
-            // Padding: flat "unused" pages for the rest of the bank, with page markers.
+            // Empty FG pages are drawn as plain empty tiles (they are selectable, and painting
+            // them in the canvas creates them); only fixed banks get the explanatory label.
+            int paintCount = PaintableTiles(realCount);
             int totalRows = BankTiles / Cols;
             var dl = ImGui.GetWindowDrawList();
             if (totalRows > realRows)
             {
                 var p0 = new Vector2(origin.X, origin.Y + realRows * ts);
                 var p1 = new Vector2(origin.X + Cols * ts, origin.Y + totalRows * ts);
-                dl.AddRectFilled(p0, p1, 0xFF242424u);
-                for (int pg = (realRows + 15) / 16; pg < BankTiles / 0x100; pg++)
+                dl.AddRectFilled(p0, p1, 0xFF000000u);
+                if (paintCount / Cols < totalRows)
                 {
-                    float y = origin.Y + pg * 16 * ts;
-                    dl.AddLine(new Vector2(p0.X, y), new Vector2(p1.X, y), 0xFF303030u);
-                    dl.AddText(new Vector2(p0.X + 4, y + 4), 0xFF585858u,
-                               $"page {map16Bank * 0x20 + pg:X2} — {UnusedPageNote(map16Bank, map16Bank * 0x20 + pg)}");
+                    int from = Math.Max(realRows, paintCount / Cols);
+                    dl.AddRectFilled(new Vector2(p0.X, origin.Y + from * ts), p1, 0xFF242424u);
+                    for (int pg = (from + 15) / 16; pg < BankTiles / 0x100; pg++)
+                        dl.AddText(new Vector2(p0.X + 4, origin.Y + pg * 16 * ts + 4), 0xFF585858u,
+                                   $"page {map16Bank * 0x20 + pg:X2} — {UnusedPageNote(map16Bank, map16Bank * 0x20 + pg)}");
                 }
+                for (int pg = (realRows + 15) / 16; pg < BankTiles / 0x100; pg++)
+                    dl.AddLine(new Vector2(p0.X, origin.Y + pg * 16 * ts),
+                               new Vector2(p1.X, origin.Y + pg * 16 * ts), 0xFF303030u);
                 ImGui.Dummy(new Vector2(Cols * ts, (totalRows - realRows) * ts));
             }
             // Pick: unified tile number = bank*0x2000 + cell (allocated tiles only).
@@ -655,21 +671,18 @@ internal sealed class Map16Editor(EditorApp app)
                 var m = ImGui.GetMousePos();
                 int col = (int)((m.X - origin.X) / ts), row = (int)((m.Y - origin.Y) / ts);
                 int idx = row * Cols + col;
-                if (col is >= 0 and < Cols && idx >= 0 && idx < realCount)
+                if (col is >= 0 and < Cols && idx >= 0 && idx < paintCount)
                 {
                     app.selectedMap16 = map16Bank * BankTiles + idx;
                     app.brushTiles = new[] { (ushort)app.selectedMap16 };   // palette pick = 1x1 brush
                     app.brushW = app.brushH = 1;
                     app.selectedObjCat = -1;               // brush armed: right-click stamps tiles
                 }
-                else if (idx >= realCount && idx < BankTiles)
+                else if (idx >= paintCount && idx < BankTiles)
                 {
-                    // Same rule as the canvas: clicking an empty page creates it, so the
-                    // picker can't be the one place where the page you clicked stays absent.
+                    // Only the fixed banks land here now — an empty FG page is selectable.
                     int tile = map16Bank * BankTiles + idx;
-                    if (CanAllocate(tile) && map16AllocPending is null)
-                    { map16AllocPending = tile; map16AllocStamp = null; }
-                    else app.saveStatus = $"Map16 page 0x{tile >> 8:X2}: " + UnusedPageNote(map16Bank, tile >> 8);
+                    app.saveStatus = $"Map16 page 0x{tile >> 8:X2}: " + UnusedPageNote(map16Bank, tile >> 8);
                 }
             }
             // Selection ring (when the selected tile lives in this bank).

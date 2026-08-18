@@ -148,7 +148,9 @@ public class ProjectPrepTests : IDisposable
         Assert.Contains("Lunar Magic", Rom.Load(p.BaseRomPath).EnsureMap16Tiles(0x300));
 
         Assert.True(p.CanUpgradeBasePrep);
-        Assert.Null(p.UpgradeBasePrep(TestRom.RealRomPath));
+        // No configured vanilla needed: a v0 base IS the vanilla image, so it seeds its own
+        // prep. This is the case that most needs to just work.
+        Assert.Null(p.UpgradeBasePrep(null));
         Assert.Equal(RomPrep.Version, p.Data.BaseRom.PrepVersion);
         Assert.Null(p.ValidateBase());
         var rom = Rom.Load(p.BaseRomPath);
