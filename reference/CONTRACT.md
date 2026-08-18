@@ -551,6 +551,32 @@ Readers: Level.ParseLayer2 / Level.DecodeBgImage / Map16.ComposeAllBg; ComposeLe
 backdrop → layer 2 → layer 1. (Layer-2 vertical positioning/scroll modes not modeled; BG
 drawn from y=0.)
 
+### 10a. Background images: codec + why they cannot grow  [MEASURED on vanilla]
+
+`BgImage` is the RLE codec (decode + encode). Encode is a lossless inverse and never worse
+than vanilla's own output: all **17** distinct vanilla backgrounds re-encode 0-50 bytes
+SMALLER than the stream they came from.
+
+But that slack is the entire budget, because a background cannot move:
+
+- The page byte is not in the data — the loader derives it from the address (`>= $E8FE` =
+  page 1), so relocating a stream across that boundary recolours every tile in it.
+- The stream must live in **bank $0C**; the loader hardcodes that bank.
+
+Free space in bank $0C, by page side (runs >= 32 bytes of $00/$FF fill):
+
+| page | free runs | largest |
+|------|-----------|---------|
+| 0 (`< $E8FE`) | `$B66E` 402 B, `$D86F` 145 B | 402 B |
+| 1 (`>= $E8FE`) | ten fragments, 32-58 B each | 58 B |
+
+Backgrounds are 200-900 bytes, so a page-1 background has nowhere to go at all and page-0
+only fits the small ones. **Editing a background's bitmap therefore needs a prep-style
+hijack** (relocate the pointer read to a bank we control, as RomPrep V2 did for GFX), not
+just an encoder. Until then only SELECTION is offered: pointing a level at one of the 17
+addresses already in use, which needs no allocation (`ProjectFile.LevelState
+.Layer2Background`, and bank $FF in the pointer IS the mode).
+
 **Editing** (LevelSession.SetEditLayer / RomBuilder): object mode is edited with the same
 code as layer 1 — same stream format, same encoder, only ObjectEngine's `layer` argument
 differs. The MODE is the pointer's bank, so writing a real bank converts a background-image

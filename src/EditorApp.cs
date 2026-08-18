@@ -103,6 +103,7 @@ public class EditorApp : App
     internal GfxViewerPanel gfxViewerPanel = null!;
     internal LevelGfxPanel levelGfxPanel = null!;
     internal GfxBrowser gfxBrowser = null!;
+    internal BackgroundPicker bgPicker = null!;
 
     // Global per-user config (%APPDATA%\PipeDream) + the first-run modal that fills it.
     internal Config config = null!;
@@ -199,6 +200,7 @@ public class EditorApp : App
         gfxViewerPanel = new GfxViewerPanel(GraphicsDevice, imgui);
         levelGfxPanel = new LevelGfxPanel(GraphicsDevice, imgui);
         gfxBrowser = new GfxBrowser(this, GraphicsDevice, imgui);
+        bgPicker = new BackgroundPicker(this);
         config = Config.Load();
         firstRun = new FirstRunPrompt(this);
         projectWizard = new ProjectWizard(this);
@@ -303,6 +305,7 @@ public class EditorApp : App
         levelExits.Draw();
         secondaryEntrance.Draw();
         gfxBrowser.Draw();
+        bgPicker.Draw();
 
         // Map16/GFX paint strokes commit when their button is up — at frame start, so the
         // graphics rebuild never disposes textures already submitted to this frame.
@@ -348,3 +351,4 @@ public class EditorApp : App
     internal void Undo() { history.Undo(); }
     internal void Redo() { history.Redo(); }
 }
+

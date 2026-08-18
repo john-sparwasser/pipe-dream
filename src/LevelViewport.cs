@@ -133,6 +133,13 @@ internal sealed class LevelViewport(EditorApp app)
             ImGui.EndDisabled();
             if (active) ImGui.PopStyleColor();
         }
+        // Reachable in both modes: swapping the background, or turning an object layer back
+        // into one (the direction layer-2 object editing had nowhere to store).
+        ImGui.SameLine();
+        if (ImGui.SmallButton("BG…")) app.bgPicker.Open();
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Pick which background image layer 2 uses");
+
         ImGui.SameLine();
         if (!app.session.Layer2Editable)
         {

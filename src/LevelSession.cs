@@ -195,6 +195,28 @@ internal sealed class LevelSession(EditorApp app)
     /// The reverse direction (turning a level that ships an object layer into a background
     /// one) is NOT offered: it needs a background-image id to point at, which this schema
     /// has nowhere to keep. Only "revert to the base ROM's layer 2" is possible there.</summary>
+    /// <summary>Point this level's layer 2 at a background image, dropping any object stream —
+    /// the two modes are exclusive. Only addresses the ROM already uses are offered, because a
+    /// background's page byte comes from its address, so it cannot be moved without
+    /// recolouring it. This is also the object-layer → background direction the layer-2
+    /// object work had nowhere to store.</summary>
+    internal void SetLayer2Background(int lo16)
+    {
+        if (app.rom is null || app.level is null || app.project is null) return;
+        if (app.currentLevelTouched) StashCurrentLevel();
+        var s = app.project.Data.Level(app.levelNum);
+        s.Layer2Background = lo16 & 0xFFFF;
+        s.Layer2Objects = null;
+        // The session ROM has to agree with the project, or the canvas keeps showing the old
+        // layer 2 until the next Build.
+        app.rom.SetLayer2Pointer(app.levelNum, 0xFF0000 | (lo16 & 0xFFFF));
+        if (app.editLayer == 1) app.editLayer = 0;
+        app.project.MarkDirty();
+        ParseLevel();
+        app.currentLevelTouched = true;
+        app.saveStatus = $"layer 2 ← background ${lo16 & 0xFFFF:X4} (page {BgImage.PageFor(lo16)})";
+    }
+
     internal void SetLayer2ObjectMode(bool objectMode)
     {
         if (app.rom is null || app.level is null) return;
@@ -205,8 +227,11 @@ internal sealed class LevelSession(EditorApp app)
             // Persist BEFORE reparsing — ParseLevel re-hydrates layer 2 from the project,
             // so setting the list here and reparsing after is what makes the change stick.
             if (app.currentLevelTouched) StashCurrentLevel();
-            app.project.Data.Level(app.levelNum).Layer2Objects =
-                objectMode ? new List<ProjectFile.ObjectDto>() : null;
+            var st = app.project.Data.Level(app.levelNum);
+            st.Layer2Objects = objectMode ? new List<ProjectFile.ObjectDto>() : null;
+            // The two modes are exclusive, and Layer2Background wins in the builder — so
+            // converting to an object layer has to drop any background selection.
+            if (objectMode) st.Layer2Background = null;
             app.project.MarkDirty();
             ParseLevel();
             app.currentLevelTouched = true;
@@ -258,8 +283,11 @@ internal sealed class LevelSession(EditorApp app)
                 foreach (var (k, v) in hydrated.Palette) app.paletteEditor.palEdits[k] = (ushort)v;
                 app.paletteEditor.palEditsLevel = app.levelNum;
             }
-            // Layer 2: background image, or the object layer drawn behind layer 1.
-            bgImage = app.rom is not null && app.level is not null ? LevelParser.DecodeBgImage(app.rom, app.levelNum) : null;
+            // Layer 2: background image, or the object layer drawn behind layer 1 — never
+            // both. A project that gave this level an object stream overrides a base ROM
+            // pointer still saying "background", which the session ROM keeps until a build.
+            bgImage = app.rom is not null && app.level is not null && layerObjects[1] is null
+                ? LevelParser.DecodeBgImage(app.rom, app.levelNum) : null;
             layerGrid[app.editLayer] = app.grid;
             int other = 1 - app.editLayer;
             layerGrid[other] = layerObjects[other] is { } otherObjs

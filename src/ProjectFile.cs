@@ -73,6 +73,15 @@ public sealed class ProjectFile
         /// list converts a background-image level to an empty object layer, and clearing it
         /// back to null restores the base ROM's background.</summary>
         public List<ObjectDto>? Layer2Objects { get; set; }
+        /// <summary>Layer 2 as a BACKGROUND IMAGE: the stream's low 16 bits (the bank is
+        /// always $FF, which is what selects background mode). null = keep the base ROM's
+        /// layer 2. Mutually exclusive with <see cref="Layer2Objects"/> — a level's layer 2
+        /// is one or the other — and this wins if both are somehow set.
+        ///
+        /// Only an address the ROM already uses is offered, because a background's page byte
+        /// comes from its address ($E8FE and up = page 1), so a stream cannot be relocated
+        /// without recolouring every tile in it.</summary>
+        public int? Layer2Background { get; set; }
         public int SpriteMemory { get; set; }
         public int Buoyancy { get; set; }
         public List<SpriteDto> Sprites { get; set; } = new();

@@ -145,6 +145,36 @@ public class Layer2Tests : IDisposable
         Assert.Equal(baseRom.Layer2Pointer(0x106), built.Layer2Pointer(0x106));
     }
 
+    /// <summary>The object-layer → background direction, which layer-2 object editing had
+    /// nowhere to store. Selecting a background must repoint the level AND drop the object
+    /// stream, since a level's layer 2 is one or the other.</summary>
+    [RealRomFact]
+    public void selecting_a_background_repoints_the_level_and_drops_the_object_stream()
+    {
+        var p = Project.Create(Path.Combine(dir, "proj"), TestRom.RealRomPath);
+        var baseRom = Rom.Load(p.BaseRomPath);
+        Assert.False(baseRom.Layer2IsBackground(ContentLevel));       // starts as an object layer
+
+        int target = BgImage.Catalog(baseRom).First(c => c.Page == 1).Lo16;
+        var st = p.Data.Level(ContentLevel);
+        st.Objects = LevelParser.Parse(baseRom, ContentLevel).Objects
+            .Select(ProjectFile.ObjectDto.From).ToList();
+        st.Layer2Objects = new() { ProjectFile.ObjectDto.From(new LevelObject(false, 0x14, 0, 0, 20, 0x1F, -1)) };
+        st.Layer2Background = target;                                 // background wins
+        p.Save();
+
+        var (_, outPath) = RomBuilder.Build(p);
+        Assert.NotNull(outPath);
+        var built = Rom.Load(outPath!);
+
+        Assert.True(built.Layer2IsBackground(ContentLevel));
+        Assert.Equal(0xFF0000 | target, built.Layer2Pointer(ContentLevel));
+        // The background decodes, and its page follows the address it was authored for.
+        var img = LevelParser.DecodeBgImage(built, ContentLevel);
+        Assert.NotNull(img);
+        Assert.All(img!, t => Assert.Equal(1, t >> 8));
+    }
+
     [RealRomFact]
     public void writing_layer_2_objects_for_a_mode_that_ignores_them_warns()
     {

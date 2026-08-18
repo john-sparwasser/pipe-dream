@@ -49,25 +49,10 @@ public static class LevelParser
     {
         if (!rom.Layer2IsBackground(number)) return null;
         int lo16 = rom.Layer2Pointer(number) & 0xFFFF;
-        int page = lo16 >= 0xE8FE ? 1 : 0;
-        var tiles = new ushort[0x400];
-        Array.Fill(tiles, (ushort)((page << 8) | 0x25));
-        int p = rom.FileOffset(0x0C0000 | lo16), o = 0;
-        while (o < 0x400 && p + 1 < rom.Data.Length)
-        {
-            int cmd = rom.Data[p++];
-            if (cmd == 0xFF && rom.Data[p] == 0xFF) break;
-            int count = (cmd & 0x7F) + 1;
-            if ((cmd & 0x80) != 0)
-            {
-                byte b = rom.Data[p++];
-                for (int i = 0; i < count && o < 0x400; i++) tiles[o++] = (ushort)((page << 8) | b);
-            }
-            else
-            {
-                for (int i = 0; i < count && o < 0x400; i++) tiles[o++] = (ushort)((page << 8) | rom.Data[p++]);
-            }
-        }
+        int page = BgImage.PageFor(lo16);
+        byte[] low = BgImage.Decode(rom, lo16, out _);
+        var tiles = new ushort[low.Length];
+        for (int i = 0; i < low.Length; i++) tiles[i] = (ushort)((page << 8) | low[i]);
         return tiles;
     }
 

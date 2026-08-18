@@ -95,10 +95,15 @@ internal static class RomBuilder
                 byte[] encoded = LevelEncoder.Encode(lv, LevelEncoder.NormalizeStream(objs));
                 rom.SetLayer1Pointer(level, AllocateAutoExpand(rom, encoded));
 
+                // Layer 2 as a background image: bank $FF IS the mode, and the low 16 bits
+                // pick the stream. Checked first — a level's layer 2 is a background or an
+                // object stream, never both.
+                if (state.Layer2Background is { } bgLo16)
+                    rom.SetLayer2Pointer(level, 0xFF0000 | (bgLo16 & 0xFFFF));
                 // Layer 2, when the project carries a stream for it. Same format as layer 1
                 // (its own header copy, which the game skips), and writing a real bank into
                 // the pointer is what puts the level in object mode at all.
-                if (state.Layer2Objects is { } l2dto)
+                else if (state.Layer2Objects is { } l2dto)
                 {
                     var l2 = l2dto.Select(o => o.ToLevelObject()).ToList();
                     byte[] enc2 = LevelEncoder.Encode(lv, LevelEncoder.NormalizeStream(l2));
