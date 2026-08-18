@@ -61,7 +61,7 @@ public static class Gfx
     /// tiles rebuild through Cached on the next recompose.</summary>
     public static void InvalidateCache(Rom rom)
     {
-        lock (rom.GfxFileCache) rom.GfxFileCache.Clear();
+        lock (rom.GfxFileCache) { rom.GfxFileCache.Clear(); rom.RomBppCache = -1; }
     }
 
     /// <summary>
@@ -71,11 +71,14 @@ public static class Gfx
     /// one depth ROM-wide: vanilla is 3bpp (a full 128-tile file = 3072 bytes), and Lunar
     /// Magic re-normalizes everything to 4bpp on save (full file = 4096). So probe a
     /// guaranteed-full base file (GFX00) and read the depth off its size.
-    /// ponytail: recomputed per call (one tiny LZ2 of GFX00); GFX loads aren't per-frame.
+    /// Cached on the Rom: the GFX editor asks every frame, and the answer can only change
+    /// when the GFX cache is invalidated (SMW's depth is ROM-wide, and imports are
+    /// normalized to it, so in practice it never changes at all).
     /// </summary>
     public static int RomBpp(Rom rom)
     {
-        try { return DecompressFile(rom, 0).Length >= 4096 ? 4 : 3; }
+        if (rom.RomBppCache > 0) return rom.RomBppCache;
+        try { return rom.RomBppCache = DecompressFile(rom, 0).Length >= 4096 ? 4 : 3; }
         catch { return 3; }
     }
 

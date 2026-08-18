@@ -12,7 +12,7 @@ namespace PipeDream;
 /// </summary>
 public static class LevelEncoder
 {
-    public static byte[] Encode(Level level, Rom rom) => Encode(level, rom, level.Objects);
+    public static byte[] Encode(Level level) => Encode(level, level.Objects);
 
     /// <summary>
     /// Order an edited object list into a valid stream: objects sorted by absolute screen
@@ -44,7 +44,7 @@ public static class LevelEncoder
 
     /// <summary>Encode a level's header (re-packed from its fields) + a given object list + 0xFF.
     /// <paramref name="offsets"/>, when given, records each object's byte offset in the output.</summary>
-    public static byte[] Encode(Level level, Rom rom, IEnumerable<LevelObject> objects, List<int>? offsets = null)
+    public static byte[] Encode(Level level, IEnumerable<LevelObject> objects, List<int>? offsets = null)
     {
         var outb = new List<byte>(256);
         outb.AddRange(level.Header.ToBytes());

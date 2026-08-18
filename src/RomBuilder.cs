@@ -92,7 +92,7 @@ internal static class RomBuilder
                     warnings.Add($"level {key}: DM16 tile objects skipped (base lacks LM's Direct Map16 ASM)");
                     objs = objs.Where(o => !o.IsDm16).ToList();
                 }
-                byte[] encoded = LevelEncoder.Encode(lv, rom, LevelEncoder.NormalizeStream(objs));
+                byte[] encoded = LevelEncoder.Encode(lv, LevelEncoder.NormalizeStream(objs));
                 rom.SetLayer1Pointer(level, AllocateAutoExpand(rom, encoded));
 
                 // Sprites: relocatable only when LM's per-level bank table exists; a vanilla

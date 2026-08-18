@@ -25,6 +25,9 @@ internal sealed class Project
     private long dirtyAtMs;
     internal Action? SyncBeforeSave;
 
+    /// <summary>Edits are in memory but not yet in project.pdp (autosave is debounced).</summary>
+    internal bool Dirty => dirty;
+
     private Project(string folder, ProjectFile data) { Folder = folder; Data = data; }
 
     /// <summary>Create a new project: folder, private base-ROM copy, initial project.pdp.

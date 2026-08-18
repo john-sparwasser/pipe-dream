@@ -33,7 +33,7 @@ public class LevelRoundTripTests
             new(false, 0x3F, 2, 15, 0x1F, 0xFF, -1),   // field extremes on a later screen
         };
         var norm = LevelEncoder.NormalizeStream(objs);
-        byte[] enc = LevelEncoder.Encode(level, rom, norm);
+        byte[] enc = LevelEncoder.Encode(level, norm);
         var parsed = LevelParser.ParseEncoded(rom, enc);
 
         Assert.Equal(norm.Count, parsed.Count);
@@ -51,7 +51,7 @@ public class LevelRoundTripTests
             new(false, 0x00, 3, 8, 2, 0x00, 0x13),     // screen exit on screen 3
         };
         var norm = LevelEncoder.NormalizeStream(objs);
-        byte[] enc = LevelEncoder.Encode(level, rom, norm);
+        byte[] enc = LevelEncoder.Encode(level, norm);
 
         // The 5 header bytes are carried verbatim from the ROM.
         Assert.Equal(TestRom.LevelHeaderBytes, enc.Take(5).ToArray());
@@ -68,7 +68,7 @@ public class LevelRoundTripTests
     public void empty_object_list_round_trips_as_an_empty_level()
     {
         var (rom, level) = TestRom.CreateWithLevel();
-        byte[] enc = LevelEncoder.Encode(level, rom, new List<LevelObject>());
+        byte[] enc = LevelEncoder.Encode(level, new List<LevelObject>());
         Assert.Equal(6, enc.Length);                    // header + terminator only
         Assert.Equal(0xFF, enc[5]);
         Assert.Empty(LevelParser.ParseEncoded(rom, enc));
@@ -88,7 +88,7 @@ public class LevelRoundTripTests
             LevelObject.MakeDm16(0x3FF, screen: 2, xNib: 0, y: 0, w: 3, h: 40),  // extended Form B (h > 16)
         };
         var norm = LevelEncoder.NormalizeStream(objs);
-        byte[] enc = LevelEncoder.Encode(level, rom, norm);
+        byte[] enc = LevelEncoder.Encode(level, norm);
         var parsed = LevelParser.ParseEncoded(rom, enc);
 
         Assert.Equal(norm.Count, parsed.Count);
@@ -105,7 +105,7 @@ public class LevelRoundTripTests
             Assert.Equal(norm[i].Dm16Size(), parsed[i].Dm16Size());
         }
         // Re-encoding the parse must reproduce the stream byte-for-byte.
-        Assert.Equal(enc, LevelEncoder.Encode(level, rom, parsed));
+        Assert.Equal(enc, LevelEncoder.Encode(level, parsed));
     }
 
     [Fact]
@@ -113,7 +113,7 @@ public class LevelRoundTripTests
     {
         var (rom, level) = TestRom.CreateWithLevel(dm16: true);
         var objs = new List<LevelObject> { new(false, 0x00, 0, 0, 4, 0x02, 0x1234) };
-        var parsed = LevelParser.ParseEncoded(rom, LevelEncoder.Encode(level, rom, objs));
+        var parsed = LevelParser.ParseEncoded(rom, LevelEncoder.Encode(level, objs));
         var o = Assert.Single(parsed);
         AssertSameObject(objs[0], o);
         Assert.Equal(0x1234, o.ExtraByte);
@@ -127,7 +127,7 @@ public class LevelRoundTripTests
         var small = LevelObject.MakeDm16(0x2B0, screen: 0, xNib: 2, y: 9, w: 20, h: 5).Dm16Resized(4, 4);
         Assert.Equal((30, 2), big.Dm16Size());
         Assert.Equal((4, 4), small.Dm16Size());
-        var parsed = LevelParser.ParseEncoded(rom, LevelEncoder.Encode(level, rom, new[] { big, small }));
+        var parsed = LevelParser.ParseEncoded(rom, LevelEncoder.Encode(level, new[] { big, small }));
         Assert.Equal(2, parsed.Count);
         Assert.Equal((30, 2), parsed[0].Dm16Size());
         Assert.Equal((4, 4), parsed[1].Dm16Size());

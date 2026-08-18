@@ -57,7 +57,11 @@ internal sealed class LevelSession(EditorApp app)
     internal void SwitchLevel(int newLevel)
     {
         if (newLevel == app.levelNum) return;
-        if (app.project is not null && app.currentLevelTouched) StashCurrentLevel();
+        if (app.project is not null && app.currentLevelTouched)
+        {
+            StashCurrentLevel();
+            app.project.Save();   // leaving a level is a natural commit point; don't sit on
+        }                         // the debounce and lose the level's edits to a hard crash
         app.levelNum = newLevel;
         ParseLevel();
     }

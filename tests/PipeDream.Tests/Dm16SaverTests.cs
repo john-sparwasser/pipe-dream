@@ -31,7 +31,7 @@ public class Dm16SaverTests
 
         var (rom, level) = TestRom.CreateWithLevel(dm16: true);
         var parsed = LevelParser.ParseEncoded(
-            rom, LevelEncoder.Encode(level, rom, LevelEncoder.NormalizeStream(objs)));
+            rom, LevelEncoder.Encode(level, LevelEncoder.NormalizeStream(objs)));
         var cells = Paint(parsed);
 
         Assert.Equal(5, cells.Count);                       // empty cell produced nothing
@@ -56,7 +56,7 @@ public class Dm16SaverTests
 
         var (rom, level) = TestRom.CreateWithLevel(dm16: true);
         var parsed = LevelParser.ParseEncoded(
-            rom, LevelEncoder.Encode(level, rom, LevelEncoder.NormalizeStream(objs)));
+            rom, LevelEncoder.Encode(level, LevelEncoder.NormalizeStream(objs)));
         var cells = Paint(parsed);
         Assert.Equal(20 * 3, cells.Count);
         for (int j = 0; j < 3; j++)

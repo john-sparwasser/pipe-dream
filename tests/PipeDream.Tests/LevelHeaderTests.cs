@@ -66,7 +66,7 @@ public class LevelHeaderTests
         rom.LevelHeaderOverrides[0x105] = edited.ToBytes();
         var after = LevelParser.Parse(rom, 0x105);
         Assert.Equal(edited, after.Header);
-        Assert.Equal(edited.ToBytes(), LevelEncoder.Encode(after, rom, after.Objects)[..5]);
+        Assert.Equal(edited.ToBytes(), LevelEncoder.Encode(after, after.Objects)[..5]);
         Assert.Equal(before.Objects.Count, after.Objects.Count);   // objects still come from ROM
 
         rom.LevelHeaderOverrides.Remove(0x105);

@@ -272,7 +272,7 @@ public static class ObjectEngine
     {
         var one = new List<LevelObject> { new(false, num, 0, 4, 10, b3, -1) };
         var offsets = new List<int>();
-        byte[] enc = LevelEncoder.Encode(level, rom, one, offsets);
+        byte[] enc = LevelEncoder.Encode(level, one, offsets);
         var so = new ushort[enc.Length];
         for (int b = offsets[0]; b < enc.Length - 1; b++) so[b] = 1;
         try

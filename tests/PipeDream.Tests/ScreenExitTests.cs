@@ -36,7 +36,7 @@ public class ScreenExitTests
             LevelObject.ScreenExit(0, 0xC5, water: false, secondary: false),
             LevelObject.ScreenExit(5, 0xE1, water: true, secondary: true),
         };
-        var parsed = LevelParser.ParseEncoded(rom, LevelEncoder.Encode(level, rom, objs));
+        var parsed = LevelParser.ParseEncoded(rom, LevelEncoder.Encode(level, objs));
         var exits = parsed.Where(o => o.IsScreenExit).ToList();
         Assert.Equal(2, exits.Count);
         Assert.Equal((0, 0xC5, false, false),
@@ -56,7 +56,7 @@ public class ScreenExitTests
 
         (int dest, int water, int secondary) Run(LevelObject exit)
         {
-            byte[] enc = LevelEncoder.Encode(level, rom, new List<LevelObject> { exit });
+            byte[] enc = LevelEncoder.Encode(level, new List<LevelObject> { exit });
             ObjectEngine.RenderEmulatedStream(rom, level.Header, enc, 0);
             var cpu = ObjectEngine.LastCpu!;
             return (cpu.Ram7E[0x19B8 + exit.ExitScreen], cpu.Ram7E[0x19D8 + exit.ExitScreen], cpu.Ram7E[0x1B93]);

@@ -193,7 +193,7 @@ static class DebugCommands
         };
         var newObjs = added.Concat(lv.Objects).ToList();
 
-        byte[] data = LevelEncoder.Encode(lv, rom, newObjs);
+        byte[] data = LevelEncoder.Encode(lv, newObjs);
         if (rom.ActualRomSize < 0x180000) rom.ExpandTo(0x200000);
         int addr = RatsWriter.Allocate(rom, data);
         rom.SetLayer1Pointer(level, addr);

@@ -250,6 +250,7 @@ public class EditorApp : App
         // so its completion (e.g. LoadRom) never mutates state mid-frame.
         FileDialog.Pump();
         project?.Tick();   // debounced autosave once edits settle
+        RefreshWindowTitle();
 
         // Apply pending edits before layout so we never dispose a texture mid-frame.
         if (levelDirty)
@@ -263,6 +264,21 @@ public class EditorApp : App
         imgui.BeginLayout();
         DrawUI();
         imgui.EndLayout();
+    }
+
+    private string windowTitle = "";
+
+    /// <summary>Window title = what's open and whether it's saved. Recomputed per frame but
+    /// only assigned on change — every set crosses into SDL.</summary>
+    private void RefreshWindowTitle()
+    {
+        string what = project is not null
+            ? project.Name + (project.Dirty ? " •" : "")
+            : rom is not null && loadedRomPath is { Length: > 0 } p ? Path.GetFileName(p) : "no ROM";
+        string title = $"Pipe Dream — {what}";
+        if (title == windowTitle) return;
+        windowTitle = title;
+        try { Window.Title = title; } catch { /* cosmetic only */ }
     }
 
     protected override void Render()

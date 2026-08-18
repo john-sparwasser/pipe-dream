@@ -88,4 +88,21 @@ public class ProjectTests : IDisposable
         Assert.False(File.Exists(p.FilePath + ".tmp"));
         Assert.NotNull(ProjectFile.FromJson(File.ReadAllText(p.FilePath)));
     }
+
+    /// <summary>Dirty drives the window title's unsaved marker, and the debounce is what
+    /// bounds how much a hard crash can cost. Tick must not save early, and Save must clear.</summary>
+    [Fact]
+    public void dirty_tracks_unsaved_edits_and_the_autosave_is_debounced()
+    {
+        var p = Project.Create(Path.Combine(dir, "proj"), SourceRom);
+        Assert.False(p.Dirty);
+
+        p.MarkDirty();
+        Assert.True(p.Dirty);
+        p.Tick();                       // debounce has not elapsed
+        Assert.True(p.Dirty);
+
+        p.Save();
+        Assert.False(p.Dirty);
+    }
 }

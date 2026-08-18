@@ -225,4 +225,8 @@ public sealed class Rom
 
     /// <summary>Decompressed GFX file cache for <see cref="Gfx.Cached"/> (file# → data).</summary>
     internal readonly Dictionary<int, byte[]?> GfxFileCache = new();
+
+    /// <summary>Memoized <see cref="Gfx.RomBpp"/> (-1 = not probed yet); cleared with the
+    /// GFX cache. Probing decompresses GFX00, and the GFX editor asks once per frame.</summary>
+    internal int RomBppCache = -1;
 }

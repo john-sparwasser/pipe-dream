@@ -131,7 +131,7 @@ public static class RomSelfCheck
                 var prov = new List<int>();
                 var norm = LevelEncoder.NormalizeStream(objs, prov);
                 var offs = new List<int>();
-                byte[] enc = LevelEncoder.Encode(lv, r, norm, offs);
+                byte[] enc = LevelEncoder.Encode(lv, norm, offs);
                 var so = new ushort[enc.Length];
                 for (int i = 0; i < norm.Count; i++)
                 {
@@ -209,7 +209,7 @@ public static class RomSelfCheck
             {
                 var one = new List<LevelObject> { LevelObject.MakeDm16(0x105, 0, 4, 10, w, h) };
                 var offs = new List<int>();
-                byte[] enc = LevelEncoder.Encode(lv, r, one, offs);
+                byte[] enc = LevelEncoder.Encode(lv, one, offs);
                 var so = new ushort[enc.Length];
                 for (int b = offs[0]; b < enc.Length - 1; b++) so[b] = 1;
                 ObjectEngine.RenderEmulatedStream(r, lv.Header, enc, 0, so, out var owners, out _);
@@ -231,7 +231,7 @@ public static class RomSelfCheck
                 List<(int x, int y)> Cells(LevelObject o)
                 {
                     var offs = new List<int>();
-                    byte[] enc = LevelEncoder.Encode(lv, r, new List<LevelObject> { o }, offs);
+                    byte[] enc = LevelEncoder.Encode(lv, new List<LevelObject> { o }, offs);
                     var so = new ushort[enc.Length];
                     for (int b = offs[0]; b < enc.Length - 1; b++) so[b] = 1;
                     ObjectEngine.RenderEmulatedStream(r, lv.Header, enc, 0, so, out var owners, out _);
@@ -264,7 +264,7 @@ public static class RomSelfCheck
                       BB(LevelObject.MakeDm16(0x105, 0, 2, 5, 40, 5)) == (40, 5, 200));
                 // Resize round-trip: 3x2 nibble form -> 40x5 extended -> encode -> parse.
                 var grown = LevelObject.MakeDm16(0x105, 0, 2, 5, 3, 2).Dm16Resized(40, 5);
-                var ps = LevelParser.ParseEncoded(r, LevelEncoder.Encode(lv, r, new List<LevelObject> { grown }));
+                var ps = LevelParser.ParseEncoded(r, LevelEncoder.Encode(lv, new List<LevelObject> { grown }));
                 Check("Dm16Resized 40x5 round-trips through encode/parse",
                       ps.Count == 1 && ps[0].IsDm16 && ps[0].Dm16Tile == 0x105 && ps[0].Dm16Size() == (40, 5));
                 Check("Dm16Resized back to 4x3 returns to nibble form",
@@ -350,7 +350,7 @@ public static class RomSelfCheck
                 var l = LevelParser.Parse(r, ln);
                 if (l.Empty) continue;
                 tested++;
-                byte[] enc = LevelEncoder.Encode(l, r);
+                byte[] enc = LevelEncoder.Encode(l);
                 int fo = r.FileOffset(l.DataPointer);
                 var orig = r.Data.AsSpan(fo, enc.Length).ToArray();
                 if (!enc.AsSpan().SequenceEqual(orig)) { mism++; Console.WriteLine($"    level 0x{ln:X3}: MISMATCH ({enc.Length} bytes)"); }
@@ -363,7 +363,7 @@ public static class RomSelfCheck
             var yi2 = LevelParser.Parse(wr, 0x105);
             int origCount = yi2.Objects.Count;
             wr.ExpandTo(0x200000);                   // expand to 2MB
-            int newAddr = RatsWriter.Allocate(wr, LevelEncoder.Encode(yi2, wr));
+            int newAddr = RatsWriter.Allocate(wr, LevelEncoder.Encode(yi2));
             wr.SetLayer1Pointer(0x105, newAddr);
             string tmp = Path.Combine(Path.GetTempPath(), "pd_save_test.smc");
             RatsWriter.SaveAs(wr, tmp);
@@ -505,7 +505,7 @@ public static class RomSelfCheck
                 {
                     if (num is 0x22 or 0x23 or 0x26 or 0x27 or 0x28 or 0x29) continue;
                     var one = new List<LevelObject> { new(false, num, 0, 4, 10, 0x22, -1) };
-                    try { ObjectEngine.RenderEmulatedStream(sh, lv105.Header, LevelEncoder.Encode(lv105, sh, one), 0, ObjectEngine.SoloBudget); }
+                    try { ObjectEngine.RenderEmulatedStream(sh, lv105.Header, LevelEncoder.Encode(lv105, one), 0, ObjectEngine.SoloBudget); }
                     catch { oFails++; }
                 }
                 Console.WriteLine($"    catalog sweep: {sw.ElapsedMilliseconds}ms, {oFails} failing handler(s)");
@@ -640,7 +640,7 @@ public static class RomSelfCheck
             var agrid = ObjectEngine.Render(ar, al);
             Check("DM16 tiles land in the render grid (not markers)",
                   agrid.Get(2, 5) == 0x100 && agrid.Get(9, 5) == 0x200);
-            byte[] enc = LevelEncoder.Encode(al, ar);
+            byte[] enc = LevelEncoder.Encode(al);
             int afo = ar.FileOffset(al.DataPointer);
             Check("DM16 level re-encodes byte-identical",
                   enc.AsSpan().SequenceEqual(ar.Data.AsSpan(afo, enc.Length)));
@@ -659,7 +659,7 @@ public static class RomSelfCheck
                 if (!inserted && sl.Objects[i].Screen == targetScreen && sl.Objects[i].Screen != next)
                 { merged.Add(newObj); inserted = true; }
             }
-            var sd = LevelEncoder.Encode(sl, sr, merged);
+            var sd = LevelEncoder.Encode(sl, merged);
             sr.ExpandTo(0x200000);
             sr.SetLayer1Pointer(0x105, RatsWriter.Allocate(sr, sd));
             string stmp = Path.Combine(Path.GetTempPath(), "pd_inapp_save.smc");
@@ -693,7 +693,7 @@ public static class RomSelfCheck
                     emerged.Add(LevelObject.MakeDm16(0x025, 0, ex, ey));
             }
             er.ExpandTo(0x200000);
-            er.SetLayer1Pointer(0x105, RatsWriter.Allocate(er, LevelEncoder.Encode(el, er, emerged)));
+            er.SetLayer1Pointer(0x105, RatsWriter.Allocate(er, LevelEncoder.Encode(el, emerged)));
             string etmp = Path.Combine(Path.GetTempPath(), "pd_erase_save.smc");
             RatsWriter.SaveAs(er, etmp);
             var ere = Rom.Load(etmp);

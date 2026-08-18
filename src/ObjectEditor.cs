@@ -50,7 +50,7 @@ internal sealed class ObjectEditor(EditorApp app)
         var prov = new List<int>();
         var norm = LevelEncoder.NormalizeStream(app.objList, prov);
         var offsets = new List<int>();
-        byte[] encoded = LevelEncoder.Encode(app.level, app.rom, norm, offsets);
+        byte[] encoded = LevelEncoder.Encode(app.level, norm, offsets);
         var streamOwner = new ushort[encoded.Length];
         for (int i = 0; i < norm.Count; i++)
         {
@@ -321,7 +321,7 @@ internal sealed class ObjectEditor(EditorApp app)
         if (app.rom is null || app.level is null) return;
         var empty = new List<LevelObject>();
         Map16Grid baseG;
-        try { baseG = ObjectEngine.RenderEmulatedStream(app.rom, app.level.Header, LevelEncoder.Encode(app.level, app.rom, empty), 0, ObjectEngine.SoloBudget); }
+        try { baseG = ObjectEngine.RenderEmulatedStream(app.rom, app.level.Header, LevelEncoder.Encode(app.level, empty), 0, ObjectEngine.SoloBudget); }
         catch { return; }
         // On LM ROMs, 0x22/0x23/0x27/0x29 dispatch to the DM16 handlers (which expect
         // extra tile bytes a bare 3-byte record doesn't have — the handler runs away)
@@ -332,7 +332,7 @@ internal sealed class ObjectEditor(EditorApp app)
             if (dm16 && num is 0x22 or 0x23 or 0x26 or 0x27 or 0x28 or 0x29) continue;
             var one = new List<LevelObject> { new(false, num, 0, 4, 10, ObjDefaultSize, -1) };
             Map16Grid g;
-            try { g = ObjectEngine.RenderEmulatedStream(app.rom, app.level.Header, LevelEncoder.Encode(app.level, app.rom, one), 0, ObjectEngine.SoloBudget); }
+            try { g = ObjectEngine.RenderEmulatedStream(app.rom, app.level.Header, LevelEncoder.Encode(app.level, one), 0, ObjectEngine.SoloBudget); }
             catch { continue; }
             int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
             var cells = new List<(int, int, ushort)>();
