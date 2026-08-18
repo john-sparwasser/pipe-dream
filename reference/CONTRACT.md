@@ -551,6 +551,20 @@ Readers: Level.ParseLayer2 / Level.DecodeBgImage / Map16.ComposeAllBg; ComposeLe
 backdrop → layer 2 → layer 1. (Layer-2 vertical positioning/scroll modes not modeled; BG
 drawn from y=0.)
 
+**Editing** (LevelSession.SetEditLayer / RomBuilder): object mode is edited with the same
+code as layer 1 — same stream format, same encoder, only ObjectEngine's `layer` argument
+differs. The MODE is the pointer's bank, so writing a real bank converts a background-image
+level to object mode and there is no separate flag; the project stores only
+`LevelState.Layer2Objects` (null = keep the base ROM's layer 2). The reverse conversion is
+not offered: it needs a background-image id to point at, which nothing stores.
+
+Verified against vanilla: 26 levels are in object mode and **all 26** have a level mode that
+loads layer-2 objects, so the ignore-set above is consistent from both directions. Note
+`$0C4`, `$0EB`, `$0F0`, `$0FB`, `$1DA`, `$1E6`, `$1E7`, `$1F9` are object mode with an EMPTY
+stream — editable from blank. Conversely, background-image levels usually sit on a mode that
+never loads layer-2 objects (that is *why* they use a background), so converting one also
+needs a level-mode change or the objects are written and never read (the build warns).
+
 ## 11. Sprites  [CONFIRMED from disassembly + LM ASM trace]
 
 Pointer table §3 ($05EC00, 2 B/level, bank fixed $07 — **vanilla only**). LM relocates

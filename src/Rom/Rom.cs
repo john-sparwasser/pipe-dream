@@ -173,6 +173,15 @@ public sealed class Rom
     public int Layer2Pointer(int level) => ReadValue(Layer2TableSnes + level * 3, 3);
     public bool Layer2IsBackground(int level) => (Layer2Pointer(level) >> 16) == 0xFF;
 
+    /// <summary>Repoint a level's Layer 2 table entry at a SNES address. Writing a real bank
+    /// here also converts a background-image level to object mode, since the mode IS the
+    /// bank byte ($FF = background).</summary>
+    public void SetLayer2Pointer(int level, int snes)
+    {
+        int fo = FileOffset(Layer2TableSnes + level * 3);
+        Data[fo] = (byte)snes; Data[fo + 1] = (byte)(snes >> 8); Data[fo + 2] = (byte)(snes >> 16);
+    }
+
     /// <summary>Sprite data pointer. Low 16 bits from the vanilla table; the bank is fixed
     /// $07 in clean ROMs, but LM relocates sprite data and keeps a per-level BANK table
     /// (<see cref="LunarMagic"/>'s LmSpriteBankTable) — reading bank $07 there yields stale data.</summary>
@@ -192,6 +201,12 @@ public sealed class Rom
 
     /// <summary>True if a level mode is vertical (VerticalTable $058417, bit 0).</summary>
     public bool IsVerticalMode(int levelMode) => (ReadByte(0x058417 + (levelMode & 0x1F)) & 1) != 0;
+
+    /// <summary>Whether the game loads layer-2 OBJECT data for a level mode (CONTRACT §10).
+    /// The other modes use layer 2 for a background image or not at all, so an object stream
+    /// written for them is simply never read.</summary>
+    public static bool LoadsLayer2Objects(int levelMode) =>
+        (levelMode & 0x1F) is not (0x00 or 0x0A or 0x0C or 0x0D or 0x0E or 0x11 or 0x1E);
 
     // --- Lunar Magic per-ROM state (logic in LunarMagic.cs) ------------------
     // Scan caches for LM's per-ROM table bases (-2 = not scanned yet; found once by

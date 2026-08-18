@@ -10,7 +10,21 @@ internal sealed class LevelSession(EditorApp app)
 
     private uint backdropColor;
     private ushort[]? bgImage;       // layer-2 background image (BG def indices), else null
-    private Map16Grid? layer2Grid;   // layer-2 object layer, else null
+
+    // Both layers live here; app.objList/app.grid point at whichever app.editLayer selects,
+    // so the object editor is layer-agnostic. Index 0 = layer 1, 1 = layer 2 (null when the
+    // level's layer 2 is a background image and the project hasn't converted it).
+    private readonly List<LevelObject>?[] layerObjects = new List<LevelObject>?[2];
+    private readonly Map16Grid?[] layerGrid = new Map16Grid?[2];
+    private List<LevelObject>? baseLayer2;   // the ROM's layer-2 stream, to diff against on save
+
+    /// <summary>Layer 2 can be edited when the level has (or the project gave it) an object
+    /// stream — a background-image layer 2 has no objects to edit.</summary>
+    internal bool Layer2Editable => layerObjects[1] is not null;
+
+    /// <summary>The layer-2 object stream exists only because the project converted a
+    /// background-image level — so reverting is offered rather than a second conversion.</summary>
+    internal bool Layer2FromProject => baseLayer2 is null && layerObjects[1] is not null;
 
     internal void LoadRom(string path)
     {
@@ -84,7 +98,15 @@ internal sealed class LevelSession(EditorApp app)
     {
         if (app.project is null || app.rom is null) return;
         var s = app.project.Data.Level(app.levelNum);
-        s.Objects = app.objList?.Select(ProjectFile.ObjectDto.From).ToList() ?? new();
+        s.Objects = layerObjects[0]?.Select(ProjectFile.ObjectDto.From).ToList() ?? new();
+        // Layer 2 is only recorded once it differs from the base ROM's stream — otherwise
+        // every touched level would pin its unedited layer 2 into the project. An EMPTY list
+        // still counts when the base had no stream at all: that is the background-image ->
+        // object-mode conversion, and dropping it would silently undo the conversion.
+        bool converted = baseLayer2 is null && layerObjects[1] is not null;
+        bool edited = baseLayer2 is not null && layerObjects[1] is { } l2 && !l2.SequenceEqual(baseLayer2);
+        s.Layer2Objects = converted || edited
+            ? layerObjects[1]!.Select(ProjectFile.ObjectDto.From).ToList() : null;
         if (app.sprites is not null)
         {
             s.SpriteMemory = app.sprites.SpriteMemory;
@@ -164,6 +186,74 @@ internal sealed class LevelSession(EditorApp app)
                     Convert.ToHexString(app.rom.ReadMainEntrance(Convert.ToInt32(levelHex, 16)).ToBytes());
     }
 
+    /// <summary>Render one layer's grid from an object list — the untracked counterpart of
+    /// ObjectEditor.RenderObjectsTracked, used for whichever layer isn't being edited.</summary>
+    private Map16Grid? RenderLayerGrid(int layer, List<LevelObject> objs)
+    {
+        if (app.rom is null || app.level is null) return null;
+        try
+        {
+            byte[] enc = LevelEncoder.Encode(app.level, LevelEncoder.NormalizeStream(objs));
+            return ObjectEngine.RenderEmulatedStream(app.rom, app.level.Header, enc, layer);
+        }
+        catch { return null; }
+    }
+
+    /// <summary>Switch which layer the object editor edits. Both layers' objects already
+    /// live here, so this only re-points app.objList/app.grid and re-renders.
+    /// ponytail: clears undo — the history closures capture the other layer's list, and
+    /// replaying one into the other would corrupt it.</summary>
+    internal void SetEditLayer(int layer)
+    {
+        if (app.rom is null || app.level is null || layer == app.editLayer) return;
+        if (layer == 1 && layerObjects[1] is null) return;
+        layerGrid[app.editLayer] = app.grid;
+        app.editLayer = layer;
+        app.objList = layerObjects[layer];
+        app.grid = layerGrid[layer];
+        app.baseGrid = app.grid?.Clone();
+        app.selObjs.Clear();
+        app.dragStart = app.dragEnd = null; app.moveDrag = null; app.resizeDrag = null;
+        app.history.Clear();
+        if (app.objectEditor.RenderObjectsTracked() is { } g) { app.grid = g; layerGrid[layer] = g; }
+        app.canvasFull = true;
+        BuildLevelCanvas();
+        // Which layer is active changes what every click does, so say so rather than relying
+        // on the button tint alone.
+        app.saveStatus = $"editing layer {layer + 1} ({app.objList?.Count ?? 0} objects)";
+    }
+
+    /// <summary>Give a BACKGROUND-IMAGE level an (empty) layer-2 object stream, or drop ours
+    /// and go back to the base ROM's background. The mode IS the pointer's bank byte ($FF =
+    /// background), so a non-null project list is the whole conversion — no mode flag needed.
+    ///
+    /// The reverse direction (turning a level that ships an object layer into a background
+    /// one) is NOT offered: it needs a background-image id to point at, which this schema
+    /// has nowhere to keep. Only "revert to the base ROM's layer 2" is possible there.</summary>
+    internal void SetLayer2ObjectMode(bool objectMode)
+    {
+        if (app.rom is null || app.level is null) return;
+        if (objectMode == layerObjects[1] is not null) return;
+        if (!objectMode && app.editLayer == 1) app.editLayer = 0;
+        if (app.project is not null)
+        {
+            // Persist BEFORE reparsing — ParseLevel re-hydrates layer 2 from the project,
+            // so setting the list here and reparsing after is what makes the change stick.
+            if (app.currentLevelTouched) StashCurrentLevel();
+            app.project.Data.Level(app.levelNum).Layer2Objects =
+                objectMode ? new List<ProjectFile.ObjectDto>() : null;
+            app.project.MarkDirty();
+            ParseLevel();
+            app.currentLevelTouched = true;
+            return;
+        }
+        // No project open: session-only, nothing to hydrate from.
+        layerObjects[1] = objectMode ? new List<LevelObject>() : null;
+        app.objList = layerObjects[app.editLayer];
+        app.canvasFull = true;
+        RebuildGraphics();
+    }
+
     internal void ParseLevel()
     {
         try
@@ -171,17 +261,28 @@ internal sealed class LevelSession(EditorApp app)
             app.level = app.rom is null ? null : LevelParser.Parse(app.rom, app.levelNum);
             app.grid = app.rom is not null && app.level is not null ? ObjectEngine.Render(app.rom, app.level) : null;
             app.baseGrid = app.grid?.Clone();          // snapshot to diff edits against on save
-            app.objList = app.level is not null ? new List<LevelObject>(app.level.Objects) : null;
+            layerObjects[0] = app.level is not null ? new List<LevelObject>(app.level.Objects) : null;
             // Project hydration: a level recorded in the project replaces the ROM-parsed
             // object/sprite state with the project's snapshot.
             var hydrated = app.level is not null ? app.project?.Data.LevelOrNull(app.levelNum) : null;
             if (hydrated is not null)
-                app.objList = hydrated.Objects.Select(o => o.ToLevelObject()).ToList();
+                layerObjects[0] = hydrated.Objects.Select(o => o.ToLevelObject()).ToList();
+
+            // Layer 2's object stream, when the level has one. The project's copy wins, and
+            // a project list on a background-image level IS the conversion to object mode.
+            baseLayer2 = app.rom is not null && app.level is not null
+                ? LevelParser.ParseLayer2(app.rom, app.levelNum) : null;
+            layerObjects[1] = hydrated?.Layer2Objects is { } pl2
+                ? pl2.Select(o => o.ToLevelObject()).ToList()
+                : baseLayer2 is not null ? new List<LevelObject>(baseLayer2) : null;
+            if (app.editLayer == 1 && layerObjects[1] is null) app.editLayer = 0;
+
+            app.objList = layerObjects[app.editLayer];
             var tracked = app.objectEditor.RenderObjectsTracked();        // owner attribution for hit-testing
             // Hydrated levels must render from the object list, not the parsed grid —
             // the parsed grid shows the base ROM's content. (Vanilla-parse keeps the
             // parsed grid: byte-identical, and it survives tracked-render failures.)
-            if (hydrated is not null && tracked is not null) app.grid = tracked;
+            if ((hydrated is not null || app.editLayer != 0) && tracked is not null) app.grid = tracked;
             app.history.Clear();                                          // new grid = new history
             app.selSprites.Clear(); app.selObjs.Clear(); app.dragStart = app.dragEnd = null; app.moveDrag = null; app.resizeDrag = null; app.spriteEditor.DropSpriteGhost(); app.spriteEditor.hiddenSprites = null;
             app.levelGfxPanel.InvalidateLevel();                          // refresh Level GFX window
@@ -192,10 +293,12 @@ internal sealed class LevelSession(EditorApp app)
                 foreach (var (k, v) in hydrated.Palette) app.paletteEditor.palEdits[k] = (ushort)v;
                 app.paletteEditor.palEditsLevel = app.levelNum;
             }
-            // Layer 2: background image or object layer, drawn behind layer 1.
+            // Layer 2: background image, or the object layer drawn behind layer 1.
             bgImage = app.rom is not null && app.level is not null ? LevelParser.DecodeBgImage(app.rom, app.levelNum) : null;
-            layer2Grid = app.rom is not null && app.level is not null
-                ? ObjectEngine.RenderLayer2(app.rom, app.level.Header, app.levelNum) : null;
+            layerGrid[app.editLayer] = app.grid;
+            int other = 1 - app.editLayer;
+            layerGrid[other] = layerObjects[other] is { } otherObjs
+                ? RenderLayerGrid(other, otherObjs) : null;
             app.sprites = app.rom is not null && app.level is not null ? SpriteData.Parse(app.rom, app.levelNum) : null;
             if (hydrated is not null && app.sprites is not null)
             {
@@ -246,7 +349,10 @@ internal sealed class LevelSession(EditorApp app)
         if (app.tileCaches is null || app.grid is null) return null;
         int visRows = app.rom is not null && app.level is not null && app.rom.IsVerticalMode(app.level.Header.LevelMode)
             ? app.grid.Height : 27;
-        return new CanvasScene(app.tileCaches, backdropColor, app.grid, bgImage, app.bgCaches, layer2Grid, visRows,
+        // The layer being edited draws in front; the other one sits behind it, so switching
+        // to layer 2 shows it over layer 1 rather than buried under it.
+        return new CanvasScene(app.tileCaches, backdropColor, app.grid, bgImage, app.bgCaches,
+            layerGrid[1 - app.editLayer], visRows,
             (img, W, H, p) => { if (app.showSprites) app.spriteOverlay?.Draw(img, W, H, app.paletteEditor.EditedPalette(p)!, app.spriteEditor.hiddenSprites); });
     }
 

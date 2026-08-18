@@ -95,6 +95,19 @@ internal static class RomBuilder
                 byte[] encoded = LevelEncoder.Encode(lv, LevelEncoder.NormalizeStream(objs));
                 rom.SetLayer1Pointer(level, AllocateAutoExpand(rom, encoded));
 
+                // Layer 2, when the project carries a stream for it. Same format as layer 1
+                // (its own header copy, which the game skips), and writing a real bank into
+                // the pointer is what puts the level in object mode at all.
+                if (state.Layer2Objects is { } l2dto)
+                {
+                    var l2 = l2dto.Select(o => o.ToLevelObject()).ToList();
+                    byte[] enc2 = LevelEncoder.Encode(lv, LevelEncoder.NormalizeStream(l2));
+                    rom.SetLayer2Pointer(level, AllocateAutoExpand(rom, enc2));
+                    if (!Rom.LoadsLayer2Objects(lv.Header.LevelMode))
+                        warnings.Add($"level {key}: layer-2 objects written but level mode " +
+                                     $"{lv.Header.LevelMode:X2} never loads them");
+                }
+
                 // Sprites: relocatable only when LM's per-level bank table exists; a vanilla
                 // base reads bank $07 fixed, so there it's overwrite-in-place-if-it-fits.
                 var sd = new SpriteData { SpriteMemory = state.SpriteMemory, Buoyancy = state.Buoyancy };

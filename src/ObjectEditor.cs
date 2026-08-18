@@ -61,7 +61,7 @@ internal sealed class ObjectEditor(EditorApp app)
         Map16Grid g;
         Map16Grid? owners;
         Dictionary<int, ushort[]>? stacks;
-        try { g = ObjectEngine.RenderEmulatedStream(app.rom, app.level.Header, encoded, 0, streamOwner, out owners, out stacks); }
+        try { g = ObjectEngine.RenderEmulatedStream(app.rom, app.level.Header, encoded, app.editLayer, streamOwner, out owners, out stacks); }
         catch { return null; }
         objOwners = owners;
         objStacks = stacks;

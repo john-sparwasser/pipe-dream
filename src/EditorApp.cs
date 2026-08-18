@@ -56,8 +56,12 @@ public class EditorApp : App
     internal bool paletteVisible = true;
     internal readonly HashSet<int> selSprites = new();   // selected sprite indices (sprite mode)
 
-    // Object editing (Objects mode): a mutable working copy of the level's objects.
+    // Object editing (Objects mode): a mutable working copy of the ACTIVE layer's objects.
+    // Layer 2 uses the identical stream format, so editing it is the same code with a
+    // different layer index — editLayer selects which list objList currently points at,
+    // and LevelSession.SetEditLayer does the swap.
     internal List<LevelObject>? objList;
+    internal int editLayer;                              // 0 = layer 1, 1 = layer 2
     internal readonly HashSet<int> selObjs = new();      // selected indices into objList
     internal int selectedObjCat = -1;                    // catalog object number to place
 

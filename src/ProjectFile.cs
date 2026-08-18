@@ -63,6 +63,12 @@ public sealed class ProjectFile
         /// to keep the base ROM's.</summary>
         public string? MainEntrance { get; set; }
         public List<ObjectDto> Objects { get; set; } = new();
+        /// <summary>Layer-2 object stream, or null to keep whatever the base ROM has. A
+        /// non-null list also selects object mode: the build writes a real bank into the
+        /// layer-2 pointer, and the mode IS that bank ($FF = background image). So an empty
+        /// list converts a background-image level to an empty object layer, and clearing it
+        /// back to null restores the base ROM's background.</summary>
+        public List<ObjectDto>? Layer2Objects { get; set; }
         public int SpriteMemory { get; set; }
         public int Buoyancy { get; set; }
         public List<SpriteDto> Sprites { get; set; } = new();

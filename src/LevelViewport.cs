@@ -42,6 +42,8 @@ internal sealed class LevelViewport(EditorApp app)
         if (ImGui.Button("Exits")) app.levelExits.Open();
         ImGui.EndDisabled();
         ImGui.SameLine();
+        DrawLayerToggle();
+        ImGui.SameLine();
         DrawViewToggle();
         if (app.canvas.TexFor(0) is null || app.grid is null) { ImGui.TextDisabled("No level rendered."); return; }
         if (app.saveStatus.Length > 0) ImGui.TextDisabled(app.saveStatus);
@@ -116,6 +118,49 @@ internal sealed class LevelViewport(EditorApp app)
     // Sliding three-state Level | Map16 | GFX switch in the canvas header: a pill with a
     // knob that animates between the thirds; clicking a segment selects that canvas view.
     private static readonly string[] ViewLabels = { "Level", "Map16", "GFX" };
+
+    /// <summary>Layer 1 / layer 2 selector. Layer 2 is the same object stream format, so the
+    /// whole object editor works on it unchanged — this only says which one is active. A
+    /// background-image layer 2 has no objects to edit until it is converted, and "no layer 2
+    /// objects" and "an empty layer 2" are genuinely different in the ROM, so the conversion
+    /// is explicit rather than implied by clicking L2.</summary>
+    private void DrawLayerToggle()
+    {
+        if (app.canvasView != EditorApp.CanvasView.Level) return;
+        for (int layer = 0; layer < 2; layer++)
+        {
+            if (layer > 0) ImGui.SameLine();
+            bool active = app.editLayer == layer;
+            if (active) ImGui.PushStyleColor(ImGuiCol.Button, 0xFF884400u);
+            ImGui.BeginDisabled(layer == 1 && !app.session.Layer2Editable);
+            if (ImGui.Button(layer == 0 ? "L1" : "L2")) app.session.SetEditLayer(layer);
+            ImGui.EndDisabled();
+            if (active) ImGui.PopStyleColor();
+        }
+        ImGui.SameLine();
+        if (!app.session.Layer2Editable)
+        {
+            if (ImGui.SmallButton("+L2")) app.session.SetLayer2ObjectMode(true);
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("Layer 2 is a background image — give it an editable object layer.\n" +
+                                 "Most background levels also use a level mode that never loads\n" +
+                                 "layer-2 objects, so change the mode in Properties as well.");
+        }
+        else
+        {
+            if (app.session.Layer2FromProject)
+            {
+                if (ImGui.SmallButton("-L2")) app.session.SetLayer2ObjectMode(false);
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip("Drop this project's layer-2 objects and restore the base ROM's background image");
+                ImGui.SameLine();
+            }
+            // The loudest case: objects exist but this level mode never reads them, so the
+            // work would silently do nothing in-game.
+            if (app.level is not null && !Rom.LoadsLayer2Objects(app.level.Header.LevelMode))
+                ImGui.TextDisabled($"(mode {app.level.Header.LevelMode:X2} ignores L2)");
+        }
+    }
 
     private void DrawViewToggle()
     {
