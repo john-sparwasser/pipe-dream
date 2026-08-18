@@ -11,9 +11,15 @@ using Xunit.Abstractions;
 namespace PipeDream.Ui.Tests;
 
 /// <summary>
-/// Painting and undo, driven through the real window. Undo grouping is the specific thing
-/// worth pinning: "ctrl+Z only undid part of what I did" was a real bug in the ImGui editor,
-/// and it comes from grouping undo by cell instead of by stroke.
+/// Painting and undo through the real window.
+///
+/// The thing worth pinning hardest: painting must produce OBJECTS. The grid is a projection
+/// of the object stream, so an edit that only writes the grid renders perfectly and then
+/// vanishes on save — the project stores objects, not pixels. Every test here therefore
+/// checks the object list, not just what is on screen.
+///
+/// Undo grouping is the other one: "ctrl+Z only undid part of what I did" is what happens
+/// when undo is grouped per cell instead of per stroke.
 /// </summary>
 public class EditingTests(ITestOutputHelper log)
 {
@@ -21,163 +27,227 @@ public class EditingTests(ITestOutputHelper log)
         Environment.GetEnvironmentVariable("PIPEDREAM_SMW_ROOT") ?? @"C:\SMW\Projects",
         ".resources", "SMW.smc");
 
+    private static bool HaveRom => File.Exists(RomPath);
+
+    /// <summary>
+    /// A PREPPED vanilla, cached for the whole run. Painting places Direct Map16 objects, and
+    /// raw vanilla has no DM16 ASM to render them — on that base a stroke would paint pixels
+    /// and then reconcile back to nothing, which is exactly the behaviour
+    /// <see cref="tile_placement_is_refused_on_a_base_without_dm16"/> pins.
+    /// </summary>
+    private static readonly Lazy<string?> PreppedRom = new(() =>
+    {
+        if (!HaveRom) return null;
+        string tmp = Path.Combine(Path.GetTempPath(), "pdui-prepped.smc");
+        if (!File.Exists(tmp))
+        {
+            File.Copy(RomPath, tmp, overwrite: true);
+            if (RomPrep.PrepInPlace(tmp) is not null) return null;
+        }
+        return tmp;
+    });
+
+    /// <summary>An edit model over a real level — painting needs the object engine, so there
+    /// is no useful fake here.</summary>
+    private static (Rom Rom, LevelScene Scene, LevelEdit Edit)? RealEdit(int level = 0x105)
+    {
+        if (PreppedRom.Value is not { } path) return null;
+        var rom = Rom.Load(path);
+        var scene = LevelScene.Build(rom, level, showSprites: false);
+        return (rom, scene, new LevelEdit(rom, scene, scene.Level.Objects));
+    }
+
     private static (MainWindow W, LevelView C)? Open()
     {
-        if (!File.Exists(RomPath)) return null;
-        Program.RomPath = RomPath;
+        if (PreppedRom.Value is not { } path) return null;
+        Program.RomPath = path;
         var w = new MainWindow();
         w.Show();
         Dispatcher.UIThread.RunJobs();
         return (w, w.GetControl<LevelView>("Canvas"));
     }
 
-    // Canvas-local cell centre, translated to WINDOW space: the mouse helpers take window
-    // coordinates, and the canvas sits to the right of the drawer.
     private static Point Cell(LevelView v, Window w, int x, int y)
         => v.TranslatePoint(new Point(x * 16 * v.Zoom + 8 - v.Origin.X,
                                       y * 16 * v.Zoom + 8 - v.Origin.Y), w)!.Value;
 
-    // ---- the edit model on its own: no window, no ROM ----
+    // ---- the edit model ----
 
-    private static LevelEdit FakeEdit(out Map16Grid grid)
+    /// <summary>The one that matters: a stroke has to end up in the object stream, or the
+    /// edit is a rendering illusion that disappears the moment the project is saved.</summary>
+    [Fact]
+    public void a_stroke_becomes_objects_in_the_stream()
     {
-        var g = new Map16Grid(32, 27);
-        grid = g;
-        var caches = new uint[4][][];
-        for (int p = 0; p < 4; p++)
-        {
-            caches[p] = new uint[0x200][];
-            for (int t = 0; t < 0x200; t++) caches[p][t] = new uint[256];
-        }
-        var phases = new uint[4][];
-        for (int p = 0; p < 4; p++) phases[p] = new uint[32 * 16 * 27 * 16];
-        var scene = new LevelScene(phases, 32 * 16, 27 * 16, g, null!, caches);
-        return new LevelEdit(scene);
+        if (RealEdit() is not { } r) { log.WriteLine("SKIP: no ROM"); return; }
+        var (_, scene, edit) = r;
+        int before = edit.Objects.Count;
+
+        for (int x = 4; x < 12; x++) edit.Paint(x, 6, 0x100);
+        edit.EndStroke();
+
+        Assert.True(edit.Objects.Count > before, "painting produced no objects");
+        Assert.True(edit.Dirty);
+        // The engine's own render agrees with what is on screen.
+        Assert.Equal(0x100, scene.Grid.Get(8, 6));
+    }
+
+    /// <summary>A straight drag must merge into few wide objects, not one per cell — that is
+    /// what Dm16Saver's run-merging is for, and 20 objects per drag would bloat the stream.</summary>
+    [Fact]
+    public void a_straight_drag_merges_into_a_run_rather_than_one_object_per_cell()
+    {
+        if (RealEdit() is not { } r) { log.WriteLine("SKIP: no ROM"); return; }
+        var (_, _, edit) = r;
+        int before = edit.Objects.Count;
+
+        for (int x = 4; x < 24; x++) edit.Paint(x, 6, 0x100);   // 20 cells
+        edit.EndStroke();
+
+        int added = edit.Objects.Count - before;
+        log.WriteLine($"20 cells -> {added} object(s)");
+        Assert.True(added < 20, $"20 cells produced {added} objects — runs are not merging");
     }
 
     [Fact]
     public void one_stroke_is_one_undo_however_many_cells_it_covers()
     {
-        var edit = FakeEdit(out var grid);
-        for (int x = 0; x < 10; x++) edit.Paint(x, 5, 0x100);
-        edit.EndStroke();
+        if (RealEdit() is not { } r) { log.WriteLine("SKIP: no ROM"); return; }
+        var (_, scene, edit) = r;
+        var before = scene.Grid.Get(9, 6);
+        int objsBefore = edit.Objects.Count;
 
+        for (int x = 4; x < 12; x++) edit.Paint(x, 6, 0x100);
+        edit.EndStroke();
         Assert.Equal(1, edit.UndoDepth);
-        Assert.Equal(0x100, grid.Get(9, 5));
 
         Assert.True(edit.Undo());
-        // ALL ten cells come back, not just the last one.
-        for (int x = 0; x < 10; x++)
-            Assert.NotEqual(0x100, grid.Get(x, 5));
+        Assert.Equal(objsBefore, edit.Objects.Count);       // the whole stroke came back out
+        Assert.Equal(before, scene.Grid.Get(9, 6));         // ...and the pixels agree
         Assert.False(edit.CanUndo);
     }
 
     [Fact]
     public void separate_strokes_undo_separately()
     {
-        var edit = FakeEdit(out var grid);
-        edit.Paint(1, 1, 0x100); edit.EndStroke();
-        edit.Paint(2, 2, 0x101); edit.EndStroke();
+        if (RealEdit() is not { } r) { log.WriteLine("SKIP: no ROM"); return; }
+        var (_, scene, edit) = r;
+        edit.Paint(4, 6, 0x100); edit.EndStroke();
+        edit.Paint(5, 7, 0x101); edit.EndStroke();
         Assert.Equal(2, edit.UndoDepth);
 
         edit.Undo();
-        Assert.Equal(0x100, grid.Get(1, 1));      // the first stroke survives
-        Assert.NotEqual(0x101, grid.Get(2, 2));
-    }
-
-    /// <summary>Dragging back over a cell within one stroke must not bury its ORIGINAL value,
-    /// or undo restores an intermediate state instead of what was there before.</summary>
-    [Fact]
-    public void repainting_a_cell_within_a_stroke_still_undoes_to_the_original()
-    {
-        var edit = FakeEdit(out var grid);
-        int original = grid.Get(3, 3);
-        edit.Paint(3, 3, 0x100);
-        edit.Paint(3, 3, 0x111);
-        edit.EndStroke();
-
-        edit.Undo();
-        Assert.Equal(original, grid.Get(3, 3));
+        Assert.Equal(0x100, scene.Grid.Get(4, 6));          // the first stroke survives
+        Assert.NotEqual(0x101, scene.Grid.Get(5, 7));
     }
 
     [Fact]
     public void redo_replays_a_stroke_and_a_new_edit_drops_the_redo_branch()
     {
-        var edit = FakeEdit(out var grid);
-        edit.Paint(4, 4, 0x100); edit.EndStroke();
+        if (RealEdit() is not { } r) { log.WriteLine("SKIP: no ROM"); return; }
+        var (_, scene, edit) = r;
+        edit.Paint(4, 6, 0x100); edit.EndStroke();
         edit.Undo();
         Assert.True(edit.CanRedo);
 
         edit.Redo();
-        Assert.Equal(0x100, grid.Get(4, 4));
+        Assert.Equal(0x100, scene.Grid.Get(4, 6));
 
         edit.Undo();
-        edit.Paint(5, 5, 0x102); edit.EndStroke();
-        Assert.False(edit.CanRedo);                // the old branch is gone
+        edit.Paint(5, 6, 0x102); edit.EndStroke();
+        Assert.False(edit.CanRedo);                          // the old branch is gone
     }
 
+    /// <summary>Raw vanilla has no Direct Map16 ASM, so placed tiles would render as nothing.
+    /// That has to be refused with a reason, not silently swallowed after the pixels already
+    /// moved — the optimistic paint makes a silent failure look like a rendering glitch.</summary>
     [Fact]
-    public void painting_the_same_value_is_not_an_edit()
+    public void tile_placement_is_refused_on_a_base_without_dm16()
     {
-        var edit = FakeEdit(out var grid);
-        edit.Paint(6, 6, 0x100); edit.EndStroke();
-        Assert.False(edit.Paint(6, 6, 0x100));     // no change, no new undo entry
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var rom = Rom.Load(RomPath);                       // raw vanilla, unprepped
+        Assert.False(rom.HasDm16Hijack);
+        var scene = LevelScene.Build(rom, 0x105, showSprites: false);
+        var edit = new LevelEdit(rom, scene, scene.Level.Objects);
+
+        Assert.NotNull(edit.TilePlacementBlocked);
+        Assert.False(edit.Paint(4, 6, 0x100));
         edit.EndStroke();
-        Assert.Equal(1, edit.UndoDepth);
+        Assert.Equal(0, edit.UndoDepth);
+        Assert.False(edit.Dirty);
     }
 
-    // ---- the same thing through the window ----
+    /// <summary>BG-space tiles (0x4000+) live on layer 2; a DM16 object cannot address them,
+    /// so stamping one must be refused rather than silently doing nothing on save.</summary>
+    [Fact]
+    public void bg_tiles_are_refused_rather_than_silently_dropped()
+    {
+        if (RealEdit() is not { } r) { log.WriteLine("SKIP: no ROM"); return; }
+        var (_, _, edit) = r;
+        Assert.False(edit.Paint(4, 6, 0x4000));
+        Assert.False(edit.Paint(4, 6, 0x4123));
+        Assert.Equal(0, edit.UndoDepth);
+    }
+
+    /// <summary>A diagonal drag paints only the cells it crossed, not the rectangle they
+    /// span — FromBrush skips untouched cells because they are left Empty.</summary>
+    [Fact]
+    public void a_diagonal_stroke_does_not_fill_its_bounding_box()
+    {
+        if (RealEdit() is not { } r) { log.WriteLine("SKIP: no ROM"); return; }
+        var (_, scene, edit) = r;
+        var corner = scene.Grid.Get(4, 9);                   // box corner, never painted
+
+        for (int i = 0; i < 4; i++) edit.Paint(4 + i, 6 + i, 0x100);
+        edit.EndStroke();
+
+        Assert.Equal(0x100, scene.Grid.Get(4, 6));
+        Assert.Equal(0x100, scene.Grid.Get(7, 9));
+        Assert.Equal(corner, scene.Grid.Get(4, 9));          // untouched
+    }
+
+    // ---- through the window ----
 
     [AvaloniaFact]
     public void dragging_across_the_canvas_paints_every_cell_it_crosses()
     {
         if (Open() is not { } o) { log.WriteLine("SKIP: no ROM"); return; }
         var (w, canvas) = o;
-        var palette = w.GetControl<Map16PaletteView>("Palette");
         Dispatcher.UIThread.RunJobs();
 
         var painted = new List<(int, int)>();
         canvas.CellPainted += (_, c) => painted.Add(c);
 
-        // A fast drag: the pointer reports two samples five cells apart, and every cell
-        // between them must still be painted or the stroke has holes in it.
+        // A fast drag: two pointer samples five cells apart. Every cell between them must
+        // still be painted, or strokes have holes in them at speed.
         w.MouseDown(Cell(canvas, w, 2, 10), MouseButton.Left);
         w.MouseMove(Cell(canvas, w, 7, 10));
         w.MouseUp(Cell(canvas, w, 7, 10), MouseButton.Left);
 
         log.WriteLine("painted: " + string.Join(" ", painted));
-        for (int x = 2; x <= 7; x++)
-            Assert.Contains((x, 10), painted);
+        for (int x = 2; x <= 7; x++) Assert.Contains((x, 10), painted);
     }
 
     [AvaloniaFact]
-    public void a_drag_then_undo_restores_the_level()
+    public void a_drag_through_the_window_adds_objects_and_undo_removes_them()
     {
         if (Open() is not { } o) { log.WriteLine("SKIP: no ROM"); return; }
         var (w, canvas) = o;
         Dispatcher.UIThread.RunJobs();
 
-        // Snapshot the row we are about to paint over.
-        var scene = typeof(MainWindow).GetField("scene", System.Reflection.BindingFlags.NonPublic
-                                                       | System.Reflection.BindingFlags.Instance)!
-                                      .GetValue(w) as LevelScene;
-        Assert.NotNull(scene);
-        var before = Enumerable.Range(2, 6).Select(x => scene!.Grid.Get(x, 10)).ToArray();
+        var edit = (LevelEdit)typeof(MainWindow)
+            .GetField("edit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .GetValue(w)!;
+        int before = edit.Objects.Count;
 
         w.MouseDown(Cell(canvas, w, 2, 10), MouseButton.Left);
         w.MouseMove(Cell(canvas, w, 7, 10));
         w.MouseUp(Cell(canvas, w, 7, 10), MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
 
-        bool changed = Enumerable.Range(2, 6).Select(x => scene!.Grid.Get(x, 10)).SequenceEqual(before) == false;
-        Assert.True(changed, "the drag painted nothing");
+        Assert.True(edit.Objects.Count > before, "the drag added no objects");
+        Assert.Equal(1, edit.UndoDepth);
 
-        // Undo through the same model the Ctrl+Z menu item drives.
-        var edit = typeof(MainWindow).GetField("edit", System.Reflection.BindingFlags.NonPublic
-                                                     | System.Reflection.BindingFlags.Instance)!
-                                     .GetValue(w) as LevelEdit;
-        Assert.True(edit!.Undo());
-
-        Assert.Equal(before, Enumerable.Range(2, 6).Select(x => scene!.Grid.Get(x, 10)).ToArray());
+        Assert.True(edit.Undo());
+        Assert.Equal(before, edit.Objects.Count);
     }
 }

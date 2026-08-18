@@ -62,11 +62,13 @@ public partial class MainWindow : Window
         canvas.CellPainted += (_, c) =>
         {
             if (edit is null) return;
+            if (edit.TilePlacementBlocked is { } why) { status.Text = why; return; }
             if (edit.Paint(c.X, c.Y, palette.Selected)) PushDirty();
         };
         canvas.StrokeEnded += (_, _) =>
         {
-            edit?.EndStroke();
+            edit?.EndStroke();   // cells become DM16 objects here; the grid is re-rendered
+            PushDirty();
             UpdateStatus();
         };
 
@@ -144,7 +146,7 @@ public partial class MainWindow : Window
             var (px, w, h) = scene.Sheet();
             palette.SetSheet(px, w, h, rom.Map16TileCount);
 
-            if (edit is null) edit = new LevelEdit(scene); else edit.Reset(scene);
+            edit = new LevelEdit(rom, scene, scene.Level.Objects);
             composeMs = ms;
             UpdateStatus();
         }
@@ -156,9 +158,12 @@ public partial class MainWindow : Window
     private void UpdateStatus()
     {
         if (scene is null) return;
+        // Object count comes from the EDIT, not the parsed level: painting appends objects,
+        // and watching that number move is the clearest sign the stroke really became data.
+        int objs = edit?.Objects.Count ?? scene.Level.Objects.Count;
         string undoNote = edit is { UndoDepth: > 0 } ? $"   {edit.UndoDepth} edit(s)" : "";
         status.Text = $"level ${levelNum:X3}   {scene.Width}x{scene.Height}px   " +
-                      $"{scene.Level.Objects.Count} objects   composed in {composeMs:F0}ms{undoNote}";
+                      $"{objs} objects   composed in {composeMs:F0}ms{undoNote}";
     }
 
     private void UpdateHover()

@@ -1,24 +1,42 @@
 namespace PipeDream.Ui;
 
 /// <summary>
-/// Compose a level straight from a ROM, with no editor state involved.
+/// A level composed for display: four animation phases of RGBA pixels, plus everything needed
+/// to recompose part of it after an edit.
 ///
-/// The ImGui editor assembles the same inputs inside LevelSession, which needs an EditorApp
-/// — that entanglement is what makes the current UI untestable, and untangling it is Phase 1
-/// of the migration. This is the shape the session state should collapse to: a ROM, a level
-/// number, and four phases of composed pixels.
+/// The ImGui editor assembles the same inputs inside LevelSession, which needs an EditorApp —
+/// that entanglement is what makes the current UI untestable, and untangling it is Phase 1 of
+/// the migration. This is the shape the session state collapses to: a ROM, a level number,
+/// and the pixels.
 /// </summary>
-public sealed record LevelScene(
-    uint[]?[] Phases, int Width, int Height, Map16Grid Grid, Level Level, uint[][][] TileCaches)
+public sealed class LevelScene
 {
+    public required uint[]?[] Phases { get; init; }
+    public required int Width { get; init; }
+    public required int Height { get; init; }
+    public required Level Level { get; init; }
+    public required uint[][][] TileCaches { get; init; }
+
+    /// <summary>Layer-1 Map16 grid. Replaced wholesale when the object list is re-rendered,
+    /// which is what an edit actually does — the grid is a projection of the objects.</summary>
+    public Map16Grid Grid { get; set; } = null!;
+
+    public uint[] Backdrop { get; init; } = new uint[4];
+    public Palette?[] Palettes { get; init; } = new Palette?[4];
+    public ushort[]? BgImage { get; init; }
+    public uint[][]?[] BgCaches { get; init; } = new uint[4][][];
+    public Map16Grid? Layer2 { get; init; }
+    public SpriteData? Sprites { get; init; }
+    public SpriteOverlay? Overlay { get; init; }
+    public int VisibleRows { get; init; } = 27;
+
     /// <summary>
     /// Parse, render objects, and compose all four animation phases at full fidelity: the
     /// background image (or layer-2 object stream) behind layer 1, and the sprite overlay in
     /// front. The per-phase work is independent, so it runs in parallel as the editor does.
     ///
     /// A level's layer 2 is a background image OR an object stream, never both — the pointer's
-    /// bank IS the mode (CONTRACT §10), which is why these are an either/or below rather than
-    /// two independent layers.
+    /// bank IS the mode (CONTRACT §10), which is why these are an either/or below.
     /// </summary>
     public static LevelScene Build(Rom rom, int levelNum, bool showSprites = true)
     {
@@ -63,41 +81,27 @@ public sealed record LevelScene(
             w = pw; h = ph;
         });
 
-        return new LevelScene(phases, w, h, grid, level, caches)
+        return new LevelScene
         {
-            Backdrop = backdrop,
-            BgImage = bgImage,
-            BgCaches = bgCaches,
-            Layer2 = layer2,
-            Sprites = sprites,
-            Overlay = overlay,
-            VisibleRows = visRows,
-            Palettes = palettes,
+            Phases = phases, Width = w, Height = h, Level = level, TileCaches = caches,
+            Grid = grid, Backdrop = backdrop, Palettes = palettes,
+            BgImage = bgImage, BgCaches = bgCaches, Layer2 = layer2,
+            Sprites = sprites, Overlay = overlay, VisibleRows = visRows,
         };
     }
-
-    public ushort[]? BgImage { get; init; }
-    public uint[][]?[] BgCaches { get; init; } = new uint[4][][];
-    public Map16Grid? Layer2 { get; init; }
-    public SpriteData? Sprites { get; init; }
-    public SpriteOverlay? Overlay { get; init; }
-    public int VisibleRows { get; init; } = 27;
 
     /// <summary>The Map16 tile sheet for the palette drawer, 16 tiles per row — the same
     /// composition the level uses, so a tile looks identical in both places.</summary>
     public (uint[] Px, int W, int H) Sheet(int phase = 0) => Map16.ComposeSheet(TileCaches[phase & 3]);
 
-    /// <summary>Backdrop colour behind the level, per phase — the palette's colour 0.</summary>
-    public uint[] Backdrop { get; init; } = new uint[4];
-
     /// <summary>
-    /// Recompose ONE cell in every animation phase, after its grid value changed. Painting a
-    /// whole level image per mouse-move would be ~13MB of work for one 16x16 tile; this is
-    /// the incremental path the ImGui canvas also uses, and the reason a drag stays smooth.
+    /// Recompose ONE cell in every animation phase. Composing the whole level per edit would
+    /// be ~13MB of work for one 16x16 tile; this is the incremental path the ImGui canvas
+    /// also uses.
     ///
     /// The layering must match a full compose exactly — backdrop, then the background image
-    /// (or the layer-2 object stream), then layer 1 — or a painted cell punches a hole
-    /// through to the backdrop wherever the background used to show.
+    /// (or the layer-2 stream), then layer 1 — or a repainted cell punches a hole through to
+    /// the backdrop wherever the background used to show.
     /// </summary>
     public void RecomposeCell(int cx, int cy)
     {
@@ -125,8 +129,8 @@ public sealed record LevelScene(
     }
 
     /// <summary>Re-blit the sprite overlay over the whole image. Sprites are drawn last and
-    /// can straddle cell boundaries, so a per-cell recompose erases parts of them — the ImGui
-    /// canvas re-blits for the same reason after applying dirty cells.</summary>
+    /// straddle cell boundaries, so a per-cell recompose clips them — the ImGui canvas
+    /// re-blits after applying dirty cells for the same reason.</summary>
     public void RedrawOverlay()
     {
         if (Overlay is null) return;
@@ -134,7 +138,22 @@ public sealed record LevelScene(
             if (Phases[p] is { } img && Palettes[p] is { } pal) Overlay.Draw(img, Width, Height, pal);
     }
 
-    public Palette?[] Palettes { get; init; } = new Palette?[4];
+    /// <summary>Swap in a re-rendered grid and repaint only the cells that actually changed.
+    /// Returns how many did — an edit that touches six cells should cost six cells of work,
+    /// not a full compose, however many objects the re-render walked.</summary>
+    public int ReplaceGrid(Map16Grid next)
+    {
+        var old = Grid;
+        Grid = next;
+        int changed = 0;
+        int rows = Math.Min(VisibleRows, next.Height);
+        for (int y = 0; y < rows; y++)
+            for (int x = 0; x < next.Width; x++)
+                if (x >= old.Width || y >= old.Height || old.Get(x, y) != next.Get(x, y))
+                { RecomposeCell(x, y); changed++; }
+        if (changed > 0) RedrawOverlay();
+        return changed;
+    }
 
     private void DrawTile(uint[] img, int tile, uint[][] cache, int px, int py)
     {

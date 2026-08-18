@@ -16,9 +16,14 @@
     <Compile Remove="ui\**\*.cs" />
   </ItemGroup>
 
-  <!-- Tests exercise the internal project layer (Project, Config). -->
+  <!-- Tests exercise the internal project layer (Project, Config), and the Avalonia UI is
+       mid-migration: it consumes the same layer from a sibling assembly. Phase 1 of
+       reference/AVALONIA.md extracts a real PipeDream.Core with a public surface and this
+       goes away. -->
   <ItemGroup>
     <InternalsVisibleTo Include="PipeDream.Tests" />
+    <InternalsVisibleTo Include="PipeDream.Ui" />
+    <InternalsVisibleTo Include="PipeDream.Ui.Tests" />
   </ItemGroup>
 
   <ItemGroup>
