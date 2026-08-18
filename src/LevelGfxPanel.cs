@@ -39,7 +39,7 @@ internal sealed class LevelGfxPanel(GraphicsDevice gd, ImGuiLayer imgui) : IDisp
     // that bin through the same override path as typing an id.
     public unsafe void Draw(Rom? rom, Level? level, int levelNum, IntPtr sdlWindow,
                             Action<string>? setStatus = null, Action? onOverride = null,
-                            Action<int>? onEdit = null)
+                            Action<int>? onEdit = null, Action<int>? onBrowse = null)
     {
         if (rom is null || level is null) { ImGui.TextDisabled("No level."); return; }
         if (levelGfxKey != levelNum) { levelGfxKey = levelNum; BuildLevelGfx(rom, level, levelNum); }
@@ -89,10 +89,16 @@ internal sealed class LevelGfxPanel(GraphicsDevice gd, ImGuiLayer imgui) : IDisp
                         setStatus?.Invoke(Import(rom, levelNum, bypWord, path, onOverride));
                 });
             }
+            // Pick a file by sight/name instead of typing a hex id into the field above.
+            ImGui.SameLine();
+            if (ImGui.SmallButton($"Browse…##brw{i}")) onBrowse?.Invoke(s.BypWord);
             // Open this bin's file in the GFX tile editor (canvas mode 3).
             ImGui.SameLine();
             if (ImGui.SmallButton($"Edit##ged{i}")) onEdit?.Invoke(s.File);
             if (s.Status.Length > 0) { ImGui.SameLine(); ImGui.TextDisabled(s.Status); }
+            // A custom file's name is the point of naming them — show it next to the id.
+            if (rom.GfxName(s.File) is { Length: > 0 } gname)
+            { ImGui.SameLine(); ImGui.TextDisabled($"\"{gname}\""); }
             ImGui.Image(imgui.GetTextureID(s.Tex), new Vector2(s.W * 2f, s.H * 2f));
             ImGui.Separator();
         }
@@ -124,6 +130,9 @@ internal sealed class LevelGfxPanel(GraphicsDevice gd, ImGuiLayer imgui) : IDisp
         while (id <= 0xFFF && (rom.ImportedGfx.ContainsKey(id) || Gfx.SourceSnes(rom, id) >= 0)) id++;
         if (id > 0xFFF) return "import failed: no free ExGFX id (0x100-0xFFF all in use)";
         rom.ImportedGfx[id] = bytes;
+        // The filename is the only human-meaningful label the import has; keep it as the
+        // file's name instead of leaving the user with a bare hex id.
+        rom.ImportedGfxNames[id] = Path.GetFileNameWithoutExtension(path);
         Gfx.InvalidateCache(rom);
 
         rom.GfxSlotOverrides[(levelNum, bypWord)] = id;

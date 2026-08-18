@@ -102,6 +102,7 @@ public class EditorApp : App
     internal RomInfoPanel romInfoPanel = null!;
     internal GfxViewerPanel gfxViewerPanel = null!;
     internal LevelGfxPanel levelGfxPanel = null!;
+    internal GfxBrowser gfxBrowser = null!;
 
     // Global per-user config (%APPDATA%\PipeDream) + the first-run modal that fills it.
     internal Config config = null!;
@@ -197,6 +198,7 @@ public class EditorApp : App
         romInfoPanel = new RomInfoPanel();
         gfxViewerPanel = new GfxViewerPanel(GraphicsDevice, imgui);
         levelGfxPanel = new LevelGfxPanel(GraphicsDevice, imgui);
+        gfxBrowser = new GfxBrowser(this, GraphicsDevice, imgui);
         config = Config.Load();
         firstRun = new FirstRunPrompt(this);
         projectWizard = new ProjectWizard(this);
@@ -244,6 +246,7 @@ public class EditorApp : App
         canvas?.Dispose();
         gfxViewerPanel?.Dispose();
         levelGfxPanel?.Dispose();
+        gfxBrowser?.Dispose();
     }
 
     protected override void Update()
@@ -299,6 +302,7 @@ public class EditorApp : App
         levelProps.Draw();
         levelExits.Draw();
         secondaryEntrance.Draw();
+        gfxBrowser.Draw();
 
         // Map16/GFX paint strokes commit when their button is up — at frame start, so the
         // graphics rebuild never disposes textures already submitted to this frame.

@@ -43,6 +43,8 @@ internal sealed class LevelSession(EditorApp app)
                 // through Gfx.Cached.
                 foreach (var (id, b64) in app.project.Data.Gfx)
                     app.rom.ImportedGfx[Convert.ToInt32(id, 16)] = Convert.FromBase64String(b64);
+                foreach (var (id, name) in app.project.Data.GfxNames)
+                    app.rom.ImportedGfxNames[Convert.ToInt32(id, 16)] = name;
                 foreach (var (key, state) in app.project.Data.Levels)
                 {
                     int lvl = Convert.ToInt32(key, 16);
@@ -86,11 +88,14 @@ internal sealed class LevelSession(EditorApp app)
     {
         if (app.project is null) return;
         if (app.currentLevelTouched) StashCurrentLevel();
-        if (app.rom is not null)
-            ProjectCapture.Refresh(app.rom, app.project.Data, app.level?.Header.Tileset ?? 1);
-        if (app.rom is not null)
-            app.project.Data.Gfx = app.rom.ImportedGfx
-                .ToDictionary(kv => kv.Key.ToString("X3"), kv => Convert.ToBase64String(kv.Value));
+        if (app.rom is null) return;
+        ProjectCapture.Refresh(app.rom, app.project.Data, app.level?.Header.Tileset ?? 1);
+        app.project.Data.Gfx = app.rom.ImportedGfx
+            .ToDictionary(kv => kv.Key.ToString("X3"), kv => Convert.ToBase64String(kv.Value));
+        // Names only for ids that still exist, so a removed import can't leave a stray name.
+        app.project.Data.GfxNames = app.rom.ImportedGfxNames
+            .Where(kv => kv.Value.Length > 0 && app.rom.ImportedGfx.ContainsKey(kv.Key))
+            .ToDictionary(kv => kv.Key.ToString("X3"), kv => kv.Value);
     }
 
     // Write the current level's session state into the project snapshot.
@@ -340,13 +345,30 @@ internal sealed class LevelSession(EditorApp app)
             app.currentLevelTouched = true;
             app.project?.MarkDirty();
             app.canvasFull = true; app.levelDirty = true;
+            app.gfxBrowser.Invalidate();   // an import added a file the browser should show
             RebuildGraphics();          // tile caches + Map16 sheet + catalogs + canvas
             // Swap the SP tile sheets only — the cached OAM captures stay valid.
             if (app.rom is not null && app.level is not null)
                 app.spriteOverlay = app.spriteOverlay?.WithReloadedTiles(app.rom, app.level.Header, app.levelNum);
         },
         // Per-bin "Edit": open the file in the GFX tile editor (canvas mode 3).
-        file => { app.gfxEditor.gfxFile = file; app.canvasView = EditorApp.CanvasView.Gfx; });
+        file => { app.gfxEditor.gfxFile = file; app.canvasView = EditorApp.CanvasView.Gfx; },
+        // Per-bin "Browse…": pick a file visually, then assign it to that bin through the
+        // same override path typing an id uses.
+        bypWord => app.gfxBrowser.Open("Select GFX for this bin", picked =>
+        {
+            if (app.rom is null) return;
+            app.rom.GfxSlotOverrides[(app.levelNum, bypWord)] = picked;
+            app.levelGfxPanel.InvalidateLevel();
+            app.currentLevelTouched = true;
+            app.project?.MarkDirty();
+            app.canvasFull = true; app.levelDirty = true;
+            RebuildGraphics();
+            if (app.level is not null)
+                app.spriteOverlay = app.spriteOverlay?.WithReloadedTiles(app.rom, app.level.Header, app.levelNum);
+            app.saveStatus = $"bin ← GFX{picked:X3}"
+                           + (app.rom.GfxName(picked) is { Length: > 0 } n ? $" \"{n}\"" : "");
+        }));
         ImGui.EndChild();
     }
 }

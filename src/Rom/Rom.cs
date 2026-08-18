@@ -238,6 +238,15 @@ public sealed class Rom
     /// mutate via Gfx.InvalidateCache so no stale decode survives.</summary>
     public readonly Dictionary<int, byte[]> ImportedGfx = new();
 
+    /// <summary>Display names for imported ExGFX (file id → name), so a custom file is
+    /// identifiable as something other than a hex number. Defaulted from the imported
+    /// filename. Pure metadata — nothing in the ROM read/write path consults it. Hydrated
+    /// from / stashed to ProjectFile.GfxNames alongside <see cref="ImportedGfx"/>.</summary>
+    public readonly Dictionary<int, string> ImportedGfxNames = new();
+
+    /// <summary>An imported file's name, or "" when it has none.</summary>
+    public string GfxName(int file) => ImportedGfxNames.GetValueOrDefault(file, "");
+
     /// <summary>Decompressed GFX file cache for <see cref="Gfx.Cached"/> (file# → data).</summary>
     internal readonly Dictionary<int, byte[]?> GfxFileCache = new();
 

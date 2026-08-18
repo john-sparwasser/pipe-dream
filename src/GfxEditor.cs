@@ -129,6 +129,7 @@ internal sealed class GfxEditor(EditorApp app)
         {
             ApplyStroke(app.rom!, file, edits, redo);
             app.session.RebuildGraphics();   // recompose consumers (also invalidates our sheet)
+            app.gfxBrowser.Invalidate();     // the browser's thumbnail of this file is now stale
             app.levelDirty = true;
         }
         // Bytes already live in the array (write-through) — Apply(true) is idempotent and
@@ -270,6 +271,12 @@ internal sealed class GfxEditor(EditorApp app)
     {
         if (app.rom is null || app.level is null) { ImGui.TextDisabled("No level."); return; }
         ImGui.Text($"GFX{gfxFile:X3}");
+        if (app.rom.GfxName(gfxFile) is { Length: > 0 } fname)
+        { ImGui.SameLine(); ImGui.TextDisabled($"\"{fname}\""); }
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Browse…"))
+            app.gfxBrowser.Open("Open GFX in the tile editor", picked =>
+            { AbortStroke(); gfxFile = picked; });
         ImGui.SameLine();
         ImGui.TextDisabled($"color {selectedColor}");
         ImGui.SetNextItemWidth(80);
