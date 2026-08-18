@@ -121,9 +121,22 @@ internal sealed class Project
         || Data.BaseRom.PrepVersion == 0 && File.Exists(BaseRomPath)
            && RomHash.HeaderlessSha256File(BaseRomPath) == RomHash.VanillaUsSha256;
 
+    /// <summary>
+    /// Bring the base up to the current prep on open. Called for every project the editor
+    /// opens, so the answer to "why won't this feature work" is never an invisible stale
+    /// base — a project pinned to a raw vanilla (PrepVersion 0) has no LM structures at all
+    /// and refuses Map16 pages, acts-like, palettes, DM16 objects and in-game GFX.
+    ///
+    /// Returns null when nothing needed doing or it succeeded, else a reason the base was
+    /// left alone. A failure is not fatal: the project keeps working on its old base, which
+    /// is exactly what it did before.
+    /// </summary>
+    internal string? PrepareBaseOnOpen(string? vanillaRomPath)
+        => CanUpgradeBasePrep ? UpgradeBasePrep(vanillaRomPath) : null;
+
     /// <summary>Upgrade a project's base to the current prep version: prep a fresh copy of the
     /// user's verified vanilla ROM to a temp file, swap it in as base.smc, and re-pin.
-    /// Deliberate (menu action), never automatic. Returns a problem or null.</summary>
+    /// Returns a problem or null.</summary>
     internal string? UpgradeBasePrep(string? vanillaRomPath)
     {
         if (!CanUpgradeBasePrep)

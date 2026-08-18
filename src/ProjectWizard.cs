@@ -55,16 +55,12 @@ internal sealed class ProjectWizard(EditorApp app)
 
     private void Adopt(Project p)
     {
-        // Bring the base up to date on open rather than asking. The prep is OURS — a
-        // deterministic image regenerated from the user's verified vanilla — so an out-of-date
-        // one is bookkeeping, not a decision: leaving it stale just makes editor features
-        // refuse for reasons the user cannot see. Failure is harmless; the project keeps
-        // working on its old base, which is exactly what it did before.
+        // Bring the base up to date on open rather than asking (see Project.PrepareBaseOnOpen).
         // Runs BEFORE SyncBeforeSave is wired: its Save() must not pull from a session that
         // has not loaded a ROM yet.
-        string note = "";
-        if (p.CanUpgradeBasePrep && p.UpgradeBasePrep(app.config.VanillaRomPath) is { } why)
-            note = $" — base is prep v{p.Data.BaseRom.PrepVersion} and could not be updated: {why}";
+        string note = p.PrepareBaseOnOpen(app.config.VanillaRomPath) is { } why
+            ? $" — base is prep v{p.Data.BaseRom.PrepVersion} and could not be updated: {why}"
+            : "";
 
         app.project = p;
         p.SyncBeforeSave = app.session.SyncProject;
