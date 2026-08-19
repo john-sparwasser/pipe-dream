@@ -34,7 +34,7 @@ public class BrushAndResizeTests(ITestOutputHelper log)
     {
         if (Prepped.Value is not { } path) return null;
         var rom = Rom.Load(path);
-        var scene = LevelScene.Build(rom, level, showSprites: false);
+        var scene = LevelScene.Build(rom, level, LevelScene.SpriteDraw.Skip);
         var ed = new LevelEdit(rom, scene, scene.Level.Objects);
         ed.Rerender();                      // tracked render: selection and bounds need it
         return (rom, scene, ed);

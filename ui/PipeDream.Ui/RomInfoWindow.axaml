@@ -1,0 +1,25 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PipeDream.Ui.RomInfoWindow"
+        Title="ROM info" Width="560" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+  <StackPanel Margin="16" Spacing="10">
+    <ItemsControl x:Name="Rows">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate>
+          <Grid ColumnDefinitions="150,*" Margin="0,2">
+            <TextBlock Text="{Binding Label}" Foreground="{DynamicResource TextDimBrush}"/>
+            <TextBlock Grid.Column="1" Text="{Binding Value}" TextWrapping="Wrap"
+                       FontFamily="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"
+                       Foreground="{DynamicResource TextBrush}"/>
+          </Grid>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+    <TextBlock x:Name="Empty" IsVisible="False"
+               Foreground="{DynamicResource TextDimBrush}"
+               Text="No ROM loaded — File ▸ Open ROM to begin."/>
+    <Button Content="Close" HorizontalAlignment="Right" Click="OnClose" IsDefault="True"/>
+  </StackPanel>
+</Window>

@@ -1,0 +1,52 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PipeDream.Ui.SecondaryEntranceWindow"
+        Title="Secondary entrance" Width="460" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+
+  <Window.Styles>
+    <Style Selector="TextBlock.dim">
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+    <Style Selector="TextBlock.mono">
+      <Setter Property="FontFamily" Value="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+    <Style Selector="TextBlock.label">
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+  </Window.Styles>
+
+  <StackPanel Margin="16" Spacing="10">
+    <StackPanel Orientation="Horizontal" Spacing="8">
+      <TextBlock Classes="label" Text="Entrance"/>
+      <TextBox x:Name="IndexBox" Width="70"/>
+      <Button Content="Go to pair" Click="OnGoToPair"/>
+    </StackPanel>
+    <TextBlock x:Name="PairNote" Classes="dim" TextWrapping="Wrap"/>
+
+    <Rectangle Height="1" Fill="{DynamicResource BorderBrush}"/>
+
+    <StackPanel Orientation="Horizontal" Spacing="8">
+      <TextBlock Classes="label" Text="Destination level"/>
+      <TextBox x:Name="DestBox" Width="70"/>
+    </StackPanel>
+    <TextBlock Classes="dim" TextWrapping="Wrap"
+               Text="Levels $000-$0FF only — the high bit also comes from the submap state."/>
+
+    <Rectangle Height="1" Fill="{DynamicResource BorderBrush}"/>
+
+    <Grid x:Name="Fields" ColumnDefinitions="140,*,40" RowSpacing="4"/>
+
+    <TextBlock x:Name="Bytes" Classes="mono"/>
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="Cancel" Click="OnCancel" IsCancel="True"/>
+      <Button Content="Apply" Click="OnApply" IsDefault="True"/>
+    </StackPanel>
+  </StackPanel>
+</Window>

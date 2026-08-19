@@ -63,17 +63,20 @@
 
   <DockPanel>
 
-    <Menu DockPanel.Dock="Top">
+    <Menu x:Name="MainMenu" DockPanel.Dock="Top">
       <MenuItem Header="_File">
         <MenuItem Header="_New Project…" Click="OnNewProject" InputGesture="Ctrl+N"/>
         <MenuItem Header="_Open Project…" Click="OnOpenProject" InputGesture="Ctrl+O"/>
+        <MenuItem x:Name="RecentMenu" Header="_Recent Projects"/>
         <MenuItem Header="Open _ROM…" Click="OnOpenRom"/>
         <Separator/>
         <MenuItem Header="_Save" Click="OnSave" InputGesture="Ctrl+S"/>
         <MenuItem Header="_Build ROM" Click="OnBuild" InputGesture="Ctrl+B"/>
         <MenuItem Header="Export _BPS patch" Click="OnExportBps"/>
         <Separator/>
+        <MenuItem x:Name="UpgradePrepItem" Header="Upgrade base prep" Click="OnUpgradePrep"/>
         <MenuItem Header="Set vanilla ROM…" Click="OnSetVanilla"/>
+        <MenuItem Header="ROM _info…" Click="OnRomInfo"/>
         <Separator/>
         <MenuItem Header="E_xit" Click="OnExit"/>
       </MenuItem>
@@ -83,10 +86,14 @@
       </MenuItem>
       <MenuItem Header="_Level">
         <MenuItem Header="_Properties…" Click="OnLevelProperties" InputGesture="Ctrl+L"/>
+        <MenuItem Header="_Reload from project" Click="OnReloadLevel" InputGesture="Ctrl+R"/>
       </MenuItem>
       <MenuItem Header="_View">
         <MenuItem Header="Toggle _palette" Click="OnTogglePalette" InputGesture="Ctrl+P"/>
         <MenuItem Header="Screen _grid" Click="OnToggleGrid" InputGesture="Ctrl+G"/>
+        <Separator/>
+        <MenuItem x:Name="SpriteOverlayItem" Header="_Sprite overlay" Click="OnToggleSprites"/>
+        <MenuItem x:Name="AnimateItem" Header="_Animate tiles" Click="OnToggleAnimate"/>
       </MenuItem>
     </Menu>
 
@@ -101,6 +108,8 @@
 
         <TextBlock Classes="dim" Text="level"/>
         <ComboBox x:Name="LevelBox" Width="96"/>
+        <Button Content="Reload" Padding="8,3" Click="OnReloadLevel"/>
+        <Button Content="Exits" Padding="8,3" Click="OnLevelExits"/>
 
         <TextBlock Classes="dim" Text="zoom" Margin="10,0,0,0"/>
         <Slider x:Name="ZoomSlider" Width="140" Minimum="1" Maximum="8" Value="2"

@@ -42,7 +42,15 @@ public sealed class LevelScene
     /// A level's layer 2 is a background image OR an object stream, never both — the pointer's
     /// bank IS the mode (CONTRACT §10), which is why these are an either/or below.
     /// </summary>
-    public static LevelScene Build(Rom rom, int levelNum, bool showSprites = true,
+    /// <summary>
+    /// What to do about sprites when composing. Three states rather than a bool because the
+    /// expensive part (capturing each sprite's OAM by interpreting its GFX routine) is worth
+    /// paying for even when the overlay is HIDDEN — selection hit-tests against it — but not
+    /// worth paying at all when the caller has an edited sprite list to draw instead.
+    /// </summary>
+    public enum SpriteDraw { Compose, ParseOnly, Skip }
+
+    public static LevelScene Build(Rom rom, int levelNum, SpriteDraw sprites = SpriteDraw.Compose,
                                    IReadOnlyDictionary<int, ushort>? paletteEdits = null)
     {
         var level = LevelParser.Parse(rom, levelNum);
@@ -53,14 +61,14 @@ public sealed class LevelScene
         var layer2 = bgImage is null ? ObjectEngine.RenderLayer2(rom, level.Header, levelNum) : null;
 
         // The OAM capture is expensive and phase-independent, so it happens once.
-        SpriteData? sprites = null;
+        SpriteData? spriteData = null;
         SpriteOverlay? overlay = null;
-        if (showSprites)
+        if (sprites != SpriteDraw.Skip)
         {
             try
             {
-                sprites = SpriteData.Parse(rom, levelNum);
-                overlay = SpriteOverlay.Build(rom, sprites, level.Header, levelNum);
+                spriteData = SpriteData.Parse(rom, levelNum);
+                overlay = SpriteOverlay.Build(rom, spriteData, level.Header, levelNum);
             }
             catch { /* a level with unreadable sprite data still renders its terrain */ }
         }
@@ -91,7 +99,7 @@ public sealed class LevelScene
 
             var (img, pw, ph) = Map16.ComposeLevel(caches[p], pal.Rgba[0], grid,
                                                    bgImage, bgCaches[p], layer2, visRows);
-            overlay?.Draw(img, pw, ph, pal);
+            if (sprites == SpriteDraw.Compose) overlay?.Draw(img, pw, ph, pal);
             phases[p] = img;
             w = pw; h = ph;
         });
@@ -101,7 +109,7 @@ public sealed class LevelScene
             Phases = phases, Width = w, Height = h, Level = level, TileCaches = caches,
             Grid = grid, Backdrop = backdrop, Palettes = palettes,
             BgImage = bgImage, BgCaches = bgCaches, Layer2 = layer2,
-            Sprites = sprites, Overlay = overlay, VisibleRows = visRows,
+            Sprites = spriteData, Overlay = overlay, VisibleRows = visRows,
         };
     }
 

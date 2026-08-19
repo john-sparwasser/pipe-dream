@@ -53,7 +53,7 @@ public class EditingTests(ITestOutputHelper log)
     {
         if (PreppedRom.Value is not { } path) return null;
         var rom = Rom.Load(path);
-        var scene = LevelScene.Build(rom, level, showSprites: false);
+        var scene = LevelScene.Build(rom, level, LevelScene.SpriteDraw.Skip);
         return (rom, scene, new LevelEdit(rom, scene, scene.Level.Objects));
     }
 
@@ -166,7 +166,7 @@ public class EditingTests(ITestOutputHelper log)
         if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
         var rom = Rom.Load(RomPath);                       // raw vanilla, unprepped
         Assert.False(rom.HasDm16Hijack);
-        var scene = LevelScene.Build(rom, 0x105, showSprites: false);
+        var scene = LevelScene.Build(rom, 0x105, LevelScene.SpriteDraw.Skip);
         var edit = new LevelEdit(rom, scene, scene.Level.Objects);
 
         Assert.NotNull(edit.TilePlacementBlocked);

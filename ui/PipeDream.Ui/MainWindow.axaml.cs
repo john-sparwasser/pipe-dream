@@ -55,6 +55,8 @@ public partial class MainWindow : Window
     private StackPanel gfxBins = null!, gfxJumps = null!;
     private ComboBox gfxPalRow = null!;
     private PaletteGridView gfxColors = null!;
+    private MenuItem recentMenu = null!, upgradePrepItem = null!, spriteOverlayItem = null!,
+                     animateItem = null!;
     private PaletteGridView paletteGrid = null!;
     private Slider palR = null!, palG = null!, palB = null!;
     private TextBlock palRv = null!, palGv = null!, palBv = null!, paletteNote = null!, paletteIndex = null!;
@@ -332,6 +334,16 @@ public partial class MainWindow : Window
         palette.Zoom = tileZoom.Value;
         FitDrawerToPalette();
 
+        // ---- menu items that depend on state ----
+        recentMenu = this.GetControl<MenuItem>("RecentMenu");
+        upgradePrepItem = this.GetControl<MenuItem>("UpgradePrepItem");
+        spriteOverlayItem = this.GetControl<MenuItem>("SpriteOverlayItem");
+        animateItem = this.GetControl<MenuItem>("AnimateItem");
+        // Rebuilt when the menu opens rather than kept in sync: the recent list changes behind
+        // this window's back (a project opened elsewhere in the session reorders it), and pruning
+        // entries whose files have gone needs a disk check that has no business running per frame.
+        this.GetControl<Menu>("MainMenu").Opened += (_, _) => RefreshFileMenu();
+
         KeyDown += OnWindowKeyDown;
         // Wheel scrolls the level sideways (Shift: vertically) — the canvas decides, the
         // scroll viewer applies, since it owns the offsets.
@@ -604,6 +616,118 @@ public partial class MainWindow : Window
     }
 
     private void OnExit(object? sender, RoutedEventArgs e) => Close();
+
+    /// <summary>Screen exits, staged in a table and applied as one object edit. "Entrance…" hands
+    /// off to the entrance record the exit points at, applying the table on the way so nothing
+    /// typed is lost.</summary>
+    private async void OnLevelExits(object? sender, RoutedEventArgs e)
+    {
+        if (edit is null) return;
+        var dlg = new LevelExitsWindow(edit.ReadExits());
+        await dlg.ShowDialog(this);
+
+        if (dlg.Applied is { } exits && edit.WriteExits(exits))
+        {
+            PushDirty();
+            UpdateStatus();
+            status.Text = $"{exits.Count} screen exit(s) applied";
+        }
+        if (dlg.OpenEntrance is { } at) await ShowEntrance(at);
+        UpdateTitle();
+    }
+
+    private async Task ShowEntrance(int index)
+    {
+        if (!session.HasRom) return;
+        var dlg = new SecondaryEntranceWindow(index, session.ReadEntrance);
+        await dlg.ShowDialog(this);
+        if (dlg.Applied is not { } a) return;
+        status.Text = session.WriteEntrance(a.Index, a.Entrance)
+            ? $"secondary entrance ${a.Index:X3} written — {Convert.ToHexString(a.Entrance.ToBytes())}"
+            : $"secondary entrance ${a.Index:X3} unchanged";
+        UpdateTitle();
+    }
+
+    /// <summary>Fill in the parts of the File and View menus that depend on state: the recent
+    /// list, whether a prep upgrade is available, and the two view checkmarks.</summary>
+    private void RefreshFileMenu()
+    {
+        var items = new List<MenuItem>();
+        foreach (string path in session.RecentProjects)
+        {
+            var item = new MenuItem { Header = path };
+            item.Click += (_, _) =>
+            {
+                session.OpenProject(path);
+                status.Text = session.Status;
+                AdoptSession();
+                levelBox.SelectedIndex = session.LevelNum;
+            };
+            items.Add(item);
+        }
+        recentMenu.ItemsSource = items;
+        recentMenu.IsEnabled = items.Count > 0;
+
+        upgradePrepItem.Header = $"Upgrade base to prep v{EditorSession.PrepVersion}";
+        upgradePrepItem.IsEnabled = session.CanUpgradeBasePrep;
+        spriteOverlayItem.Icon = session.ShowSprites ? new TextBlock { Text = "✓" } : null;
+        animateItem.Icon = animate is null ? null : new TextBlock { Text = "✓" };
+    }
+
+    private void OnReloadLevel(object? sender, RoutedEventArgs e)
+    {
+        session.ReloadLevel();
+        AdoptSession();
+        status.Text = $"level ${levelNum:X3} reloaded";
+    }
+
+    private async void OnRomInfo(object? sender, RoutedEventArgs e)
+    {
+        var dlg = new RomInfoWindow(session.RomInfo());
+        await dlg.ShowDialog(this);
+    }
+
+    private void OnUpgradePrep(object? sender, RoutedEventArgs e)
+    {
+        status.Text = session.UpgradeBasePrep();
+        AdoptSession();
+        levelBox.SelectedIndex = session.LevelNum;
+    }
+
+    private void OnToggleSprites(object? sender, RoutedEventArgs e)
+    {
+        session.ShowSprites = !session.ShowSprites;
+        AdoptSession();
+        status.Text = session.ShowSprites ? "sprite overlay on" : "sprite overlay off";
+    }
+
+    /// <summary>
+    /// Cycle the four animation phases, as the game does. The phases are already composed — this
+    /// only changes which one the bitmap shows, so it costs one image swap rather than a
+    /// recompose, which is why it can run at a game-ish rate at all.
+    /// </summary>
+    private void OnToggleAnimate(object? sender, RoutedEventArgs e)
+    {
+        if (animate is not null) { animate.Stop(); animate = null; SetPhase(0); }
+        else
+        {
+            animate = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(140) };
+            animate.Tick += (_, _) => SetPhase((canvas.Phase + 1) & 3);
+            animate.Start();
+        }
+        animateItem.Icon = animate is null ? null : new TextBlock { Text = "✓" };
+        status.Text = animate is null ? "tile animation stopped" : "tile animation running";
+    }
+
+    private DispatcherTimer? animate;
+
+    /// <summary>LevelBitmap uploads a phase the first time it is asked for, so switching is just
+    /// a repaint — there is nothing to push here.</summary>
+    private void SetPhase(int phase)
+    {
+        canvas.Phase = phase;
+        canvas.InvalidateVisual();
+    }
 
     private void OnUndo(object? sender, RoutedEventArgs e)
     {

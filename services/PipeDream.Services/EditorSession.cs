@@ -153,6 +153,84 @@ public sealed class EditorSession
     /// <summary>Whether a path is worth trying to open (the picker can hand back anything).</summary>
     public static bool FileExists(string? path) => path is not null && File.Exists(path);
 
+    /// <summary>Recently opened projects, most recent first, with any that have been moved or
+    /// deleted pruned — offering a menu entry that cannot open is worse than a short list.</summary>
+    public IReadOnlyList<string> RecentProjects
+    {
+        get
+        {
+            var gone = Config.RecentProjects.Where(p => !File.Exists(p)).ToList();
+            if (gone.Count > 0)
+            {
+                foreach (string p in gone) Config.RecentProjects.Remove(p);
+                Config.Save();
+            }
+            return Config.RecentProjects;
+        }
+    }
+
+    /// <summary>Read-only facts about the open ROM, for the info window.</summary>
+    public IEnumerable<(string Label, string Value)> RomInfo()
+    {
+        if (Rom is not { } r) yield break;
+        yield return ("File", RomPath ?? "");
+        yield return ("Copier header", r.HeaderOffset != 0 ? "yes (0x200)" : "no");
+        yield return ("Title", $"'{r.Title}'");
+        yield return ("Map mode", $"{r.MapModeName} (0x{r.MapMode:X2})");
+        yield return ("ROM size", $"{r.ActualRomSize / 1024} KB on disk, "
+                                + $"{r.DeclaredRomSize / 1024} KB declared");
+        yield return ("Checksum", $"0x{r.Checksum:X4} (complement 0x{r.ChecksumComplement:X4})");
+        yield return ("Valid RATS tags", RatsWriter.EnumerateRats(r).Count().ToString());
+        yield return ("Map16 tiles", $"0x{r.Map16TileCount:X}");
+        yield return ("Direct Map16", r.HasDm16Hijack ? "yes" : "no (tile placement unavailable)");
+    }
+
+    /// <summary>The prep version this build inserts. A project pinned to an older one keeps
+    /// working; upgrading is deliberate because it changes the base ROM's hash.</summary>
+    public static int PrepVersion => RomPrep.Version;
+
+    public bool CanUpgradeBasePrep => Project?.CanUpgradeBasePrep == true;
+
+    /// <summary>
+    /// Re-prep the project's base ROM to the current version. Edits are flushed first, because
+    /// the base is replaced on disk, and the project is reopened on the new base afterwards so
+    /// nothing is left reading the old one.
+    /// </summary>
+    public string UpgradeBasePrep()
+    {
+        if (Project is not { } p) return "no project open";
+        p.Save();
+        if (p.UpgradeBasePrep(Config.VanillaRomPath) is { } problem) return "upgrade failed: " + problem;
+        string path = p.FilePath;
+        return OpenProject(path) ? $"base upgraded to prep v{RomPrep.Version}" : Status;
+    }
+
+    /// <summary>
+    /// Re-read the current level from the ROM and the project, throwing away anything not yet
+    /// stashed. The point of a Reload is to get back to the recorded state, so it deliberately
+    /// does NOT stash on the way out.
+    /// </summary>
+    public void ReloadLevel()
+    {
+        int num = LevelNum;
+        LevelNum = -1;                    // so ShowLevel does not treat it as staying put
+        ShowLevel(num);
+    }
+
+    /// <summary>Whether the sprite overlay is drawn. Off makes the terrain under a crowded
+    /// level's sprites visible, which is why it is a toggle and not a preference.</summary>
+    public bool ShowSprites
+    {
+        get => showSprites;
+        set
+        {
+            if (showSprites == value) return;
+            showSprites = value;
+            ShowLevel(LevelNum);          // the overlay is composed in, so this is a re-parse
+        }
+    }
+    private bool showSprites = true;
+
     // ---- graphics ----
 
     /// <summary>Pixel editing for one GFX file. ROM-wide rather than per level, so it survives
@@ -448,7 +526,7 @@ public sealed class EditorSession
 
             // Built without sprites when the project has its own list, so the ROM's parse is
             // not composed in and then painted over.
-            Scene = LevelScene.Build(Rom, num, live is null, paletteEdits);
+            Scene = LevelScene.Build(Rom, num, SpriteMode(live is not null), paletteEdits);
             var objects = saved is not null
                 ? saved.Objects.Select(o => o.ToLevelObject()).ToList()
                 : [.. Scene.Level.Objects];
@@ -475,16 +553,24 @@ public sealed class EditorSession
         catch (Exception ex) { Report($"level ${num:X3}: {ex.Message}"); }
     }
 
+    /// <summary>How the composer should treat sprites: skip them entirely when an edited list
+    /// will be drawn instead, else compose them unless the overlay is hidden — hidden still
+    /// parses, because selection hit-tests against the overlay's pixel bounds.</summary>
+    private LevelScene.SpriteDraw SpriteMode(bool haveEditedList)
+        => haveEditedList ? LevelScene.SpriteDraw.Skip
+         : showSprites ? LevelScene.SpriteDraw.Compose
+         : LevelScene.SpriteDraw.ParseOnly;
+
     /// <summary>Capture a sprite list's OAM and draw it over every phase of the current scene.
     /// The capture is expensive, which is why it happens once per list change rather than per
-    /// repaint.</summary>
+    /// repaint — and it happens even when the overlay is hidden, since it is the hit target.</summary>
     private void DrawSprites(SpriteData sprites)
     {
         if (Rom is null || Scene is null) return;
         var overlay = SpriteOverlay.Build(Rom, sprites, Scene.Level.Header, LevelNum);
         Scene.Overlay = overlay;
         if (Sprites is not null) Sprites.Overlay = overlay;
-        Scene.RedrawOverlay();
+        if (showSprites) Scene.RedrawOverlay();
     }
 
     /// <summary>One GFX pixel editor per ROM — the bytes are ROM-wide, so unlike Map16 defs it
@@ -542,7 +628,7 @@ public sealed class EditorSession
         var objects = Edit.Objects.ToList();
         try
         {
-            Scene = LevelScene.Build(Rom, LevelNum, Sprites is null, paletteEdits);
+            Scene = LevelScene.Build(Rom, LevelNum, SpriteMode(Sprites is not null), paletteEdits);
             if (Sprites is { } sp) DrawSprites(sp.Sprites);
             var next = new LevelEdit(Rom, Scene, objects);
             next.Rerender();
@@ -595,6 +681,29 @@ public sealed class EditorSession
     }
 
     public bool HasHeaderOverride => Rom?.LevelHeaderOverrides.ContainsKey(LevelNum) == true;
+
+    // ---- secondary entrances ----
+    // The destination side of a secondary screen exit. There are 512, they are GLOBAL (any
+    // level's exit may point at any index), and like Map16 definitions they are written straight
+    // into the session ROM with the index recorded in the project — the bytes are re-read at save
+    // time, so nothing has to be carried in the level state.
+
+    public static int SecondaryEntranceCount => Rom.SecondaryEntranceCount;
+
+    public SecondaryEntrance? ReadEntrance(int index)
+        => Rom is { } r && index >= 0 && index < Rom.SecondaryEntranceCount
+            ? r.ReadSecondaryEntrance(index) : null;
+
+    /// <summary>Write one secondary entrance. Returns false when it already said that.</summary>
+    public bool WriteEntrance(int index, SecondaryEntrance entrance)
+    {
+        if (Rom is not { } r || index < 0 || index >= Rom.SecondaryEntranceCount) return false;
+        if (r.ReadSecondaryEntrance(index) == entrance) return false;
+        r.WriteSecondaryEntrance(index, entrance);
+        Project?.Data.Entrances.TryAdd(index.ToString("X3"), "");   // captured; bytes re-read at save
+        Project?.MarkDirty();
+        return true;
+    }
 
     // ---- saving ----
 

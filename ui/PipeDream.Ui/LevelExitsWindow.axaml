@@ -1,0 +1,48 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PipeDream.Ui.LevelExitsWindow"
+        Title="Screen exits" Width="620" Height="520"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+
+  <Window.Styles>
+    <Style Selector="TextBlock.dim">
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+    <Style Selector="TextBlock.head">
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="FontSize" Value="11"/>
+    </Style>
+  </Window.Styles>
+
+  <DockPanel Margin="14">
+    <StackPanel DockPanel.Dock="Top" Spacing="8">
+      <TextBlock Classes="dim" TextWrapping="Wrap"
+                 Text="Each row says where one screen of this level leads. A plain exit's destination is a level number; a secondary exit's is an index into the secondary entrance table."/>
+      <TextBlock Classes="dim" TextWrapping="Wrap"
+                 Text="Exits draw no tiles, so they are invisible on the canvas — this list is the only way to reach them."/>
+      <Grid ColumnDefinitions="70,90,60,80,80,*" Margin="0,6,0,0">
+        <TextBlock Classes="head" Text="Screen"/>
+        <TextBlock Grid.Column="1" Classes="head" Text="Destination"/>
+        <TextBlock Grid.Column="2" Classes="head" Text="Water"/>
+        <TextBlock Grid.Column="3" Classes="head" Text="Secondary"/>
+        <TextBlock Grid.Column="4" Classes="head" Text="Kind"/>
+      </Grid>
+    </StackPanel>
+
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="8" Margin="0,12,0,0">
+      <Button Content="Add exit" Click="OnAdd"/>
+      <Button Content="Entrances…" Click="OnEntrances"/>
+      <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+        <Button x:Name="CancelButton" Content="Cancel" Click="OnCancel" IsCancel="True"/>
+        <Button x:Name="ApplyButton" Content="Apply" Click="OnApply" IsDefault="True"/>
+      </StackPanel>
+    </StackPanel>
+
+    <ScrollViewer Margin="0,8">
+      <StackPanel x:Name="Rows" Spacing="4"/>
+    </ScrollViewer>
+  </DockPanel>
+</Window>

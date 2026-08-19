@@ -27,7 +27,7 @@ public class LevelPropertiesTests(ITestOutputHelper log)
     {
         if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
         var rom = Rom.Load(RomPath);
-        var scene = LevelScene.Build(rom, 0x105, showSprites: false);
+        var scene = LevelScene.Build(rom, 0x105, LevelScene.SpriteDraw.Skip);
 
         var dlg = new LevelPropertiesWindow(scene.Level.Header, rom.ReadMainEntrance(0x105), false);
         dlg.Show();
@@ -48,7 +48,7 @@ public class LevelPropertiesTests(ITestOutputHelper log)
     {
         if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
         var rom = Rom.Load(RomPath);
-        var scene = LevelScene.Build(rom, 0x105, showSprites: false);
+        var scene = LevelScene.Build(rom, 0x105, LevelScene.SpriteDraw.Skip);
 
         var plain = new LevelPropertiesWindow(scene.Level.Header, rom.ReadMainEntrance(0x105), false);
         plain.Show();
@@ -70,7 +70,7 @@ public class LevelPropertiesTests(ITestOutputHelper log)
     {
         if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
         var rom = Rom.Load(RomPath);
-        var scene = LevelScene.Build(rom, 0x105, showSprites: false);
+        var scene = LevelScene.Build(rom, 0x105, LevelScene.SpriteDraw.Skip);
         var h = scene.Level.Header;
 
         var dlg = new LevelPropertiesWindow(h, rom.ReadMainEntrance(0x105), false);

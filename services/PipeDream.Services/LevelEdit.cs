@@ -324,6 +324,47 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         return true;
     }
 
+    /// <summary>The level's screen exits, staged for editing.</summary>
+    public List<LevelExit> ReadExits()
+        => objects.Where(o => o.IsScreenExit || o.IsLmSecondaryExit).Select(o => new LevelExit
+        {
+            Source = o,
+            LmForm = o.IsLmSecondaryExit,
+            Screen = o.ExitScreen,
+            Destination = o.ExitDestination,
+            Water = o.ExitIsWater,
+            Secondary = o.ExitUsesSecondary,
+        }).ToList();
+
+    /// <summary>
+    /// Replace the level's exit objects with a staged table, as ONE undoable edit. Non-exit
+    /// objects keep their order; an exit that already existed keeps its stream position, and a
+    /// new one is placed on the screen it governs — which is what the vanilla data does in the
+    /// common case. Returns false when nothing actually changed.
+    /// </summary>
+    public bool WriteExits(IReadOnlyList<LevelExit> exits)
+    {
+        var before = new List<LevelObject>(objects);
+        objects.RemoveAll(o => o.IsScreenExit || o.IsLmSecondaryExit);
+        foreach (var r in exits)
+        {
+            int streamScreen = r.Source?.Screen ?? r.Screen;
+            objects.Add(r.LmForm
+                ? new LevelObject(r.Source?.NewScreen ?? false, 0, streamScreen,
+                                  r.Source?.XNibble ?? 0, r.Screen & 0x1F, 0x02, r.Destination & 0xFFFF)
+                : new LevelObject(r.Source?.NewScreen ?? false, 0, streamScreen,
+                                  (r.Secondary ? 2 : 0) | (r.Water ? 1 : 0),
+                                  r.Screen & 0x1F, 0x00, r.Destination & 0xFF));
+        }
+        if (objects.SequenceEqual(before)) return false;
+
+        undo.Push(before);
+        redo.Clear();
+        Dirty = true;
+        Reconcile();
+        return true;
+    }
+
     // ---- resize ----
 
     private readonly Dictionary<(int Tileset, int Num), ObjectEngine.ObjResize> resizeCache = [];
