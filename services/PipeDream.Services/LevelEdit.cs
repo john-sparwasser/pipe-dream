@@ -13,7 +13,7 @@ namespace PipeDream.Services;
 /// objects, the stream is re-rendered, and the image is reconciled against the result).
 /// Undo snapshots the object list, which makes one drag exactly one undo.
 /// </summary>
-public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObject> objects)
+public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObject> objects, int layer = 0)
 {
     private readonly List<LevelObject> objects = [.. objects];
     private readonly Stack<List<LevelObject>> undo = new();
@@ -22,6 +22,15 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
 
     public LevelScene Scene { get; private set; } = scene;
     public IReadOnlyList<LevelObject> Objects => objects;
+
+    /// <summary>Which layer this edits: 0 or 1. Layer 2 is the SAME object stream format, so
+    /// everything here works on it unchanged — only the render layer and which of the scene's
+    /// grids the result replaces differ.</summary>
+    public int Layer { get; } = layer;
+
+    /// <summary>The grid this layer projects into. Layer 2's is null when the level's layer 2 is
+    /// a background image, which is also when there is nothing to edit.</summary>
+    private Map16Grid? Target => Layer == 0 ? Scene.Grid : Scene.Layer2;
     public int UndoDepth => undo.Count;
     public bool CanUndo => undo.Count > 0;
     public bool CanRedo => redo.Count > 0;
@@ -74,15 +83,16 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
     public bool Paint(int x, int y, int tile)
     {
         if (TilePlacementBlocked is not null) return false;
-        if (x < 0 || y < 0 || x >= Scene.Grid.Width || y >= Scene.Grid.Height) return false;
+        if (Target is not { } grid) return false;
+        if (x < 0 || y < 0 || x >= grid.Width || y >= grid.Height) return false;
         if (y >= Scene.VisibleRows) return false;                 // rows the game never draws
         // DM16 objects address the FG lookup range only; BG-space picks (0x4000+) belong to
         // layer 2, and stamping one here would silently do nothing on save.
         if (tile is < 0 or >= 0x4000) return false;
-        if (Scene.Grid.Get(x, y) == tile && !stroke.ContainsKey((x, y))) return false;
+        if (grid.Get(x, y) == tile && !stroke.ContainsKey((x, y))) return false;
 
         stroke[(x, y)] = tile;
-        Scene.Grid.Set(x, y, tile);
+        grid.Set(x, y, tile);
         Scene.RecomposeCell(x, y);
         dirty.Add((x, y));
         return true;
@@ -112,7 +122,7 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
 
         bool vert = rom.IsVerticalMode(Scene.Level.Header.LevelMode);
         var added = Dm16Saver.FromBrush(brush, bw, bh, x0, y0, vert);
-        added.RemoveAll(o => o.AbsoluteX >= Scene.Grid.Width);
+        added.RemoveAll(o => o.AbsoluteX >= (Target?.Width ?? 0));
         if (added.Count == 0) { Reconcile(); return; }
 
         undo.Push([.. objects]);
@@ -139,39 +149,10 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         return true;
     }
 
-    /// <summary>
-    /// This level's state in the shape the save path takes. The UI holds no opinion about
-    /// what a .pdp records — it hands over the object streams and the sprites, and
-    /// LevelEditState.Stash applies the same rules the ImGui editor's save uses, because it
-    /// IS the same code.
-    /// </summary>
-    public LevelEditState EditState() => new()
-    {
-        Layer1 = [.. objects],
-        // Layer 2 is not editable here yet, so the live stream IS the base stream. Reporting
-        // both honestly matters: Stash records layer 2 only when the two DIFFER, and a null
-        // base with a non-null live list is what marks a background-to-objects conversion.
-        // Passing null for both happened to behave, but only by accident.
-        Layer2 = Layer2Objects,
-        BaseLayer2 = Layer2Objects,
-        // Sprites are NOT filled in here: the sprite list outlives any one LevelEdit (an
-        // object re-render builds a new one), so the session owns it and adds it on the way
-        // to Stash. Reading Scene.Sprites here would report the ROM's parse after the first
-        // sprite edit, which is how sprite edits used to go missing from a save.
-    };
-
-    /// <summary>The base ROM's layer-2 object stream, or null when layer 2 is a background
-    /// image. Parsed once per level; layer-2 editing will make this the live copy.</summary>
-    public List<LevelObject>? Layer2Objects { get; private set; }
-
     /// <summary>Run the tracked render without recording an edit. Needed on every level load:
     /// it produces the per-cell object attribution that selection and hit-testing read, and it
     /// puts a project-hydrated level's own objects on screen instead of the ROM's parse.</summary>
-    public void Rerender()
-    {
-        Layer2Objects ??= LevelParser.ParseLayer2(rom, Scene.Level.Number);
-        Reconcile();
-    }
+    public void Rerender() => Reconcile();
 
     private void Replace(List<LevelObject> next)
     {
@@ -249,8 +230,8 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
             for (int x = 0; x < rw; x++)
             {
                 int gx = rx + x, gy = ry + y;
-                t[y * rw + x] = gx >= 0 && gy >= 0 && gx < Scene.Grid.Width && gy < Scene.Grid.Height
-                    ? (ushort)Scene.Grid.Get(gx, gy) : Map16Grid.Empty;
+                t[y * rw + x] = Target is { } g && gx >= 0 && gy >= 0 && gx < g.Width && gy < g.Height
+                    ? (ushort)g.Get(gx, gy) : Map16Grid.Empty;
             }
         return (t, rw, rh);
     }
@@ -411,7 +392,7 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         if ((edges & 4) != 0) { nh = Math.Clamp(h0 - dy, 1, maxH); ny = Math.Clamp(ny + (h0 - nh), 0, 0x1F); }
         // Clamp at the level bottom (LM parity): the engine will happily write past the last
         // row, bleeding into the next screen's RAM — a drag must not be able to do that.
-        int maxRows = rom.IsVerticalMode(Scene.Level.Header.LevelMode) ? Scene.Grid.Height : 27;
+        int maxRows = rom.IsVerticalMode(Scene.Level.Header.LevelMode) ? (Target?.Height ?? 27) : 27;
         nh = Math.Max(1, Math.Min(nh, maxRows - ny));
         return (nx, ny, nw, nh);
     }
@@ -474,7 +455,7 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         Map16Grid next;
         try
         {
-            next = ObjectEngine.RenderEmulatedStream(rom, Scene.Level.Header, encoded, 0,
+            next = ObjectEngine.RenderEmulatedStream(rom, Scene.Level.Header, encoded, Layer,
                                                      streamOwner, out owners, out stacks);
         }
         catch { return; }                      // emulation failed: keep the optimistic pixels
@@ -496,12 +477,19 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
             }
         bounds = b2;
 
-        foreach (var cell in Changed(Scene.Grid, next)) dirty.Add(cell);
-        Scene.ReplaceGrid(next);
+        foreach (var cell in Changed(Target, next)) dirty.Add(cell);
+        if (Layer == 0) Scene.ReplaceGrid(next); else Scene.ReplaceLayer2(next);
     }
 
-    private static IEnumerable<(int X, int Y)> Changed(Map16Grid a, Map16Grid b)
+    private static IEnumerable<(int X, int Y)> Changed(Map16Grid? a, Map16Grid b)
     {
+        if (a is null)
+        {
+            // No previous grid (layer 2 just became an object layer): everything is new.
+            for (int y = 0; y < b.Height; y++)
+                for (int x = 0; x < b.Width; x++) yield return (x, y);
+            yield break;
+        }
         int w = Math.Min(a.Width, b.Width), h = Math.Min(a.Height, b.Height);
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)

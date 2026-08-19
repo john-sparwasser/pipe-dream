@@ -106,6 +106,21 @@
 
         <Rectangle Width="1" Margin="10,3" Fill="{DynamicResource BorderBrush}"/>
 
+        <!-- Which LAYER the canvas edits. Layer 2 is the same object stream format, so the whole
+             editor works on it unchanged — this only says which one is active. -->
+        <ToggleButton x:Name="LayerOne" Classes="mode" MinWidth="40" Content="L1"
+                      IsChecked="True" Click="OnEditLayer"/>
+        <ToggleButton x:Name="LayerTwo" Classes="mode" MinWidth="40" Content="L2" Click="OnEditLayer"/>
+        <Button x:Name="BgButton" Content="BG…" Padding="8,3" Click="OnPickBackground"
+                ToolTip.Tip="Pick which background image layer 2 uses"/>
+        <Button x:Name="AddLayer2" Content="+L2" Padding="8,3" Click="OnAddLayer2"
+                ToolTip.Tip="Layer 2 is a background image — give it an editable object layer. Most background levels also use a level mode that never loads layer-2 objects, so change the mode in Properties as well."/>
+        <Button x:Name="DropLayer2" Content="−L2" Padding="8,3" Click="OnDropLayer2"
+                ToolTip.Tip="Drop this project's layer-2 objects and restore the base ROM's background image"/>
+        <TextBlock x:Name="Layer2Note" Classes="mono"/>
+
+        <Rectangle Width="1" Margin="10,3" Fill="{DynamicResource BorderBrush}"/>
+
         <TextBlock Classes="dim" Text="level"/>
         <ComboBox x:Name="LevelBox" Width="96"/>
         <Button Content="Reload" Padding="8,3" Click="OnReloadLevel"/>

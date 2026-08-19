@@ -65,6 +65,9 @@ public partial class MainWindow : Window
     private TextBlock spFilesLabel = null!, objectHint = null!;
     private Grid split = null!;
     private ToggleButton modeLevel = null!, modeMap16 = null!, modeGfx = null!;
+    private ToggleButton layerOne = null!, layerTwo = null!;
+    private Button addLayer2 = null!, dropLayer2 = null!;
+    private TextBlock layer2Note = null!;
 
     public MainWindow()
     {
@@ -85,6 +88,11 @@ public partial class MainWindow : Window
         modeLevel = this.GetControl<ToggleButton>("ModeLevel");
         modeMap16 = this.GetControl<ToggleButton>("ModeMap16");
         modeGfx = this.GetControl<ToggleButton>("ModeGfx");
+        layerOne = this.GetControl<ToggleButton>("LayerOne");
+        layerTwo = this.GetControl<ToggleButton>("LayerTwo");
+        addLayer2 = this.GetControl<Button>("AddLayer2");
+        dropLayer2 = this.GetControl<Button>("DropLayer2");
+        layer2Note = this.GetControl<TextBlock>("Layer2Note");
 
         canvas.Source = bitmap;
         canvas.PointerMoved += (_, _) => UpdateHover();
@@ -388,6 +396,7 @@ public partial class MainWindow : Window
         // already dropped them; the list has to let go of the old items too.
         spriteList.ItemsSource = null;
         RefreshDrawer();
+        RefreshLayerBar();
         UpdateStatus();
         UpdateTitle();
     }
@@ -679,6 +688,51 @@ public partial class MainWindow : Window
         session.ReloadLevel();
         AdoptSession();
         status.Text = $"level ${levelNum:X3} reloaded";
+    }
+
+    // ---- layer 2 ----
+
+    private void OnEditLayer(object? sender, RoutedEventArgs e)
+    {
+        int want = ReferenceEquals(sender, layerTwo) ? 1 : 0;
+        string note = session.SetEditLayer(want);
+        if (note.Length > 0) status.Text = note;
+        AdoptSession();
+    }
+
+    private async void OnPickBackground(object? sender, RoutedEventArgs e)
+    {
+        var dlg = new BackgroundPickerWindow(session.Backgrounds(), session.CurrentBackground);
+        await dlg.ShowDialog(this);
+        if (dlg.Picked is not { } lo16) return;
+        status.Text = session.SetLayer2Background(lo16);
+        AdoptSession();
+    }
+
+    private void OnAddLayer2(object? sender, RoutedEventArgs e)
+    {
+        status.Text = session.SetLayer2ObjectMode(true);
+        AdoptSession();
+    }
+
+    private void OnDropLayer2(object? sender, RoutedEventArgs e)
+    {
+        status.Text = session.SetLayer2ObjectMode(false);
+        AdoptSession();
+    }
+
+    /// <summary>Show which layer is live and which of the layer-2 conversions is available. The
+    /// loudest case gets its own note: objects that exist on a level whose MODE never loads them
+    /// would silently do nothing in-game.</summary>
+    private void RefreshLayerBar()
+    {
+        layerOne.IsChecked = session.EditLayer == 0;
+        layerTwo.IsChecked = session.EditLayer == 1;
+        layerTwo.IsEnabled = session.Layer2Editable;
+        addLayer2.IsVisible = !session.Layer2Editable;
+        dropLayer2.IsVisible = session.Layer2FromProject;
+        layer2Note.Text = session.Layer2Editable && !session.LevelModeReadsLayer2 && session.Header is { } h
+            ? $"(mode {h.LevelMode:X2} ignores L2)" : "";
     }
 
     private async void OnRomInfo(object? sender, RoutedEventArgs e)

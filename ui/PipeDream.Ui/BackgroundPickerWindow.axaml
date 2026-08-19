@@ -1,0 +1,47 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PipeDream.Ui.BackgroundPickerWindow"
+        Title="Layer 2 background" Width="540" Height="520"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+
+  <Window.Styles>
+    <Style Selector="TextBlock.dim">
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+    <Style Selector="TextBlock.mono">
+      <Setter Property="FontFamily" Value="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+  </Window.Styles>
+
+  <DockPanel Margin="14">
+    <TextBlock DockPanel.Dock="Top" Classes="dim" TextWrapping="Wrap"
+               Text="Pointing layer 2 at a background replaces any layer-2 object stream — a level's layer 2 is one or the other. Only addresses the ROM already uses are listed, because a background's palette page comes from its address."/>
+    <TextBlock DockPanel.Dock="Top" Classes="dim" TextWrapping="Wrap" Margin="0,8"
+               Text="Each row names the levels that share the background: vanilla ships no names for them, so that is how you recognise one."/>
+
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right"
+                Spacing="8" Margin="0,12,0,0">
+      <Button Content="Cancel" Click="OnCancel" IsCancel="True"/>
+      <Button x:Name="UseButton" Content="Use" Click="OnUse" IsDefault="True"/>
+    </StackPanel>
+
+    <ListBox x:Name="List" Background="Transparent" BorderThickness="0" DoubleTapped="OnUse">
+      <ListBox.ItemTemplate>
+        <DataTemplate>
+          <Grid ColumnDefinitions="90,50,*">
+            <TextBlock Text="{Binding Address}" Classes="mono"
+                       Foreground="{Binding Highlight}"/>
+            <TextBlock Grid.Column="1" Text="{Binding Page}" Classes="mono"
+                       Foreground="{DynamicResource TextDimBrush}"/>
+            <TextBlock Grid.Column="2" Text="{Binding UsedBy}" Classes="mono"
+                       Foreground="{DynamicResource TextDimBrush}"/>
+          </Grid>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+  </DockPanel>
+</Window>

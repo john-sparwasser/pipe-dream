@@ -19,7 +19,37 @@ public sealed class EditorSession
     public string? RomPath { get; private set; }
     public int LevelNum { get; private set; } = 0x105;
     public LevelScene? Scene { get; private set; }
-    public LevelEdit? Edit { get; private set; }
+
+    /// <summary>
+    /// The ACTIVE layer's object editor — what the canvas edits. Layer 2 uses the same object
+    /// stream format, so the same class drives both; which one is live is <see cref="EditLayer"/>.
+    /// </summary>
+    public LevelEdit? Edit => EditLayer == 1 ? layer2 : layer1;
+
+    private LevelEdit? layer1, layer2;
+
+    /// <summary>The base ROM's layer-2 stream, kept to diff against on save. Null means the base
+    /// had no stream at all, which is how a background→objects conversion is recognised.</summary>
+    private List<LevelObject>? baseLayer2;
+
+    /// <summary>0 or 1. Which layer is active changes what every click does.</summary>
+    public int EditLayer { get; private set; }
+
+    /// <summary>Whether layer 2 has an object stream to edit at all. A background-image layer 2
+    /// has none until it is converted, and "no layer-2 objects" and "an empty layer 2" are
+    /// genuinely different in the ROM — so the conversion is explicit rather than implied by
+    /// clicking L2.</summary>
+    public bool Layer2Editable => layer2 is not null;
+
+    /// <summary>True when the layer-2 stream is the PROJECT's rather than the base ROM's — the
+    /// only case where dropping it back to a background image is possible.</summary>
+    public bool Layer2FromProject => baseLayer2 is null && layer2 is not null;
+
+    /// <summary>Whether this level's mode ever loads layer-2 objects. It is possible to build an
+    /// object layer a level mode simply never reads, and that silence is the loudest failure
+    /// mode here.</summary>
+    public bool LevelModeReadsLayer2
+        => Scene is { } s && Rom.LoadsLayer2Objects(s.Level.Header.LevelMode);
 
     /// <summary>Map16 definition editing for the current level's tileset. Rebuilt with the
     /// level, because a new tileset means new definition offsets.</summary>
@@ -535,14 +565,32 @@ public sealed class EditorSession
             Sprites = (live ?? Scene.Sprites) is { } sd
                 ? new SpriteEdit(sd, Scene.Overlay, Vertical) : null;
 
-            Edit = new LevelEdit(Rom, Scene, objects);
+            layer1 = new LevelEdit(Rom, Scene, objects);
             // Always run the TRACKED render, as the ImGui editor does on every parse. It is
             // what gives each cell an owning object, and without it nothing on a freshly
             // opened level can be selected or hit-tested. It also puts a hydrated level's
             // pixels on screen from its OBJECT LIST rather than the base ROM's parsed grid;
             // for an unedited level the two are identical, and a render failure leaves the
             // parsed grid in place.
-            Edit.Rerender();
+            layer1.Rerender();
+
+            // Layer 2 is the same object stream format, so it gets its own editor on the same
+            // class. The project's copy wins, and a project list on a background-image level IS
+            // the conversion to object mode — the pointer's bank byte is the only mode flag
+            // there is (CONTRACT §10), so there is nothing else to record.
+            baseLayer2 = LevelParser.ParseLayer2(Rom, num);
+            var l2 = saved?.Layer2Objects is { } pl2
+                ? pl2.Select(o => o.ToLevelObject()).ToList()
+                : baseLayer2 is not null ? new List<LevelObject>(baseLayer2) : null;
+            layer2 = l2 is null ? null : new LevelEdit(Rom, Scene, l2, layer: 1);
+            if (layer2 is not null)
+            {
+                // A converted level has no layer-2 grid yet: the scene was composed from a
+                // background image, so give it one before the render replaces it.
+                Scene.Layer2 ??= new Map16Grid(Scene.Grid.Width, Scene.Grid.Height);
+                layer2.Rerender();
+            }
+            if (EditLayer == 1 && layer2 is null) EditLayer = 0;
 
             // Map16 definitions are per tileset, and the catalogs are rendered with this
             // level's own graphics — both belong to the level that was just loaded.
@@ -552,6 +600,110 @@ public sealed class EditorSession
         }
         catch (Exception ex) { Report($"level ${num:X3}: {ex.Message}"); }
     }
+
+    // ---- layer 2 ----
+
+    /// <summary>
+    /// Switch which layer the canvas edits. Both layers' editors stay alive, so switching keeps
+    /// each one's undo history and selection — unlike the ImGui editor, which had to clear the
+    /// history because its undo closures captured whichever list was current.
+    /// </summary>
+    public string SetEditLayer(int layer)
+    {
+        if (layer == EditLayer) return "";
+        if (layer == 1 && layer2 is null)
+            return "layer 2 is a background image — use +L2 to give it an object layer";
+        EditLayer = layer;
+        Changed?.Invoke(this, EventArgs.Empty);
+        string note = $"editing layer {layer + 1} ({Edit?.Objects.Count ?? 0} objects)";
+        if (layer == 1 && !LevelModeReadsLayer2)
+            note += $" — warning: level mode {Scene?.Level.Header.LevelMode:X2} never loads layer-2 objects";
+        Report(note);
+        return note;
+    }
+
+    /// <summary>
+    /// Give a background-image level an empty layer-2 object stream, or drop the project's stream
+    /// and go back to the base ROM's background.
+    ///
+    /// Only those two directions exist. Turning a level that SHIPS an object layer into a
+    /// background one needs a background-image address to point at, which is what
+    /// <see cref="SetLayer2Background"/> is for.
+    /// </summary>
+    public string SetLayer2ObjectMode(bool objectMode)
+    {
+        if (Rom is null || Scene is null) return "no level open";
+        if (objectMode == (layer2 is not null)) return "";
+        if (!objectMode && EditLayer == 1) EditLayer = 0;
+
+        if (Project is not null)
+        {
+            // Persisted BEFORE the reparse: ShowLevel re-hydrates layer 2 from the project, so
+            // setting the list here and reparsing after is what makes the change stick.
+            StashCurrent();
+            var st = Project.Data.Level(LevelNum);
+            st.Layer2Objects = objectMode ? [] : null;
+            // The two modes are exclusive and a background selection wins in the builder, so
+            // converting to an object layer has to drop it.
+            if (objectMode) st.Layer2Background = null;
+            Project.MarkDirty();
+            ReloadLevel();
+        }
+        else
+        {
+            // No project open: session-only, with nothing to hydrate from.
+            layer2 = objectMode ? new LevelEdit(Rom, Scene, [], layer: 1) : null;
+            if (objectMode)
+            {
+                Scene.Layer2 ??= new Map16Grid(Scene.Grid.Width, Scene.Grid.Height);
+                layer2!.Rerender();
+            }
+            Changed?.Invoke(this, EventArgs.Empty);
+        }
+        string note = objectMode
+            ? "layer 2 is now an editable object layer"
+              + (LevelModeReadsLayer2 ? "" : " — the level mode never loads layer-2 objects, "
+                                           + "so change the mode in Properties too")
+            : "layer 2 restored to the base ROM's background image";
+        Report(note);
+        return note;
+    }
+
+    /// <summary>
+    /// Point layer 2 at a background image, dropping any object stream — a level's layer 2 is one
+    /// or the other.
+    /// </summary>
+    public string SetLayer2Background(int lo16)
+    {
+        if (Rom is null || Project is null) return "backgrounds can only be changed in a project";
+        StashCurrent();
+        var s = Project.Data.Level(LevelNum);
+        s.Layer2Background = lo16 & 0xFFFF;
+        s.Layer2Objects = null;
+        // The session ROM has to agree with the project, or the canvas keeps showing the old
+        // layer 2 until the next build.
+        Rom.SetLayer2Pointer(LevelNum, 0xFF0000 | (lo16 & 0xFFFF));
+        if (EditLayer == 1) EditLayer = 0;
+        Project.MarkDirty();
+        ReloadLevel();
+        string note = $"layer 2 ← background ${lo16 & 0xFFFF:X4} (page {BgImage.PageFor(lo16)})";
+        Report(note);
+        return note;
+    }
+
+    /// <summary>
+    /// The background images this ROM has, with the levels that share each one. Only addresses
+    /// already in use are offered: a background's palette page comes from its ADDRESS, so
+    /// pointing at an arbitrary one would recolour every tile in it, and bank $0C — where the
+    /// loader looks — has a few dozen bytes free anyway.
+    /// </summary>
+    public IReadOnlyList<(int Lo16, int Page, IReadOnlyList<int> Levels)> Backgrounds()
+        => Rom is null ? []
+         : BgImage.Catalog(Rom).Select(c => (c.Lo16, c.Page, (IReadOnlyList<int>)c.Levels)).ToList();
+
+    /// <summary>The background layer 2 currently points at, or null when it is an object layer.</summary>
+    public int? CurrentBackground
+        => Rom is { } r && r.Layer2IsBackground(LevelNum) ? r.Layer2Pointer(LevelNum) & 0xFFFF : null;
 
     /// <summary>How the composer should treat sprites: skip them entirely when an edited list
     /// will be drawn instead, else compose them unless the overlay is hidden — hidden still
@@ -624,15 +776,24 @@ public sealed class EditorSession
     /// </summary>
     private void Rebuild(string what)
     {
-        if (Rom is null || Edit is null) return;
-        var objects = Edit.Objects.ToList();
+        if (Rom is null || layer1 is null) return;
+        // Both layers' streams are carried across: a recompose is about the PIXELS, and losing
+        // layer 2's objects because a Map16 definition changed would be a silent data loss.
+        var objects = layer1.Objects.ToList();
+        var l2 = layer2?.Objects.ToList();
         try
         {
             Scene = LevelScene.Build(Rom, LevelNum, SpriteMode(Sprites is not null), paletteEdits);
             if (Sprites is { } sp) DrawSprites(sp.Sprites);
-            var next = new LevelEdit(Rom, Scene, objects);
-            next.Rerender();
-            Edit = next;
+            layer1 = new LevelEdit(Rom, Scene, objects);
+            layer1.Rerender();
+            if (l2 is not null)
+            {
+                Scene.Layer2 ??= new Map16Grid(Scene.Grid.Width, Scene.Grid.Height);
+                layer2 = new LevelEdit(Rom, Scene, l2, layer: 1);
+                layer2.Rerender();
+            }
+            else layer2 = null;
             Changed?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception ex) { Report($"{what} failed: {ex.Message}"); }
@@ -716,11 +877,24 @@ public sealed class EditorSession
         LevelEditState.StashRomWide(Project.Data, Rom, Scene?.Level.Header.Tileset ?? 1);
     }
 
+    /// <summary>
+    /// Fold the live level into the project snapshot. Assembled HERE rather than by the object
+    /// editor, because it spans things no single editor owns: both layers' streams, the base
+    /// layer-2 stream to diff against, the sprite list and the palette edits.
+    /// </summary>
     private void StashCurrent()
     {
-        if (Project is null || Rom is null || Edit is null) return;
-        var state = Edit.EditState();
-        state.Sprites = Sprites?.Sprites ?? Scene?.Sprites;   // the live list, not the ROM's parse
+        if (Project is null || Rom is null || layer1 is null) return;
+        var state = new LevelEditState
+        {
+            Layer1 = [.. layer1.Objects],
+            // Recorded only when it DIFFERS from the base, or every touched level would pin its
+            // unedited layer 2 into the project. A null base with a non-null live list is what
+            // marks the background→objects conversion, so both are reported honestly.
+            Layer2 = layer2 is { } l2 ? [.. l2.Objects] : null,
+            BaseLayer2 = baseLayer2,
+            Sprites = Sprites?.Sprites ?? Scene?.Sprites,   // the live list, not the ROM's parse
+        };
         foreach (var (k, v) in paletteEdits) state.PaletteEdits[k] = v;
         state.Stash(Project.Data, Rom, LevelNum);
         Project.MarkDirty();

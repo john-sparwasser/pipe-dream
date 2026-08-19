@@ -25,7 +25,12 @@ public sealed class LevelScene
     public Palette?[] Palettes { get; init; } = new Palette?[4];
     public ushort[]? BgImage { get; init; }
     public uint[][]?[] BgCaches { get; init; } = new uint[4][][];
-    public Map16Grid? Layer2 { get; init; }
+
+    /// <summary>Layer 2's Map16 grid, or null when layer 2 is a background image instead — the
+    /// two are exclusive, because the pointer's bank byte IS the mode (CONTRACT §10). Settable
+    /// because layer 2 is editable: its grid is a projection of an object stream, exactly as
+    /// layer 1's is.</summary>
+    public Map16Grid? Layer2 { get; set; }
     public SpriteData? Sprites { get; init; }
 
     /// <summary>The sprite overlay drawn over layer 1. Settable because an EDITED sprite list
@@ -164,15 +169,22 @@ public sealed class LevelScene
     /// <summary>Swap in a re-rendered grid and repaint only the cells that actually changed.
     /// Returns how many did — an edit that touches six cells should cost six cells of work,
     /// not a full compose, however many objects the re-render walked.</summary>
-    public int ReplaceGrid(Map16Grid next)
+    public int ReplaceGrid(Map16Grid next) => Replace(next, layer2: false);
+
+    /// <summary>The same for layer 2. Separate because a layer-2 edit changes what shows THROUGH
+    /// layer 1's transparent tiles, so the cells to repaint are chosen by diffing layer 2 while
+    /// the recompose still draws both.</summary>
+    public int ReplaceLayer2(Map16Grid next) => Replace(next, layer2: true);
+
+    private int Replace(Map16Grid next, bool layer2)
     {
-        var old = Grid;
-        Grid = next;
+        var old = layer2 ? Layer2 : Grid;
+        if (layer2) Layer2 = next; else Grid = next;
         int changed = 0;
         int rows = Math.Min(VisibleRows, next.Height);
         for (int y = 0; y < rows; y++)
             for (int x = 0; x < next.Width; x++)
-                if (x >= old.Width || y >= old.Height || old.Get(x, y) != next.Get(x, y))
+                if (old is null || x >= old.Width || y >= old.Height || old.Get(x, y) != next.Get(x, y))
                 { RecomposeCell(x, y); changed++; }
         if (changed > 0) RedrawOverlay();
         return changed;
