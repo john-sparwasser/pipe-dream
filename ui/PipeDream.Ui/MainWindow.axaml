@@ -3,6 +3,7 @@
         xmlns:ui="clr-namespace:PipeDream.Ui"
         x:Class="PipeDream.Ui.MainWindow"
         Title="pipe-dream" Width="1500" Height="900"
+        Icon="/assets/pipe-icon-64.png"
         Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
 
   <Window.Styles>

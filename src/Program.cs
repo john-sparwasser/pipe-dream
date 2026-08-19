@@ -1,6 +1,15 @@
 namespace PipeDream;
 
-// Entry point: debug CLI flags go to DebugCommands; everything else launches the editor.
+/// <summary>
+/// The ROM toolbelt's entry point: the debug and inspection commands in
+/// <see cref="DebugCommands"/>, which have no UI equivalent and are the fastest way to look at a
+/// ROM, prep one, or diff two.
+///
+/// The EDITOR is <c>ui/PipeDream.Ui</c>. This assembly used to host it as well, back when the
+/// UI was drawn with ImGui; the interface layers were separated so the storage layer could stop
+/// knowing about any of that, and the Avalonia editor talks to it through
+/// <c>services/PipeDream.Services</c>.
+/// </summary>
 class Program
 {
     public static int Main(string[] args)
@@ -8,26 +17,16 @@ class Program
         if (DebugCommands.TryDispatch(args) is int exitCode)
             return exitCode;
 
-        // Plain args: optional project (.pdp) or ROM path (+ optional hex level) to open
-        // at startup — also what a .pdp file-association double-click delivers.
-        using var app = new EditorApp(
-            args.FirstOrDefault(a => File.Exists(a) && !a.EndsWith(".pdp", StringComparison.OrdinalIgnoreCase)),
-            args.Where(a => !File.Exists(a)).Select(a => int.TryParse(a,
-                System.Globalization.NumberStyles.HexNumber, null, out int v) ? v : -1)
-                .FirstOrDefault(v => v >= 0 && v < Rom.LevelCount, -1),
-            args.FirstOrDefault(a => File.Exists(a) && a.EndsWith(".pdp", StringComparison.OrdinalIgnoreCase)));
-        try
-        { 
-            app.Run();
-        }
-        catch (Exception e)
-        {
-            // Anything that escapes the frame loop: write a crash log next to the exe.
-            var log = Path.Combine(AppContext.BaseDirectory, "crash.log");
-            File.AppendAllText(log, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {e}\n\n");
-            Console.Error.WriteLine(e);
-            return 1;
-        }
-        return 0;
+        Console.Error.WriteLine("""
+            pipe-dream — ROM tools
+
+            This is the command-line half. The editor is a separate application:
+
+                dotnet run --project ui/PipeDream.Ui [rom-or-project] [levelHex]
+
+            Commands available here:
+            """);
+        DebugCommands.PrintUsage();
+        return 1;
     }
 }

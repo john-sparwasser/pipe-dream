@@ -54,15 +54,7 @@ public class PortabilityTests
         finally { Environment.SetEnvironmentVariable(key, saved); }
     }
 
-    [Fact]
-    public void monospace_candidates_are_absolute_and_match_the_host()
-    {
-        var candidates = ImGuiLayer.MonospaceCandidates().ToList();
-        Assert.NotEmpty(candidates);
-        Assert.All(candidates, p => Assert.True(Path.IsPathRooted(p), p));
-        // The Windows list is built from the real Fonts folder; the Unix lists are literals.
-        if (OperatingSystem.IsWindows()) Assert.Contains(candidates, p => p.EndsWith("CascadiaMono.ttf"));
-        else if (OperatingSystem.IsMacOS()) Assert.Contains(candidates, p => p.Contains("/System/Library/Fonts/"));
-        else Assert.Contains(candidates, p => p.Contains("Mono"));
-    }
+    // The monospace-font probe that used to live here went with the ImGui layer: Avalonia
+    // resolves fonts by family name and falls back on its own, so there is no per-platform
+    // path list left to pin.
 }

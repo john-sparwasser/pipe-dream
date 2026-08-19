@@ -20,22 +20,22 @@ $ErrorActionPreference = 'Stop'
 $repo    = Split-Path $PSScriptRoot -Parent
 $publish = Join-Path $repo 'bin\publish'
 $target  = Join-Path $env:LOCALAPPDATA 'Programs\PipeDream'
-$exe     = Join-Path $target 'PipeDream.exe'
+$exe     = Join-Path $target 'PipeDream.Ui.exe'
 
 if (-not $SkipPublish) {
     Write-Host 'Publishing self-contained build...'
-    & dotnet publish (Join-Path $repo 'PipeDream.csproj') `
+    & dotnet publish (Join-Path $repo 'ui/PipeDream.Ui/PipeDream.Ui.csproj') `
         -c Release -r win-x64 --self-contained true `
         -p:PublishSingleFile=false -o $publish | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed ($LASTEXITCODE)" }
 }
-if (-not (Test-Path (Join-Path $publish 'PipeDream.exe'))) {
+if (-not (Test-Path (Join-Path $publish 'PipeDream.Ui.exe'))) {
     throw "no published build at $publish — run without -SkipPublish"
 }
 
 # The app may be running from a previous install; a locked exe gives a clearer error here
 # than a half-copied folder later.
-Get-Process PipeDream -ErrorAction SilentlyContinue | ForEach-Object {
+Get-Process PipeDream.Ui -ErrorAction SilentlyContinue | ForEach-Object {
     throw 'Pipe Dream is running — close it and re-run.'
 }
 

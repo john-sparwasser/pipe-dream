@@ -100,8 +100,11 @@ also where the paint/select/lasso intent logic wants to live anyway.
 
 ## Phases
 
-Run the Avalonia app **in parallel** in its own project referencing the same core; keep the
-ImGui app buildable and switch the default entry point only at parity. Never a broken editor.
+**All done.** Kept for the record — the plan, and where it turned out to be wrong.
+
+The strategy held: the Avalonia app ran **in parallel** in its own project against the same
+core, the ImGui app stayed buildable the whole way, and the entry point only moved at parity.
+There was never a broken editor.
 
 - ~~**Phase 0 — spikes.**~~ **Done**, see the results above. All three green.
 - ~~**Phase 1 — separate the layers.**~~ **Done**, though not the way it was planned. Rather
@@ -119,25 +122,38 @@ ImGui app buildable and switch the default entry point only at parity. Never a b
   appearing in a UI source file. `EditorSession` is the service the window talks to; the ROM,
   the project and the config stay internal to it.
 
-  The ImGui editor still lives in the storage assembly and still uses its internals from the
-  inside. That is what Phase 7 deletes.
-- **Phase 2 — shell.** Window, menu bar, left palette drawer, canvas region, status bar, and
-  the canvas-mode switching from the header. Keeps the UI paradigm: canvas centre, palette
-  drawer left, new editors are canvas modes, never drawer panels.
-- **Phase 3 — level canvas.** Render, pan/zoom, selection, paint, object and sprite overlays.
-  The bulk of the work.
-- **Phase 4 — palette drawer.** Map16 picker, sprites, objects tabs.
-- **Phase 5 — other canvas modes.** Map16 editor (707 lines) and GFX editor (332).
-- **Phase 6 — dialogs and panels.** Project wizard, GFX browser, background picker, ROM info,
-  GFX viewers — these become ordinary Avalonia windows and get *smaller*.
-- **Phase 7 — delete.** Foster, ImGui.NET, `ImGuiLayer`, `ImGuiCompat`; update `install/`,
-  PORTABILITY.md and CI to the new RIDs.
+- ~~**Phase 2 — shell.**~~ **Done.** Window, menu bar, left palette drawer, canvas region,
+  status bar, canvas-mode switching from the header. The UI paradigm held: canvas centre,
+  palette drawer left, new editors as canvas modes rather than drawer panels.
+- ~~**Phase 3 — level canvas.**~~ **Done.** Render, pan/zoom, selection, paint, objects,
+  sprites, resize handles, layer 2. `ControlParityTests` pins the bindings against
+  `ObjectTool` — including the one that was guessed wrong first time, that RIGHT drag paints
+  and LEFT selects.
+- ~~**Phase 4 — palette drawer.**~~ **Done.** Map16 picker, sprite and object catalogs,
+  palette, GFX bins. The drawer tab and the canvas edit mode are one piece of state, as they
+  were in `ShellLayout`.
+- ~~**Phase 5 — other canvas modes.**~~ **Done.** Map16 (canvas, 8x8 picker, properties
+  inspector) and GFX (pixel editing, bins, browser).
+- ~~**Phase 6 — dialogs and panels.**~~ **Done.** Level properties, screen exits, secondary
+  entrances, background picker, GFX browser, ROM info, first run, base-ROM recovery — all
+  ordinary windows, and all smaller than what they replaced.
+- ~~**Phase 7 — delete.**~~ **Done.** Foster, ImGui.NET and the 28 UI files are gone.
+  `PipeDream.csproj` stays an executable but only for the command-line ROM tools; `install/`
+  publishes `ui/PipeDream.Ui`.
 
-## Sizing
+One deliberate omission: the old GFX Viewer could inspect a file at an arbitrary bit depth
+(2/3/4bpp). The browser and the GFX canvas mode both work at the ROM's depth, which covers the
+ordinary uses; arbitrary-depth inspection is a diagnostic, and diagnostics belong in the CLI
+rather than in a UI that can only look.
 
-Soft, and the canvas dominates: roughly **13–16 focused sessions**, with phases 3 and 5 about
-half of it. This is a weeks-not-days project. The estimate assumes UI features are frozen
-during phases 2–3; if the ImGui app keeps gaining features they get built twice.
+## Sizing — what it actually took
+
+The estimate was 13–16 focused sessions. It came in under that, and the reason is worth
+recording: **the expensive half was already portable**. Composition, the object engine, Map16
+and the sprite OAM capture all produce `uint[]` pixels and know nothing about any UI, so the
+canvas port was swapping a Foster texture for a WriteableBitmap. What actually consumed the
+time was the part the estimate treated as incidental — the ~65 fields of shared mutable state
+on `EditorApp`, which had to become a service before anything could be tested.
 
 ## Risks
 

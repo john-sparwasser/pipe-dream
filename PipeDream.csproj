@@ -7,7 +7,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <ApplicationIcon>assets\pipe-dream.ico</ApplicationIcon>
   </PropertyGroup>
 
   <!-- The app globs **/*.cs from the repo root; keep the sibling projects out. -->
@@ -22,9 +21,6 @@
     (services/PipeDream.Services) is the only thing above it that gets at its internals — the
     Avalonia UI deliberately does NOT, so it cannot reach past the services and touch the
     project file or the config directly.
-
-    The legacy ImGui editor still lives in this assembly and still uses those internals from
-    the inside; it goes away with the migration.
   -->
   <ItemGroup>
     <InternalsVisibleTo Include="PipeDream.Tests" />
@@ -32,16 +28,11 @@
     <InternalsVisibleTo Include="PipeDream.Ui.Tests" />
   </ItemGroup>
 
-  <ItemGroup>
-    <PackageReference Include="FosterFramework" Version="0.3.0" />
-    <PackageReference Include="ImGui.NET" Version="1.90.5.1" />
-  </ItemGroup>
-
+  <!-- No UI packages. The editor is ui/PipeDream.Ui; this is the storage layer plus the
+       command-line ROM tools, and it stays runnable headlessly for CI and scripting. -->
   <ItemGroup>
     <EmbeddedResource Include="src\Data\SpriteDisplay.json" LogicalName="SpriteDisplay.json"
                       Condition="Exists('src\Data\SpriteDisplay.json')" />
-    <EmbeddedResource Include="assets\pipe-icon-64.png" LogicalName="pipe-icon.png" />
-    <EmbeddedResource Include="assets\fonts\Roboto-Regular.ttf" LogicalName="Roboto-Regular.ttf" />
   </ItemGroup>
 
 </Project>

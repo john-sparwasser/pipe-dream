@@ -55,13 +55,13 @@ public class Map16AllocTests : IDisposable
     [Fact]
     public void both_fg_banks_can_be_created_but_the_bg_table_cannot()
     {
-        Assert.True(Map16Editor.CanAllocate(0x200));      // first extended tile
-        Assert.True(Map16Editor.CanAllocate(0xFFF));      // last of range 0
-        Assert.True(Map16Editor.CanAllocate(0x1000));     // range 1 — the page 0x10 wall is gone
-        Assert.True(Map16Editor.CanAllocate(0x2000));     // bank 1 / range 2
-        Assert.True(Map16Editor.CanAllocate(0x3FFF));     // last level-placeable tile
-        Assert.False(Map16Editor.CanAllocate(0x1FF));     // vanilla defs already exist
-        Assert.False(Map16Editor.CanAllocate(0x4000));    // bank 2 = the fixed BG table
+        Assert.True(Map16Layout.CanAllocate(0x200));      // first extended tile
+        Assert.True(Map16Layout.CanAllocate(0xFFF));      // last of range 0
+        Assert.True(Map16Layout.CanAllocate(0x1000));     // range 1 — the page 0x10 wall is gone
+        Assert.True(Map16Layout.CanAllocate(0x2000));     // bank 1 / range 2
+        Assert.True(Map16Layout.CanAllocate(0x3FFF));     // last level-placeable tile
+        Assert.False(Map16Layout.CanAllocate(0x1FF));     // vanilla defs already exist
+        Assert.False(Map16Layout.CanAllocate(0x4000));    // bank 2 = the fixed BG table
     }
 
     [Fact]
@@ -69,14 +69,14 @@ public class Map16AllocTests : IDisposable
     {
         // FG banks: an empty page is just empty tiles, filled by painting — never an
         // "unlock" the user has to perform first.
-        Assert.Contains("paint", Map16Editor.UnusedPageNote(0, 0x05));
-        Assert.Contains("paint", Map16Editor.UnusedPageNote(0, 0x10));
-        Assert.Contains("paint", Map16Editor.UnusedPageNote(1, 0x20));
-        Assert.All([Map16Editor.UnusedPageNote(0, 0x05), Map16Editor.UnusedPageNote(1, 0x20)],
+        Assert.Contains("paint", Map16Layout.UnusedPageNote(0, 0x05));
+        Assert.Contains("paint", Map16Layout.UnusedPageNote(0, 0x10));
+        Assert.Contains("paint", Map16Layout.UnusedPageNote(1, 0x20));
+        Assert.All([Map16Layout.UnusedPageNote(0, 0x05), Map16Layout.UnusedPageNote(1, 0x20)],
                    s => Assert.DoesNotContain("creat", s));   // nothing to create, nothing to click
         // Bank 2 is the BG table — fixed size, so it is a different explanation entirely.
-        Assert.Contains("BG", Map16Editor.UnusedPageNote(2, 0x42));
-        Assert.DoesNotContain("paint", Map16Editor.UnusedPageNote(2, 0x42));
+        Assert.Contains("BG", Map16Layout.UnusedPageNote(2, 0x42));
+        Assert.DoesNotContain("paint", Map16Layout.UnusedPageNote(2, 0x42));
     }
 
     [RealRomFact]

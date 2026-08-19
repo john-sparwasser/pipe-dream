@@ -32,7 +32,7 @@ static class DebugCommands
     };
 
     /// <summary>Run the debug command named in <paramref name="args"/>, if any.
-    /// Returns its exit code, or null when no debug flag is present (launch the editor).</summary>
+    /// Returns its exit code, or null when no command flag is present.</summary>
     public static int? TryDispatch(string[] args)
     {
         foreach (var (flag, run) in Commands)
@@ -41,6 +41,13 @@ static class DebugCommands
             if (i >= 0) return run(args, i);
         }
         return null;
+    }
+
+    /// <summary>List the flags, for the no-arguments case. The table IS the documentation, so
+    /// there is nothing here to fall out of date with it.</summary>
+    public static void PrintUsage()
+    {
+        foreach (var (flag, _) in Commands) Console.Error.WriteLine("  " + flag);
     }
 
     // --selfcheck : run the ROM self-check suite (exit code = failures).

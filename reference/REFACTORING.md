@@ -81,3 +81,21 @@ palette/catalog builders (deliberately kept — see step 5).
   The God object + mode-switching conditionals are; step 4 is where composition pays off.
 - The three edit modes are structurally duplicated today — that duplication is the signal
   that the `EditTool` abstraction is earned (and a 4th mode, background/layer-3, is coming).
+
+---
+
+## Epilogue: the subject of this document no longer exists
+
+`EditorApp` and the ImGui layer were deleted when the UI moved to Avalonia (see
+`reference/AVALONIA.md`). This file is kept as a record of how the god file was broken up, not
+as a description of the code — the paths and line counts below are all historical.
+
+Two observations that outlived the code:
+
+- The `Rom/` layer being UI-free from the start is what made a second front end possible at
+  all. It was never refactored for the migration; it just worked.
+- The state that resisted every pass here — ~65 mutable fields on `EditorApp` that every
+  component reached into — is the same thing that made the ImGui editor's save path
+  untestable, and extracting it into a service was the largest single piece of the migration.
+  Splitting a god file into smaller files that still share its state does not remove the
+  problem; it distributes it.

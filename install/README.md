@@ -31,3 +31,7 @@ so uninstalling never costs you work.
   from another tool you may have pointed at it.
 - The published build is self-contained (~80 MB): it carries its own .NET runtime, so the
   machine you install on needs nothing preinstalled.
+- What gets installed is `ui/PipeDream.Ui` — the editor. The repo's other executable,
+  `PipeDream.csproj`, is the command-line ROM toolbelt (`--selfcheck`, `--diff`,
+  `--render`, project create/build for scripting and CI); it is not part of the install
+  because it is a developer tool, not something to put on a Start Menu.

@@ -16,9 +16,9 @@ namespace PipeDream.Ui.Tests;
 ///
 /// Two behaviours here are easy to get subtly wrong and invisible when they are:
 /// the right-click PRECEDENCE (duplicate a selection, else place an armed catalog object, else
-/// stamp the tile brush — read off src/ObjectTool.cs), and the fact that the drawer tab and the
-/// canvas edit mode are ONE piece of state, so picking the Sprites tab must switch the canvas
-/// into sprite editing exactly as Esc does.
+/// stamp the tile brush — read off the ImGui ObjectTool before it was deleted), and the fact that
+/// the drawer tab and the canvas edit mode are ONE piece of state, so picking the Sprites tab
+/// must switch the canvas into sprite editing exactly as Esc does.
 /// </summary>
 public class CatalogTests(ITestOutputHelper log)
 {

@@ -9,7 +9,13 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\..\assets\pipe-dream.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <!-- The window icon, which is a runtime resource rather than the exe's. -->
+  <ItemGroup>
+    <AvaloniaResource Include="..\..\assets\pipe-icon-64.png" Link="assets/pipe-icon-64.png" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="11.3.11" />

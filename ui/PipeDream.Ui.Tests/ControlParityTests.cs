@@ -12,7 +12,8 @@ namespace PipeDream.Ui.Tests;
 
 /// <summary>
 /// The canvas controls must match the ImGui editor's ObjectTool exactly, so muscle memory
-/// carries over. Read off src/ObjectTool.cs and src/LevelViewport.cs:
+/// carries over. Read off the ImGui editor's ObjectTool and LevelViewport before they were
+/// deleted (git history, if the exact behaviour is ever in doubt):
 ///
 ///   RIGHT click/drag   stamp the tile brush (right-click WITH a selection duplicates it)
 ///   LEFT click+drag    rubber-band select, live while dragging
