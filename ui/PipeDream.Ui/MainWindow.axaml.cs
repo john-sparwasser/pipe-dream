@@ -39,7 +39,12 @@ public partial class MainWindow : Window
     private ComboBox levelBox = null!, bankBox = null!;
     private Slider zoomSlider = null!, tileZoom = null!;
     private TextBlock status = null!, hover = null!, zoomLabel = null!, selLabel = null!;
-    private Border drawer = null!;
+    private Border drawer = null!, paletteBar = null!;
+    private TabStrip paletteTabs = null!;
+    private DockPanel spritePanel = null!, objectPanel = null!;
+    private ListBox spriteList = null!, objectList = null!;
+    private CheckBox loadedOnly = null!;
+    private TextBlock spFilesLabel = null!, objectHint = null!;
     private Grid split = null!;
     private ToggleButton modeLevel = null!, modeMap16 = null!, modeGfx = null!;
 
@@ -87,6 +92,13 @@ public partial class MainWindow : Window
         canvas.DuplicateRequested += (_, c) =>
         {
             if (edit?.DuplicateSelected(c.X, c.Y) == true) { PushDirty(); UpdateStatus(); }
+        };
+        canvas.PlaceRequested += (_, c) =>
+        {
+            if (edit is null || canvas.CatalogObject < 0) return;
+            edit.PlaceObject(canvas.CatalogObject, c.X, c.Y);
+            PushDirty();
+            UpdateStatus();
         };
         canvas.DeleteRequested += (_, _) =>
         {
@@ -180,6 +192,39 @@ public partial class MainWindow : Window
             FitDrawerToPalette();
         };
 
+        // ---- drawer tabs: Map16 tiles / sprite catalog / object catalog ----
+        paletteTabs = this.GetControl<TabStrip>("PaletteTabs");
+        paletteBar = this.GetControl<Border>("PaletteBar");
+        spritePanel = this.GetControl<DockPanel>("SpritePanel");
+        objectPanel = this.GetControl<DockPanel>("ObjectPanel");
+        spriteList = this.GetControl<ListBox>("SpriteList");
+        objectList = this.GetControl<ListBox>("ObjectList");
+        loadedOnly = this.GetControl<CheckBox>("LoadedOnly");
+        spFilesLabel = this.GetControl<TextBlock>("SpFiles");
+        objectHint = this.GetControl<TextBlock>("ObjectHint");
+
+        paletteTabs.SelectionChanged += (_, _) => OnPaletteTab();
+        loadedOnly.IsCheckedChanged += (_, _) => ApplySpriteFilter();
+        spriteList.SelectionChanged += (_, _) =>
+        {
+            if (spriteList.SelectedItem is not CatalogItem it) { canvas.CatalogSprite = -1; return; }
+            canvas.CatalogSprite = it.Number;
+            // Placing needs sprite mode; saying so beats a right-click that silently paints.
+            status.Text = canvas.Mode == LevelView.EditMode.Sprites
+                ? $"sprite {it.Label} armed — right-click the level to place"
+                : $"sprite {it.Label} armed — press Esc for sprite mode, then right-click";
+        };
+        objectList.SelectionChanged += (_, _) =>
+        {
+            if (objectList.SelectedItem is not CatalogItem it) { canvas.CatalogObject = -1; return; }
+            canvas.CatalogObject = it.Number;
+            // Outline where it will land, the same feedback a multi-tile brush gets.
+            canvas.BrushW = it.W;
+            canvas.BrushH = it.H;
+            canvas.InvalidateVisual();
+            status.Text = $"object {it.Label} armed — right-click the level to place";
+        };
+
         for (int i = 0; i < Rom.LevelCount; i++) levelBox.Items.Add($"${i:X3}");
         levelBox.SelectionChanged += OnLevelChanged;
 
@@ -244,6 +289,12 @@ public partial class MainWindow : Window
         // the level: a new tileset means new def offsets.
         map16 = new Map16Edit(rom, scene.Level.Header.Tileset, session.Project);
         map16.Committed += OnMap16Committed;
+
+        // Catalogs are rendered with the level's own GFX and palette, so they are stale now.
+        // The object catalog only depends on the tileset; EnsureObjectCatalog checks that.
+        spriteCatalog = null;
+        spriteList.ItemsSource = null;
+        RefreshDrawer();
         UpdateStatus();
         UpdateTitle();
     }
@@ -269,6 +320,12 @@ public partial class MainWindow : Window
 
     private void SetBrush(ushort[]? tiles, int w, int h)
     {
+        // Arming the brush disarms the object catalog, as the ImGui editor does — right-click
+        // means one thing at a time. Both halves are set: clearing the list is what the user
+        // sees, and clearing the canvas is what actually disarms — the list's own handler does
+        // not fire when nothing was selected in it.
+        objectList.SelectedIndex = -1;
+        canvas.CatalogObject = -1;
         brush = tiles is null ? null : (tiles, w, h);
         // The canvas outlines the footprint under the cursor, so a 4x3 brush is visible
         // before it is committed rather than after.
@@ -301,6 +358,10 @@ public partial class MainWindow : Window
                 edit?.Selection.Clear();
                 canvas.Sprites?.Selection.Clear();
                 canvas.InvalidateVisual();
+                // Bring the matching drawer tab along (ImGui parity): the tab and the mode are
+                // the same state, so leaving the tab behind would show a sprite catalog while
+                // the canvas edits objects.
+                paletteTabs.SelectedIndex = canvas.Mode == LevelView.EditMode.Sprites ? 1 : 0;
                 status.Text = canvas.Mode == LevelView.EditMode.Sprites
                     ? "sprite mode — left-drag selects by what a sprite DRAWS, right-click places"
                     : $"level ${levelNum:X3}";
@@ -504,6 +565,93 @@ public partial class MainWindow : Window
             col.Width = new GridLength(drawerWidth);
     }
 
+    // ---- drawer tabs ----
+
+    private List<CatalogItem>? spriteCatalog, objectCatalog;
+    private int objectCatalogTileset = -1;
+
+    /// <summary>
+    /// The drawer tab and the canvas edit mode are two views of ONE thing, as in the ImGui
+    /// editor: the Sprites tab means you are editing sprites, Map16 and Objects mean you are
+    /// editing layer 1. Picking a tab therefore switches the mode (and drops the selection that
+    /// belonged to the old one), which is why Esc also moves the tab.
+    /// </summary>
+    private void OnPaletteTab()
+    {
+        var want = paletteTabs.SelectedIndex == 1 ? LevelView.EditMode.Sprites
+                                                  : LevelView.EditMode.Objects;
+        if (canvas.Mode != want)
+        {
+            canvas.Mode = want;
+            edit?.Selection.Clear();
+            canvas.Sprites?.Selection.Clear();
+            canvas.InvalidateVisual();
+        }
+        RefreshDrawer();
+    }
+
+    /// <summary>
+    /// Show whichever drawer content the current state calls for. Two things decide it: the
+    /// CANVAS mode (Map16 editing always feeds from the 8x8 GFX picker, whatever tab is
+    /// selected) and otherwise the drawer tab. One method for both, because splitting the
+    /// decision across the tab handler and the mode handler is how a panel ends up visible in
+    /// a mode that cannot use it.
+    /// </summary>
+    private void RefreshDrawer()
+    {
+        bool map16Mode = modeMap16.IsChecked == true;
+        int tab = map16Mode ? 0 : Math.Max(0, paletteTabs.SelectedIndex);
+
+        this.GetControl<ScrollViewer>("PaletteScroll").IsVisible = !map16Mode && tab == 0;
+        this.GetControl<DockPanel>("ChrPanel").IsVisible = map16Mode;
+        spritePanel.IsVisible = !map16Mode && tab == 1;
+        objectPanel.IsVisible = !map16Mode && tab == 2;
+        // The bank/size row drives the Map16 sheet in both the picker and the Map16 canvas;
+        // it means nothing to a catalog.
+        paletteBar.IsVisible = map16Mode || tab == 0;
+
+        if (spritePanel.IsVisible) EnsureSpriteCatalog();
+        if (objectPanel.IsVisible) EnsureObjectCatalog();
+    }
+
+    /// <summary>Sprite thumbnails are drawn with THIS level's SP GFX and palette, so the
+    /// catalog belongs to the level and is rebuilt when the level changes.</summary>
+    private void EnsureSpriteCatalog()
+    {
+        if (spriteCatalog is not null || rom is null || scene is null) return;
+        spriteCatalog = Catalog.Sprites(rom, scene, levelNum, out var files);
+        spFilesLabel.Text = $"SP {string.Join(" ", files.Select(f => f.ToString("X2")))}";
+        ApplySpriteFilter();
+    }
+
+    private void ApplySpriteFilter()
+    {
+        if (spriteCatalog is null) return;
+        int armed = canvas.CatalogSprite;
+        spriteList.ItemsSource = loadedOnly.IsChecked == true
+            ? spriteCatalog.Where(i => i.Loaded).ToList() : spriteCatalog;
+        // Re-select whatever was armed, so toggling the filter does not silently unarm it.
+        spriteList.SelectedItem = spriteList.ItemsSource!.Cast<CatalogItem>()
+                                            .FirstOrDefault(i => i.Number == armed);
+        canvas.CatalogSprite = armed;
+    }
+
+    /// <summary>Object thumbnails come from running the object engine once per object number,
+    /// which is slow enough to be worth doing only on the first view of the tab and only when
+    /// the TILESET changes — the same footprint renders identically in every level using it.</summary>
+    private void EnsureObjectCatalog()
+    {
+        if (rom is null || scene is null) return;
+        if (objectCatalog is not null && objectCatalogTileset == scene.Level.Header.Tileset) return;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        objectCatalog = Catalog.Objects(rom, scene);
+        objectCatalogTileset = scene.Level.Header.Tileset;
+        objectList.ItemsSource = objectCatalog;
+        objectHint.Text = $"tileset {objectCatalogTileset} — {objectCatalog.Count} objects, "
+                        + $"built in {sw.Elapsed.TotalMilliseconds:F0}ms. "
+                        + "Select one, then right-click the level to place it.";
+    }
+
     private void OnToggleGrid(object? sender, RoutedEventArgs e)
     {
         canvas.ShowGrid = !canvas.ShowGrid;
@@ -530,8 +678,7 @@ public partial class MainWindow : Window
         edit?.Selection.Clear();
         map16Canvas.ClearSelection();
 
-        this.GetControl<ScrollViewer>("PaletteScroll").IsVisible = !map16;
-        this.GetControl<DockPanel>("ChrPanel").IsVisible = map16;
+        RefreshDrawer();
         if (map16) { RefreshMap16Sheet(); map16Canvas.Focus(); status.Text = "Map16 — right-drag stamps the 8x8 brush; X/Y/P flip the quadrant under the cursor"; }
         else if (ReferenceEquals(sender, modeLevel)) UpdateStatus();
         else status.Text = "GFX mode — not ported yet (canvas mode, same window)";

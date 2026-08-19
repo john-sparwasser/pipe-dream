@@ -50,6 +50,12 @@
       <Setter Property="Background" Value="{DynamicResource BorderBrush}"/>
       <Setter Property="Width" Value="4"/>
     </Style>
+    <!-- Catalog rows are their own height (a 48px thumbnail), so the default item padding
+         would waste half the drawer. -->
+    <Style Selector="ListBox.catalog ListBoxItem">
+      <Setter Property="Padding" Value="8,3"/>
+      <Setter Property="MinHeight" Value="0"/>
+    </Style>
     <Style Selector="GridSplitter:pointerover">
       <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
     </Style>
@@ -124,7 +130,7 @@
             <TabStripItem Content="Objects"/>
           </TabStrip>
 
-          <Border DockPanel.Dock="Top" Padding="10,8" Background="{DynamicResource SurfaceBrush}">
+          <Border x:Name="PaletteBar" DockPanel.Dock="Top" Padding="10,8" Background="{DynamicResource SurfaceBrush}">
             <StackPanel Orientation="Horizontal" Spacing="6">
               <TextBlock Classes="dim" Text="bank"/>
               <ComboBox x:Name="BankBox" Width="74" SelectedIndex="0">
@@ -158,6 +164,50 @@
               <ScrollViewer HorizontalScrollBarVisibility="Auto">
                 <ui:ChrPaletteView x:Name="Chr" Margin="8"/>
               </ScrollViewer>
+            </DockPanel>
+
+            <!-- Sprite catalog: pick here, RIGHT-click the level to place. Sprites whose GFX
+                 this level does not load are shown greyed rather than hidden — they still
+                 place, they just draw as garbage until the GFX slots are changed. -->
+            <DockPanel x:Name="SpritePanel" IsVisible="False">
+              <Border DockPanel.Dock="Top" Padding="10,8" Background="{DynamicResource SurfaceBrush}">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <CheckBox x:Name="LoadedOnly" Content="Loaded only" IsChecked="True"/>
+                  <TextBlock x:Name="SpFiles" Classes="mono"/>
+                </StackPanel>
+              </Border>
+              <ListBox x:Name="SpriteList" Classes="catalog" Background="Transparent" BorderThickness="0">
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <Image Source="{Binding Thumb}" Width="32" Height="32" Stretch="None"/>
+                      <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Label}"/>
+                        <TextBlock Text="GFX not loaded" FontSize="10" IsVisible="{Binding !Loaded}"
+                                   Foreground="{DynamicResource TextFaintBrush}"/>
+                      </StackPanel>
+                    </StackPanel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+            </DockPanel>
+
+            <!-- Object catalog: thumbnails are composed from the cells each object really
+                 writes in THIS tileset, so an irregular object looks like itself. -->
+            <DockPanel x:Name="ObjectPanel" IsVisible="False">
+              <Border DockPanel.Dock="Top" Padding="10,8" Background="{DynamicResource SurfaceBrush}">
+                <TextBlock x:Name="ObjectHint" Classes="dim" TextWrapping="Wrap"/>
+              </Border>
+              <ListBox x:Name="ObjectList" Classes="catalog" Background="Transparent" BorderThickness="0">
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                      <Image Source="{Binding Thumb}" Width="48" Height="48" Stretch="None"/>
+                      <TextBlock Text="{Binding Label}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
             </DockPanel>
           </Panel>
         </DockPanel>

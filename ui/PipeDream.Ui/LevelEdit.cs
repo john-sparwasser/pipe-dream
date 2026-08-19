@@ -308,6 +308,22 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         return true;
     }
 
+    /// <summary>Default size byte for a catalog placement: 3 wide by 3 tall, as LM uses. Both
+    /// nibbles are set because which one an object reads is per-object.</summary>
+    private const int CatalogSize = 0x22;
+
+    /// <summary>Place a standard object from the Objects catalog. Unlike a painted tile this is
+    /// a real numbered object, so it resizes through byte 3 rather than the DM16 size model.</summary>
+    public bool PlaceObject(int number, int cx, int cy)
+    {
+        undo.Push([.. objects]);
+        redo.Clear();
+        objects.Add(new LevelObject(false, number, (cx >> 4) & 0x1F, cx & 15, cy & 0x1F, CatalogSize, -1));
+        Dirty = true;
+        Reconcile();
+        return true;
+    }
+
     // ---- resize ----
 
     private readonly Dictionary<(int Tileset, int Num), ObjectEngine.ObjResize> resizeCache = [];

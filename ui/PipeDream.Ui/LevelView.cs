@@ -50,6 +50,11 @@ public class LevelView : Control
     /// <summary>Sprite number armed from the catalog, or -1. Right-click places it.</summary>
     public int CatalogSprite { get; set; } = -1;
 
+    /// <summary>Object number armed from the Objects catalog, or -1. Right-click places it
+    /// INSTEAD of stamping the tile brush — the same precedence the ImGui tool uses: duplicate
+    /// a selection first, then a catalog object, then the brush.</summary>
+    public int CatalogObject { get; set; } = -1;
+
     public event EventHandler? SpritesChanged;
     public int Phase { get; set; }
     public bool ShowGrid { get; set; } = true;
@@ -70,6 +75,9 @@ public class LevelView : Control
 
     /// <summary>Right-click with a selection: duplicate it here rather than stamping.</summary>
     public event EventHandler<(int X, int Y)>? DuplicateRequested;
+
+    /// <summary>Right-click with a catalog object armed: place it here.</summary>
+    public event EventHandler<(int X, int Y)>? PlaceRequested;
 
     /// <summary>Ctrl+drag finished: take these cells as the stamp brush.</summary>
     public event EventHandler<(int X, int Y, int W, int H)>? GrabRequested;
@@ -185,8 +193,10 @@ public class LevelView : Control
 
         if (props.IsRightButtonPressed)
         {
-            // Right-click with a selection duplicates it; otherwise it stamps the brush.
+            // Right-click precedence, matching the ImGui tool exactly: duplicate a selection,
+            // else place the armed catalog object, else stamp the tile brush.
             if (Edit is { Selection.Count: > 0 }) DuplicateRequested?.Invoke(this, cell);
+            else if (CatalogObject >= 0) PlaceRequested?.Invoke(this, cell);
             else
             {
                 painting = true;
