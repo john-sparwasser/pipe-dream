@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 
 namespace PipeDream.Ui;
 
@@ -43,7 +44,10 @@ public partial class MainWindow : Window
     private TextBlock status = null!, hover = null!, zoomLabel = null!, selLabel = null!;
     private Border drawer = null!, paletteBar = null!;
     private TabStrip paletteTabs = null!;
-    private DockPanel spritePanel = null!, objectPanel = null!;
+    private DockPanel spritePanel = null!, objectPanel = null!, palettePanel = null!;
+    private PaletteGridView paletteGrid = null!;
+    private Slider palR = null!, palG = null!, palB = null!;
+    private TextBlock palRv = null!, palGv = null!, palBv = null!, paletteNote = null!, paletteIndex = null!;
     private ListBox spriteList = null!, objectList = null!;
     private CheckBox loadedOnly = null!;
     private TextBlock spFilesLabel = null!, objectHint = null!;
@@ -207,6 +211,22 @@ public partial class MainWindow : Window
         loadedOnly = this.GetControl<CheckBox>("LoadedOnly");
         spFilesLabel = this.GetControl<TextBlock>("SpFiles");
         objectHint = this.GetControl<TextBlock>("ObjectHint");
+
+        palettePanel = this.GetControl<DockPanel>("PalettePanel");
+        paletteGrid = this.GetControl<PaletteGridView>("PaletteGrid");
+        palR = this.GetControl<Slider>("PalR");
+        palG = this.GetControl<Slider>("PalG");
+        palB = this.GetControl<Slider>("PalB");
+        palRv = this.GetControl<TextBlock>("PalRv");
+        palGv = this.GetControl<TextBlock>("PalGv");
+        palBv = this.GetControl<TextBlock>("PalBv");
+        paletteNote = this.GetControl<TextBlock>("PaletteNote");
+        paletteIndex = this.GetControl<TextBlock>("PaletteIndex");
+
+        paletteGrid.IsEdited = session.IsPaletteEdited;
+        paletteGrid.SelectionChanged += (_, i) => ShowPaletteColor(i);
+        foreach (var s in new[] { palR, palG, palB })
+            s.PropertyChanged += (_, e) => { if (e.Property == RangeBase.ValueProperty) OnPaletteSlider(); };
 
         paletteTabs.SelectionChanged += (_, _) => OnPaletteTab();
         loadedOnly.IsCheckedChanged += (_, _) => ApplySpriteFilter();
@@ -552,8 +572,14 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnPaletteTab()
     {
-        var want = paletteTabs.SelectedIndex == 1 ? LevelView.EditMode.Sprites
-                                                  : LevelView.EditMode.Objects;
+        // The Palette tab belongs to no edit mode (ImGui parity: its tab carries a null mode),
+        // so opening it leaves the canvas doing whatever it was doing.
+        var want = paletteTabs.SelectedIndex switch
+        {
+            1 => LevelView.EditMode.Sprites,
+            0 or 2 => LevelView.EditMode.Objects,
+            _ => canvas.Mode,
+        };
         if (canvas.Mode != want)
         {
             canvas.Mode = want;
@@ -580,12 +606,14 @@ public partial class MainWindow : Window
         this.GetControl<DockPanel>("ChrPanel").IsVisible = map16Mode;
         spritePanel.IsVisible = !map16Mode && tab == 1;
         objectPanel.IsVisible = !map16Mode && tab == 2;
+        palettePanel.IsVisible = !map16Mode && tab == 3;
         // The bank/size row drives the Map16 sheet in both the picker and the Map16 canvas;
         // it means nothing to a catalog.
         paletteBar.IsVisible = map16Mode || tab == 0;
 
         if (spritePanel.IsVisible) EnsureSpriteCatalog();
         if (objectPanel.IsVisible) EnsureObjectCatalog();
+        if (palettePanel.IsVisible) RefreshPaletteTab();
     }
 
     /// <summary>Sprite thumbnails are drawn with THIS level's SP GFX and palette, so the catalog
@@ -627,6 +655,101 @@ public partial class MainWindow : Window
         objectHint.Text = $"tileset {objectCatalogTileset} — {objectCatalog.Count} objects, "
                         + $"ready in {sw.Elapsed.TotalMilliseconds:F0}ms. "
                         + "Select one, then right-click the level to place it.";
+    }
+
+    // ---- palette tab ----
+
+    /// <summary>Guard against the sliders firing while they are being SET from a selection —
+    /// otherwise picking a swatch immediately writes its own colour back as an "edit".</summary>
+    private bool loadingSwatch;
+
+    private void RefreshPaletteTab()
+    {
+        paletteGrid.Colors = session.PaletteRgba;
+        paletteGrid.InvalidateVisual();
+        paletteNote.Text = "CGRAM — rows 0-7 background and foreground, 8-F sprites.  "
+                         + (session.HasCustomPalette ? "source: LM custom palette"
+                                                     : "source: vanilla (header-assembled)")
+                         + (session.PaletteEditCount > 0 ? $"  —  {session.PaletteEditCount} edit(s)" : "");
+        ShowPaletteColor(paletteGrid.Selected);
+    }
+
+    /// <summary>Load a swatch into the sliders. BGR555 is five bits per channel, which is what
+    /// the sliders show: 0-31 is the real colour space, so nothing is quantised behind the
+    /// user's back the way a 24-bit picker would.</summary>
+    private void ShowPaletteColor(int index)
+    {
+        if (index < 0)
+        {
+            paletteIndex.Text = "pick a colour";
+            palRv.Text = palGv.Text = palBv.Text = "";
+            return;
+        }
+        ushort bgr = session.PaletteBgr(index);
+        loadingSwatch = true;
+        palR.Value = bgr & 0x1F;
+        palG.Value = (bgr >> 5) & 0x1F;
+        palB.Value = (bgr >> 10) & 0x1F;
+        loadingSwatch = false;
+        paletteIndex.Text = $"0x{index:X2} r{index >> 4} c{index & 15}  {bgr:X4}";
+        palRv.Text = $"{palR.Value:0}";
+        palGv.Text = $"{palG.Value:0}";
+        palBv.Text = $"{palB.Value:0}";
+    }
+
+    /// <summary>
+    /// How long after the last slider movement the level is recomposed. A colour is an input to
+    /// composition, so committing one costs a full recompose (~100ms) — firing that on every
+    /// step of a drag would make the slider unusable. The swatch updates immediately, the level
+    /// catches up when you stop, which is the same deal the ImGui editor made by deferring until
+    /// its colour picker closed.
+    /// </summary>
+    internal const int PaletteCommitMs = 120;
+
+    private DispatcherTimer? paletteCommit;
+    private ushort pendingColor;
+
+    private void OnPaletteSlider()
+    {
+        if (loadingSwatch || paletteGrid.Selected < 0) return;
+        pendingColor = (ushort)(((int)palB.Value << 10) | ((int)palG.Value << 5) | (int)palR.Value);
+
+        // Immediate feedback, cheaply: the swatch and the readouts, not the level.
+        paletteGrid.Colors[paletteGrid.Selected] = EditorSession.Rgba(pendingColor);
+        paletteGrid.InvalidateVisual();
+        palRv.Text = $"{palR.Value:0}";
+        palGv.Text = $"{palG.Value:0}";
+        palBv.Text = $"{palB.Value:0}";
+        paletteIndex.Text = $"0x{paletteGrid.Selected:X2} r{paletteGrid.Selected >> 4} "
+                          + $"c{paletteGrid.Selected & 15}  {pendingColor:X4}";
+
+        if (paletteCommit is null)
+        {
+            paletteCommit = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(PaletteCommitMs) };
+            paletteCommit.Tick += (_, _) => CommitPaletteEdit();
+        }
+        paletteCommit.Stop();                      // restart: only the LAST move commits
+        paletteCommit.Start();
+    }
+
+    /// <summary>Apply the previewed colour for real. Internal so tests can fire it directly —
+    /// the headless dispatcher does not run timers, and the behaviour worth pinning is what a
+    /// commit DOES, not that a DispatcherTimer ticks.</summary>
+    internal void CommitPaletteEdit()
+    {
+        paletteCommit?.Stop();
+        if (paletteGrid.Selected < 0) return;
+        if (!session.SetPaletteColor(paletteGrid.Selected, pendingColor)) return;
+        // AdoptSession is the one path that pulls every view onto the new scene, this tab
+        // included.
+        AdoptSession();
+    }
+
+    private void OnResetPalette(object? sender, RoutedEventArgs e)
+    {
+        if (!session.ResetPalette()) return;
+        AdoptSession();
+        status.Text = "palette edits dropped";
     }
 
     private void OnToggleGrid(object? sender, RoutedEventArgs e)

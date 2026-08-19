@@ -37,8 +37,13 @@ public sealed class EditorSession
 
     private void Report(string s) { Status = s; Changed?.Invoke(this, EventArgs.Empty); }
 
-    public bool HasUnsavedWork => Project is { Dirty: true } || touched.Count > 0
-                                  || Edit is { Dirty: true } || Sprites is { Dirty: true };
+    public bool HasUnsavedWork => Project is { Dirty: true } || touched.Count > 0 || LevelDirty;
+
+    /// <summary>Whether the CURRENT level holds work the project snapshot does not have yet.
+    /// Palette edits count as dirty even when they were hydrated from the project — stashing
+    /// them again writes back the same values, which is cheaper than a rule that can lose them.</summary>
+    private bool LevelDirty => Edit is { Dirty: true } || Sprites is { Dirty: true }
+                               || paletteEdits.Count > 0;
 
     /// <summary>Sprite editing for the current level.
     ///
@@ -148,6 +153,61 @@ public sealed class EditorSession
     /// <summary>Whether a path is worth trying to open (the picker can hand back anything).</summary>
     public static bool FileExists(string? path) => path is not null && File.Exists(path);
 
+    // ---- palette editing ----
+    // CGRAM index → BGR555. Held per level and applied on every compose, which is why it lives
+    // here and not in a control: the tile CACHES are built from the palette, so an edited colour
+    // has to be in place before composition rather than tinted afterwards.
+
+    private readonly Dictionary<int, ushort> paletteEdits = [];
+
+    public int PaletteEditCount => paletteEdits.Count;
+
+    /// <summary>True when this level's colours come from an LM custom palette rather than being
+    /// assembled from the header's palette fields — worth showing, because it changes what an
+    /// edit will eventually be saved as.</summary>
+    public bool HasCustomPalette => Rom?.LmCustomPalette(LevelNum) is not null;
+
+    /// <summary>The level's 256 CGRAM colours as RGBA, edits included.</summary>
+    public uint[] PaletteRgba => Scene?.Palettes[0]?.Rgba ?? new uint[256];
+
+    /// <summary>One colour as the SNES stores it, BGR555.</summary>
+    public ushort PaletteBgr(int index)
+        => Scene?.Palettes[0] is { } p && index is >= 0 and < 256 ? p.Bgr[index] : (ushort)0;
+
+    public bool IsPaletteEdited(int index) => paletteEdits.ContainsKey(index);
+
+    /// <summary>A BGR555 colour as screen RGBA, so a swatch can be previewed without paying for
+    /// a recompose.</summary>
+    public static uint Rgba(ushort bgr) => Palette.ToRgba(bgr);
+
+    /// <summary>
+    /// Change one CGRAM colour and recompose. Returns false when nothing changed, so dragging a
+    /// slider across a value it already has does not pay for a full recompose.
+    ///
+    /// Session-only until the LM custom-palette save path lands (CONTRACT §7e); the edit IS
+    /// recorded in the project, so it survives save and reopen.
+    /// </summary>
+    public bool SetPaletteColor(int index, ushort bgr)
+    {
+        if (index is < 0 or > 255 || PaletteBgr(index) == bgr) return false;
+        paletteEdits[index] = bgr;
+        Project?.MarkDirty();
+        touched.Add(LevelNum);
+        Rebuild("palette");
+        return true;
+    }
+
+    /// <summary>Drop every palette edit on this level and go back to the ROM's colours.</summary>
+    public bool ResetPalette()
+    {
+        if (paletteEdits.Count == 0) return false;
+        paletteEdits.Clear();
+        Project?.MarkDirty();
+        touched.Add(LevelNum);
+        Rebuild("palette");
+        return true;
+    }
+
     // ---- catalogs ----
     // Cached here rather than in the window: what invalidates them is a LEVEL or TILESET
     // change, which is this class's business, and the ImGui editor's habit of rebuilding them
@@ -242,7 +302,11 @@ public sealed class EditorSession
         if (Rom is null) return;
         // Leaving a level commits its edits: a crash should cost the current level at worst,
         // not everything since the last manual save.
-        if (num != LevelNum && Edit is { Dirty: true }) { StashCurrent(); Project?.Save(); }
+        //
+        // EVERY kind of edit counts, not just objects. Gating this on the object list alone lost
+        // sprite and palette work silently — you would place a sprite, switch level, come back,
+        // and find the base ROM's sprites.
+        if (num != LevelNum && LevelDirty) { StashCurrent(); Project?.Save(); }
         LevelNum = num;
         try
         {
@@ -258,9 +322,15 @@ public sealed class EditorSession
                 live.Sprites.AddRange(saved.Sprites.Select(s => s.ToSprite()));
             }
 
+            // Palette edits belong to the level, so they are dropped and re-hydrated here —
+            // before the compose, since the tile caches are built through them.
+            paletteEdits.Clear();
+            if (saved is not null)
+                foreach (var (k, v) in saved.Palette) paletteEdits[k] = (ushort)v;
+
             // Built without sprites when the project has its own list, so the ROM's parse is
             // not composed in and then painted over.
-            Scene = LevelScene.Build(Rom, num, showSprites: live is null);
+            Scene = LevelScene.Build(Rom, num, live is null, paletteEdits);
             var objects = saved is not null
                 ? saved.Objects.Select(o => o.ToLevelObject()).ToList()
                 : [.. Scene.Level.Objects];
@@ -340,7 +410,7 @@ public sealed class EditorSession
         var objects = Edit.Objects.ToList();
         try
         {
-            Scene = LevelScene.Build(Rom, LevelNum, showSprites: Sprites is null);
+            Scene = LevelScene.Build(Rom, LevelNum, Sprites is null, paletteEdits);
             if (Sprites is { } sp) DrawSprites(sp.Sprites);
             var next = new LevelEdit(Rom, Scene, objects);
             next.Rerender();
@@ -410,6 +480,7 @@ public sealed class EditorSession
         if (Project is null || Rom is null || Edit is null) return;
         var state = Edit.EditState();
         state.Sprites = Sprites?.Sprites ?? Scene?.Sprites;   // the live list, not the ROM's parse
+        foreach (var (k, v) in paletteEdits) state.PaletteEdits[k] = v;
         state.Stash(Project.Data, Rom, LevelNum);
         Project.MarkDirty();
         touched.Add(LevelNum);

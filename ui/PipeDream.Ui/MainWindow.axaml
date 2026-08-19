@@ -128,6 +128,7 @@
             <TabStripItem Content="Map16" IsSelected="True"/>
             <TabStripItem Content="Sprites"/>
             <TabStripItem Content="Objects"/>
+            <TabStripItem Content="Palette"/>
           </TabStrip>
 
           <Border x:Name="PaletteBar" DockPanel.Dock="Top" Padding="10,8" Background="{DynamicResource SurfaceBrush}">
@@ -208,6 +209,38 @@
                   </DataTemplate>
                 </ListBox.ItemTemplate>
               </ListBox>
+            </DockPanel>
+
+            <!-- Palette: the level's CGRAM, edited in the SNES's own colour space. Five bits per
+                 channel is what the hardware stores, so sliders of 0-31 are exact where a
+                 24-bit picker would quantise behind your back. -->
+            <DockPanel x:Name="PalettePanel" IsVisible="False">
+              <Border DockPanel.Dock="Top" Padding="10,8" Background="{DynamicResource SurfaceBrush}">
+                <StackPanel Spacing="6">
+                  <TextBlock x:Name="PaletteNote" Classes="dim" TextWrapping="Wrap"/>
+                  <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock x:Name="PaletteIndex" Classes="mono" Width="96"/>
+                    <Button x:Name="PaletteReset" Content="Reset" Padding="10,2" Click="OnResetPalette"/>
+                  </StackPanel>
+                  <Grid ColumnDefinitions="14,*,32" RowDefinitions="Auto,Auto,Auto" RowSpacing="2">
+                    <TextBlock Classes="dim" Text="R"/>
+                    <Slider x:Name="PalR" Grid.Column="1" Minimum="0" Maximum="31"
+                            TickFrequency="1" IsSnapToTickEnabled="True"/>
+                    <TextBlock x:Name="PalRv" Grid.Column="2" Classes="mono"/>
+                    <TextBlock Grid.Row="1" Classes="dim" Text="G"/>
+                    <Slider x:Name="PalG" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="31"
+                            TickFrequency="1" IsSnapToTickEnabled="True"/>
+                    <TextBlock x:Name="PalGv" Grid.Row="1" Grid.Column="2" Classes="mono"/>
+                    <TextBlock Grid.Row="2" Classes="dim" Text="B"/>
+                    <Slider x:Name="PalB" Grid.Row="2" Grid.Column="1" Minimum="0" Maximum="31"
+                            TickFrequency="1" IsSnapToTickEnabled="True"/>
+                    <TextBlock x:Name="PalBv" Grid.Row="2" Grid.Column="2" Classes="mono"/>
+                  </Grid>
+                </StackPanel>
+              </Border>
+              <ScrollViewer HorizontalScrollBarVisibility="Auto">
+                <ui:PaletteGridView x:Name="PaletteGrid" Margin="8"/>
+              </ScrollViewer>
             </DockPanel>
           </Panel>
         </DockPanel>

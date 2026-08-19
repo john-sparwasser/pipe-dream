@@ -42,7 +42,8 @@ public sealed class LevelScene
     /// A level's layer 2 is a background image OR an object stream, never both — the pointer's
     /// bank IS the mode (CONTRACT §10), which is why these are an either/or below.
     /// </summary>
-    public static LevelScene Build(Rom rom, int levelNum, bool showSprites = true)
+    public static LevelScene Build(Rom rom, int levelNum, bool showSprites = true,
+                                   IReadOnlyDictionary<int, ushort>? paletteEdits = null)
     {
         var level = LevelParser.Parse(rom, levelNum);
         var grid = ObjectEngine.Render(rom, level);
@@ -72,11 +73,21 @@ public sealed class LevelScene
         int w = 0, h = 0;
         Parallel.For(0, 4, p =>
         {
-            caches[p] = Map16.ComposeAll(rom, level.Header, levelNum, p);
+            // The palette comes FIRST and is handed to the tile composers: an edited colour has
+            // to reach the tile caches, not just the backdrop, or the level keeps showing the
+            // ROM's colours while the swatch shows the new one.
             var pal = Palette.Load(rom, level.Header, levelNum, p);
+            if (paletteEdits is not null)
+                foreach (var (i, c) in paletteEdits)
+                {
+                    if (i is < 0 or > 255) continue;
+                    pal.Bgr[i] = c;
+                    pal.Rgba[i] = Palette.ToRgba(c);
+                }
+            caches[p] = Map16.ComposeAll(rom, level.Header, levelNum, p, pal);
             palettes[p] = pal;
             backdrop[p] = pal.Rgba[0];
-            if (bgImage is not null) bgCaches[p] = Map16.ComposeAllBg(rom, level.Header, levelNum, p);
+            if (bgImage is not null) bgCaches[p] = Map16.ComposeAllBg(rom, level.Header, levelNum, p, pal);
 
             var (img, pw, ph) = Map16.ComposeLevel(caches[p], pal.Rgba[0], grid,
                                                    bgImage, bgCaches[p], layer2, visRows);
