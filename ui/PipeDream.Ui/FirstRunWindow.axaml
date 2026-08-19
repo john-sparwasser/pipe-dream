@@ -1,0 +1,24 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PipeDream.Ui.FirstRunWindow"
+        Title="Welcome to pipe-dream" Width="480" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+  <StackPanel Margin="20" Spacing="12">
+    <TextBlock Text="Locate an unedited Super Mario World ROM" FontSize="16"
+               Foreground="{DynamicResource TextBrush}"/>
+    <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource TextDimBrush}"
+               Text="Projects start from a private copy of it, so the ROM itself is never part of anything you share. It is also what new project bases are prepared from."/>
+    <StackPanel Orientation="Horizontal" Spacing="10">
+      <Button Content="Browse…" Click="OnBrowse"/>
+      <TextBlock x:Name="ChosenFile" VerticalAlignment="Center"
+                 Foreground="{DynamicResource TextBrush}"/>
+    </StackPanel>
+    <TextBlock x:Name="Verdict" TextWrapping="Wrap" Foreground="{DynamicResource TextDimBrush}"/>
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="Skip for now" Click="OnSkip"/>
+      <Button x:Name="SaveButton" Content="Save and continue" Click="OnSave"
+              IsEnabled="False" IsDefault="True"/>
+    </StackPanel>
+  </StackPanel>
+</Window>

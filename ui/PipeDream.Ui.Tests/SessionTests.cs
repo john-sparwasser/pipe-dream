@@ -140,6 +140,48 @@ public class SessionTests(ITestOutputHelper log) : IDisposable
         Assert.Contains(b.Sprites.Sprites.Sprites, s => s.Number == 0x0B && s.Cell(false) == (20, 10));
     }
 
+    /// <summary>
+    /// A .pdp is shareable on its own and the base ROM copy beside it deliberately is not, so
+    /// opening a project whose base is missing is the NORMAL path for someone else's work, not an
+    /// error. It holds the project and asks for a ROM, and the located one is verified against the
+    /// hash the project pinned — a base that only looked right would corrupt every offset the
+    /// project recorded against it.
+    /// </summary>
+    [Fact]
+    public void a_project_whose_base_rom_is_missing_can_be_recovered()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+
+        var a = new EditorSession();
+        Assert.True(a.NewProject(Path.Combine(dir, "proj"), Vanilla), a.Status);
+        string pdp = a.Project!.FilePath;
+        string basePath = a.Project.BaseRomPath;
+        a.ShowLevel(0x105);
+        a.Edit!.Paint(6, 6, 0x100);
+        a.Edit.EndStroke();
+        a.Save();
+
+        File.Delete(basePath);                     // as if only the .pdp had been shared
+
+        var b = new EditorSession();
+        Assert.False(b.OpenProject(pdp));          // held, not opened
+        Assert.NotNull(b.PendingBaseProblem);
+        log.WriteLine($"{b.PendingProjectName}: {b.PendingBaseProblem}");
+        Assert.NotEmpty(b.PendingBaseDescription);
+
+        // A wrong ROM is refused rather than adopted.
+        string decoy = Path.Combine(dir, "decoy.smc");
+        File.WriteAllBytes(decoy, new byte[0x8000]);
+        Assert.NotNull(b.AdoptPendingBase(decoy));
+        Assert.NotNull(b.PendingBaseProblem);       // still waiting
+
+        // The real one is prepped to the project's pinned prep version and adopted.
+        Assert.Null(b.AdoptPendingBase(Vanilla));
+        Assert.Null(b.PendingBaseProblem);
+        b.ShowLevel(0x105);
+        Assert.Equal(0x100, b.Scene!.Grid.Get(6, 6));   // and the edits are there
+    }
+
     [Fact]
     public void a_rom_opened_without_a_project_says_so_rather_than_pretending_to_save()
     {

@@ -362,6 +362,23 @@ public partial class MainWindow : Window
         };
 
         if (EditorSession.FindStartupRom(Program.RomPath) is { } path) LoadRom(path);
+
+        // First run has nothing configured to prepare project bases from, so ask once the window
+        // is actually up — a modal owned by an unshown window has nothing to centre on. Only on a
+        // real desktop: a headless test run has no one to answer it and would block forever.
+        if (session.NeedsVanillaRom && Application.Current?.ApplicationLifetime
+                is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)
+            Opened += OnFirstOpened;
+    }
+
+    private async void OnFirstOpened(object? sender, EventArgs e)
+    {
+        Opened -= OnFirstOpened;
+        var dlg = new FirstRunWindow();
+        await dlg.ShowDialog(this);
+        if (dlg.Chosen is not { } rom) return;
+        session.SetVanillaRom(rom);
+        status.Text = "vanilla ROM set — new projects will prep from it";
     }
 
     private void LoadRom(string path)
@@ -554,7 +571,34 @@ public partial class MainWindow : Window
     private async void OnOpenProject(object? sender, RoutedEventArgs e)
     {
         if (await PickFile("Open project", ProjectType) is not { } p) return;
-        session.OpenProject(p);
+        await OpenProjectPath(p);
+    }
+
+    /// <summary>
+    /// Open a project, offering the recovery flow when its base ROM is missing or mismatched. That
+    /// is not an error path but the NORMAL one for someone else's project: a .pdp is shareable on
+    /// its own and the base ROM copy beside it deliberately is not.
+    /// </summary>
+    private async Task OpenProjectPath(string pdp)
+    {
+        if (session.OpenProject(pdp))
+        {
+            status.Text = session.Status;
+            AdoptSession();
+            levelBox.SelectedIndex = session.LevelNum;
+            return;
+        }
+        status.Text = session.Status;
+        if (session.PendingBaseProblem is null) return;      // a real failure, not a missing base
+
+        while (session.PendingBaseProblem is { } problem)
+        {
+            var dlg = new LocateBaseWindow(session.PendingProjectName ?? "project", problem,
+                                           session.PendingBaseDescription);
+            await dlg.ShowDialog(this);
+            if (dlg.Located is not { } rom) { session.CancelPendingOpen(); return; }
+            if (session.AdoptPendingBase(rom) is null) break;
+        }
         status.Text = session.Status;
         AdoptSession();
         levelBox.SelectedIndex = session.LevelNum;
@@ -665,13 +709,7 @@ public partial class MainWindow : Window
         foreach (string path in session.RecentProjects)
         {
             var item = new MenuItem { Header = path };
-            item.Click += (_, _) =>
-            {
-                session.OpenProject(path);
-                status.Text = session.Status;
-                AdoptSession();
-                levelBox.SelectedIndex = session.LevelNum;
-            };
+            item.Click += async (_, _) => await OpenProjectPath(path);
             items.Add(item);
         }
         recentMenu.ItemsSource = items;

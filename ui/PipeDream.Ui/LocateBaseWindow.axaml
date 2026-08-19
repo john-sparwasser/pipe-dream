@@ -1,0 +1,19 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PipeDream.Ui.LocateBaseWindow"
+        Title="Locate base ROM" Width="500" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+  <StackPanel Margin="20" Spacing="12">
+    <TextBlock x:Name="Problem" TextWrapping="Wrap" Foreground="{DynamicResource TextBrush}"/>
+    <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource TextDimBrush}"
+               Text="A project file is shareable on its own; the base ROM copy beside it is not. Locate a ROM and it will be checked against the hash this project pinned."/>
+    <TextBlock x:Name="Pinned" TextWrapping="Wrap"
+               FontFamily="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"
+               Foreground="{DynamicResource TextDimBrush}"/>
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="Cancel" Click="OnCancel" IsCancel="True"/>
+      <Button Content="Browse…" Click="OnBrowse" IsDefault="True"/>
+    </StackPanel>
+  </StackPanel>
+</Window>

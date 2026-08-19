@@ -47,10 +47,27 @@ internal sealed class Config
     internal void Save()
     {
         Directory.CreateDirectory(Dir);
-        // Atomic: write a temp file and swap, so a crash mid-write can't destroy the config.
-        string tmp = FilePath + ".tmp";
-        File.WriteAllText(tmp, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
-        File.Move(tmp, FilePath, overwrite: true);
+        string json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
+
+        // Atomic: write a temp file and swap, so a crash mid-write cannot destroy the config.
+        //
+        // The temp name is UNIQUE per write. A fixed one (config.json.tmp) is a race the moment
+        // two things save at once — a second editor window, or a test run with parallel classes:
+        // one writer's file is moved out from under the other, and the loser throws an IOException
+        // that surfaces as "could not open project" for no reason the user can act on.
+        string tmp = $"{FilePath}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            File.WriteAllText(tmp, json);
+            // The replace itself can still lose a race with a reader holding the file open, so
+            // give it a couple of tries before giving up.
+            for (int attempt = 0; ; attempt++)
+            {
+                try { File.Move(tmp, FilePath, overwrite: true); return; }
+                catch (IOException) when (attempt < 3) { Thread.Sleep(5); }
+            }
+        }
+        finally { try { if (File.Exists(tmp)) File.Delete(tmp); } catch { } }
     }
 
     /// <summary>Move <paramref name="path"/> to the front of the recents (max 8, no dupes).

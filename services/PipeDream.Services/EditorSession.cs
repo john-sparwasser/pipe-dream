@@ -155,6 +155,68 @@ public sealed class EditorSession
     }
 
     /// <summary>
+    /// Whether a ROM is the known-good vanilla image, and what that means for the user. The hash
+    /// is taken headerless, so a copier-header copy of the same ROM still verifies. A mismatch is
+    /// a warning rather than a refusal: an LM-prepared base works fully, it just has to be the
+    /// exact file collaborators use, because the project pins its hash either way.
+    /// </summary>
+    public static string DescribeRom(string? path)
+    {
+        if (path is null || !File.Exists(path)) return "";
+        try
+        {
+            return RomHash.HeaderlessSha256File(path) == RomHash.VanillaUsSha256
+                ? "Verified: vanilla Super Mario World (U). A base copy is prepared automatically "
+                + "for full editing — Map16, tile placement, palettes and sprites."
+                : "Warning: not the known vanilla US ROM. It is used as-is (an LM-prepared base "
+                + "works fully), and collaborators will need this exact file.";
+        }
+        catch (Exception e) { return "Could not read file: " + e.Message; }
+    }
+
+    /// <summary>True on the very first run, before the config knows where a vanilla ROM lives.</summary>
+    public bool NeedsVanillaRom => Config.VanillaRomPath is null;
+
+    // ---- opening a project whose base ROM is missing ----
+    // A .pdp is shareable on its own; the base ROM copy beside it deliberately is not. So opening
+    // someone else's project usually means locating a ROM and having it verified against the hash
+    // the project pinned.
+
+    private Project? pendingOpen;
+
+    /// <summary>What is wrong with the pending project's base, or null when nothing is.</summary>
+    public string? PendingBaseProblem { get; private set; }
+
+    /// <summary>The base ROM the pending project pins, described for the recovery prompt.</summary>
+    public string PendingBaseDescription => pendingOpen is { } p
+        ? $"{p.Data.BaseRom.Title} ({p.Data.BaseRom.Size / 1024} KB, sha256 {p.Data.BaseRom.Sha256[..12]}…)"
+        : "";
+
+    public string? PendingProjectName => pendingOpen?.Name;
+
+    /// <summary>
+    /// Adopt a located ROM as the pending project's base. Refuses one whose hash does not match
+    /// what the project pinned — a base that only looks right would corrupt every offset the
+    /// project recorded against it.
+    /// </summary>
+    public string? AdoptPendingBase(string romPath)
+    {
+        if (pendingOpen is not { } p) return "nothing waiting for a base ROM";
+        if (p.AdoptBase(romPath) is { } problem) { PendingBaseProblem = problem; return problem; }
+        string path = p.FilePath;
+        pendingOpen = null;
+        PendingBaseProblem = null;
+        OpenProject(path);
+        return null;
+    }
+
+    public void CancelPendingOpen()
+    {
+        pendingOpen = null;
+        PendingBaseProblem = null;
+    }
+
+    /// <summary>
     /// Where to look for a ROM at startup: the one asked for, else the conventional location.
     /// The filesystem is storage, so the probing lives here and the window just gets a path.
     /// </summary>
@@ -488,10 +550,19 @@ public sealed class EditorSession
         try
         {
             var p = Project.Open(pdpPath);
+            // A missing or mismatched base is RECOVERABLE, not a failure: a .pdp is shareable on
+            // its own, so this is the normal way someone else's project opens. Hold it and let
+            // the caller ask for a ROM.
+            if (p.ValidateBase() is { } bad)
+            {
+                pendingOpen = p;
+                PendingBaseProblem = bad;
+                Report($"{p.Name}: {bad}");
+                return false;
+            }
             // Bring an old base up to date before anything reads it, exactly as the ImGui
             // editor does on open — a stale base makes features refuse for invisible reasons.
             string? prepNote = p.PrepareBaseOnOpen(Config.VanillaRomPath);
-            if (p.ValidateBase() is { } bad) { Report($"{p.Name}: {bad}"); return false; }
 
             Rom = Rom.Load(p.BaseRomPath);
             RomPath = p.BaseRomPath;
