@@ -25,6 +25,20 @@ internal static class ProjectCapture
     private static void RefreshMap16(Rom rom, ProjectFile data, int tileset)
     {
         var m = data.Map16;
+
+        // How many Map16 tiles this project NEEDS. Nothing else records it, and without it the
+        // replay allocates no extended pages at all: DefFileOffset then returns -1 for every
+        // extended tile, the recorded definitions are skipped, and painting a tile on a page you
+        // created disappears on reopen and never reaches a built ROM.
+        //
+        // Both bounds matter. The ROM's live count is what the session actually has; the highest
+        // recorded definition is what the project cannot do without, and it is the safer of the
+        // two if the count walk ever stops early at a hole.
+        int needed = rom.Map16TileCount;
+        foreach (var t in m.Ext.Keys)
+            needed = Math.Max(needed, Convert.ToInt32(t, 16) + 1);
+        m.TileCount = Math.Max(m.TileCount, needed);
+
         foreach (var addr in m.Slots.Keys.ToArray())
         {
             int fo = rom.FileOffset(Convert.ToInt32(addr, 16));

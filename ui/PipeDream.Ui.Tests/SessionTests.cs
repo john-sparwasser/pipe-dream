@@ -182,6 +182,42 @@ public class SessionTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(0x100, b.Scene!.Grid.Get(6, 6));   // and the edits are there
     }
 
+    /// <summary>
+    /// Every level entry in a project is created BY KEY, so a nonsense level number silently
+    /// poisons the file — nothing reads it back until a build tries to parse it as a level and
+    /// dies. Reload used to do exactly that: it set the level number to a sentinel so the reparse
+    /// would not be treated as staying put, and the stash-on-leave then wrote an entry keyed -1.
+    /// </summary>
+    [Fact]
+    public void reloading_a_level_does_not_write_a_bogus_level_entry()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+
+        var s = new EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), Vanilla), s.Status);
+        s.ShowLevel(0x105);
+        for (int x = 4; x < 8; x++) s.Edit!.Paint(x, 6, 0x100);
+        s.Edit!.EndStroke();
+
+        s.ReloadLevel();                     // and again, since the conversions reload too
+        s.SetLayer2ObjectMode(true);
+        s.Save();
+
+        var keys = Project.Open(s.Project!.FilePath).Data.Levels.Keys.ToList();
+        log.WriteLine(string.Join(", ", keys));
+        Assert.All(keys, k =>
+        {
+            Assert.True(int.TryParse(k, System.Globalization.NumberStyles.HexNumber, null, out int lv),
+                        $"level key '{k}' is not hex");
+            Assert.InRange(lv, 0, Rom.LevelCount - 1);
+        });
+
+        // And the project still builds — the symptom that made this findable at all.
+        var (status, path) = RomBuilder.Build(Project.Open(s.Project.FilePath));
+        Assert.NotNull(path);
+        Assert.DoesNotContain("failed", status);
+    }
+
     [Fact]
     public void a_rom_opened_without_a_project_says_so_rather_than_pretending_to_save()
     {

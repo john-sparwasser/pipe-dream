@@ -300,14 +300,15 @@ public sealed class EditorSession
     /// <summary>
     /// Re-read the current level from the ROM and the project, throwing away anything not yet
     /// stashed. The point of a Reload is to get back to the recorded state, so it deliberately
-    /// does NOT stash on the way out.
+    /// does NOT stash on the way out — which is exactly what ShowLevel does for the level it is
+    /// already on.
+    ///
+    /// This used to force a sentinel level number first, to stop ShowLevel treating the call as
+    /// "staying put". That made ShowLevel stash under the SENTINEL, writing a level entry keyed
+    /// -1 into the project, and the builder then tried to parse -1 as a level number and died.
+    /// The stash it was trying to avoid is the one ShowLevel already skips.
     /// </summary>
-    public void ReloadLevel()
-    {
-        int num = LevelNum;
-        LevelNum = -1;                    // so ShowLevel does not treat it as staying put
-        ShowLevel(num);
-    }
+    public void ReloadLevel() => ShowLevel(LevelNum);
 
     /// <summary>Whether the sprite overlay is drawn. Off makes the terrain under a crowded
     /// level's sprites visible, which is why it is a toggle and not a preference.</summary>
@@ -956,6 +957,10 @@ public sealed class EditorSession
     private void StashCurrent()
     {
         if (Project is null || Rom is null || layer1 is null) return;
+        // A level entry is created by KEY, so a nonsense level number silently poisons the
+        // project file: nothing reads it back until a build tries to parse it as a level and
+        // dies. Guarding the one place every stash goes through makes that unrepresentable.
+        if (LevelNum < 0 || LevelNum >= Rom.LevelCount) return;
         var state = new LevelEditState
         {
             Layer1 = [.. layer1.Objects],

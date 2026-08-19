@@ -43,6 +43,14 @@ internal static class RomBuilder
         return null;
     }
 
+    /// <summary>Whether a project's level key names a real level.</summary>
+    private static bool IsLevelKey(string key, out int level)
+    {
+        level = -1;
+        return int.TryParse(key, System.Globalization.NumberStyles.HexNumber, null, out level)
+               && level >= 0 && level < Rom.LevelCount;
+    }
+
     /// <summary>Replay the project's entrance-table edits into a ROM — secondary entrance
     /// records and per-level main entrances. Same code for the session ROM and a fresh build
     /// copy, so the editor can't drift from the built game.</summary>
@@ -74,13 +82,23 @@ internal static class RomBuilder
             ReplayEntrances(rom, project.Data);
             WriteGfx(rom, project.Data, warnings);
 
+            // Skip level entries whose key is not a level number. A project should never contain
+            // one, but an editor bug wrote entries keyed -1 for a while, and refusing to build a
+            // project someone already has is worse than saying what was ignored.
+            var levels = project.Data.Levels
+                .Where(kv => IsLevelKey(kv.Key, out _))
+                .OrderBy(kv => kv.Key, StringComparer.Ordinal)
+                .ToList();
+            foreach (string bad in project.Data.Levels.Keys.Where(k => !IsLevelKey(k, out _)))
+                warnings.Add($"ignored level entry '{bad}' — not a level number");
+
             // Header edits are applied through the parse path (same as the session), so
             // seed them before any level is parsed below.
-            foreach (var (key, state) in project.Data.Levels)
+            foreach (var (key, state) in levels)
                 if (state.Header is { } hx)
                     rom.LevelHeaderOverrides[Convert.ToInt32(key, 16)] = Convert.FromHexString(hx);
 
-            foreach (var (key, state) in project.Data.Levels.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+            foreach (var (key, state) in levels)
             {
                 int level = Convert.ToInt32(key, 16);
                 var lv = LevelParser.Parse(rom, level);
