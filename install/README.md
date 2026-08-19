@@ -31,7 +31,7 @@ so uninstalling never costs you work.
   from another tool you may have pointed at it.
 - The published build is self-contained (~80 MB): it carries its own .NET runtime, so the
   machine you install on needs nothing preinstalled.
-- One executable does both halves. `PipeDream.Ui.exe` opens the editor; with `--headless` (or
+- One executable does both halves. `PipeDream.exe` opens the editor; with `--headless` (or
   any command flag) it runs the ROM tools instead — `--selfcheck`, `--diff`, `--render`,
   project create and build for scripting and CI. `--headless` on its own lists them.
 - On Windows the editor is a GUI-subsystem binary, so it has no console of its own and

@@ -14,7 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\PipeDream.csproj" />
+    <ProjectReference Include="..\..\PipeDream.Storage.csproj" />
   </ItemGroup>
 
 </Project>

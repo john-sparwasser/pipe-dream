@@ -7,9 +7,9 @@ namespace PipeDream.Ui.Tests;
 /// <summary>
 /// The layering, enforced rather than described.
 ///
-///   ui/PipeDream.Ui            draws and takes input
+///   ui/PipeDream.Ui              draws and takes input — and is the shipped exe, PipeDream
 ///   services/PipeDream.Services  what the editor DOES — composition, editing, the save cycle
-///   PipeDream (src/)           storage: ROM bytes, .pdp files, the patch builder
+///   PipeDream.Storage (src/)     ROM bytes, .pdp files, the patch builder
 ///
 /// The UI talks to the services and nothing else. Storage is the editor's database: it is not
 /// called from the presentation layer, and it knows nothing about it.
@@ -30,7 +30,7 @@ public class ArchitectureTests(ITestOutputHelper log)
     private static string Root()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "PipeDream.csproj")))
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "PipeDream.Storage.csproj")))
             dir = dir.Parent;
         Assert.NotNull(dir);
         return dir!.FullName;

@@ -14,7 +14,7 @@ $ErrorActionPreference = 'Stop'
 $target = Join-Path $env:LOCALAPPDATA 'Programs\PipeDream'
 $lnk    = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Pipe Dream.lnk'
 
-Get-Process PipeDream.Ui -ErrorAction SilentlyContinue | ForEach-Object {
+Get-Process PipeDream -ErrorAction SilentlyContinue | ForEach-Object {
     throw 'Pipe Dream is running — close it and re-run.'
 }
 

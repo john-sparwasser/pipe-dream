@@ -45,10 +45,12 @@ three-runner CI matrix rather than one machine. Each self-contained payload is ~
 
 ## One executable, two halves
 
-`ui/PipeDream.Ui` is the whole application. Run it plainly and it opens the editor; run it with
-`--headless`, or with any command flag, and it runs the ROM toolbelt instead (`--selfcheck`,
-`--diff`, `--render`, headless project create and build — the things CI uses). `PipeDream.csproj`
-and `services/PipeDream.Services` are libraries.
+`ui/PipeDream.Ui` is the whole application and builds `PipeDream.exe` — the app is what ships, so
+the shipped artifact carries the app's name; the project keeps the layer's, because with three
+projects side by side "which layer" is the useful thing to read off a folder. Run it plainly and
+it opens the editor; run it with `--headless`, or with any command flag, and it runs the ROM
+toolbelt instead (`--selfcheck`, `--diff`, `--render`, headless project create and build — the
+things CI uses). `PipeDream.Storage` and `services/PipeDream.Services` are libraries.
 
 That costs one piece of platform-specific code, in `Program.AttachParentConsole`. A Windows
 GUI-subsystem binary gets no console, so a command would run and print nothing; it borrows the

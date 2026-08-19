@@ -6,7 +6,7 @@
     lifecycle.
 
     It sits between the UI and the ROM. Above it, the Avalonia layer only draws and takes input.
-    Below it, PipeDream is the storage layer — ROM bytes, .pdp files, the patch builder — and is
+    Below it, PipeDream.Storage holds ROM bytes, .pdp files and the patch builder, and is
     treated the way a web app treats its database: nothing above this project talks to it
     directly. ArchitectureTests holds that line.
 
@@ -26,7 +26,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\PipeDream.csproj" />
+    <ProjectReference Include="..\..\PipeDream.Storage.csproj" />
   </ItemGroup>
 
 </Project>

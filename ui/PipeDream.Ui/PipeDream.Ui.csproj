@@ -3,6 +3,10 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
+    <!-- The application IS pipe-dream, so it is what ships: PipeDream.exe. The project keeps
+         the layer name because three projects sit side by side and "which layer" is the useful
+         thing to read off a folder; the storage library is PipeDream.Storage. -->
+    <AssemblyName>PipeDream</AssemblyName>
     <RootNamespace>PipeDream.Ui</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>

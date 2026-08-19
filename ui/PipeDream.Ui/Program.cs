@@ -6,9 +6,9 @@ namespace PipeDream.Ui;
 /// <summary>
 /// The process entry point, for both halves of pipe-dream.
 ///
-///   PipeDream.Ui.exe [rom-or-project] [levelHex]   opens the editor
-///   PipeDream.Ui.exe --headless                    lists the ROM commands
-///   PipeDream.Ui.exe --selfcheck                   runs one (headless is implied)
+///   PipeDream.exe [rom-or-project] [levelHex]   opens the editor
+///   PipeDream.exe --headless                    lists the ROM commands
+///   PipeDream.exe --selfcheck                   runs one (headless is implied)
 ///
 /// One executable rather than two. The commands themselves are storage-layer work reached
 /// through <see cref="EditorSession.RunCommandLine"/>, so this stays a composition root: it

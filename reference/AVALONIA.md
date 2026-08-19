@@ -114,7 +114,7 @@ There was never a broken editor.
   |---|---|---|
   | presentation | `ui/PipeDream.Ui` | draws, takes input, owns nothing |
   | services | `services/PipeDream.Services` | composition, editing, catalogs, the open/edit/save/build cycle |
-  | storage | `PipeDream.csproj` (`src/`) | ROM bytes, `.pdp` files, the patch builder — the editor's database |
+  | storage | `PipeDream.Storage` (`src/`) | ROM bytes, `.pdp` files, the patch builder — the editor's database |
 
   Same effect, smaller move: `src/Rom` never needed relocating, only a layer that stops the UI
   reaching it. The UI's single project reference is the services layer, storage internals are
@@ -138,9 +138,9 @@ There was never a broken editor.
   entrances, background picker, GFX browser, ROM info, first run, base-ROM recovery — all
   ordinary windows, and all smaller than what they replaced.
 - ~~**Phase 7 — delete.**~~ **Done.** Foster, ImGui.NET and the 28 UI files are gone.
-  `PipeDream.csproj` and the services layer are libraries; the single executable is the editor,
-  which runs the ROM tools instead when given `--headless` or a command flag. `install/`
-  publishes `ui/PipeDream.Ui`.
+  The storage and services layers are libraries; the single executable is the editor — and it
+  is the one called `PipeDream`, since that is what ships. It runs the ROM tools instead when
+  given `--headless` or a command flag.
 
 One deliberate omission: the old GFX Viewer could inspect a file at an arbitrary bit depth
 (2/3/4bpp). The browser and the GFX canvas mode both work at the ROM's depth, which covers the
