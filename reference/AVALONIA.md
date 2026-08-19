@@ -104,10 +104,23 @@ Run the Avalonia app **in parallel** in its own project referencing the same cor
 ImGui app buildable and switch the default entry point only at parity. Never a broken editor.
 
 - ~~**Phase 0 — spikes.**~~ **Done**, see the results above. All three green.
-- **Phase 1 — extract `PipeDream.Core`.** Move `src/Rom` plus the project/build layer into a
-  library the UI references. `src/Rom` already has zero UI coupling so this is mechanical;
-  `LevelSession` is the one genuinely tangled piece (it holds an `EditorApp`) and needs its
-  session state separated from its UI callbacks.
+- ~~**Phase 1 — separate the layers.**~~ **Done**, though not the way it was planned. Rather
+  than moving `src/Rom` out into a library, a **services layer** went in above it:
+
+  | layer | project | what it is |
+  |---|---|---|
+  | presentation | `ui/PipeDream.Ui` | draws, takes input, owns nothing |
+  | services | `services/PipeDream.Services` | composition, editing, catalogs, the open/edit/save/build cycle |
+  | storage | `PipeDream.csproj` (`src/`) | ROM bytes, `.pdp` files, the patch builder — the editor's database |
+
+  Same effect, smaller move: `src/Rom` never needed relocating, only a layer that stops the UI
+  reaching it. The UI's single project reference is the services layer, storage internals are
+  visible to the services and *not* to the UI, and `ArchitectureTests` fails on a storage call
+  appearing in a UI source file. `EditorSession` is the service the window talks to; the ROM,
+  the project and the config stay internal to it.
+
+  The ImGui editor still lives in the storage assembly and still uses its internals from the
+  inside. That is what Phase 7 deletes.
 - **Phase 2 — shell.** Window, menu bar, left palette drawer, canvas region, status bar, and
   the canvas-mode switching from the header. Keeps the UI paradigm: canvas centre, palette
   drawer left, new editors are canvas modes, never drawer panels.

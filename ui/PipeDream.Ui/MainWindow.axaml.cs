@@ -9,12 +9,13 @@ using Avalonia.Platform.Storage;
 namespace PipeDream.Ui;
 
 /// <summary>
-/// Phase-1 shell. Deliberately the same paradigm as the ImGui editor: the CANVAS is the
+/// The editor window. Deliberately the same paradigm as the ImGui editor: the CANVAS is the
 /// editor and fills the window, a left palette drawer feeds it, and other editors are canvas
 /// MODES reached from the header — never extra panels competing for the drawer.
 ///
-/// Still a shell: it renders and navigates real levels, but does not edit. Painting, undo and
-/// the project layer arrive with the phases that port them.
+/// This class draws and takes input. It does NOT open files, read ROM bytes or decide what an
+/// edit means — every one of those goes through <see cref="EditorSession"/> and the rest of the
+/// services layer. ArchitectureTests keeps it that way.
 ///
 /// Controls are resolved by name rather than through XAML-generated fields — explicit, and
 /// it does not depend on the code generator having run.
@@ -23,8 +24,6 @@ public partial class MainWindow : Window
 {
     private readonly LevelBitmap bitmap = new();
     private readonly EditorSession session = new();
-    private Rom? rom;
-    private LevelScene? scene;
     private int levelNum = 0x105;
 
     private LevelEdit? edit;
@@ -34,7 +33,10 @@ public partial class MainWindow : Window
     private ChrPaletteView chr = null!;
     private ComboBox palRowBox = null!;
     private CheckBox chrFlipX = null!, chrFlipY = null!, chrPrio = null!;
-    private Map16Edit? map16;
+    /// <summary>Map16 definition editing. Owned by the session, because it is rebuilt whenever
+    /// the level's tileset changes and the window has no way to know when that happened.</summary>
+    private Map16Edit? map16 => session.Map16;
+
     private Map16PaletteView palette = null!;
     private ComboBox levelBox = null!, bankBox = null!;
     private Slider zoomSlider = null!, tileZoom = null!;
@@ -115,7 +117,7 @@ public partial class MainWindow : Window
         canvas.SpritesChanged += (_, _) =>
         {
             // A sprite edit changes what the overlay draws, so the level has to recompose.
-            session.RecomposeSprites(canvas.Sprites?.Sprites);
+            session.RefreshSprites();
             AdoptSession();
         };
 
@@ -161,6 +163,9 @@ public partial class MainWindow : Window
                 status.Text = why;
             map16?.EndStroke();
         };
+        // Subscribed once, on the session: a committed definition change invalidates the tile
+        // caches behind the level, the picker and the sheet alike.
+        session.Map16Committed += (_, _) => OnMap16Committed();
 
         zoomSlider.PropertyChanged += (_, e) =>
         {
@@ -207,7 +212,7 @@ public partial class MainWindow : Window
         loadedOnly.IsCheckedChanged += (_, _) => ApplySpriteFilter();
         spriteList.SelectionChanged += (_, _) =>
         {
-            if (spriteList.SelectedItem is not CatalogItem it) { canvas.CatalogSprite = -1; return; }
+            if (spriteList.SelectedItem is not CatalogRow it) { canvas.CatalogSprite = -1; return; }
             canvas.CatalogSprite = it.Number;
             // Placing needs sprite mode; saying so beats a right-click that silently paints.
             status.Text = canvas.Mode == LevelView.EditMode.Sprites
@@ -216,7 +221,7 @@ public partial class MainWindow : Window
         };
         objectList.SelectionChanged += (_, _) =>
         {
-            if (objectList.SelectedItem is not CatalogItem it) { canvas.CatalogObject = -1; return; }
+            if (objectList.SelectedItem is not CatalogRow it) { canvas.CatalogObject = -1; return; }
             canvas.CatalogObject = it.Number;
             // Outline where it will land, the same feedback a multi-tile brush gets.
             canvas.BrushW = it.W;
@@ -225,7 +230,7 @@ public partial class MainWindow : Window
             status.Text = $"object {it.Label} armed — right-click the level to place";
         };
 
-        for (int i = 0; i < Rom.LevelCount; i++) levelBox.Items.Add($"${i:X3}");
+        for (int i = 0; i < EditorSession.LevelCount; i++) levelBox.Items.Add($"${i:X3}");
         levelBox.SelectionChanged += OnLevelChanged;
 
         drawer.PropertyChanged += (_, e) =>
@@ -245,14 +250,8 @@ public partial class MainWindow : Window
             sv.Offset = new Vector(Math.Max(0, sv.Offset.X + d.Dx), Math.Max(0, sv.Offset.Y + d.Dy));
         };
 
-        string? path = Program.RomPath is { } p && File.Exists(p) ? p
-                     : File.Exists(DefaultRom()) ? DefaultRom() : null;
-        if (path is not null) LoadRom(path);
+        if (EditorSession.FindStartupRom(Program.RomPath) is { } path) LoadRom(path);
     }
-
-    private static string DefaultRom() => Path.Combine(
-        Environment.GetEnvironmentVariable("PIPEDREAM_SMW_ROOT") ?? @"C:\SMW\Projects",
-        ".resources", "SMW.smc");
 
     private void LoadRom(string path)
     {
@@ -268,31 +267,22 @@ public partial class MainWindow : Window
     /// level — so a new entry point cannot forget half the refresh.</summary>
     private void AdoptSession()
     {
-        rom = session.Rom;
-        scene = session.Scene;
         edit = session.Edit;
         levelNum = session.LevelNum;
         canvas.Edit = edit;
-        canvas.Vertical = rom is not null && scene is not null && rom.IsVerticalMode(scene.Level.Header.LevelMode);
-        // Sprite editing works on the scene's parsed list; the overlay is the hit target.
-        canvas.Sprites = scene?.Sprites is { } sd
-            ? new SpriteEdit(sd, scene.Overlay, canvas.Vertical) : null;
-        if (scene is null || rom is null) return;
+        canvas.Vertical = session.Vertical;
+        canvas.Sprites = session.Sprites;
+        if (!session.HasLevel) return;
 
-        bitmap.SetImages(scene.Phases, scene.Width, scene.Height, 0);
+        bitmap.SetImages(session.Phases, session.PxW, session.PxH, 0);
         canvas.InvalidateMeasure();
         canvas.InvalidateVisual();
 
-        var (px, w, h) = scene.Sheet();
-        palette.SetSheet(px, w, h, rom.Map16TileCount);
-        // The Map16 editor writes defs straight into the session ROM, so it is rebuilt with
-        // the level: a new tileset means new def offsets.
-        map16 = new Map16Edit(rom, scene.Level.Header.Tileset, session.Project);
-        map16.Committed += OnMap16Committed;
+        var (px, w, h) = session.Sheet();
+        palette.SetSheet(px, w, h, session.Map16TileCount);
 
-        // Catalogs are rendered with the level's own GFX and palette, so they are stale now.
-        // The object catalog only depends on the tileset; EnsureObjectCatalog checks that.
-        spriteCatalog = null;
+        // Catalogs are rendered with the level's own GFX and palette, so the session has
+        // already dropped them; the list has to let go of the old items too.
         spriteList.ItemsSource = null;
         RefreshDrawer();
         UpdateStatus();
@@ -308,9 +298,9 @@ public partial class MainWindow : Window
     }
 
     private void UpdateTitle()
-        => Title = session.Project is { } p
-            ? $"pipe-dream — {p.Name}{(session.HasUnsavedWork ? " *" : "")}"
-            : session.RomPath is { } r ? $"pipe-dream — {Path.GetFileName(r)} (no project)"
+        => Title = session.ProjectName is { } name
+            ? $"pipe-dream — {name}{(session.HasUnsavedWork ? " *" : "")}"
+            : session.RomFileName is { } file ? $"pipe-dream — {file} (no project)"
             : "pipe-dream";
 
     private double composeMs;
@@ -372,37 +362,29 @@ public partial class MainWindow : Window
 
     private void UpdateStatus()
     {
-        if (scene is null) return;
+        if (!session.HasLevel) return;
         // Object count comes from the EDIT, not the parsed level: painting appends objects,
         // and watching that number move is the clearest sign the stroke really became data.
-        int objs = edit?.Objects.Count ?? scene.Level.Objects.Count;
         string undoNote = edit is { UndoDepth: > 0 } ? $"   {edit.UndoDepth} edit(s)" : "";
-        status.Text = $"level ${levelNum:X3}   {scene.Width}x{scene.Height}px   " +
-                      $"{objs} objects   composed in {composeMs:F0}ms{undoNote}";
+        status.Text = $"level ${levelNum:X3}   {session.PxW}x{session.PxH}px   " +
+                      $"{session.ObjectCount} objects   composed in {composeMs:F0}ms{undoNote}";
     }
 
     private void UpdateHover()
-    {
-        if (canvas.HoverCell is { } c && scene is not null)
-        {
-            int tile = scene.Grid.Get(c.X, c.Y);
-            hover.Text = tile == Map16Grid.Empty
-                ? $"({c.X,3},{c.Y,2})  empty"
-                : $"({c.X,3},{c.Y,2})  tile 0x{tile:X3}";
-        }
-        else hover.Text = "";
-    }
+        => hover.Text = canvas.HoverCell is { } c
+            ? session.TileAt(c.X, c.Y) is { } tile
+                ? $"({c.X,3},{c.Y,2})  tile 0x{tile:X3}"
+                : $"({c.X,3},{c.Y,2})  empty"
+            : "";
 
-    /// <summary>Push the cells an edit touched into the bitmap. The composition already
-    /// happened in the scene's phase images, so this is only the copy — and because the
-    /// bitmap takes whole images, a repaint is one 13MB push rather than per-cell blits.
-    /// If that ever shows up in a profile, LevelBitmap grows a dirty-rect upload.</summary>
+    /// <summary>Push what an edit changed into the bitmap. The composition already happened in
+    /// the session's phase images, so this is only the copy — and because the bitmap takes whole
+    /// images, a repaint is one 13MB push rather than per-cell blits. If that ever shows up in a
+    /// profile, LevelBitmap grows a dirty-rect upload.</summary>
     private void PushDirty()
     {
-        if (scene is null || edit is null) return;
-        if (edit.TakeDirty().Count == 0) return;
-        scene.RedrawOverlay();      // sprites straddle cells; a per-cell recompose clips them
-        bitmap.SetImages(scene.Phases, scene.Width, scene.Height, 0);
+        if (!session.RefreshPixels()) return;
+        bitmap.SetImages(session.Phases, session.PxW, session.PxH, 0);
         canvas.InvalidateVisual();
     }
 
@@ -445,17 +427,11 @@ public partial class MainWindow : Window
         });
         if (dirs.Count == 0 || dirs[0].TryGetLocalPath() is not { } folder) return;
 
-        string? baseRom = session.Config.VanillaRomPath is { } v && File.Exists(v)
-            ? v : await PickFile("Choose the base ROM", RomType);
+        string? baseRom = EditorSession.FileExists(session.VanillaRomPath)
+            ? session.VanillaRomPath : await PickFile("Choose the base ROM", RomType);
         if (baseRom is null) return;
 
-        // Project.Create refuses to overwrite an existing base, so give it its own folder and
-        // step the name until one is free rather than failing on the second project.
-        string stem = Path.GetFileNameWithoutExtension(baseRom) + "-project";
-        string target = Path.Combine(folder, stem);
-        for (int n = 2; Directory.Exists(target); n++) target = Path.Combine(folder, $"{stem}-{n}");
-
-        session.NewProject(target, baseRom);
+        session.NewProject(EditorSession.ProjectFolderFor(folder, baseRom), baseRom);
         status.Text = session.Status;
         AdoptSession();
         levelBox.SelectedIndex = session.LevelNum;
@@ -483,14 +459,13 @@ public partial class MainWindow : Window
     /// header field forces a full reparse, so live-applying a slider would be unusable.</summary>
     private async void OnLevelProperties(object? sender, RoutedEventArgs e)
     {
-        if (rom is null || scene is null) return;
-        var dlg = new LevelPropertiesWindow(scene.Level.Header, rom.ReadMainEntrance(levelNum),
-                                            session.HasHeaderOverride);
+        if (session.Header is not { } header || session.MainEntrance is not { } entrance) return;
+        var dlg = new LevelPropertiesWindow(header, entrance, session.HasHeaderOverride);
         await dlg.ShowDialog(this);
 
         if (dlg.RevertRequested) { session.RevertHeader(); AdoptSession(); status.Text = "header reverted"; return; }
         if (dlg.AppliedEntry is { } en) session.ApplyEntry(en);
-        if (dlg.AppliedHeader is { } h && h != scene.Level.Header)
+        if (dlg.AppliedHeader is { } h && h != header)
         {
             session.ApplyHeader(h);
             AdoptSession();
@@ -502,8 +477,7 @@ public partial class MainWindow : Window
     private async void OnSetVanilla(object? sender, RoutedEventArgs e)
     {
         if (await PickFile("Choose your verified vanilla SMW ROM", RomType) is not { } p) return;
-        session.Config.VanillaRomPath = p;
-        session.Config.Save();
+        session.SetVanillaRom(p);
         status.Text = "vanilla ROM set — new projects will prep from it";
     }
 
@@ -567,7 +541,7 @@ public partial class MainWindow : Window
 
     // ---- drawer tabs ----
 
-    private List<CatalogItem>? spriteCatalog, objectCatalog;
+    private List<CatalogRow>? spriteCatalog, objectCatalog;
     private int objectCatalogTileset = -1;
 
     /// <summary>
@@ -614,12 +588,14 @@ public partial class MainWindow : Window
         if (objectPanel.IsVisible) EnsureObjectCatalog();
     }
 
-    /// <summary>Sprite thumbnails are drawn with THIS level's SP GFX and palette, so the
-    /// catalog belongs to the level and is rebuilt when the level changes.</summary>
+    /// <summary>Sprite thumbnails are drawn with THIS level's SP GFX and palette, so the catalog
+    /// belongs to the level; the session decides when it is stale.</summary>
     private void EnsureSpriteCatalog()
     {
-        if (spriteCatalog is not null || rom is null || scene is null) return;
-        spriteCatalog = Catalog.Sprites(rom, scene, levelNum, out var files);
+        if (spriteCatalog is not null) return;
+        var (items, files) = session.SpriteCatalog();
+        if (items.Count == 0) return;
+        spriteCatalog = CatalogRow.Wrap(items);
         spFilesLabel.Text = $"SP {string.Join(" ", files.Select(f => f.ToString("X2")))}";
         ApplySpriteFilter();
     }
@@ -631,24 +607,25 @@ public partial class MainWindow : Window
         spriteList.ItemsSource = loadedOnly.IsChecked == true
             ? spriteCatalog.Where(i => i.Loaded).ToList() : spriteCatalog;
         // Re-select whatever was armed, so toggling the filter does not silently unarm it.
-        spriteList.SelectedItem = spriteList.ItemsSource!.Cast<CatalogItem>()
+        spriteList.SelectedItem = spriteList.ItemsSource!.Cast<CatalogRow>()
                                             .FirstOrDefault(i => i.Number == armed);
         canvas.CatalogSprite = armed;
     }
 
     /// <summary>Object thumbnails come from running the object engine once per object number,
-    /// which is slow enough to be worth doing only on the first view of the tab and only when
-    /// the TILESET changes — the same footprint renders identically in every level using it.</summary>
+    /// which is slow enough to be worth doing only on the first view of the tab. The session
+    /// caches them per TILESET — the same footprint renders identically in every level using it.</summary>
     private void EnsureObjectCatalog()
     {
-        if (rom is null || scene is null) return;
-        if (objectCatalog is not null && objectCatalogTileset == scene.Level.Header.Tileset) return;
+        if (objectCatalog is not null && objectCatalogTileset == session.Tileset) return;
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        objectCatalog = Catalog.Objects(rom, scene);
-        objectCatalogTileset = scene.Level.Header.Tileset;
+        var items = session.ObjectCatalog();
+        if (items.Count == 0) return;
+        objectCatalog = CatalogRow.Wrap(items);
+        objectCatalogTileset = session.Tileset;
         objectList.ItemsSource = objectCatalog;
         objectHint.Text = $"tileset {objectCatalogTileset} — {objectCatalog.Count} objects, "
-                        + $"built in {sw.Elapsed.TotalMilliseconds:F0}ms. "
+                        + $"ready in {sw.Elapsed.TotalMilliseconds:F0}ms. "
                         + "Select one, then right-click the level to place it.";
     }
 
@@ -687,9 +664,9 @@ public partial class MainWindow : Window
 
     private void RefreshMap16Sheet()
     {
-        if (scene is null || rom is null) return;
-        var (px, w, h) = scene.Sheet();
-        map16Canvas.SetSheet(px, w, h, rom.Map16TileCount);
+        if (!session.HasLevel) return;
+        var (px, w, h) = session.Sheet();
+        map16Canvas.SetSheet(px, w, h, session.Map16TileCount);
         map16Canvas.Bank = Math.Max(0, bankBox.SelectedIndex);
         map16Canvas.SelectedTile = palette.Selected;
         RebuildChrSheet();
@@ -697,8 +674,8 @@ public partial class MainWindow : Window
 
     private void RebuildChrSheet()
     {
-        if (rom is null || scene?.Palettes[0] is not { } pal) return;
-        chr.Build(rom, scene.Level.Header, levelNum, 0, pal, Math.Max(0, palRowBox.SelectedIndex));
+        var (px, w, h) = session.ChrSheet(Math.Max(0, palRowBox.SelectedIndex));
+        if (px.Length > 0) chr.SetSheet(px, w, h);
     }
 
     /// <summary>
@@ -718,7 +695,7 @@ public partial class MainWindow : Window
     /// both the level canvas and the picker, so a def change has to reach all three.</summary>
     private void OnMap16Committed()
     {
-        if (rom is null || scene is null) return;
+        if (!session.HasLevel) return;
         session.RecomposeScene();
         AdoptSession();
         RefreshMap16Sheet();

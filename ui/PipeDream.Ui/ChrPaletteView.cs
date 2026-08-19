@@ -16,7 +16,7 @@ namespace PipeDream.Ui;
 /// </summary>
 public class ChrPaletteView : Control
 {
-    public const int Cols = 16, Count = 0x400;
+    public const int Cols = GfxSheets.ChrCols, Count = GfxSheets.ChrCount;
 
     public double Zoom { get; set; } = 2.0;
 
@@ -30,31 +30,18 @@ public class ChrPaletteView : Control
 
     public ChrPaletteView() => Focusable = true;
 
-    /// <summary>
-    /// Compose the sheet for one palette row. Colour 0 is drawn as flat grey rather than
-    /// transparent: in a Map16 def it means "show what is behind", and a checkerboard here
-    /// would read as part of the tile.
-    /// </summary>
-    public void Build(Rom rom, LevelHeader header, int level, int phase, Palette palette, int palRow)
+    /// <summary>Take a composed sheet (see <see cref="GfxSheets.Chr"/>). The view never loads
+    /// graphics itself — it is handed pixels.</summary>
+    public void SetSheet(uint[] px, int w, int h)
     {
-        var fg = Gfx.FgTiles.Load(rom, header.Tileset, level, phase);
-        var px = new uint[128 * 512];
-        for (int t = 0; t < Count; t++)
-        {
-            var src = fg.Fetch(t);
-            int ox = t % Cols * 8, oy = t / Cols * 8;
-            for (int y = 0; y < 8; y++)
-                for (int x = 0; x < 8; x++)
-                {
-                    int idx = src[y * 8 + x];
-                    px[(oy + y) * 128 + ox + x] = idx == 0 ? 0xFF303030u : palette.Rgba[palRow * 16 + idx];
-                }
-        }
+        sheetW = w; sheetH = h;
         sheet?.Dispose();
-        sheet = LevelBitmap.FromPixels(px, 128, 512);
+        sheet = LevelBitmap.FromPixels(px, w, h);
         InvalidateVisual();
         InvalidateMeasure();
     }
+
+    private int sheetW = Cols * 8, sheetH = Count / Cols * 8;
 
     private double Cell => 8 * Zoom;
 
@@ -111,7 +98,7 @@ public class ChrPaletteView : Control
         double c = Cell;
         var full = new Rect(0, 0, Cols * c, Count / Cols * c);
         ctx.FillRectangle(Brushes.Black, full);
-        if (sheet is not null) ctx.DrawImage(sheet, new Rect(0, 0, 128, 512), full);
+        if (sheet is not null) ctx.DrawImage(sheet, new Rect(0, 0, sheetW, sheetH), full);
 
         ctx.DrawRectangle(null, new Pen(UiColors.Accent, 2),
                           new Rect(Brush.X * c, Brush.Y * c, Brush.W * c, Brush.H * c));

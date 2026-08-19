@@ -19,4 +19,10 @@
     <ProjectReference Include="..\PipeDream.Ui\PipeDream.Ui.csproj" />
   </ItemGroup>
 
+  <!-- These tests cover both layers: the services (headless, most of the file count) and the
+       window on top of them. -->
+  <ItemGroup>
+    <Using Include="PipeDream.Services" />
+  </ItemGroup>
+
 </Project>

@@ -164,13 +164,13 @@ public class CatalogTests(ITestOutputHelper log)
         var list = w.GetControl<ListBox>("SpriteList");
         var box = w.GetControl<CheckBox>("LoadedOnly");
 
-        var shown = list.ItemsSource!.Cast<CatalogItem>().ToList();
+        var shown = list.ItemsSource!.Cast<CatalogRow>().ToList();
         Assert.NotEmpty(shown);
         Assert.All(shown, i => Assert.True(i.Loaded));      // filtered: only what will draw
 
         box.IsChecked = false;
         Dispatcher.UIThread.RunJobs();
-        var all = list.ItemsSource!.Cast<CatalogItem>().ToList();
+        var all = list.ItemsSource!.Cast<CatalogRow>().ToList();
         log.WriteLine($"{shown.Count} loaded of {all.Count} total");
         Assert.True(all.Count >= shown.Count);
     }
@@ -187,7 +187,7 @@ public class CatalogTests(ITestOutputHelper log)
         var (w, c) = o;
         SelectTab(w, 2);
         var list = w.GetControl<ListBox>("ObjectList");
-        var items = list.ItemsSource!.Cast<CatalogItem>().ToList();
+        var items = list.ItemsSource!.Cast<CatalogRow>().ToList();
         Assert.NotEmpty(items);
 
         // Pick an object, then right-click an empty patch of sky with nothing selected.
@@ -219,7 +219,7 @@ public class CatalogTests(ITestOutputHelper log)
         var (w, c) = o;
         SelectTab(w, 2);
         var list = w.GetControl<ListBox>("ObjectList");
-        list.SelectedItem = list.ItemsSource!.Cast<CatalogItem>().First();
+        list.SelectedItem = list.ItemsSource!.Cast<CatalogRow>().First();
         Dispatcher.UIThread.RunJobs();
         Assert.True(c.CatalogObject >= 0);
 

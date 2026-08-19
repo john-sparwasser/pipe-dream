@@ -14,15 +14,21 @@
   <ItemGroup>
     <Compile Remove="tests\**\*.cs" />
     <Compile Remove="ui\**\*.cs" />
+    <Compile Remove="services\**\*.cs" />
   </ItemGroup>
 
-  <!-- Tests exercise the internal project layer (Project, Config), and the Avalonia UI is
-       mid-migration: it consumes the same layer from a sibling assembly. Phase 1 of
-       reference/AVALONIA.md extracts a real PipeDream.Core with a public surface and this
-       goes away. -->
+  <!--
+    This is the STORAGE layer: ROM bytes, .pdp files, the patch builder. The services layer
+    (services/PipeDream.Services) is the only thing above it that gets at its internals — the
+    Avalonia UI deliberately does NOT, so it cannot reach past the services and touch the
+    project file or the config directly.
+
+    The legacy ImGui editor still lives in this assembly and still uses those internals from
+    the inside; it goes away with the migration.
+  -->
   <ItemGroup>
     <InternalsVisibleTo Include="PipeDream.Tests" />
-    <InternalsVisibleTo Include="PipeDream.Ui" />
+    <InternalsVisibleTo Include="PipeDream.Services" />
     <InternalsVisibleTo Include="PipeDream.Ui.Tests" />
   </ItemGroup>
 

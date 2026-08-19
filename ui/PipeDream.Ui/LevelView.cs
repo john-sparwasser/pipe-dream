@@ -122,8 +122,7 @@ public class LevelView : Control
         if (Edit is not { Selection.Count: 1 } ed) return 0;
         int sel = ed.Selection.First();
         if (ed.BBox(sel) is not { } b || sel >= ed.Objects.Count) return 0;
-        var rz = ed.ResizeInfo(ed.Objects[sel]);
-        bool wOk = rz.W != ObjectEngine.SizeSrc.None, hOk = rz.H != ObjectEngine.SizeSrc.None;
+        var (wOk, hOk) = ed.CanResize(sel);
         if (!wOk && !hOk) return 0;
 
         var r = CellRect(b.X, b.Y, b.W, b.H, Zoom);
@@ -432,8 +431,7 @@ public class LevelView : Control
     {
         int sel = ed.Selection.First();
         if (ed.BBox(sel) is not { } b || sel >= ed.Objects.Count) return;
-        var rz = ed.ResizeInfo(ed.Objects[sel]);
-        bool wOk = rz.W != ObjectEngine.SizeSrc.None, hOk = rz.H != ObjectEngine.SizeSrc.None;
+        var (wOk, hOk) = ed.CanResize(sel);
         if (!wOk && !hOk) return;
 
         var r = CellRect(b.X, b.Y, b.W, b.H, z);

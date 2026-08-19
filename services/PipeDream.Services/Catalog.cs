@@ -1,16 +1,22 @@
-using Avalonia.Media.Imaging;
-
-namespace PipeDream.Ui;
+namespace PipeDream.Services;
 
 /// <summary>
-/// One row in a drawer catalog: what it is, what it looks like in THIS level, and whether it
-/// can actually be drawn here. Bound directly by the ListBox templates in MainWindow.axaml.
+/// One entry in a drawer catalog: what it is, what it looks like in THIS level, and whether it
+/// can actually be drawn here.
+///
+/// The thumbnail is raw RGBA, not a UI bitmap — the layer that draws decides what to wrap it
+/// in, and a service that returned an Avalonia image would be a service that cannot be used
+/// without a window.
 /// </summary>
 public sealed class CatalogItem
 {
     public required int Number { get; init; }
     public required string Name { get; init; }
-    public Bitmap? Thumb { get; init; }
+
+    /// <summary>Square RGBA thumbnail, <see cref="Size"/> px on a side, or null when the thing
+    /// could not be rendered.</summary>
+    public uint[]? Thumb { get; init; }
+    public int Size { get; init; }
 
     /// <summary>False when the level's GFX slots do not hold what this sprite needs — LM's
     /// "sprites available with the current sprite GFX". Such a sprite still places, it just
@@ -52,21 +58,21 @@ public static class Catalog
             const int cell = 32;
             foreach (int num in SpriteDisplay.Numbers)
             {
-                Bitmap? thumb = null;
+                uint[]? thumb = null;
                 if (SpriteDisplay.TryGet(num, out var rel))
                 {
                     // Relative OAM is centred on the sprite's origin, so it needs shifting into
                     // the cell — the same +8/+16 the ImGui catalog uses.
-                    var img = new uint[cell * cell];
-                    SpriteRender.Draw(img, cell, cell,
+                    thumb = new uint[cell * cell];
+                    SpriteRender.Draw(thumb, cell, cell,
                                       rel.Select(o => o with { X = o.X + 8, Y = o.Y + 16 }).ToList(), sp, pal);
-                    thumb = LevelBitmap.FromPixels(img, cell, cell);
                 }
                 items.Add(new CatalogItem
                 {
                     Number = num,
                     Name = SpriteDisplay.NameOf(num),
                     Thumb = thumb,
+                    Size = cell,
                     Loaded = SpriteDisplay.IsLoaded(num, spFiles),
                 });
             }
@@ -143,7 +149,8 @@ public static class Catalog
             {
                 Number = num,
                 Name = ObjectNames.Standard(num),
-                Thumb = LevelBitmap.FromPixels(img, cell, cell),
+                Thumb = img,
+                Size = cell,
                 W = maxX - minX + 1,
                 H = maxY - minY + 1,
             });

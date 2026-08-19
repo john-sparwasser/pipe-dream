@@ -109,6 +109,37 @@ public class SessionTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(0x100, s.Scene!.Grid.Get(6, 6));
     }
 
+    /// <summary>
+    /// Sprite edits have to survive the round trip too, and they used not to. The sprite list
+    /// hung off whichever LevelEdit was current, and an object re-render replaces that — so the
+    /// save read the ROM's PARSE of the level instead of the edited list, and reopening a
+    /// project showed the base ROM's sprites over your own level. The session owns the list now.
+    /// </summary>
+    [Fact]
+    public void sprite_edits_survive_a_save_and_reopen()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+
+        var a = new EditorSession();
+        Assert.True(a.NewProject(Path.Combine(dir, "proj"), Vanilla), a.Status);
+        string pdp = a.Project!.FilePath;
+        a.ShowLevel(0x105);
+        Assert.NotNull(a.Sprites);
+
+        int before = a.Sprites!.Sprites.Sprites.Count;
+        Assert.True(a.Sprites.Place(number: 0x0B, cx: 20, cy: 10));
+        a.RefreshSprites();                      // recompose, as a canvas edit does
+        // The recompose must not have quietly reverted to the ROM's list.
+        Assert.Equal(before + 1, a.Sprites!.Sprites.Sprites.Count);
+        a.Save();
+
+        var b = new EditorSession();
+        Assert.True(b.OpenProject(pdp), b.Status);
+        b.ShowLevel(0x105);
+        Assert.Equal(before + 1, b.Sprites!.Sprites.Sprites.Count);
+        Assert.Contains(b.Sprites.Sprites.Sprites, s => s.Number == 0x0B && s.Cell(false) == (20, 10));
+    }
+
     [Fact]
     public void a_rom_opened_without_a_project_says_so_rather_than_pretending_to_save()
     {

@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The SERVICES layer. Everything the editor DOES lives here: composing a level into pixels,
+    editing objects/sprites/Map16 definitions, building catalogs, and the open/edit/save/build
+    lifecycle.
+
+    It sits between the UI and the ROM. Above it, the Avalonia layer only draws and takes input.
+    Below it, PipeDream is the storage layer — ROM bytes, .pdp files, the patch builder — and is
+    treated the way a web app treats its database: nothing above this project talks to it
+    directly. ArchitectureTests holds that line.
+
+    No UI framework reference, deliberately: if a service needed one, the logic would be sitting
+    in the wrong layer.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>PipeDream.Services</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PipeDream.Ui.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\PipeDream.csproj" />
+  </ItemGroup>
+
+</Project>

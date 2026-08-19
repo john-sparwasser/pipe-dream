@@ -1,4 +1,4 @@
-namespace PipeDream.Ui;
+namespace PipeDream.Services;
 
 /// <summary>
 /// A level composed for display: four animation phases of RGBA pixels, plus everything needed
@@ -27,7 +27,11 @@ public sealed class LevelScene
     public uint[][]?[] BgCaches { get; init; } = new uint[4][][];
     public Map16Grid? Layer2 { get; init; }
     public SpriteData? Sprites { get; init; }
-    public SpriteOverlay? Overlay { get; init; }
+
+    /// <summary>The sprite overlay drawn over layer 1. Settable because an EDITED sprite list
+    /// replaces the ROM's parse: the scene is composed without sprites and the edited overlay
+    /// put in here, so later per-cell recomposes still redraw the right sprites.</summary>
+    public SpriteOverlay? Overlay { get; set; }
     public int VisibleRows { get; init; } = 27;
 
     /// <summary>

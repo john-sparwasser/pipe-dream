@@ -1,4 +1,4 @@
-namespace PipeDream.Ui;
+namespace PipeDream.Services;
 
 /// <summary>
 /// Editing a level's sprite list: place, lasso-select, move, duplicate, delete.

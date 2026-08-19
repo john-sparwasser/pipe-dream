@@ -19,16 +19,25 @@
     <PackageReference Include="Tmds.DBus.Protocol" Version="0.21.3" />
   </ItemGroup>
 
-  <!-- EditorSession is internal because the project layer it wraps is; the UI tests drive
-       the whole open/edit/save/build cycle through it. -->
   <ItemGroup>
     <InternalsVisibleTo Include="PipeDream.Ui.Tests" />
   </ItemGroup>
 
-  <!-- Mid-migration: reference the existing app project for the ROM/level core. Phase 1
-       extracts a real PipeDream.Core library. -->
+  <!--
+    The ONLY project reference: the services layer. This window draws and takes input; it does
+    not open files, read ROM bytes or decide what an edit means. PipeDream (the storage layer)
+    is reachable transitively for the domain records that travel across the boundary — a level
+    header, an object, a sprite — but calling into it from here is a layering violation, and
+    ArchitectureTests fails the build's test run if one appears.
+  -->
   <ItemGroup>
-    <ProjectReference Include="..\..\PipeDream.csproj" />
+    <ProjectReference Include="..\..\services\PipeDream.Services\PipeDream.Services.csproj" />
+  </ItemGroup>
+
+  <!-- Every file in this project talks to the services layer, so it is a global using rather
+       than the same line at the top of twenty files. -->
+  <ItemGroup>
+    <Using Include="PipeDream.Services" />
   </ItemGroup>
 
 </Project>

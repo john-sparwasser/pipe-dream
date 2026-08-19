@@ -1,4 +1,4 @@
-namespace PipeDream.Ui;
+namespace PipeDream.Services;
 
 /// <summary>
 /// Editing a level's layer-1 objects.
@@ -154,15 +154,15 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         // Passing null for both happened to behave, but only by accident.
         Layer2 = Layer2Objects,
         BaseLayer2 = Layer2Objects,
-        Sprites = HydratedSprites ?? Scene.Sprites,
+        // Sprites are NOT filled in here: the sprite list outlives any one LevelEdit (an
+        // object re-render builds a new one), so the session owns it and adds it on the way
+        // to Stash. Reading Scene.Sprites here would report the ROM's parse after the first
+        // sprite edit, which is how sprite edits used to go missing from a save.
     };
 
     /// <summary>The base ROM's layer-2 object stream, or null when layer 2 is a background
     /// image. Parsed once per level; layer-2 editing will make this the live copy.</summary>
     public List<LevelObject>? Layer2Objects { get; private set; }
-
-    /// <summary>Sprites restored from the project, which win over the ROM's parsed list.</summary>
-    public SpriteData? HydratedSprites { get; set; }
 
     /// <summary>Run the tracked render without recording an edit. Needed on every level load:
     /// it produces the per-cell object attribution that selection and hit-testing read, and it
@@ -340,6 +340,16 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         var key = (Scene.Level.Header.Tileset, o.Number);
         if (resizeCache.TryGetValue(key, out var r)) return r;
         return resizeCache[key] = ObjectEngine.ProbeResize(rom, Scene.Level, o.Number);
+    }
+
+    /// <summary>Whether an object can be resized on each axis. Asked as two plain questions so
+    /// the canvas can decide which drag handles to show without knowing that resizability is a
+    /// property of a nibble in the object's third byte.</summary>
+    public (bool W, bool H) CanResize(int index)
+    {
+        if (index < 0 || index >= objects.Count) return (false, false);
+        var rz = ResizeInfo(objects[index]);
+        return (rz.W != ObjectEngine.SizeSrc.None, rz.H != ObjectEngine.SizeSrc.None);
     }
 
     /// <summary>The size a drag would produce, without committing: (x, y, w, h) in cells.

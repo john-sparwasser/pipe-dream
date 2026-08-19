@@ -1,4 +1,4 @@
-namespace PipeDream.Ui;
+namespace PipeDream.Services;
 
 /// <summary>
 /// Editing Map16 tile definitions: each 16x16 tile is four 8x8 quadrant words, written
@@ -11,8 +11,21 @@ namespace PipeDream.Ui;
 /// Writes land in the ROM immediately so later stamps in the same stroke read the new state;
 /// the undo entry and the graphics rebuild are deferred to <see cref="EndStroke"/>.
 /// </summary>
-internal sealed class Map16Edit(Rom rom, int tileset, Project? project)
+public sealed class Map16Edit
 {
+    private readonly Rom rom;
+    private readonly int tileset;
+    private readonly Project? project;
+
+    /// <summary>Internal because the storage types it takes are: the layer above builds one of
+    /// these through <see cref="EditorSession"/>, which owns the ROM and the project.</summary>
+    internal Map16Edit(Rom rom, int tileset, Project? project)
+    {
+        this.rom = rom;
+        this.tileset = tileset;
+        this.project = project;
+    }
+
     /// <summary>Raw word order in the ROM for each visual quadrant (TL, TR, BL, BR).</summary>
     private static readonly int[] RawOfVisual = [0, 2, 1, 3];
 
