@@ -20,9 +20,10 @@
   <Color x:Key="TextDimColor">#8A93A0</Color>
   <Color x:Key="TextFaintColor">#5C6472</Color>
 
-  <!-- one warm accent for "active", one cool for "selected/hover" -->
-  <Color x:Key="AccentColor">#D2691E</Color>
-  <Color x:Key="AccentHoverColor">#E67E33</Color>
+  <!-- One cool accent for "active", a lighter tint for hover, and a brighter cyan for
+       selection rings on the canvas so they read against the artwork. -->
+  <Color x:Key="AccentColor">#2E7FD4</Color>
+  <Color x:Key="AccentHoverColor">#4092E6</Color>
   <Color x:Key="SelectionColor">#4FC1E9</Color>
 
   <SolidColorBrush x:Key="VoidBrush" Color="{StaticResource VoidColor}"/>
@@ -45,13 +46,13 @@
        SolidColorBrush throws InvalidCastException the moment a control resolves the style —
        which is on pointer-over, not at startup, so it looks like a random crash while using
        the app. Keys ending in "Brush" take a brush; the rest take a Color. -->
-  <Color x:Key="SystemAccentColor">#D2691E</Color>
-  <Color x:Key="SystemAccentColorLight1">#E67E33</Color>
-  <Color x:Key="SystemAccentColorLight2">#EE9455</Color>
-  <Color x:Key="SystemAccentColorLight3">#F3AC7C</Color>
-  <Color x:Key="SystemAccentColorDark1">#B4571A</Color>
-  <Color x:Key="SystemAccentColorDark2">#8F4514</Color>
-  <Color x:Key="SystemAccentColorDark3">#6B330F</Color>
+  <Color x:Key="SystemAccentColor">#2E7FD4</Color>
+  <Color x:Key="SystemAccentColorLight1">#4092E6</Color>
+  <Color x:Key="SystemAccentColorLight2">#5FA8EE</Color>
+  <Color x:Key="SystemAccentColorLight3">#87C0F4</Color>
+  <Color x:Key="SystemAccentColorDark1">#2569AF</Color>
+  <Color x:Key="SystemAccentColorDark2">#1D538B</Color>
+  <Color x:Key="SystemAccentColorDark3">#153E68</Color>
 
   <SolidColorBrush x:Key="SystemControlBackgroundAltHighBrush" Color="{StaticResource PanelColor}"/>
 

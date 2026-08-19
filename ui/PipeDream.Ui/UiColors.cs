@@ -1,0 +1,38 @@
+using Avalonia.Media;
+
+namespace PipeDream.Ui;
+
+/// <summary>
+/// Colours for the CODE-DRAWN overlays — selection rings, rubber bands, brush outlines.
+///
+/// The canvases render with a DrawingContext rather than styled controls, so they cannot pick
+/// up Theme.axaml's brushes through styling. Keeping the values here, mirroring that file,
+/// means the artwork's chrome and the window's chrome stay one palette instead of drifting
+/// apart every time one of them is adjusted.
+/// </summary>
+internal static class UiColors
+{
+    /// <summary>"What is active" — matches AccentColor in Theme.axaml.</summary>
+    public static readonly IBrush Accent = new SolidColorBrush(Color.Parse("#2E7FD4"));
+
+    /// <summary>Selection rings on the canvas: a brighter cyan so they read against artwork.</summary>
+    public static readonly IBrush Selection = new SolidColorBrush(Color.Parse("#4FC1E9"));
+
+    /// <summary>A live rubber band, before it settles into a selection.</summary>
+    public static readonly IBrush Band = new SolidColorBrush(Color.Parse("#7FD4F5"));
+
+    /// <summary>Grabbing tiles rather than selecting — deliberately a different hue, because
+    /// the two gestures look identical otherwise and do very different things.</summary>
+    public static readonly IBrush Grab = new SolidColorBrush(Color.Parse("#5FD08A"));
+
+    /// <summary>Where a stamp would land.</summary>
+    public static readonly IBrush Brush = new SolidColorBrush(Color.Parse("#8FD0FF"));
+
+    /// <summary>Translucent fill under a selection ring.</summary>
+    public static readonly IBrush SelectionFill = new SolidColorBrush(Color.FromArgb(0x28, 0x4F, 0xC1, 0xE9));
+
+    /// <summary>Sprites highlight in their own hue: they overlap objects constantly, and one
+    /// colour for both would make a sprite selection unreadable over a selected object.</summary>
+    public static readonly IBrush Sprite = new SolidColorBrush(Color.Parse("#6FE0C0"));
+    public static readonly IBrush SpriteFill = new SolidColorBrush(Color.FromArgb(0x30, 0x6F, 0xE0, 0xC0));
+}

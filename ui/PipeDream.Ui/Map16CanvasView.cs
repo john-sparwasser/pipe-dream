@@ -228,18 +228,18 @@ public class Map16CanvasView : Control
         {
             int rx = Math.Min(s0.Col, s1.Col), ry = Math.Min(s0.Row, s1.Row);
             int rw = Math.Abs(s1.Col - s0.Col) + 1, rh = Math.Abs(s1.Row - s0.Row) + 1;
-            ctx.DrawRectangle(null, new Pen(Brushes.Cyan, 1.5), Cells(rx, ry, rw, rh, ts));
+            ctx.DrawRectangle(null, new Pen(UiColors.Band, 1.5), Cells(rx, ry, rw, rh, ts));
         }
         if (Selection is { } sel)
         {
             var r = Cells(sel.X, sel.Y, sel.W, sel.H, ts);
-            ctx.FillRectangle(new SolidColorBrush(Color.FromArgb(0x20, 0x00, 0x80, 0xFF)), r);
-            ctx.DrawRectangle(null, new Pen(Brushes.DodgerBlue, 2), r);
+            ctx.FillRectangle(UiColors.SelectionFill, r);
+            ctx.DrawRectangle(null, new Pen(UiColors.Selection, 2), r);
         }
         else if (SelectedTile / Map16Layout.BankTiles == Bank)
         {
             int idx = SelectedTile % Map16Layout.BankTiles;
-            ctx.DrawRectangle(null, new Pen(Brushes.Cyan, 2),
+            ctx.DrawRectangle(null, new Pen(UiColors.Selection, 2),
                               Cells(idx % Map16Layout.Cols, idx / Map16Layout.Cols, 1, 1, ts));
         }
 
@@ -248,7 +248,7 @@ public class Map16CanvasView : Control
         if (HoverQuad is not null && IsPointerOver)
         {
             double qs = QuadSize;
-            ctx.DrawRectangle(null, new Pen(Brushes.Yellow, 1.5),
+            ctx.DrawRectangle(null, new Pen(UiColors.Brush, 1.5),
                               new Rect(brushOrigin.X, brushOrigin.Y, BrushW * qs, BrushH * qs));
         }
     }

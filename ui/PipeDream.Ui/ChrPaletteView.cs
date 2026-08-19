@@ -113,7 +113,7 @@ public class ChrPaletteView : Control
         ctx.FillRectangle(Brushes.Black, full);
         if (sheet is not null) ctx.DrawImage(sheet, new Rect(0, 0, 128, 512), full);
 
-        ctx.DrawRectangle(null, new Pen(Brushes.Orange, 2),
+        ctx.DrawRectangle(null, new Pen(UiColors.Accent, 2),
                           new Rect(Brush.X * c, Brush.Y * c, Brush.W * c, Brush.H * c));
     }
 }

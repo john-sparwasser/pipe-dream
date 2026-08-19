@@ -372,8 +372,8 @@ public class LevelView : Control
         {
             // Sprites highlight over their whole PIXEL display, not their spawn cell — the
             // cell is often nowhere near what you can see.
-            var fill = new SolidColorBrush(Color.FromArgb(0x30, 0x00, 0xFF, 0x00));
-            var pen = new Pen(Brushes.Lime, 2);
+            var fill = UiColors.SpriteFill;
+            var pen = new Pen(UiColors.Sprite, 2);
             foreach (int i in spv.Selection)
             {
                 if (i >= spv.Sprites.Sprites.Count) continue;
@@ -381,12 +381,12 @@ public class LevelView : Control
                 ctx.DrawRectangle(fill, pen, PixelRect(x0, y0, x1 - x0, y1 - y0, z));
             }
             if (PixelBand is { } pb)
-                ctx.DrawRectangle(null, new Pen(Brushes.Cyan, 1.5), PixelRect(pb.X, pb.Y, pb.W, pb.H, z));
+                ctx.DrawRectangle(null, new Pen(UiColors.Band, 1.5), PixelRect(pb.X, pb.Y, pb.W, pb.H, z));
         }
         // Selection: the object's real footprint, from the tracked render.
         else if (Edit is { } ed)
         {
-            var pen = new Pen(Brushes.DodgerBlue, 1.5);
+            var pen = new Pen(UiColors.Selection, 1.5);
             foreach (int i in ed.Selection)
                 if (ed.BBox(i) is { } b) ctx.DrawRectangle(null, pen, CellRect(b.X, b.Y, b.W, b.H, z));
         }
@@ -394,13 +394,13 @@ public class LevelView : Control
         // Resize preview while dragging an edge, then handles on a lone idle selection.
         if (resizeDrag is { } rd && bandEnd is { } rc && Edit is { } re
             && re.PreviewResize(rd.Obj, rd.Edges, rc.X - rd.Cx, rc.Y - rd.Cy) is { } pv)
-            ctx.DrawRectangle(null, new Pen(Brushes.DodgerBlue, 1.5), CellRect(pv.X, pv.Y, pv.W, pv.H, z));
+            ctx.DrawRectangle(null, new Pen(UiColors.Selection, 1.5), CellRect(pv.X, pv.Y, pv.W, pv.H, z));
         else if (Edit is { Selection.Count: 1 } he && bandStart is null && moveStart is null)
             DrawHandles(ctx, he, z);
 
         // Rubber band: cyan while selecting, green while grabbing tiles — the ImGui colours.
         if (Band is { } band && (bandStart is not null || moveStart is not null))
-            ctx.DrawRectangle(null, new Pen(grabbing ? Brushes.Lime : Brushes.Cyan, 1.5),
+            ctx.DrawRectangle(null, new Pen(grabbing ? UiColors.Grab : UiColors.Band, 1.5),
                               CellRect(band.X, band.Y, band.W, band.H, z));
 
         // Hover shows the BRUSH footprint, not a single cell — with a multi-tile brush the
@@ -427,7 +427,7 @@ public class LevelView : Control
         if (!wOk && !hOk) return;
 
         var r = CellRect(b.X, b.Y, b.W, b.H, z);
-        var fill = Brushes.DodgerBlue;
+        var fill = UiColors.Selection;
         var edge = new Pen(Brushes.Black);
         void Knob(double x, double y)
             => ctx.DrawRectangle(fill, edge, new Rect(x - 3, y - 3, 6, 6));

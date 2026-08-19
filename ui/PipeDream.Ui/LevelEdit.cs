@@ -148,10 +148,18 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
     public LevelEditState EditState() => new()
     {
         Layer1 = [.. objects],
-        Layer2 = Scene.Layer2 is null ? null : baseLayer2,
-        BaseLayer2 = baseLayer2,
+        // Layer 2 is not editable here yet, so the live stream IS the base stream. Reporting
+        // both honestly matters: Stash records layer 2 only when the two DIFFER, and a null
+        // base with a non-null live list is what marks a background-to-objects conversion.
+        // Passing null for both happened to behave, but only by accident.
+        Layer2 = Layer2Objects,
+        BaseLayer2 = Layer2Objects,
         Sprites = HydratedSprites ?? Scene.Sprites,
     };
+
+    /// <summary>The base ROM's layer-2 object stream, or null when layer 2 is a background
+    /// image. Parsed once per level; layer-2 editing will make this the live copy.</summary>
+    public List<LevelObject>? Layer2Objects { get; private set; }
 
     /// <summary>Sprites restored from the project, which win over the ROM's parsed list.</summary>
     public SpriteData? HydratedSprites { get; set; }
@@ -159,11 +167,11 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
     /// <summary>Run the tracked render without recording an edit. Needed on every level load:
     /// it produces the per-cell object attribution that selection and hit-testing read, and it
     /// puts a project-hydrated level's own objects on screen instead of the ROM's parse.</summary>
-    public void Rerender() => Reconcile();
-
-    /// <summary>Layer-2 objects are not editable here yet; carrying the base stream through
-    /// unchanged is what keeps Stash from recording an edit that never happened.</summary>
-    private List<LevelObject>? baseLayer2;
+    public void Rerender()
+    {
+        Layer2Objects ??= LevelParser.ParseLayer2(rom, Scene.Level.Number);
+        Reconcile();
+    }
 
     private void Replace(List<LevelObject> next)
     {
