@@ -1,8 +1,9 @@
 # Portability and distribution
 
 The editor is platform-agnostic by construction: file pickers are the platform's own (through
-Avalonia's `StorageProvider`), config lives in the platform's per-user config area, and there is
-no P/Invoke, Win32 or registry code anywhere in the source — the only Windows-specific code is
+Avalonia's `StorageProvider`), and config lives in the platform's per-user config area. There is
+exactly one piece of Windows-specific code in the app — `Program.AttachParentConsole`, six lines
+guarded by `OperatingSystem.IsWindows()`, explained under "One executable" below — plus
 `install/install.ps1`. What is Windows-only today is the *packaging*, not the app.
 
 ## What can be shipped
@@ -42,12 +43,18 @@ were simply unavailable. Nothing in the app ever needed them; the dependency did
 `notarytool` need real macOS and AppImage tooling wants Linux — so releases want a
 three-runner CI matrix rather than one machine. Each self-contained payload is ~85 MB.
 
-## The two executables
+## One executable, two halves
 
-- `ui/PipeDream.Ui` — the editor. This is what `install/` ships.
-- `PipeDream.csproj` — the command-line ROM toolbelt (`--selfcheck`, `--diff`, `--render`,
-  headless project create/build). Headless by construction, which is what lets CI run it;
-  it is a developer tool and is deliberately not part of the install.
+`ui/PipeDream.Ui` is the whole application. Run it plainly and it opens the editor; run it with
+`--headless`, or with any command flag, and it runs the ROM toolbelt instead (`--selfcheck`,
+`--diff`, `--render`, headless project create and build — the things CI uses). `PipeDream.csproj`
+and `services/PipeDream.Services` are libraries.
+
+That costs one piece of platform-specific code, in `Program.AttachParentConsole`. A Windows
+GUI-subsystem binary gets no console, so a command would run and print nothing; it borrows the
+launching terminal's console instead. The alternative — a console-subsystem binary — would flash
+a console window every time someone opens the editor, which is the worse trade. Unix has no
+subsystem distinction and skips it entirely.
 
 ## Platform-dependent code
 

@@ -245,6 +245,31 @@ public sealed class EditorSession
     /// <summary>Whether a path is worth trying to open (the picker can hand back anything).</summary>
     public static bool FileExists(string? path) => path is not null && File.Exists(path);
 
+    // ---- command line ----
+    // The ROM tools run in the same executable as the editor. They are storage-layer work, so
+    // they are reached through here rather than from the window: the presentation layer stays
+    // unable to call storage, and the process entry point stays a composition root.
+
+    /// <summary>The switch that forces command-line mode with no command to run — it prints the
+    /// available ones. A recognised command implies it, so both spellings work.</summary>
+    public const string HeadlessSwitch = "--headless";
+
+    /// <summary>Whether these arguments mean "do not open a window".</summary>
+    public static bool IsCommandLine(string[] args)
+        => args.Contains(HeadlessSwitch) || DebugCommands.Names.Any(args.Contains);
+
+    /// <summary>Run the ROM command in <paramref name="args"/> and return its exit code, or
+    /// print what is available when only the switch was given.</summary>
+    public static int RunCommandLine(string[] args)
+    {
+        if (DebugCommands.TryDispatch(args) is { } code) return code;
+        Console.Error.WriteLine("pipe-dream — ROM tools\n");
+        Console.Error.WriteLine("Commands:");
+        foreach (string name in DebugCommands.Names) Console.Error.WriteLine("  " + name);
+        Console.Error.WriteLine($"\nWithout {HeadlessSwitch} or one of these, the editor opens.");
+        return 1;
+    }
+
     /// <summary>Recently opened projects, most recent first, with any that have been moved or
     /// deleted pruned — offering a menu entry that cannot open is worse than a short list.</summary>
     public IReadOnlyList<string> RecentProjects

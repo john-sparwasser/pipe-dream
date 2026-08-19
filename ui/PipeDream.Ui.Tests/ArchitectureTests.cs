@@ -120,6 +120,25 @@ public class ArchitectureTests(ITestOutputHelper log)
                                       || d.Contains("ImGui"));
     }
 
+    /// <summary>
+    /// The command line runs in the SAME executable as the editor, so the rule that the
+    /// presentation layer cannot call storage has to survive that: the entry point asks the
+    /// services layer to run a command rather than reaching for the ROM tools itself.
+    /// </summary>
+    [Fact]
+    public void the_command_line_goes_through_the_services_layer()
+    {
+        string program = File.ReadAllText(Path.Combine(Root(), "ui", "PipeDream.Ui", "Program.cs"));
+        Assert.Contains("EditorSession.RunCommandLine", program);
+        Assert.DoesNotContain("DebugCommands", program);
+
+        // And both spellings work: the switch alone, or any command flag.
+        Assert.True(EditorSession.IsCommandLine([EditorSession.HeadlessSwitch]));
+        Assert.True(EditorSession.IsCommandLine(["--selfcheck"]));
+        Assert.False(EditorSession.IsCommandLine([]));
+        Assert.False(EditorSession.IsCommandLine([@"C:\some\rom.smc", "105"]));
+    }
+
     /// <summary>And the UI's only project reference is the services layer, so a new file cannot
     /// quietly acquire the storage layer as a direct dependency.</summary>
     [Fact]

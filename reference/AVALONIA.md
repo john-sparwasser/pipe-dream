@@ -138,7 +138,8 @@ There was never a broken editor.
   entrances, background picker, GFX browser, ROM info, first run, base-ROM recovery — all
   ordinary windows, and all smaller than what they replaced.
 - ~~**Phase 7 — delete.**~~ **Done.** Foster, ImGui.NET and the 28 UI files are gone.
-  `PipeDream.csproj` stays an executable but only for the command-line ROM tools; `install/`
+  `PipeDream.csproj` and the services layer are libraries; the single executable is the editor,
+  which runs the ROM tools instead when given `--headless` or a command flag. `install/`
   publishes `ui/PipeDream.Ui`.
 
 One deliberate omission: the old GFX Viewer could inspect a file at an arbitrary bit depth

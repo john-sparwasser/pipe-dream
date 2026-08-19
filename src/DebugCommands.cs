@@ -43,12 +43,9 @@ static class DebugCommands
         return null;
     }
 
-    /// <summary>List the flags, for the no-arguments case. The table IS the documentation, so
-    /// there is nothing here to fall out of date with it.</summary>
-    public static void PrintUsage()
-    {
-        foreach (var (flag, _) in Commands) Console.Error.WriteLine("  " + flag);
-    }
+    /// <summary>Every command flag. The table IS the documentation, so nothing derived from it
+    /// can fall out of date with it.</summary>
+    public static IEnumerable<string> Names => Commands.Select(c => c.Flag);
 
     // --selfcheck : run the ROM self-check suite (exit code = failures).
     public static int SelfCheck() => RomSelfCheck.Run();
