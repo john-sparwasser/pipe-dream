@@ -1,0 +1,63 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    pipe-dream, whole. One assembly, organised by layer:
+
+      (here)      Program, App — what actually starts, plus the command-line tools
+      ui/         windows, views, canvases: draws and takes input, owns nothing
+      services/   what the editor DOES — composition, editing, catalogs, the save cycle
+      rom/        the SNES/SMW formats: levels, Map16, GFX, sprites, prep, Lunar Magic
+      data/       the project file, config, and the ROM builder — the storage layer
+      tests/      its own project; excluded below
+
+    The layering is real even though the assembly is single: the UI goes through
+    EditorSession rather than touching a Rom or a Project, and ArchitectureTests reads these
+    folders and fails the build's test run when that slips. Being one assembly means the
+    compiler no longer helps, so that test is the whole enforcement — keep it green.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>PipeDream</AssemblyName>
+    <RootNamespace>PipeDream</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\assets\pipe-dream.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <!-- The tests are their own project living inside this tree; keep them out of the app. -->
+  <ItemGroup>
+    <Compile Remove="tests\**\*.cs" />
+    <None Remove="tests\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.11" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.11" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.11" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.11" />
+    <PackageReference Include="Tmds.DBus.Protocol" Version="0.21.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PipeDream.Tests" />
+  </ItemGroup>
+
+  <!-- Every UI file talks to the services layer, so it is a global using rather than the same
+       line at the top of thirty files. The rom and data layers sit in namespace PipeDream and
+       need nothing. -->
+  <ItemGroup>
+    <Using Include="PipeDream.Services" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="data\SpriteDisplay.json" LogicalName="SpriteDisplay.json"
+                      Condition="Exists('data\SpriteDisplay.json')" />
+    <!-- The window icon, which is a runtime resource rather than the exe's. -->
+    <AvaloniaResource Include="..\assets\pipe-icon-64.png" Link="assets/pipe-icon-64.png" />
+  </ItemGroup>
+
+</Project>

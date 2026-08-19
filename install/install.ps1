@@ -24,7 +24,7 @@ $exe     = Join-Path $target 'PipeDream.exe'
 
 if (-not $SkipPublish) {
     Write-Host 'Publishing self-contained build...'
-    & dotnet publish (Join-Path $repo 'ui/PipeDream.Ui/PipeDream.Ui.csproj') `
+    & dotnet publish (Join-Path $repo 'src/PipeDream.csproj') `
         -c Release -r win-x64 --self-contained true `
         -p:PublishSingleFile=false -o $publish | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed ($LASTEXITCODE)" }

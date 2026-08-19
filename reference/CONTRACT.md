@@ -727,7 +727,7 @@ offset 0x4D80), $7D00-$ACFF converted blob1. Overlay resolves >= $7D00 from blob
 ## 13. Object expansion via emulation  [IMPLEMENTED — vanilla-layout ROMs]
 
 Instead of hand-porting every bank-0D handler, the editor EXECUTES the ROM's own
-`LoadLevelData` ($0585FF) in a small 65816 interpreter (src/Rom/Cpu65816.cs): RAM banks
+`LoadLevelData` ($0585FF) in a small 65816 interpreter (src/rom/Cpu65816.cs): RAM banks
 $7E/$7F emulated, low-RAM mirror for banks 00-3F/80-BF, ROM via LoROM map, PPU writes
 ignored. Setup: planes filled 0x25/0x00, $65-$67 = layer data (+5), $1925/$1931/$1930/
 $192B from the header, $5B from VerticalTable, $1933 = layer. Result read back through
@@ -821,7 +821,7 @@ as it relocates). $109587 (= $109278 + 0x105*3) was the level-0x105 entry. So th
 chain is: `ReadValue($109278 + level*3, 3)` → record → §12e fields → frame src `$7D00 +
 (tile-0x600)*0x20`.
 
-IMPLEMENTED: ExAnimation.ReadLevel / ParseSlots (src/Rom/ExAnimation.cs) + `--exanim` dump;
+IMPLEMENTED: ExAnimation.ReadLevel / ParseSlots (src/rom/ExAnimation.cs) + `--exanim` dump;
 record header confirmed by the $108700 level-setup reader (LDA $109278,X): +0 = slot count,
 +2/+4 = AND/OR masks into $7FC0FC, +6 = 16-bit selector filling $7FC070, and it sets
 $7FC000 = record+8 = the slot array. Per-slot (slot-relative): +0/+2 unknown words, +4 =

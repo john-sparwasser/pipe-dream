@@ -5,11 +5,11 @@ namespace PipeDream.Tests;
 /// <summary>Layer-2 object editing (CONTRACT §10). Layer 2 uses the same stream format as
 /// layer 1 but a different destination plane, and the pointer's BANK is what selects object
 /// mode versus background image — so the mode and the data are the same decision.</summary>
-public class Layer2Tests : IDisposable
+public class Layer2StreamTests : IDisposable
 {
     private readonly string dir = Path.Combine(Path.GetTempPath(), "pdl2-" + Guid.NewGuid().ToString("N")[..8]);
 
-    public Layer2Tests() => Directory.CreateDirectory(dir);
+    public Layer2StreamTests() => Directory.CreateDirectory(dir);
     public void Dispose() { try { Directory.Delete(dir, recursive: true); } catch { } }
 
     [Fact]

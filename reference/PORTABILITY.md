@@ -8,8 +8,8 @@ guarded by `OperatingSystem.IsWindows()`, explained under "One executable" below
 
 ## What can be shipped
 
-The native surface is Avalonia 11.3.11 (`ui/PipeDream.Ui`); the storage and services layers are
-pure managed code. Avalonia ships natives for every desktop RID that matters:
+The native surface is Avalonia 11.3.11; everything else is pure managed code. Avalonia ships
+natives for every desktop RID that matters:
 
 | Target          | Avalonia | Ship? |
 |-----------------|----------|-------|
@@ -45,12 +45,24 @@ three-runner CI matrix rather than one machine. Each self-contained payload is ~
 
 ## One executable, two halves
 
-`ui/PipeDream.Ui` is the whole application and builds `PipeDream.exe` — the app is what ships, so
-the shipped artifact carries the app's name; the project keeps the layer's, because with three
-projects side by side "which layer" is the useful thing to read off a folder. Run it plainly and
-it opens the editor; run it with `--headless`, or with any command flag, and it runs the ROM
-toolbelt instead (`--selfcheck`, `--diff`, `--render`, headless project create and build — the
-things CI uses). `PipeDream.Storage` and `services/PipeDream.Services` are libraries.
+`src/PipeDream.csproj` is the whole application — one assembly, organised into layer folders:
+
+```
+src/            Program, App, and the command-line tools
+src/ui/         windows, views, canvases
+src/services/   composition, editing, the open/edit/save/build cycle
+src/rom/        the SNES/SMW formats
+src/data/       the project file, config, the ROM builder
+src/tests/      its own project, excluded from the app
+```
+
+Run it plainly and it opens the editor; run it with `--headless`, or with any command flag, and
+it runs the ROM toolbelt instead (`--selfcheck`, `--diff`, `--render`, headless project create
+and build — the things CI uses).
+
+Being one assembly means the layer boundary has no compiler behind it any more, so
+`ArchitectureTests` is the entire enforcement: it reads these folders and fails when the UI calls
+storage, when a service references Avalonia, or when storage calls upward.
 
 That costs one piece of platform-specific code, in `Program.AttachParentConsole`. A Windows
 GUI-subsystem binary gets no console, so a command would run and print nothing; it borrows the

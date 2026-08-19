@@ -7,7 +7,7 @@
       <ResourceDictionary.MergedDictionaries>
         <!-- avares:// addresses the ASSEMBLY, which is PipeDream even though the project is
              PipeDream.Ui — renaming one without the other is a build error, not a silent miss. -->
-        <ResourceInclude Source="avares://PipeDream/Theme.axaml"/>
+        <ResourceInclude Source="avares://PipeDream/ui/Theme.axaml"/>
       </ResourceDictionary.MergedDictionaries>
     </ResourceDictionary>
   </Application.Resources>

@@ -32,21 +32,13 @@ public class ControlParityTests(ITestOutputHelper log)
         Environment.GetEnvironmentVariable("PIPEDREAM_SMW_ROOT") ?? @"C:\SMW\Projects",
         ".resources", "SMW.smc");
 
-    private static readonly Lazy<string?> Prepped = new(() =>
-    {
-        if (!File.Exists(RomPath)) return null;
-        string tmp = Path.Combine(Path.GetTempPath(), "pdui-prepped.smc");
-        if (!File.Exists(tmp))
-        {
-            File.Copy(RomPath, tmp, overwrite: true);
-            if (RomPrep.PrepInPlace(tmp) is not null) return null;
-        }
-        return tmp;
-    });
+    /// <summary>The shared prepped ROM (see PreppedRom): prep is expensive and a private copy
+    /// per class raced once the tests became one assembly.</summary>
+    private static string? Prepped => PreppedRom.Path;
 
     private static (MainWindow W, LevelView C)? Open()
     {
-        if (Prepped.Value is not { } path) return null;
+        if (Prepped is not { } path) return null;
         Program.RomPath = path;
         var w = new MainWindow();
         w.Show();

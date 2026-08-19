@@ -16,27 +16,10 @@ public class Map16PropsTests(ITestOutputHelper log)
         Environment.GetEnvironmentVariable("PIPEDREAM_SMW_ROOT") ?? @"C:\SMW\Projects",
         ".resources", "SMW.smc");
 
-    private static readonly Lazy<string?> Prepped = new(() =>
-    {
-        if (!File.Exists(RomPath)) return null;
-        string tmp = Path.Combine(Path.GetTempPath(), "pdui-m16props.smc");
-        if (!File.Exists(tmp))
-        {
-            File.Copy(RomPath, tmp, overwrite: true);
-            if (RomPrep.PrepInPlace(tmp) is not null) return null;
-        }
-        return tmp;
-    });
-
-    /// <summary>A fresh ROM copy per test: these write definitions and acts-like entries, and a
-    /// shared one would make the order of the tests matter.</summary>
+    /// <summary>A fresh prepped copy per test: these write definitions and acts-like entries,
+    /// and a shared ROM would make the order of the tests matter.</summary>
     private static Map16Edit? Edit()
-    {
-        if (Prepped.Value is not { } p) return null;
-        string mine = Path.Combine(Path.GetTempPath(), $"pdui-m16-{Guid.NewGuid():N}.smc");
-        File.Copy(p, mine, overwrite: true);
-        return new Map16Edit(Rom.Load(mine), tileset: 1, project: null);
-    }
+        => PreppedRom.Fork() is { } mine ? new Map16Edit(Rom.Load(mine), tileset: 1, project: null) : null;
 
     [Fact]
     public void a_palette_change_applies_to_every_selected_tile_as_one_undo_step()

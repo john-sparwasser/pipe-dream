@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Every test, in one project — because the app is one assembly now, so a split between "core"
+    and "UI" tests would no longer draw a line around anything. Avalonia comes along for the
+    ride: the headless harness boots a real visual tree with no window, which is what makes the
+    window testable at all.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <PackageReference Include="Avalonia.Headless.XUnit" Version="11.3.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PipeDream.csproj" />
+  </ItemGroup>
+
+  <!--
+    The tests reach both layers by name, so a global using each saves repeating them everywhere.
+    PipeDream.Tests is in the list because the files here still carry two namespaces from when
+    they were two projects — PipeDream.Tests and PipeDream.Ui.Tests — and neither encloses the
+    other, so a shared fixture is invisible to half of them without this.
+  -->
+  <ItemGroup>
+    <Using Include="PipeDream.Services" />
+    <Using Include="PipeDream.Tests" />
+  </ItemGroup>
+
+</Project>

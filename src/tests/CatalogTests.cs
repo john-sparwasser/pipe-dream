@@ -26,21 +26,13 @@ public class CatalogTests(ITestOutputHelper log)
         Environment.GetEnvironmentVariable("PIPEDREAM_SMW_ROOT") ?? @"C:\SMW\Projects",
         ".resources", "SMW.smc");
 
-    private static readonly Lazy<string?> Prepped = new(() =>
-    {
-        if (!File.Exists(RomPath)) return null;
-        string tmp = Path.Combine(Path.GetTempPath(), "pdui-prepped.smc");
-        if (!File.Exists(tmp))
-        {
-            File.Copy(RomPath, tmp, overwrite: true);
-            if (RomPrep.PrepInPlace(tmp) is not null) return null;
-        }
-        return tmp;
-    });
+    /// <summary>The shared prepped ROM (see PreppedRom): prep is expensive and a private copy
+    /// per class raced once the tests became one assembly.</summary>
+    private static string? Prepped => PreppedRom.Path;
 
     private static (MainWindow W, LevelView C)? Open()
     {
-        if (Prepped.Value is not { } path) return null;
+        if (Prepped is not { } path) return null;
         Program.RomPath = path;
         var w = new MainWindow();
         w.Show();
@@ -67,7 +59,7 @@ public class CatalogTests(ITestOutputHelper log)
     [Fact]
     public void the_sprite_catalog_is_drawn_with_this_levels_own_graphics()
     {
-        if (Prepped.Value is not { } path) { log.WriteLine("SKIP: no ROM"); return; }
+        if (Prepped is not { } path) { log.WriteLine("SKIP: no ROM"); return; }
         var rom = Rom.Load(path);
         var scene = LevelScene.Build(rom, 0x105);
 
@@ -90,7 +82,7 @@ public class CatalogTests(ITestOutputHelper log)
     [Fact]
     public void the_object_catalog_lists_only_objects_that_draw_something_here()
     {
-        if (Prepped.Value is not { } path) { log.WriteLine("SKIP: no ROM"); return; }
+        if (Prepped is not { } path) { log.WriteLine("SKIP: no ROM"); return; }
         var rom = Rom.Load(path);
         var scene = LevelScene.Build(rom, 0x105);
 

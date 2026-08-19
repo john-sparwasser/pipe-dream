@@ -21,7 +21,7 @@ namespace PipeDream.Ui.Tests;
 /// differs is the render layer and which of the scene's grids the result replaces — mixing those
 /// up would paint layer-2 edits onto layer 1.
 /// </summary>
-public class Layer2Tests(ITestOutputHelper log) : IDisposable
+public class Layer2EditingTests(ITestOutputHelper log) : IDisposable
 {
     private readonly ITestOutputHelper log = log;
     private readonly string dir = Path.Combine(Path.GetTempPath(), "pduil2-" + Guid.NewGuid().ToString("N")[..8]);

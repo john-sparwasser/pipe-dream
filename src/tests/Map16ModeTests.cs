@@ -23,21 +23,13 @@ public class Map16ModeTests(ITestOutputHelper log)
         Environment.GetEnvironmentVariable("PIPEDREAM_SMW_ROOT") ?? @"C:\SMW\Projects",
         ".resources", "SMW.smc");
 
-    private static readonly Lazy<string?> Prepped = new(() =>
-    {
-        if (!File.Exists(RomPath)) return null;
-        string tmp = Path.Combine(Path.GetTempPath(), "pdui-prepped.smc");
-        if (!File.Exists(tmp))
-        {
-            File.Copy(RomPath, tmp, overwrite: true);
-            if (RomPrep.PrepInPlace(tmp) is not null) return null;
-        }
-        return tmp;
-    });
+    /// <summary>The shared prepped ROM (see PreppedRom): prep is expensive and a private copy
+    /// per class raced once the tests became one assembly.</summary>
+    private static string? Prepped => PreppedRom.Path;
 
     private static (Rom Rom, Map16Edit Edit)? Edit()
     {
-        if (Prepped.Value is not { } p) return null;
+        if (Prepped is not { } p) return null;
         var rom = Rom.Load(p);
         return (rom, new Map16Edit(rom, tileset: 1, project: null));
     }
@@ -186,7 +178,7 @@ public class Map16ModeTests(ITestOutputHelper log)
     [AvaloniaFact]
     public void the_map16_mode_swaps_both_the_canvas_and_the_drawer()
     {
-        if (Prepped.Value is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        if (Prepped is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
         Program.RomPath = p;
         var w = new MainWindow();
         w.Show();

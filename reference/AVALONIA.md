@@ -4,7 +4,8 @@ Status: **Phase 0 done and green — the approach is viable.** Written 2026-08-1
 
 ## Phase 0 results (measured, not estimated)
 
-Avalonia 11.3.11, `ui/PipeDream.Ui` (spike shell) + `ui/PipeDream.Ui.Tests` (headless).
+Avalonia 11.3.11, a spike shell project plus a headless test project. (Both later folded into
+`src/` — see the epilogue.)
 
 **(a) Canvas cost — the thing that could have killed it.** Level `$105` is 8192x432px,
 **13.5 MB per animation phase**, the widest SMW can express:
@@ -112,9 +113,9 @@ There was never a broken editor.
 
   | layer | project | what it is |
   |---|---|---|
-  | presentation | `ui/PipeDream.Ui` | draws, takes input, owns nothing |
-  | services | `services/PipeDream.Services` | composition, editing, catalogs, the open/edit/save/build cycle |
-  | storage | `PipeDream.Storage` (`src/`) | ROM bytes, `.pdp` files, the patch builder — the editor's database |
+  | presentation | `ui/` | draws, takes input, owns nothing |
+  | services | `services/` | composition, editing, catalogs, the open/edit/save/build cycle |
+  | storage | `rom/` + `data/` | ROM bytes, `.pdp` files, the patch builder — the editor's database |
 
   Same effect, smaller move: `src/Rom` never needed relocating, only a layer that stops the UI
   reaching it. The UI's single project reference is the services layer, storage internals are
@@ -180,3 +181,30 @@ that — `BankSheet` returns no texture and the callers skip the blit). That buy
 UI tests for a fraction of a migration.
 
 Choose Avalonia for the other four reasons, not for testability alone.
+
+---
+
+## Epilogue: the tree it ended up in
+
+The migration ran with three projects side by side — that is what let the two editors coexist
+while one was built. Once the ImGui one was gone the split had done its job, and the tree was
+flattened into a single project organised by layer:
+
+```
+src/
+  PipeDream.csproj    the whole app, one assembly
+  Program.cs  App.axaml  App.axaml.cs  DebugCommands.cs
+  ui/         windows, views, canvases
+  services/   composition, editing, catalogs, the session
+  rom/        the SNES/SMW formats
+  data/       project file, config, ROM builder
+  tests/      its own project
+```
+
+Namespaces did not move with the folders — storage code is still `namespace PipeDream`, the UI
+still `PipeDream.Ui` — so the flattening changed no source file.
+
+What it did cost is worth stating plainly: with separate assemblies, half the layer boundary was
+enforced by the compiler, because storage internals simply were not visible to the UI. One
+assembly gives that up. `ArchitectureTests` is now the whole enforcement, which is why it grew a
+check that storage does not call upward — a rule that used to be free.

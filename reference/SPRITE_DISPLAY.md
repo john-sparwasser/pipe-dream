@@ -1,10 +1,10 @@
 # SpriteDisplay.json — sprite display spec
 
-`src/Data/SpriteDisplay.json` (embedded resource, logical name `SpriteDisplay.json`)
+`src/data/SpriteDisplay.json` (embedded resource, logical name `SpriteDisplay.json`)
 defines how every sprite is DISPLAYED in the editor: the level canvas overlay, the
 Sprites-tab catalog thumbnails, and the "Loaded only" GFX filter. It is designed to be
 **hand-edited** — fix a sprite's tiles by eye, add a hitbox, rename — and is loaded by
-`SpriteDisplay` (src/Rom/SpriteDisplay.cs).
+`SpriteDisplay` (src/rom/SpriteDisplay.cs).
 
 Regenerate from a clean ROM with:
 
