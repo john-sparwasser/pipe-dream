@@ -46,29 +46,6 @@ internal sealed class GfxBrowser(EditorApp app, GraphicsDevice gd, ImGuiLayer im
     /// <summary>Thumbnails are stale (a file's pixels or the palette changed).</summary>
     internal void Invalidate() => rebuild = true;
 
-    /// <summary>Files to list, in id order: imported ExGFX first, then stock when asked.
-    /// Static and ROM-only so the filter rule is testable without a graphics device.</summary>
-    internal static List<int> Candidates(Rom rom, bool includeStock, string filter)
-    {
-        var ids = new List<int>(rom.ImportedGfx.Keys);
-        if (includeStock)
-            for (int f = 0; f < 0x34; f++)
-                if (!rom.ImportedGfx.ContainsKey(f)) ids.Add(f);
-        ids.Sort();
-        if (filter.Length == 0) return ids;
-        return ids.Where(id => Matches(rom, id, filter)).ToList();
-    }
-
-    /// <summary>A file matches when the filter appears anywhere in its NAME, or PREFIXES its
-    /// hex id — so "grass" finds it by name and "10" finds $100-$10F. Ids deliberately are not
-    /// substring-matched: a one-letter filter like "a" would otherwise drag in $00A, $01A,
-    /// $02A… by coincidence. Both spellings of the id are tried so "a" still finds $00A.</summary>
-    internal static bool Matches(Rom rom, int id, string filter) =>
-        (rom.GfxName(id) is { Length: > 0 } n &&
-         n.Contains(filter, StringComparison.OrdinalIgnoreCase)) ||
-        id.ToString("X").StartsWith(filter, StringComparison.OrdinalIgnoreCase) ||
-        id.ToString("X3").StartsWith(filter, StringComparison.OrdinalIgnoreCase);
-
     internal void Draw()
     {
         if (!show) return;
@@ -86,7 +63,7 @@ internal sealed class GfxBrowser(EditorApp app, GraphicsDevice gd, ImGuiLayer im
         ImGui.SameLine();
         ImGui.Checkbox("include stock GFX", ref showStock);
 
-        var ids = Candidates(rom, showStock, filter);
+        var ids = Gfx.Candidates(rom, showStock, filter);
         ImGui.Separator();
         if (ids.Count == 0)
             ImGui.TextDisabled(rom.ImportedGfx.Count == 0
@@ -139,7 +116,7 @@ internal sealed class GfxBrowser(EditorApp app, GraphicsDevice gd, ImGuiLayer im
                 // Stock files have no name to show beyond their id — vanilla ships no label
                 // table, and inventing one would be guesswork.
             }
-            ImGui.TextDisabled(Describe(rom, id));
+            ImGui.TextDisabled(Gfx.Describe(rom, id));
             ImGui.EndGroup();
             ImGui.Separator();
             ImGui.PopID();
@@ -158,13 +135,6 @@ internal sealed class GfxBrowser(EditorApp app, GraphicsDevice gd, ImGuiLayer im
             return;
         }
         ImGui.EndPopup();
-    }
-
-    private static string Describe(Rom rom, int id)
-    {
-        int bpp = Gfx.RomBpp(rom);
-        if (Gfx.Cached(rom, id) is not { } d) return "(empty)";
-        return $"{d.Length / Gfx.TileBytes(bpp)} tiles, {bpp}bpp, 0x{d.Length:X} bytes";
     }
 
     /// <summary>Cached thumbnail, decoded on first sight. With stock files included this is

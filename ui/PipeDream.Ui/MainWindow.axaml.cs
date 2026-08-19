@@ -4,6 +4,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 
@@ -45,6 +46,15 @@ public partial class MainWindow : Window
     private Border drawer = null!, paletteBar = null!;
     private TabStrip paletteTabs = null!;
     private DockPanel spritePanel = null!, objectPanel = null!, palettePanel = null!;
+    private GfxCanvasView gfxCanvas = null!;
+    private TextBox gfxFileBox = null!;
+    private TextBlock gfxFileNote = null!, gfxColorNote = null!;
+    private ToggleButton gfxPencil = null!, gfxFill = null!;
+    private ScrollViewer gfxBinPanel = null!;
+    private DockPanel gfxToolPanel = null!, gfxScroll = null!;
+    private StackPanel gfxBins = null!, gfxJumps = null!;
+    private ComboBox gfxPalRow = null!;
+    private PaletteGridView gfxColors = null!;
     private PaletteGridView paletteGrid = null!;
     private Slider palR = null!, palG = null!, palB = null!;
     private TextBlock palRv = null!, palGv = null!, palBv = null!, paletteNote = null!, paletteIndex = null!;
@@ -228,6 +238,67 @@ public partial class MainWindow : Window
         foreach (var s in new[] { palR, palG, palB })
             s.PropertyChanged += (_, e) => { if (e.Property == RangeBase.ValueProperty) OnPaletteSlider(); };
 
+        // ---- GFX canvas mode ----
+        gfxScroll = this.GetControl<DockPanel>("GfxScroll");
+        gfxCanvas = this.GetControl<GfxCanvasView>("GfxCanvas");
+        gfxFileBox = this.GetControl<TextBox>("GfxFileBox");
+        gfxFileNote = this.GetControl<TextBlock>("GfxFileNote");
+        gfxPencil = this.GetControl<ToggleButton>("GfxPencil");
+        gfxFill = this.GetControl<ToggleButton>("GfxFill");
+        gfxBinPanel = this.GetControl<ScrollViewer>("GfxBinPanel");
+        gfxToolPanel = this.GetControl<DockPanel>("GfxToolPanel");
+        gfxBins = this.GetControl<StackPanel>("GfxBins");
+        gfxJumps = this.GetControl<StackPanel>("GfxJumps");
+        gfxPalRow = this.GetControl<ComboBox>("GfxPalRow");
+        gfxColors = this.GetControl<PaletteGridView>("GfxColors");
+        gfxColors.Rows = 1;
+        gfxColors.Cell = 20;
+
+        for (int i = 0; i < 16; i++) gfxPalRow.Items.Add($"row {i}");
+        gfxPalRow.SelectedIndex = 2;
+        gfxPalRow.SelectionChanged += (_, _) =>
+        {
+            if (session.GfxPixels is not { } g) return;
+            g.PalRow = Math.Max(0, gfxPalRow.SelectedIndex);
+            RefreshGfx();
+        };
+        gfxColorNote = this.GetControl<TextBlock>("GfxColorNote");
+        gfxColors.SelectionChanged += (_, i) =>
+        {
+            if (session.GfxPixels is { } g) g.Color = i;
+            gfxColorNote.Text = ColorNote(i);
+        };
+
+        // Enter commits a typed id, as the ImGui field does — a recompose per keystroke would
+        // fire on every half-typed number.
+        gfxFileBox.KeyDown += (_, e) =>
+        {
+            if (e.Key != Key.Enter) return;
+            CommitGfxFileBox();
+            e.Handled = true;
+        };
+        gfxFileBox.LostFocus += (_, _) => CommitGfxFileBox();
+
+        gfxCanvas.PixelPainted += (_, p) =>
+        {
+            if (session.GfxPixels is not { } g) return;
+            if (!g.Paint(p.X, p.Y, out bool forked)) return;
+            if (forked) status.Text = $"GFX{g.File:X3} forked into the project — "
+                                    + "edits shadow the stock file everywhere";
+            RefreshGfxSheet();                    // live feedback, without a level recompose
+        };
+        gfxCanvas.StrokeEnded += (_, _) => session.GfxPixels?.EndStroke();
+        gfxCanvas.ColorPicked += (_, p) =>
+        {
+            if (session.GfxPixels?.ColorAt(p.X, p.Y) is not { } c) return;
+            session.GfxPixels.Color = c;
+            gfxColors.Select(c);
+            gfxColorNote.Text = ColorNote(c);
+        };
+        gfxCanvas.ToolToggled += (_, _) => SetGfxTool(session.GfxPixels?.Current == GfxEdit.Tool.Pencil
+                                                          ? GfxEdit.Tool.Fill : GfxEdit.Tool.Pencil);
+        gfxCanvas.ZoomStepped += (_, d) => StepGfxZoom(d);
+
         paletteTabs.SelectionChanged += (_, _) => OnPaletteTab();
         loadedOnly.IsCheckedChanged += (_, _) => ApplySpriteFilter();
         spriteList.SelectionChanged += (_, _) =>
@@ -350,9 +421,24 @@ public partial class MainWindow : Window
     {
         if (e.Key == Key.Z && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
-            bool ok = e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? edit?.Redo() == true
-                                                                 : edit?.Undo() == true;
-            if (ok) { PushDirty(); UpdateStatus(); }
+            bool redo = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+            // Undo follows the canvas mode. Each editor keeps its own history — a single stack
+            // across all three is a bigger piece of work (see the ponytail note on the palette
+            // tab), and undoing a level edit while looking at pixels would be worse than this.
+            if (modeGfx.IsChecked == true)
+            {
+                if (redo ? session.GfxPixels?.Redo() == true : session.GfxPixels?.Undo() == true)
+                    RefreshGfx();
+            }
+            else if (modeMap16.IsChecked == true)
+            {
+                if (redo ? map16?.Redo() == true : map16?.Undo() == true) RefreshMap16Sheet();
+            }
+            else if (redo ? edit?.Redo() == true : edit?.Undo() == true)
+            {
+                PushDirty();
+                UpdateStatus();
+            }
             e.Handled = true;
         }
         else if (e.Key == Key.Escape)
@@ -412,6 +498,22 @@ public partial class MainWindow : Window
 
     private static FilePickerFileType RomType => new("SNES ROM") { Patterns = ["*.smc", "*.sfc"] };
     private static FilePickerFileType ProjectType => new("pipe-dream project") { Patterns = ["*.pdp"] };
+    private static FilePickerFileType BinType => new("Raw planar GFX") { Patterns = ["*.bin"] };
+
+    /// <summary>Pick a GFX file by sight. Returns null when the browser was cancelled.</summary>
+    private async Task<int?> PickGfxFile(string purpose)
+    {
+        var dlg = new GfxBrowserWindow(session, purpose);
+        await dlg.ShowDialog(this);
+        return dlg.Picked;
+    }
+
+    private async void OnBrowseGfx(object? sender, RoutedEventArgs e)
+    {
+        if (await PickGfxFile("Open GFX in the tile editor") is not { } picked) return;
+        session.GfxPixels?.Open(picked);
+        RefreshGfx();
+    }
 
     private async Task<string?> PickFile(string title, FilePickerFileType type)
     {
@@ -600,20 +702,25 @@ public partial class MainWindow : Window
     private void RefreshDrawer()
     {
         bool map16Mode = modeMap16.IsChecked == true;
-        int tab = map16Mode ? 0 : Math.Max(0, paletteTabs.SelectedIndex);
+        bool gfxMode = modeGfx.IsChecked == true;
+        bool modal = map16Mode || gfxMode;          // a canvas mode that owns the drawer
+        int tab = modal ? -1 : Math.Max(0, paletteTabs.SelectedIndex);
 
-        this.GetControl<ScrollViewer>("PaletteScroll").IsVisible = !map16Mode && tab == 0;
+        this.GetControl<ScrollViewer>("PaletteScroll").IsVisible = tab == 0;
         this.GetControl<DockPanel>("ChrPanel").IsVisible = map16Mode;
-        spritePanel.IsVisible = !map16Mode && tab == 1;
-        objectPanel.IsVisible = !map16Mode && tab == 2;
-        palettePanel.IsVisible = !map16Mode && tab == 3;
+        gfxToolPanel.IsVisible = gfxMode;
+        spritePanel.IsVisible = tab == 1;
+        objectPanel.IsVisible = tab == 2;
+        palettePanel.IsVisible = tab == 3;
+        gfxBinPanel.IsVisible = tab == 4;
         // The bank/size row drives the Map16 sheet in both the picker and the Map16 canvas;
-        // it means nothing to a catalog.
+        // it means nothing to a catalog or to the pixel editor.
         paletteBar.IsVisible = map16Mode || tab == 0;
 
         if (spritePanel.IsVisible) EnsureSpriteCatalog();
         if (objectPanel.IsVisible) EnsureObjectCatalog();
         if (palettePanel.IsVisible) RefreshPaletteTab();
+        if (gfxBinPanel.IsVisible) RefreshGfxBins();
     }
 
     /// <summary>Sprite thumbnails are drawn with THIS level's SP GFX and palette, so the catalog
@@ -655,6 +762,212 @@ public partial class MainWindow : Window
         objectHint.Text = $"tileset {objectCatalogTileset} — {objectCatalog.Count} objects, "
                         + $"ready in {sw.Elapsed.TotalMilliseconds:F0}ms. "
                         + "Select one, then right-click the level to place it.";
+    }
+
+    // ---- GFX canvas mode and the GFX tab ----
+
+    private static string ColorNote(int i)
+        => i == 0 ? "colour 0 — transparent in-game" : $"colour {i}";
+
+    private int gfxZoom = 1;                       // index into GfxEdit.Zooms
+
+    private void CommitGfxFileBox()
+    {
+        if (session.GfxPixels is not { } g) return;
+        if (!int.TryParse(gfxFileBox.Text, System.Globalization.NumberStyles.HexNumber, null, out int id))
+        { gfxFileBox.Text = $"{g.File:X3}"; return; }
+        if (id == g.File) return;
+        g.Open(id);                                // aborts an uncommitted stroke on the way
+        RefreshGfx();
+    }
+
+    private void SetGfxTool(GfxEdit.Tool tool)
+    {
+        if (session.GfxPixels is { } g) g.Current = tool;
+        gfxPencil.IsChecked = tool == GfxEdit.Tool.Pencil;
+        gfxFill.IsChecked = tool == GfxEdit.Tool.Fill;
+    }
+
+    private void OnGfxTool(object? sender, RoutedEventArgs e)
+        => SetGfxTool(ReferenceEquals(sender, gfxFill) ? GfxEdit.Tool.Fill : GfxEdit.Tool.Pencil);
+
+    private void StepGfxZoom(int delta)
+    {
+        gfxZoom = Math.Clamp(gfxZoom + delta, 0, GfxEdit.Zooms.Length - 1);
+        gfxCanvas.Zoom = GfxEdit.Zooms[gfxZoom];
+        gfxCanvas.InvalidateMeasure();
+        gfxCanvas.InvalidateVisual();
+    }
+
+    private void OnGfxZoomIn(object? sender, RoutedEventArgs e) => StepGfxZoom(1);
+    private void OnGfxZoomOut(object? sender, RoutedEventArgs e) => StepGfxZoom(-1);
+
+    /// <summary>Re-decode the sheet only. This is the live-paint path, so it must NOT recompose
+    /// the level — that happens once when the stroke ends.</summary>
+    private void RefreshGfxSheet()
+    {
+        if (session.GfxPixels is not { } g) return;
+        var (px, w, h) = session.GfxSheet();
+        gfxCanvas.Tiles = g.Layout.Tiles;
+        gfxCanvas.SetSheet(px, w, h);
+    }
+
+    /// <summary>Everything the GFX mode shows for the current file: the sheet, the badge, the
+    /// paint colours and the bin jump list.</summary>
+    private void RefreshGfx()
+    {
+        if (session.GfxPixels is not { } g) return;
+        gfxFileBox.Text = $"{g.File:X3}";
+        gfxFileNote.Text = $"({g.Status})" + (g.Name is { } n ? $" \"{n}\"" : "");
+        SetGfxTool(g.Current);
+        gfxCanvas.Zoom = GfxEdit.Zooms[gfxZoom];
+        RefreshGfxSheet();
+
+        // The row's colours as paint swatches — only as many as the ROM's depth can hold, since
+        // a 3bpp file has no colour 8. Index 0 keeps the sheet's grey convention: in a tile it
+        // means transparent, and a black swatch would read as the colour black.
+        int count = g.MaxColor + 1;
+        var row = new uint[count];
+        var pal = session.PaletteRgba;
+        for (int i = 0; i < count; i++)
+            row[i] = i == 0 ? 0xFF303030u : pal[Math.Max(0, gfxPalRow.SelectedIndex) * 16 + i];
+        gfxColors.Cols = count;
+        gfxColors.Colors = row;
+        gfxColors.InvalidateMeasure();
+        gfxColors.Select(g.Color);
+        gfxColorNote.Text = ColorNote(g.Color);
+
+        RefreshGfxJumps();
+    }
+
+    /// <summary>The level's ten bins as jump buttons: the file you want is one click away rather
+    /// than a hex id to remember.</summary>
+    private void RefreshGfxJumps()
+    {
+        gfxJumps.Children.Clear();
+        if (session.GfxPixels is not { } g) return;
+        foreach (var bin in session.GfxBins)
+        {
+            var b = new Button
+            {
+                Content = $"{bin.Name}  {bin.File:X3}",
+                Padding = new Thickness(8, 2),
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Left,
+                IsEnabled = bin.File != 0x7F,
+            };
+            if (bin.File == g.File) b.Background = UiColors.Accent;
+            int file = bin.File, palRow = bin.PalRow;
+            b.Click += (_, _) =>
+            {
+                g.Open(file);
+                gfxPalRow.SelectedIndex = palRow;   // colour through the bin's natural row
+                RefreshGfx();
+            };
+            gfxJumps.Children.Add(b);
+        }
+    }
+
+    /// <summary>
+    /// The GFX tab: one block per VRAM bin — what it holds, how it got there, and the three ways
+    /// to change it (type an id, pick a file, import a raw .bin). Built in code rather than
+    /// bound, because it is ten near-identical composites and a template plus a view model for
+    /// each would be more machinery than the thing it builds.
+    /// </summary>
+    private void RefreshGfxBins()
+    {
+        gfxBins.Children.Clear();
+        foreach (var bin in session.GfxBins)
+        {
+            var idBox = new TextBox { Text = $"{bin.File:X3}", Width = 60 };
+            int bypWord = bin.BypWord, palRow = bin.PalRow, file = bin.File;
+            void Commit()
+            {
+                if (!int.TryParse(idBox.Text, System.Globalization.NumberStyles.HexNumber,
+                                  null, out int id)) { idBox.Text = $"{file:X3}"; return; }
+                if (id == file) return;
+                status.Text = session.SetGfxSlot(bypWord, id);
+                AdoptSession();
+            }
+            idBox.KeyDown += (_, e) => { if (e.Key == Key.Enter) { Commit(); e.Handled = true; } };
+            idBox.LostFocus += (_, _) => Commit();
+
+            var head = new StackPanel
+            {
+                Orientation = Avalonia.Layout.Orientation.Horizontal,
+                Spacing = 6,
+                Children =
+                {
+                    new TextBlock { Text = $"[{bin.Name}]", VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                                    Width = 40, Classes = { "dim" } },
+                    idBox,
+                },
+            };
+
+            string note = session.GfxBinNote(bypWord, bin.File, bin.Def);
+            if (note.Length > 0)
+                head.Children.Add(new TextBlock { Text = $"({note})", Classes = { "mono" } });
+            if (session.GfxName(bin.File) is { } gname)
+                head.Children.Add(new TextBlock { Text = $"\"{gname}\"", Classes = { "mono" } });
+
+            var buttons = new StackPanel
+            {
+                Orientation = Avalonia.Layout.Orientation.Horizontal,
+                Spacing = 4,
+            };
+            var import = new Button { Content = "Import…", Padding = new Thickness(8, 1) };
+            import.Click += async (_, _) =>
+            {
+                if (await PickFile("Raw GFX (.bin)", BinType) is not { } path) return;
+                status.Text = session.ImportGfx(bypWord, path);
+                AdoptSession();
+            };
+            var browse = new Button { Content = "Browse…", Padding = new Thickness(8, 1) };
+            browse.Click += async (_, _) =>
+            {
+                if (await PickGfxFile("Select GFX for this bin") is not { } picked) return;
+                status.Text = session.SetGfxSlot(bypWord, picked);
+                AdoptSession();
+            };
+            var edit = new Button { Content = "Edit", Padding = new Thickness(8, 1),
+                                    IsEnabled = bin.File != 0x7F };
+            edit.Click += (_, _) => EditGfxFile(bin.File, palRow);
+            buttons.Children.Add(import);
+            buttons.Children.Add(browse);
+            buttons.Children.Add(edit);
+
+            var block = new StackPanel { Spacing = 4 };
+            block.Children.Add(head);
+            block.Children.Add(buttons);
+
+            var (px, w, h) = session.GfxFileSheet(bin.File, bin.PalRow);
+            if (px.Length > 0)
+                block.Children.Add(new Image
+                {
+                    Source = LevelBitmap.FromPixels(px, w, h),
+                    Width = w * 2, Height = h * 2,
+                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left,
+                });
+            else
+                block.Children.Add(new TextBlock { Text = "(empty)", Classes = { "mono" } });
+
+            block.Children.Add(new Border
+            {
+                Height = 1, Background = this.FindResource("BorderBrush") as IBrush,
+                Margin = new Thickness(0, 4, 0, 0),
+            });
+            gfxBins.Children.Add(block);
+        }
+    }
+
+    /// <summary>Open a file in the GFX canvas mode — the "Edit" button on a bin, and how the
+    /// jump list works too.</summary>
+    private void EditGfxFile(int file, int palRow)
+    {
+        if (session.GfxPixels is not { } g) return;
+        g.Open(file);
+        gfxPalRow.SelectedIndex = palRow;
+        OnMode(modeGfx, new RoutedEventArgs());
     }
 
     // ---- palette tab ----
@@ -773,15 +1086,31 @@ public partial class MainWindow : Window
             b.IsChecked = ReferenceEquals(b, sender);
 
         bool map16 = ReferenceEquals(sender, modeMap16);
-        this.GetControl<ScrollViewer>("CanvasScroll").IsVisible = !map16;
+        bool gfx = ReferenceEquals(sender, modeGfx);
+        // Leaving the pixel editor with a stroke still open must not leave bytes behind that no
+        // undo entry covers, so it is reverted rather than committed.
+        if (!gfx) session.GfxPixels?.AbortStroke();
+
+        this.GetControl<ScrollViewer>("CanvasScroll").IsVisible = !map16 && !gfx;
         this.GetControl<ScrollViewer>("Map16Scroll").IsVisible = map16;
+        gfxScroll.IsVisible = gfx;
         edit?.Selection.Clear();
         map16Canvas.ClearSelection();
 
         RefreshDrawer();
-        if (map16) { RefreshMap16Sheet(); map16Canvas.Focus(); status.Text = "Map16 — right-drag stamps the 8x8 brush; X/Y/P flip the quadrant under the cursor"; }
-        else if (ReferenceEquals(sender, modeLevel)) UpdateStatus();
-        else status.Text = "GFX mode — not ported yet (canvas mode, same window)";
+        if (map16)
+        {
+            RefreshMap16Sheet();
+            map16Canvas.Focus();
+            status.Text = "Map16 — right-drag stamps the 8x8 brush; X/Y/P flip the quadrant under the cursor";
+        }
+        else if (gfx)
+        {
+            RefreshGfx();
+            gfxCanvas.Focus();
+            status.Text = "GFX — left paints, right picks a colour, F switches tool, [ ] zooms";
+        }
+        else UpdateStatus();
         canvas.InvalidateVisual();
     }
 

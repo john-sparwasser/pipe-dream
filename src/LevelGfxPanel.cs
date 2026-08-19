@@ -142,47 +142,12 @@ internal sealed class LevelGfxPanel(GraphicsDevice gd, ImGuiLayer imgui) : IDisp
              + (plane3Dropped ? " — nonzero plane 3 data discarded" : "");
     }
 
-    /// <summary>
-    /// The level's 10 VRAM GFX bins (FG/BG/SP), resolved through the tileset lists and the
-    /// Super GFX Bypass (session overrides ride along inside LmGfxBypass). Def is the vanilla
-    /// list entry (0x7F for the bypass-only BG2/BG3 bins) — file != Def means the bypass
-    /// repointed it. Shared with the GFX editor's drawer quick-list.
-    /// </summary>
-    internal static (string Name, int PalRow, int BypWord, int Def, int File)[] ResolveSlots(
-        Rom rom, Level level, int levelNum)
-    {
-        var h = level.Header;
-        var byp = rom.LmGfxBypass(levelNum);
-
-        // (name, GFXLIST base, list index, palette row for the preview, bypass record word)
-        var slots = new (string name, int listBase, int idx, int palRow, int bypWord)[]
-        {
-            ("FG1", Gfx.ObjectGfxList, h.Tileset * 4 + 0, 2, 7),
-            ("FG2", Gfx.ObjectGfxList, h.Tileset * 4 + 1, 2, 6),
-            ("BG1", Gfx.ObjectGfxList, h.Tileset * 4 + 2, 0, 5),
-            ("FG3", Gfx.ObjectGfxList, h.Tileset * 4 + 3, 2, 4),
-            // BG2/BG3 have no vanilla list entry (listBase -1) — only via the bypass (LM VRAM patch).
-            ("BG2", -1, 0, 0, 3),
-            ("BG3", -1, 0, 0, 2),
-            ("SP1", 0x00A8C3, h.SpriteSet * 4 + 0, 8, 11),
-            ("SP2", 0x00A8C3, h.SpriteSet * 4 + 1, 8, 10),
-            ("SP3", 0x00A8C3, h.SpriteSet * 4 + 2, 8, 9),
-            ("SP4", 0x00A8C3, h.SpriteSet * 4 + 3, 8, 8),
-        };
-        return slots.Select(s =>
-        {
-            int def = s.listBase < 0 ? 0x7F : rom.Data[rom.FileOffset(s.listBase) + s.idx];
-            bool bypassed = byp is not null && (byp[s.bypWord] & 0xFFF) != 0x7F;
-            return (s.name, s.palRow, s.bypWord, def, bypassed ? byp![s.bypWord] & 0xFFF : def);
-        }).ToArray();
-    }
-
     private void BuildLevelGfx(Rom rom, Level level, int levelNum)
     {
         foreach (var e in levelGfx) e.Tex.Dispose();
         levelGfx.Clear();
         levelGfxPal = Palette.Load(rom, level.Header, levelNum);
-        foreach (var s in ResolveSlots(rom, level, levelNum))
+        foreach (var s in Gfx.LevelSlots(rom, level.Header, levelNum))
         {
             // LM writes every slot of the record when bypass is on, including ones that
             // just restate the tileset default — only tag when the file actually differs.

@@ -43,92 +43,8 @@ internal sealed class GfxEditor(EditorApp app)
     /// the next draw.</summary>
     internal void InvalidateSheet() => sheetStale = true;
 
-    // ---- pure pixel/stroke logic (static: testable without a GraphicsDevice) ----
-
-    /// <summary>One pixel write with stroke capture: record each plane byte that actually
-    /// changed as (offset, before, after). A same-color write records nothing.</summary>
-    internal static void WritePixel(byte[] gfx, int tileOff, int bpp, int x, int y, int color,
-                                    List<(int off, byte before, byte after)> stroke)
-    {
-        int tb = Gfx.TileBytes(bpp);
-        if (tileOff < 0 || tileOff + tb > gfx.Length) return;
-        Span<int> offs = stackalloc int[4];
-        offs[0] = tileOff + y * 2; offs[1] = tileOff + y * 2 + 1;
-        int n = 2;
-        if (bpp == 3) offs[n++] = tileOff + 16 + y;
-        else if (bpp == 4) { offs[n++] = tileOff + 16 + y * 2; offs[n++] = tileOff + 16 + y * 2 + 1; }
-        Span<byte> before = stackalloc byte[4];
-        for (int i = 0; i < n; i++) before[i] = gfx[offs[i]];
-        Gfx.SetTilePixel(gfx, tileOff, bpp, x, y, color);
-        for (int i = 0; i < n; i++)
-            if (gfx[offs[i]] != before[i]) stroke.Add((offs[i], before[i], gfx[offs[i]]));
-    }
-
-    /// <summary>4-connected flood fill WITHIN the 8x8 tile containing sheet pixel (px,py):
-    /// replaces the clicked pixel's color region with <paramref name="color"/>. No-op when
-    /// the target already is the color. Sheet layout = 16 tiles per row.</summary>
-    internal static void FillTile(byte[] gfx, int bpp, int px, int py, int color,
-                                  List<(int off, byte before, byte after)> stroke)
-    {
-        int tb = Gfx.TileBytes(bpp);
-        int tileOff = ((py / 8) * 16 + px / 8) * tb;
-        if (tileOff < 0 || tileOff + tb > gfx.Length) return;
-        var idx = Gfx.DecodeTile(gfx, tileOff, bpp);
-        int sx = px & 7, sy = py & 7;
-        byte target = idx[sy * 8 + sx];
-        if (target == color) return;
-        var work = new Stack<(int x, int y)>();
-        work.Push((sx, sy));
-        while (work.Count > 0)
-        {
-            var (x, y) = work.Pop();
-            if (x is < 0 or > 7 || y is < 0 or > 7 || idx[y * 8 + x] != target) continue;
-            idx[y * 8 + x] = (byte)color;
-            WritePixel(gfx, tileOff, bpp, x, y, color, stroke);
-            work.Push((x + 1, y)); work.Push((x - 1, y)); work.Push((x, y + 1)); work.Push((x, y - 1));
-        }
-    }
-
-    /// <summary>The editable byte array for a file: the existing import, or a copy-on-write
-    /// fork of the stock bytes keyed under the SAME id (shadowing the ROM file for every
-    /// consumer — deliberately opposite of Import's new-id allocation). Null when the id
-    /// resolves nowhere.</summary>
-    internal static byte[]? EditableBytes(Rom rom, int file, out bool forked)
-    {
-        forked = false;
-        if (rom.ImportedGfx.TryGetValue(file, out var b)) return b;
-        if (Gfx.Cached(rom, file) is not { } stock) return null;
-        var fork = (byte[])stock.Clone();
-        rom.ImportedGfx[file] = fork;
-        Gfx.InvalidateCache(rom);           // consumers re-resolve through the import
-        forked = true;
-        return fork;
-    }
-
-    /// <summary>Replay stroke bytes into the file's CURRENT array — re-looked-up by id and
-    /// bounds-checked, so a re-import that replaced (or removed) the array can't crash or
-    /// corrupt a replay.
-    ///
-    /// UNDO WALKS BACKWARD. A stroke records one entry per byte WRITE, not per byte, and a
-    /// single plane byte carries 8 pixels of a tile row — so painting along a row (or any
-    /// fill) rewrites the same offset repeatedly: (off,A,B), (off,B,C), (off,C,D). Restoring
-    /// those front-to-back ends on C, the second-to-last value, leaving most of the stroke
-    /// painted. Last-to-first unwinds D→C→B→A and lands on the original. Redo is order-
-    /// independent for a given offset (the last write wins either way) but stays forward so
-    /// it mirrors the paint order. AbortStroke already reverses for the same reason.</summary>
-    internal static void ApplyStroke(Rom rom, int file, (int off, byte before, byte after)[] edits, bool redo)
-    {
-        if (!rom.ImportedGfx.TryGetValue(file, out var g)) return;
-        if (redo)
-            foreach (var (off, _, after) in edits)
-                { if (off >= 0 && off < g.Length) g[off] = after; }
-        else
-            for (int i = edits.Length - 1; i >= 0; i--)
-            {
-                var (off, before, _) = edits[i];
-                if (off >= 0 && off < g.Length) g[off] = before;
-            }
-    }
+    // The pure pixel, fork and stroke-replay logic lives in Gfx (the format layer), so the
+    // Avalonia editor paints through exactly the same code rather than a second copy of it.
 
     // ---- stroke lifecycle ----
 
@@ -142,7 +58,7 @@ internal sealed class GfxEditor(EditorApp app)
         int file = strokeFile;
         void Apply(bool redo)
         {
-            ApplyStroke(app.rom!, file, edits, redo);
+            Gfx.ApplyStroke(app.rom!, file, edits, redo);
             app.session.RebuildGraphics();   // recompose consumers (also invalidates our sheet)
             app.gfxBrowser.Invalidate();     // the browser's thumbnail of this file is now stale
             app.levelDirty = true;
@@ -170,7 +86,7 @@ internal sealed class GfxEditor(EditorApp app)
     // Copy-on-write on first touch, with the status note announcing the fork.
     private byte[]? EnsureForked()
     {
-        var g = EditableBytes(app.rom!, gfxFile, out bool forked);
+        var g = Gfx.EditableBytes(app.rom!, gfxFile, out bool forked);
         if (forked)
             app.saveStatus = $"GFX{gfxFile:X3} forked into the project — edits shadow the stock file everywhere";
         return g;
@@ -267,9 +183,9 @@ internal sealed class GfxEditor(EditorApp app)
                     if (stroke.Count == 0) strokeFile = gfxFile;
                     int n0 = stroke.Count;
                     if (tool == Tool.Pencil)
-                        WritePixel(g, ((hy / 8) * 16 + hx / 8) * tb, bpp, hx & 7, hy & 7, selectedColor, stroke);
+                        Gfx.WritePixel(g, ((hy / 8) * 16 + hx / 8) * tb, bpp, hx & 7, hy & 7, selectedColor, stroke);
                     else
-                        FillTile(g, bpp, hx, hy, selectedColor, stroke);
+                        Gfx.FillTile(g, bpp, hx, hy, selectedColor, stroke);
                     if (stroke.Count != n0) RefreshSheet(g, bpp);   // live feedback (SetData)
                 }
             }
@@ -320,7 +236,7 @@ internal sealed class GfxEditor(EditorApp app)
         // The level's 10 VRAM bins as jump buttons (same resolution as the GFX tab).
         ImGui.Separator();
         ImGui.TextDisabled("level bins");
-        var bins = LevelGfxPanel.ResolveSlots(app.rom, app.level, app.levelNum);
+        var bins = Gfx.LevelSlots(app.rom, app.level.Header, app.levelNum);
         for (int i = 0; i < bins.Length; i++)
         {
             var s = bins[i];

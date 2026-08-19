@@ -129,6 +129,7 @@
             <TabStripItem Content="Sprites"/>
             <TabStripItem Content="Objects"/>
             <TabStripItem Content="Palette"/>
+            <TabStripItem Content="GFX"/>
           </TabStrip>
 
           <Border x:Name="PaletteBar" DockPanel.Dock="Top" Padding="10,8" Background="{DynamicResource SurfaceBrush}">
@@ -242,6 +243,31 @@
                 <ui:PaletteGridView x:Name="PaletteGrid" Margin="8"/>
               </ScrollViewer>
             </DockPanel>
+
+            <!-- GFX tab: the level's ten VRAM bins. Each one shows what it currently holds and
+                 can be repointed by id, by picking a file, or by importing a raw .bin. -->
+            <ScrollViewer x:Name="GfxBinPanel" IsVisible="False">
+              <StackPanel x:Name="GfxBins" Margin="8" Spacing="8"/>
+            </ScrollViewer>
+
+            <!-- GFX canvas mode's drawer: the paint colours and a jump list of the level's
+                 bins, so the file you want is one click away rather than a hex id to recall. -->
+            <DockPanel x:Name="GfxToolPanel" IsVisible="False">
+              <Border DockPanel.Dock="Top" Padding="10,8" Background="{DynamicResource SurfaceBrush}">
+                <StackPanel Spacing="6">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Classes="dim" Text="palette"/>
+                    <ComboBox x:Name="GfxPalRow" Width="66"/>
+                    <TextBlock x:Name="GfxColorNote" Classes="mono"/>
+                  </StackPanel>
+                  <ui:PaletteGridView x:Name="GfxColors" HorizontalAlignment="Left"/>
+                  <TextBlock Classes="dim" Text="level bins"/>
+                </StackPanel>
+              </Border>
+              <ScrollViewer>
+                <StackPanel x:Name="GfxJumps" Margin="10,4" Spacing="3"/>
+              </ScrollViewer>
+            </DockPanel>
           </Panel>
         </DockPanel>
       </Border>
@@ -261,6 +287,25 @@
                       HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
           <ui:Map16CanvasView x:Name="Map16Canvas" Margin="8"/>
         </ScrollViewer>
+        <DockPanel x:Name="GfxScroll" IsVisible="False" Background="{DynamicResource VoidBrush}">
+          <Border DockPanel.Dock="Top" Classes="panel" BorderThickness="0,0,0,1" Padding="10,6">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBlock Classes="dim" Text="GFX"/>
+              <TextBox x:Name="GfxFileBox" Width="60" Text="014"/>
+              <TextBlock x:Name="GfxFileNote" Classes="mono"/>
+              <Button Content="Browse…" Padding="8,2" Click="OnBrowseGfx"/>
+              <Rectangle Width="1" Margin="6,3" Fill="{DynamicResource BorderBrush}"/>
+              <Button Content="−" Width="26" Padding="0,2" Click="OnGfxZoomOut"/>
+              <Button Content="+" Width="26" Padding="0,2" Click="OnGfxZoomIn"/>
+              <ToggleButton x:Name="GfxPencil" Classes="mode" MinWidth="60" Content="Pencil" Click="OnGfxTool"/>
+              <ToggleButton x:Name="GfxFill" Classes="mode" MinWidth="60" Content="Fill" Click="OnGfxTool"/>
+              <TextBlock Classes="dim" Text="left: paint   right: pick colour   F: tool   [ ]: zoom"/>
+            </StackPanel>
+          </Border>
+          <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+            <ui:GfxCanvasView x:Name="GfxCanvas" Margin="8"/>
+          </ScrollViewer>
+        </DockPanel>
       </Panel>
     </Grid>
 

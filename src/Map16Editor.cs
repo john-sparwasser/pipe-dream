@@ -380,7 +380,7 @@ internal sealed class Map16Editor(EditorApp app)
         var r = app.rom!;
         void Apply(bool redo)
         {
-            // Undo walks backward, for the reason spelled out on GfxEditor.ApplyStroke: a
+            // Undo walks backward, for the reason spelled out on Gfx.ApplyStroke: a
             // stroke records one entry per WRITE, so a repeated offset would otherwise be
             // restored to an intermediate value. StampDefWord skips same-value rewrites, so
             // repeats need the value at one offset to change mid-stroke — reversing costs

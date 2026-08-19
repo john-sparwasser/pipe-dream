@@ -153,6 +153,122 @@ public sealed class EditorSession
     /// <summary>Whether a path is worth trying to open (the picker can hand back anything).</summary>
     public static bool FileExists(string? path) => path is not null && File.Exists(path);
 
+    // ---- graphics ----
+
+    /// <summary>Pixel editing for one GFX file. ROM-wide rather than per level, so it survives
+    /// level switches — unlike the object, sprite and palette state above it.</summary>
+    public GfxEdit? GfxPixels { get; private set; }
+
+    /// <summary>The level's 10 VRAM GFX bins, resolved through the tileset lists and the Super
+    /// GFX Bypass.</summary>
+    public (string Name, int PalRow, int BypWord, int Def, int File)[] GfxBins
+        => Rom is { } r && Scene is { } s ? Gfx.LevelSlots(r, s.Level.Header, LevelNum) : [];
+
+    /// <summary>How a bin's current file got there, for the drawer's badge.</summary>
+    public string GfxBinNote(int bypWord, int file, int def)
+        => Rom is null ? ""
+         : Rom.ImportedGfx.ContainsKey(file) ? "imported"
+         : Rom.GfxSlotOverrides.ContainsKey((LevelNum, bypWord)) ? "override"
+         : file != def ? "bypass" : "";
+
+    public string? GfxName(int file)
+        => Rom?.GfxName(file) is { Length: > 0 } n ? n : null;
+
+    /// <summary>One GFX file decoded as a tile sheet, for a preview. Empty when the id resolves
+    /// nowhere or will not decode — a bin pointing at nothing is normal (0x7F means "unused").</summary>
+    public (uint[] Px, int W, int H) GfxFileSheet(int file, int palRow)
+    {
+        if (Rom is null || file == 0x7F || Scene?.Palettes[0] is not { } pal) return ([], 0, 0);
+        if (Gfx.Cached(Rom, file) is not { } data) return ([], 0, 0);
+        try { return Gfx.TileSheet(data, Gfx.RomBpp(Rom), pal, palRow); }
+        catch { return ([], 0, 0); }
+    }
+
+    /// <summary>
+    /// Point one VRAM bin at a different GFX file. This is a SESSION override recorded in the
+    /// project (CONTRACT §7d's Super GFX Bypass), so it re-resolves everything that reads the
+    /// bin: the level's tiles, the sprite graphics and the Map16 sheet alike.
+    /// </summary>
+    public string SetGfxSlot(int bypWord, int file)
+    {
+        if (Rom is null) return "no ROM open";
+        if (file is < 0 or > 0xFFF) return "GFX ids run 000-FFF";
+        Rom.GfxSlotOverrides[(LevelNum, bypWord)] = file;
+        Project?.MarkDirty();
+        touched.Add(LevelNum);
+        RecomposeScene();
+        return $"bin ← GFX{file:X3}" + (GfxName(file) is { } n ? $" \"{n}\"" : "");
+    }
+
+    /// <summary>
+    /// Import a raw planar .bin as a project ExGFX file and point a bin at it: detect its depth
+    /// from the size, normalise to the ROM's depth, and store it under the next FREE id ≥ 0x100.
+    ///
+    /// The id must be fresh — skipping both prior imports and ids the ROM itself resolves — or
+    /// the import would shadow a real ExGFX file other levels use.
+    /// </summary>
+    public string ImportGfx(int bypWord, string path)
+    {
+        if (Rom is null) return "no ROM open";
+        byte[] bytes;
+        try { bytes = File.ReadAllBytes(path); }
+        catch (Exception e) { return $"import failed: {e.Message}"; }
+
+        int bpp = Gfx.DetectBpp(bytes);
+        if (bpp == 0)
+            return $"import rejected: {Path.GetFileName(path)} is 0x{bytes.Length:X} bytes — "
+                 + "not whole 3bpp (x24) or 4bpp (x32) planar tiles";
+        int romBpp = Gfx.RomBpp(Rom);
+        bytes = Gfx.NormalizeBpp(bytes, bpp, romBpp, out bool plane3Dropped);
+
+        int id = 0x100;
+        while (id <= 0xFFF && (Rom.ImportedGfx.ContainsKey(id) || Gfx.SourceSnes(Rom, id) >= 0)) id++;
+        if (id > 0xFFF) return "import failed: no free ExGFX id (0x100-0xFFF all in use)";
+
+        Rom.ImportedGfx[id] = bytes;
+        // The filename is the only human-meaningful label an import has; keeping it beats
+        // leaving the user with a bare hex id.
+        Rom.ImportedGfxNames[id] = Path.GetFileNameWithoutExtension(path);
+        Gfx.InvalidateCache(Rom);
+
+        SetGfxSlot(bypWord, id);
+        return $"imported {Path.GetFileName(path)} as GFX{id:X3} ({bpp}bpp → {romBpp}bpp)"
+             + (plane3Dropped ? " — nonzero plane 3 data discarded" : "");
+    }
+
+    /// <summary>The sheet for the file currently open in the pixel editor.</summary>
+    public (uint[] Px, int W, int H) GfxSheet()
+        => GfxPixels is { } g && Scene?.Palettes[0] is { } pal ? g.Sheet(pal) : ([], 0, 0);
+
+    /// <summary>
+    /// Files a picker should offer, filtered. <paramref name="filter"/> matches names anywhere and
+    /// hex ids by prefix, so "grass" finds it by name and "10" finds $100-$10F.
+    /// </summary>
+    public List<GfxFileInfo> GfxFiles(bool includeStock, string filter)
+    {
+        if (Rom is null) return [];
+        return Gfx.Candidates(Rom, includeStock, filter).Select(id => new GfxFileInfo
+        {
+            Id = id,
+            Imported = Rom.ImportedGfx.ContainsKey(id),
+            Name = GfxName(id),
+            Description = Gfx.Describe(Rom, id),
+            // Palette row 2 (the FG row) is the least misleading single choice for a preview; the
+            // real row depends on which bin the file ends up in.
+            Sheet = GfxFileSheet(id, 2),
+        }).ToList();
+    }
+
+    /// <summary>Rename an imported file. Stock files have no name to change — vanilla ships no
+    /// label table, and inventing one would be guesswork.</summary>
+    public bool RenameGfx(int id, string name)
+    {
+        if (Rom is null || !Rom.ImportedGfx.ContainsKey(id)) return false;
+        Rom.ImportedGfxNames[id] = name.Trim();
+        Project?.MarkDirty();
+        return true;
+    }
+
     // ---- palette editing ----
     // CGRAM index → BGR555. Held per level and applied on every compose, which is why it lives
     // here and not in a control: the tile CACHES are built from the palette, so an edited colour
@@ -251,6 +367,7 @@ public sealed class EditorSession
             RomPath = path;
             Project = null;
             touched.Clear();
+            NewGfxEdit();
             ShowLevel(LevelNum);
             Report($"{Path.GetFileName(path)} — {Rom.Title.Trim()} (no project: File ▸ New Project to save edits)");
             return true;
@@ -276,6 +393,7 @@ public sealed class EditorSession
             Config.TouchRecentProject(p.FilePath);
             Config.Save();
 
+            NewGfxEdit();
             string? warn = ProjectSession.Hydrate(Rom, p.Data);
             ShowLevel(LevelNum);
             Report($"project '{p.Name}' opened" + (warn is null ? "" : " — " + warn)
@@ -367,6 +485,20 @@ public sealed class EditorSession
         Scene.Overlay = overlay;
         if (Sprites is not null) Sprites.Overlay = overlay;
         Scene.RedrawOverlay();
+    }
+
+    /// <summary>One GFX pixel editor per ROM — the bytes are ROM-wide, so unlike Map16 defs it
+    /// outlives a level switch. A committed stroke changes what every level draws with, hence the
+    /// full recompose.</summary>
+    private void NewGfxEdit()
+    {
+        if (Rom is null) return;
+        GfxPixels = new GfxEdit(Rom);
+        GfxPixels.Committed += (_, _) =>
+        {
+            Project?.MarkDirty();
+            RecomposeScene();
+        };
     }
 
     /// <summary>One Map16 editor per level, re-raising its commits under this class's event so

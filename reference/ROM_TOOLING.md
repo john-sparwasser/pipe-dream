@@ -1,15 +1,22 @@
-# Reference repos: Asar and PIXI
+# Reference repos: the SMW ROM tool chain
 
-Two read-only clones of the tools the SMW hacking scene actually patches ROMs with. Neither
-is a dependency of pipe-dream — they are **source-of-truth documentation** for formats and
-behaviours this editor has to match, and both are far more precise than community lore.
+Read-only clones of the tools the SMW hacking scene actually patches ROMs with. None is a
+dependency of pipe-dream — they are **source-of-truth documentation** for formats, addresses
+and behaviours this editor has to match, and all are far more precise than community lore.
 
 | repo | local path | pinned at | what it is |
 |---|---|---|---|
 | [RPGHacker/asar](https://github.com/RPGHacker/asar) | `~/asar` | `5fd539c` | the SNES assembler everything else calls |
 | [JackTheSpades/SpriteToolSuperDelux](https://github.com/JackTheSpades/SpriteToolSuperDelux) | `~/SpriteToolSuperDelux` | `a38c1a8` | PIXI — inserts custom sprites into a ROM |
+| [HertzDevil/AddmusicK](https://github.com/HertzDevil/AddmusicK) | `~/AddmusicK` | `c6f8f46` | AMK — inserts music and sound effects |
+| [VitorVilela7/UberASMTool](https://github.com/VitorVilela7/UberASMTool) | `~/UberASMTool` | `828aff3` | runs custom code per level / gamemode / frame |
 
-Neither is built. Clone with `git clone --depth 1` if you re-fetch; `git pull` to refresh.
+None is built. Clone with `git clone --depth 1` if you re-fetch; `git pull` to refresh.
+
+They stack: **Asar is the assembler the other three drive.** PIXI, AMK and UberASM each claim
+ROM space through it, each ship their own `list.txt`-style manifest, and each hijack SMW's main
+loop. A hack with all four applied is the normal case, which is why their conflict notes matter
+as much as their formats.
 
 Everything below is **[TOOL-DOC]** — stated in these repos' own manuals, headers, or build
 files, read this session. None of it is byte-verified against a ROM here. Promote a fact to
@@ -29,8 +36,13 @@ files, read this session. None of it is byte-verified against a ROM here. Promot
 - **Address translation**: Asar implements every mapper (`lorom`, `hirom`, `exlorom`,
   `exhirom`, `sa1rom`, `fullsa1rom`, `sfxrom`, `norom`). `snestopc()` in `src/asar/libsmw.cpp`
   is the reference implementation of the conversion `CONTRACT.md` §1 does by hand.
-- **Both expose a C ABI**, so if pipe-dream ever needs to assemble or insert rather than
-  reimplement, there is a linkable path (see the API notes below).
+- **UberASM documents the hijack points and RAM claims by address** — see its table below.
+  These are the addresses a level editor must not stomp, written down concretely rather than
+  inferred, and they double as a map of where SMW's per-frame and per-level hooks live.
+- **AMK is where the audio side of the ROM is specified** — the two SFX ports, the SPC engine
+  upload, and the ARAM budget that constrains anything music-related.
+- **Asar and PIXI expose a C ABI**, so if pipe-dream ever needs to assemble or insert rather
+  than reimplement, there is a linkable path (see the API notes below).
 
 ## Asar — what to look at
 
@@ -80,20 +92,116 @@ files, read this session. None of it is byte-verified against a ROM here. Promot
   embedding Asar in another tool.
 - Also exposes a **library API with C/C++/C#/Python bindings** plus a C-ABI **plugin system**.
 
+## UberASMTool — what to look at
+
+| you want | look at |
+|---|---|
+| the hijack and dispatch framework | `assets/asm/base/` — `main`, `global`, `level`, `gamemode`, `overworld`, `sprites`, `statusbar` |
+| every SMW sprite table named, LoROM and SA-1 | `assets/other/macro_library.asm` |
+| the formal file-format spec (v2.0) | `Specifications/UberAssemblyFile.txt` |
+| the `list.txt` format, prose | `assets/readme.txt`, with `assets/list.txt` as the worked example |
+| minimal working user code | `assets/*/example.asm`, `examples/*.asm` |
+| the tool itself (C#) | `UberASMTool/` — `Program.cs`, `UberConfigProcessor`, `DataCollector` |
+
+Hijack points, all `autoclean JML` except the bank-`$05` loader:
+
+| address | what it takes over |
+|---|---|
+| `$00804E` | reset — clears pointer tables |
+| `$00806B` | main game loop, per frame (global code) |
+| `$008176` | NMI / vblank |
+| `$05808C` | `load` entry |
+| `$05D8B7` | level-number latch |
+| `$00A242` / `$00A295` | level `main` |
+| `$00A5EE` | level `init` |
+| `$009322` | game mode jump table |
+| `$00A1C3` / `$00A18F` | overworld `main` / `init` |
+| `$008E1A` | status bar |
+
+- **Dispatch is one shape everywhere**: id × 3 (`ASL`+`ADC`), two loads pull a 24-bit pointer,
+  low word to `$00`, bank in A, then `JML [!dp]`. `null_pointer` (a bare `RTL`) fills empty
+  slots so there are no null checks. NMI uses a twin path through `$6E`-`$70` because `$00`
+  isn't safe there. Index sources: `!level = $010B`, gamemode `$0100`, overworld `$1F11,x`
+  indexed by `$0DB3` (player).
+- **RAM it claims**: sprite tables default to `$7FAC80` (LoROM, 38 bytes) / `$41AC80`
+  (SA-1, 68 bytes — SA-1 Pack's sprite table is 22 slots, not 12). Map16 level-table writes
+  target `$7E`/`$7F:C800-FFFF`, or `$40`/`$41:C800-FFFF` on SA-1. **These overlap what a level
+  editor writes — check before allocating.**
+- **SA-1 is autodetected at assembly time** via `read1($00FFD5) == $23`, which rewrites
+  `!sa1` / `!dp` / `!addr` / `!bank` / `!sprite_slots`. Every address above therefore has two
+  forms, and any code we generate has to pick the same way.
+- ROM space is per-resource **RATS**-tagged (8 bytes of tag each, `0x7FF8` max per bank), and
+  the tables are fenced by literal `db "uber"` / `db "tool"` markers the tool scans for when
+  cleaning a previous insertion. Those markers are how you detect UberASM in a ROM.
+- It uses **the same hijacks as the older uberASM/levelASM patches**, so it can be applied over
+  them — back up first.
+- **Doc/code discrepancy found**: `assets/readme.txt` documents `;` as the `list.txt` comment
+  character; the shipped `assets/list.txt` uses `#` throughout. Unresolved — check the parser
+  (`UberConfigProcessor.ParseList()`) before relying on either.
+
+## AddmusicK — what to look at
+
+| you want | look at |
+|---|---|
+| the MML language | `doc/readme_files/syntax_reference.html` |
+| every `$xx` hex command and DSP register | `doc/readme_files/hex_command_reference.html` (the densest doc in any of these repos) |
+| the insertion workflow and CLI | `doc/readme_files/general_basic_use.html`, `general_advanced_use.html` |
+| the SFX system | `doc/readme_files/sound_effects.html` |
+| real minimal SFX sources | `test/1DF9/`, `test/1DFC/` — 93 tiny MML files |
+| the manifest formats | `test/Addmusic_list.txt`, `Addmusic_sample groups.txt`, `Addmusic_sound effects.txt` |
+| the compiler | `AddmusicK/` — `AMKd::MML` (parsing), `AMKd::Music`, `AMKd::Binary` (output) |
+
+- **The two SFX banks are `1DF9` and `1DFC`** — SMW's two sound-effect ports. Per AMK's docs the
+  *only* difference between them is the SPC channel used (#6 vs #7). `$1DFA` is echo control and
+  `$1DFB` is song upload.
+- `Addmusic_sound effects.txt` declares SFX as `<hex slot> [flag] TAB <filename>`, resolved
+  against the same-named folder. `*` = emit the slot as a pointer to an already-inserted effect
+  (saves ARAM); `?` = suppress AMK's auto-appended `$00` terminator.
+- **The real SFX sources are pure `$xx` hex** — not a single note letter across all 93 files.
+  Grammar is: length byte, optional volume, optional second volume (= L/R pan), then a note
+  byte ≥ `$80`; bare notes inherit the previous header.
+- **ARAM is the binding constraint** on everything audio. Global songs never transfer but cost
+  ARAM permanently; the echo buffer must be reserved up front (`$FA $04`) or you get
+  "Echo buffer exceeded total space in ARAM"; echo delay is capped `$00-$0F` by ARAM cost.
+  The docs warn a rogue echo buffer "can cause irreparable damage".
+- **`<ROMNAME>.msc` is the Lunar Magic handoff** — AMK writes it so LM knows the song list.
+  That is a file pipe-dream will have to read or write if it ever manages music.
+- Prefers **`asar.dll` over `asar.exe`**, both expected in the program directory. Backs the ROM
+  up as `ROMNAME~`.
+- Also worth knowing: **channels 6-7 are shared with sound effects and get cut**, channel 0
+  can't be pitch-modulated, and loops cannot nest (`[[ ]]` is layer two, remote event 4 is an
+  effective third).
+- **Dead data found in the shipped test corpus**: `test/1DFC/0E L + R scroll.txt` and
+  `1DFC/1D Time low 2.txt` each hold a mid-stream `$00` followed by a verbatim copy of a 1DF9
+  effect. A zero length byte ends the effect, so those trailing blocks are unreachable. Flagged
+  AMBIGUOUS in the graph — verify against `SoundEffect.cpp` before citing it.
+
 ## Querying them
 
-Both have a graphify knowledge graph built (2026-08-19), same layout as this repo's:
+All four have a graphify knowledge graph built (2026-08-19), same layout as this repo's:
 
 ```
-~/asar/graphify-out/                    1091 nodes / 2252 edges / 67 communities
+~/asar/graphify-out/                    1091 nodes / 2252 edges /  67 communities
 ~/SpriteToolSuperDelux/graphify-out/    1641 nodes / 2954 edges / 111 communities
+~/AddmusicK/graphify-out/               1018 nodes / 1899 edges /  75 communities
+~/UberASMTool/graphify-out/              329 nodes /  583 edges /  20 communities
 ```
 
 `graph.html` for browsing, `GRAPH_REPORT.md` for the community map, `graph.json` to query.
-Run `graphify query "<question>"` from inside either repo. Rebuild with `graphify . --update`.
+Run `graphify query "<question>"` from inside any of them. Rebuild with `graphify . --update`.
 
-Caveats recorded at build time: both graphs carry dangling-endpoint edges (74 of 2350 in asar,
-333 of 3327 in PIXI) where the AST referenced symbols outside the corpus, and a few files with
-C++ parse errors are only partially extracted — `arch-65816.cpp`, `arch-superfx.cpp`,
-`sprite.cpp`, and the `asar.h`/`asardll.h` headers. PIXI's 89 CFG-Editor resource PNGs were
-not extracted. So treat a *missing* edge as "look at the source", never as "no such relation".
+Caveats recorded at build time. All four carry dangling-endpoint edges, where the AST
+referenced symbols outside the corpus (asar 74 of 2350, PIXI 333 of 3327, AMK 82 of 1991,
+UberASM 50 of 686), plus some collapsed parallel edges where the same pair got both
+`implements` and `references`. Files with C++ parse errors are only partially extracted:
+`arch-65816.cpp`, `arch-superfx.cpp`, `sprite.cpp`, `Music.cpp`, `MML/Lexers/Core.cpp`, and the
+`asar.h`/`asardll.h` headers. Not extracted at all: PIXI's 89 CFG-Editor resource PNGs, and
+AMK's `back.png` nav arrow.
+
+**One gap worth remembering**: graphify does not recognise `.asm`, so UberASM's 15 assembly
+files were extracted by a subagent reading them directly, and they are **absent from that
+repo's `manifest.json`** — a `--update` will not notice when they change. Re-extract them by
+hand, or accept the graph going stale on the assembly side. The same blind spot applies to
+PIXI's `asm/` tree, which was never extracted at all.
+
+So treat a *missing* edge as "look at the source", never as "no such relation".

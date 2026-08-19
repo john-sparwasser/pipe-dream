@@ -40,11 +40,11 @@ public class GfxEditorTests
         Gfx.SetTilePixel(gfx, 0, 3, 2, 2, 5);
         var snap = (byte[])gfx.Clone();
         var stroke = new List<(int off, byte before, byte after)>();
-        GfxEditor.WritePixel(gfx, 0, 3, 2, 2, 5, stroke);
+        Gfx.WritePixel(gfx, 0, 3, 2, 2, 5, stroke);
         Assert.Empty(stroke);
         Assert.Equal(snap, gfx);
 
-        GfxEditor.WritePixel(gfx, 24, 3, 0, 0, 1, stroke);   // past the file: ignored
+        Gfx.WritePixel(gfx, 24, 3, 0, 0, 1, stroke);   // past the file: ignored
         Assert.Empty(stroke);
         Assert.Equal(snap, gfx);
     }
@@ -55,7 +55,7 @@ public class GfxEditorTests
         var gfx = new byte[24];
         Gfx.SetTilePixel(gfx, 0, 3, 0, 0, 5);              // 101: planes 0+2
         var stroke = new List<(int off, byte before, byte after)>();
-        GfxEditor.WritePixel(gfx, 0, 3, 0, 0, 7, stroke);  // 111: only plane 1 flips
+        Gfx.WritePixel(gfx, 0, 3, 0, 0, 7, stroke);  // 111: only plane 1 flips
         var e = Assert.Single(stroke);
         Assert.Equal((1, (byte)0x00, (byte)0x80), e);      // plane 1 row 0 = offset 1
         Assert.Equal(7, Gfx.DecodeTile(gfx, 0, 3)[0]);
@@ -70,7 +70,7 @@ public class GfxEditorTests
         var gfx = new byte[2 * 24];
         for (int y = 0; y < 8; y++) Gfx.SetTilePixel(gfx, 0, 3, 4, y, 1);
         var stroke = new List<(int off, byte before, byte after)>();
-        GfxEditor.FillTile(gfx, 3, 0, 0, 5, stroke);       // seed left of the wall
+        Gfx.FillTile(gfx, 3, 0, 0, 5, stroke);       // seed left of the wall
         Assert.NotEmpty(stroke);
         var t0 = Gfx.DecodeTile(gfx, 0, 3);
         for (int y = 0; y < 8; y++)
@@ -84,7 +84,7 @@ public class GfxEditorTests
     {
         var gfx = new byte[24];
         var stroke = new List<(int off, byte before, byte after)>();
-        GfxEditor.FillTile(gfx, 3, 3, 3, 0, stroke);       // color 0 over color 0
+        Gfx.FillTile(gfx, 3, 3, 3, 0, stroke);       // color 0 over color 0
         Assert.Empty(stroke);
         Assert.All(gfx, b => Assert.Equal(0, b));
     }
@@ -96,14 +96,14 @@ public class GfxEditorTests
     {
         var rom = TestRom.CreateWithGfx00();
         var stock = Gfx.Cached(rom, 0)!;
-        var g = GfxEditor.EditableBytes(rom, 0, out bool forked)!;
+        var g = Gfx.EditableBytes(rom, 0, out bool forked)!;
         Assert.True(forked);
         Assert.NotSame(stock, g);                          // a clone, not the cached stock array
         Assert.Equal(stock, g);
         Assert.Same(g, rom.ImportedGfx[0]);                // same-id keying shadows the stock file
         Assert.Same(g, Gfx.Cached(rom, 0));                // cache invalidated → fork served
 
-        Assert.Same(g, GfxEditor.EditableBytes(rom, 0, out forked));   // second touch: no re-fork
+        Assert.Same(g, Gfx.EditableBytes(rom, 0, out forked));   // second touch: no re-fork
         Assert.False(forked);
     }
 
@@ -111,7 +111,7 @@ public class GfxEditorTests
     public void unresolvable_id_returns_null_without_forking()
     {
         var rom = TestRom.Create();
-        Assert.Null(GfxEditor.EditableBytes(rom, 0x2A5, out bool forked));
+        Assert.Null(Gfx.EditableBytes(rom, 0x2A5, out bool forked));
         Assert.False(forked);
         Assert.False(rom.ImportedGfx.ContainsKey(0x2A5));
     }
@@ -125,23 +125,23 @@ public class GfxEditorTests
         var g = new byte[24];
         rom.ImportedGfx[0x100] = g;
         var stroke = new List<(int off, byte before, byte after)>();
-        GfxEditor.WritePixel(g, 0, 3, 0, 0, 7, stroke);    // planes 0/1/2 → offsets 0, 1, 16
+        Gfx.WritePixel(g, 0, 3, 0, 0, 7, stroke);    // planes 0/1/2 → offsets 0, 1, 16
         Assert.Equal(3, stroke.Count);
         var edits = stroke.ToArray();
 
-        GfxEditor.ApplyStroke(rom, 0x100, edits, redo: false);
+        Gfx.ApplyStroke(rom, 0x100, edits, redo: false);
         Assert.All(g, b => Assert.Equal(0, b));            // undo restored the zeros
-        GfxEditor.ApplyStroke(rom, 0x100, edits, redo: true);
+        Gfx.ApplyStroke(rom, 0x100, edits, redo: true);
         Assert.Equal(7, Gfx.DecodeTile(g, 0, 3)[0]);       // redo reapplied
 
         var shorter = new byte[8];                          // re-import replaced the array
         rom.ImportedGfx[0x100] = shorter;
-        GfxEditor.ApplyStroke(rom, 0x100, edits, redo: false);  // offset 16 skipped, no throw
+        Gfx.ApplyStroke(rom, 0x100, edits, redo: false);  // offset 16 skipped, no throw
         Assert.Equal(0, shorter[0]);                        // in-range offsets land in the NEW array
         Assert.Equal(0x80, g[16]);                          // the replaced array is never touched
 
         rom.ImportedGfx.Remove(0x100);
-        GfxEditor.ApplyStroke(rom, 0x100, edits, redo: false);  // missing id: silent no-op
+        Gfx.ApplyStroke(rom, 0x100, edits, redo: false);  // missing id: silent no-op
     }
 
     /// <summary>Regression: undo has to walk the stroke BACKWARD. A stroke records one entry
@@ -159,23 +159,23 @@ public class GfxEditorTests
 
         // Four pixels along row 0 of the same tile: every write hits offsets 0, 1 and 16.
         var stroke = new List<(int off, byte before, byte after)>();
-        for (int x = 0; x < 4; x++) GfxEditor.WritePixel(g, 0, 3, x, 0, 7, stroke);
+        for (int x = 0; x < 4; x++) Gfx.WritePixel(g, 0, 3, x, 0, 7, stroke);
         Assert.True(stroke.Count > 4, "expected repeated writes to the same plane offsets");
         var painted = (byte[])g.Clone();
         Assert.NotEqual(original, painted);
 
-        GfxEditor.ApplyStroke(rom, 0x100, stroke.ToArray(), redo: false);
+        Gfx.ApplyStroke(rom, 0x100, stroke.ToArray(), redo: false);
         Assert.Equal(original, g);          // the WHOLE stroke is gone, not just its tail
 
-        GfxEditor.ApplyStroke(rom, 0x100, stroke.ToArray(), redo: true);
+        Gfx.ApplyStroke(rom, 0x100, stroke.ToArray(), redo: true);
         Assert.Equal(painted, g);           // and redo puts all of it back
 
         // A fill covers a whole region, so it repeats offsets even harder.
         var fill = new List<(int off, byte before, byte after)>();
         byte[] beforeFill = (byte[])g.Clone();
-        GfxEditor.FillTile(g, 3, 0, 0, 3, fill);
+        Gfx.FillTile(g, 3, 0, 0, 3, fill);
         Assert.NotEqual(beforeFill, g);
-        GfxEditor.ApplyStroke(rom, 0x100, fill.ToArray(), redo: false);
+        Gfx.ApplyStroke(rom, 0x100, fill.ToArray(), redo: false);
         Assert.Equal(beforeFill, g);
     }
 }

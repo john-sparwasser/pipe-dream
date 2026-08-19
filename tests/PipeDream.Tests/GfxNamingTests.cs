@@ -37,15 +37,15 @@ public class GfxNamingTests : IDisposable
         var rom = WithImports((0x100, "grass-tiles"), (0x101, "cave"), (0x102, ""));
 
         // by name, anywhere in it, case-insensitively
-        Assert.True(GfxBrowser.Matches(rom, 0x100, "GRASS"));
-        Assert.True(GfxBrowser.Matches(rom, 0x100, "tiles"));
-        Assert.False(GfxBrowser.Matches(rom, 0x101, "grass"));
+        Assert.True(Gfx.Matches(rom, 0x100, "GRASS"));
+        Assert.True(Gfx.Matches(rom, 0x100, "tiles"));
+        Assert.False(Gfx.Matches(rom, 0x101, "grass"));
         // by id, so someone who knows the number can still type it
-        Assert.True(GfxBrowser.Matches(rom, 0x101, "101"));
-        Assert.True(GfxBrowser.Matches(rom, 0x102, "10"));
+        Assert.True(Gfx.Matches(rom, 0x101, "101"));
+        Assert.True(Gfx.Matches(rom, 0x102, "10"));
         // an unnamed file is still reachable by its id
-        Assert.True(GfxBrowser.Matches(rom, 0x102, "102"));
-        Assert.False(GfxBrowser.Matches(rom, 0x102, "grass"));
+        Assert.True(Gfx.Matches(rom, 0x102, "102"));
+        Assert.False(Gfx.Matches(rom, 0x102, "grass"));
     }
 
     [RealRomFact]
@@ -54,15 +54,15 @@ public class GfxNamingTests : IDisposable
         var rom = WithImports((0x100, "grass"));
         // "10" reaches both the $10x range and the file whose id simply IS $10 — both are
         // what someone typing "10" could mean, so both are kept.
-        Assert.True(GfxBrowser.Matches(rom, 0x100, "10"));
-        Assert.True(GfxBrowser.Matches(rom, 0x010, "10"));
+        Assert.True(Gfx.Matches(rom, 0x100, "10"));
+        Assert.True(Gfx.Matches(rom, 0x010, "10"));
         // What it must NOT do is match an id that merely CONTAINS the text.
-        Assert.False(GfxBrowser.Matches(rom, 0x210, "10"));
-        Assert.False(GfxBrowser.Matches(rom, 0x310, "10"));
+        Assert.False(Gfx.Matches(rom, 0x210, "10"));
+        Assert.False(Gfx.Matches(rom, 0x310, "10"));
         // A bare hex letter finds the low file with that id, not every id containing it.
-        Assert.True(GfxBrowser.Matches(rom, 0x00A, "a"));
-        Assert.False(GfxBrowser.Matches(rom, 0x01A, "a"));
-        Assert.False(GfxBrowser.Matches(rom, 0x02A, "a"));
+        Assert.True(Gfx.Matches(rom, 0x00A, "a"));
+        Assert.False(Gfx.Matches(rom, 0x01A, "a"));
+        Assert.False(Gfx.Matches(rom, 0x02A, "a"));
     }
 
     [RealRomFact]
@@ -70,10 +70,10 @@ public class GfxNamingTests : IDisposable
     {
         var rom = WithImports((0x102, "c"), (0x100, "a"), (0x101, "b"));
 
-        var custom = GfxBrowser.Candidates(rom, includeStock: false, "");
+        var custom = Gfx.Candidates(rom, includeStock: false, "");
         Assert.Equal([0x100, 0x101, 0x102], custom);
 
-        var all = GfxBrowser.Candidates(rom, includeStock: true, "");
+        var all = Gfx.Candidates(rom, includeStock: true, "");
         Assert.Contains(0x00, all);
         Assert.Contains(0x33, all);
         Assert.DoesNotContain(0x34, all);          // stock range is 0x00-0x33
@@ -82,7 +82,7 @@ public class GfxNamingTests : IDisposable
 
         // Filtering applies to the combined list. "a" matches the file NAMED "a" and the
         // stock file whose id is $00A — both intentional, nothing else.
-        Assert.Equal([0x00A, 0x100], GfxBrowser.Candidates(rom, includeStock: true, "a"));
+        Assert.Equal([0x00A, 0x100], Gfx.Candidates(rom, includeStock: true, "a"));
     }
 
     [RealRomFact]
@@ -91,7 +91,7 @@ public class GfxNamingTests : IDisposable
         // Imports can only land at 0x100+, but a project could carry a fork of a stock file;
         // the stock pass must not then list the same id twice.
         var rom = WithImports((0x02, "forked-gfx02"));
-        var all = GfxBrowser.Candidates(rom, includeStock: true, "");
+        var all = Gfx.Candidates(rom, includeStock: true, "");
         Assert.Single(all.Where(i => i == 0x02));
     }
 

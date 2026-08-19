@@ -350,6 +350,159 @@ public static class Gfx
         else if (bpp == 4) { Plane(off + 16 + y * 2, 2); Plane(off + 16 + y * 2 + 1, 3); }
     }
 
+    // ---- pixel editing ----
+    // Pure planar-byte work, so it lives with the format rather than in a UI: both editors
+    // paint through these, and a stroke recorded by one replays identically in the other.
+
+    /// <summary>One pixel write with stroke capture: record each plane byte that actually
+    /// changed as (offset, before, after). A same-colour write records nothing.</summary>
+    public static void WritePixel(byte[] gfx, int tileOff, int bpp, int x, int y, int color,
+                                  List<(int off, byte before, byte after)> stroke)
+    {
+        int tb = TileBytes(bpp);
+        if (tileOff < 0 || tileOff + tb > gfx.Length) return;
+        Span<int> offs = stackalloc int[4];
+        offs[0] = tileOff + y * 2; offs[1] = tileOff + y * 2 + 1;
+        int n = 2;
+        if (bpp == 3) offs[n++] = tileOff + 16 + y;
+        else if (bpp == 4) { offs[n++] = tileOff + 16 + y * 2; offs[n++] = tileOff + 16 + y * 2 + 1; }
+        Span<byte> before = stackalloc byte[4];
+        for (int i = 0; i < n; i++) before[i] = gfx[offs[i]];
+        SetTilePixel(gfx, tileOff, bpp, x, y, color);
+        for (int i = 0; i < n; i++)
+            if (gfx[offs[i]] != before[i]) stroke.Add((offs[i], before[i], gfx[offs[i]]));
+    }
+
+    /// <summary>4-connected flood fill WITHIN the 8x8 tile containing sheet pixel (px,py):
+    /// replaces the clicked pixel's colour region with <paramref name="color"/>. No-op when the
+    /// target already is the colour. Sheet layout = 16 tiles per row.</summary>
+    public static void FillTile(byte[] gfx, int bpp, int px, int py, int color,
+                               List<(int off, byte before, byte after)> stroke)
+    {
+        int tb = TileBytes(bpp);
+        int tileOff = ((py / 8) * 16 + px / 8) * tb;
+        if (tileOff < 0 || tileOff + tb > gfx.Length) return;
+        var idx = DecodeTile(gfx, tileOff, bpp);
+        int sx = px & 7, sy = py & 7;
+        byte target = idx[sy * 8 + sx];
+        if (target == color) return;
+        var work = new Stack<(int x, int y)>();
+        work.Push((sx, sy));
+        while (work.Count > 0)
+        {
+            var (x, y) = work.Pop();
+            if (x is < 0 or > 7 || y is < 0 or > 7 || idx[y * 8 + x] != target) continue;
+            idx[y * 8 + x] = (byte)color;
+            WritePixel(gfx, tileOff, bpp, x, y, color, stroke);
+            work.Push((x + 1, y)); work.Push((x - 1, y)); work.Push((x, y + 1)); work.Push((x, y - 1));
+        }
+    }
+
+    /// <summary>The editable byte array for a file: the existing import, or a copy-on-write fork
+    /// of the stock bytes keyed under the SAME id (shadowing the ROM file for every consumer —
+    /// deliberately opposite of an import's new-id allocation). Null when the id resolves
+    /// nowhere.</summary>
+    public static byte[]? EditableBytes(Rom rom, int file, out bool forked)
+    {
+        forked = false;
+        if (rom.ImportedGfx.TryGetValue(file, out var b)) return b;
+        if (Cached(rom, file) is not { } stock) return null;
+        var fork = (byte[])stock.Clone();
+        rom.ImportedGfx[file] = fork;
+        InvalidateCache(rom);               // consumers re-resolve through the import
+        forked = true;
+        return fork;
+    }
+
+    /// <summary>Replay stroke bytes into the file's CURRENT array — re-looked-up by id and
+    /// bounds-checked, so a re-import that replaced (or removed) the array cannot crash or
+    /// corrupt a replay.
+    ///
+    /// UNDO WALKS BACKWARD. A stroke records one entry per byte WRITE, not per byte, and a
+    /// single plane byte carries 8 pixels of a tile row — so painting along a row (or any fill)
+    /// rewrites the same offset repeatedly: (off,A,B), (off,B,C), (off,C,D). Restoring those
+    /// front-to-back ends on C, the second-to-last value, leaving most of the stroke painted.
+    /// Last-to-first unwinds D→C→B→A and lands on the original. Redo is order-independent for a
+    /// given offset (the last write wins either way) but stays forward so it mirrors the paint
+    /// order.</summary>
+    public static void ApplyStroke(Rom rom, int file, (int off, byte before, byte after)[] edits, bool redo)
+    {
+        if (!rom.ImportedGfx.TryGetValue(file, out var g)) return;
+        if (redo)
+            foreach (var (off, _, after) in edits)
+                { if (off >= 0 && off < g.Length) g[off] = after; }
+        else
+            for (int i = edits.Length - 1; i >= 0; i--)
+            {
+                var (off, before, _) = edits[i];
+                if (off >= 0 && off < g.Length) g[off] = before;
+            }
+    }
+
+    /// <summary>Files worth offering in a picker, in id order: imported ExGFX first, then the
+    /// ROM's stock files when asked for.</summary>
+    public static List<int> Candidates(Rom rom, bool includeStock, string filter)
+    {
+        var ids = new List<int>(rom.ImportedGfx.Keys);
+        if (includeStock)
+            for (int f = 0; f < 0x34; f++)
+                if (!rom.ImportedGfx.ContainsKey(f)) ids.Add(f);
+        ids.Sort();
+        if (filter.Length == 0) return ids;
+        return ids.Where(id => Matches(rom, id, filter)).ToList();
+    }
+
+    /// <summary>A file matches when the filter appears anywhere in its NAME, or PREFIXES its hex
+    /// id — so "grass" finds it by name and "10" finds $100-$10F. Ids deliberately are not
+    /// substring-matched: a one-letter filter like "a" would otherwise drag in $00A, $01A, $02A…
+    /// by coincidence. Both spellings of the id are tried so "a" still finds $00A.</summary>
+    public static bool Matches(Rom rom, int id, string filter) =>
+        (rom.GfxName(id) is { Length: > 0 } n &&
+         n.Contains(filter, StringComparison.OrdinalIgnoreCase)) ||
+        id.ToString("X").StartsWith(filter, StringComparison.OrdinalIgnoreCase) ||
+        id.ToString("X3").StartsWith(filter, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>One line describing what a file holds, for a picker row.</summary>
+    public static string Describe(Rom rom, int id)
+    {
+        int bpp = RomBpp(rom);
+        if (Cached(rom, id) is not { } d) return "(empty)";
+        return $"{d.Length / TileBytes(bpp)} tiles, {bpp}bpp, 0x{d.Length:X} bytes";
+    }
+
+    /// <summary>
+    /// The level's 10 VRAM GFX bins (FG/BG/SP), resolved through the tileset lists and the Super
+    /// GFX Bypass (session overrides ride along inside LmGfxBypass). Def is the vanilla list
+    /// entry (0x7F for the bypass-only BG2/BG3 bins) — File != Def means the bypass repointed it.
+    /// </summary>
+    public static (string Name, int PalRow, int BypWord, int Def, int File)[] LevelSlots(
+        Rom rom, LevelHeader h, int levelNum)
+    {
+        var byp = rom.LmGfxBypass(levelNum);
+
+        // (name, GFXLIST base, list index, palette row for the preview, bypass record word)
+        var slots = new (string name, int listBase, int idx, int palRow, int bypWord)[]
+        {
+            ("FG1", ObjectGfxList, h.Tileset * 4 + 0, 2, 7),
+            ("FG2", ObjectGfxList, h.Tileset * 4 + 1, 2, 6),
+            ("BG1", ObjectGfxList, h.Tileset * 4 + 2, 0, 5),
+            ("FG3", ObjectGfxList, h.Tileset * 4 + 3, 2, 4),
+            // BG2/BG3 have no vanilla list entry (listBase -1) — only via the bypass (LM VRAM patch).
+            ("BG2", -1, 0, 0, 3),
+            ("BG3", -1, 0, 0, 2),
+            ("SP1", 0x00A8C3, h.SpriteSet * 4 + 0, 8, 11),
+            ("SP2", 0x00A8C3, h.SpriteSet * 4 + 1, 8, 10),
+            ("SP3", 0x00A8C3, h.SpriteSet * 4 + 2, 8, 9),
+            ("SP4", 0x00A8C3, h.SpriteSet * 4 + 3, 8, 8),
+        };
+        return slots.Select(s =>
+        {
+            int def = s.listBase < 0 ? 0x7F : rom.Data[rom.FileOffset(s.listBase) + s.idx];
+            bool bypassed = byp is not null && (byp[s.bypWord] & 0xFFF) != 0x7F;
+            return (s.name, s.palRow, s.bypWord, def, bypassed ? byp![s.bypWord] & 0xFFF : def);
+        }).ToArray();
+    }
+
     /// <summary>
     /// Compress bytes as LC_LZ2 (the exact inverse consumer is <see cref="Lz2Decompress"/>
     /// and the ROM decompressor $00B8DE). Greedy and deterministic: byte runs ≥ 3 → cmd 1,
