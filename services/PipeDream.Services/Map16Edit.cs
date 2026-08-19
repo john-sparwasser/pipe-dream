@@ -157,6 +157,74 @@ public sealed class Map16Edit
         project.MarkDirty();
     }
 
+    // ---- properties of the selected tile(s) ----
+
+    /// <summary>
+    /// Apply a per-quadrant transform to every tile in a selection, skipping unallocated ones.
+    /// Every write joins the SAME stroke, so changing the palette row of a 4x4 block is one undo
+    /// entry rather than sixty-four.
+    /// </summary>
+    public void Transform(IEnumerable<int> tiles, Func<Map16.Word, ushort> f)
+    {
+        foreach (int t in tiles)
+        {
+            if (ReadDef(t) is not { } w) continue;
+            for (int q = 0; q < 4; q++) StampQuad(t, q, f(w[q]));
+        }
+        EndStroke();
+    }
+
+    /// <summary>Mirror each selected tile in place: swap the quadrant pairs AND toggle the flip
+    /// flag. Doing only one of the two mirrors the arrangement but not the art, or the art but
+    /// not the arrangement — either way the tile comes out wrong.</summary>
+    public void Flip(IEnumerable<int> tiles, bool vertical)
+    {
+        foreach (int t in tiles)
+        {
+            if (ReadDef(t) is not { } w) continue;      // visual order TL, TR, BL, BR
+            int flag = vertical ? 0x8000 : 0x4000;
+            int[] src = vertical ? [2, 3, 0, 1] : [1, 0, 3, 2];
+            for (int q = 0; q < 4; q++) StampQuad(t, q, (ushort)(w[src[q]].Raw ^ flag));
+        }
+        EndStroke();
+    }
+
+    /// <summary>Whether this ROM carries Lunar Magic's acts-like table at all.</summary>
+    public bool HasActsAs => rom.LmActsAsBase > 0;
+
+    /// <summary>What a tile behaves as. Acts-like is an FG concept: BG tiles (0x4000+) have no
+    /// entry, and pretending otherwise would write past the table.</summary>
+    public int? ActsAs(int tile)
+        => HasActsAs && tile < 0x4000 ? rom.ActsAs(tile) : null;
+
+    /// <summary>
+    /// Remap what the selected tiles behave as. Written straight into the session ROM with the
+    /// tile numbers recorded in the project — the VALUES are re-read from the ROM at save time,
+    /// which is what makes undo need no extra bookkeeping (the same deal as definitions).
+    /// </summary>
+    public bool SetActsAs(IEnumerable<int> tiles, int value)
+    {
+        if (!HasActsAs) return false;
+        bool any = false;
+        foreach (int t in tiles)
+        {
+            if (t >= 0x4000) continue;
+            int fo = rom.FileOffset(rom.LmActsAsBase + t * 2);
+            int before = rom.Data[fo] | (rom.Data[fo + 1] << 8);
+            int v = value & 0x3FFF;
+            if (before == v) continue;
+            rom.Data[fo] = (byte)v;
+            rom.Data[fo + 1] = (byte)(v >> 8);
+            project?.Data.Map16.ActsAs.TryAdd(t.ToString("X3"), v);
+            any = true;
+        }
+        if (!any) return false;
+        project?.MarkDirty();
+        Dirty = true;
+        Committed?.Invoke();
+        return true;
+    }
+
     /// <summary>
     /// Move a rectangle of tiles by a tile delta. Sources are read out first, cleared, then
     /// rewritten at the destination — overlap-safe, and one undo step because every write

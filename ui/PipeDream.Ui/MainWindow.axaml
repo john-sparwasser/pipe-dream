@@ -298,9 +298,39 @@
 
       <GridSplitter Grid.Column="1" ResizeDirection="Columns"/>
 
+      <DockPanel Grid.Column="2">
+
+      <!-- Map16 mode gets a right-hand inspector for the selected tile(s): what it acts as, its
+           palette row, priority and flips. Mode-specific, so it appears with the mode. -->
+      <Border x:Name="Map16Props" DockPanel.Dock="Right" Classes="panel" IsVisible="False"
+              BorderThickness="1,0,0,0" Padding="12,10" Width="220">
+        <StackPanel Spacing="10">
+          <TextBlock x:Name="M16SelLabel" Classes="dim" TextWrapping="Wrap"/>
+          <Rectangle Height="1" Fill="{DynamicResource BorderBrush}"/>
+          <StackPanel x:Name="M16Fields" Spacing="10">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBlock Classes="dim" Text="Acts as" VerticalAlignment="Center"/>
+              <TextBox x:Name="M16Acts" Width="64"/>
+            </StackPanel>
+            <TextBlock x:Name="M16ActsNote" Classes="mono" TextWrapping="Wrap"/>
+            <CheckBox x:Name="M16Priority" Content="Priority"/>
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBlock Classes="dim" Text="Palette" VerticalAlignment="Center"/>
+              <ComboBox x:Name="M16Palette" Width="66"/>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <Button Content="Flip X" Click="OnFlipX"/>
+              <Button Content="Flip Y" Click="OnFlipY"/>
+            </StackPanel>
+          </StackPanel>
+          <TextBlock x:Name="M16Unallocated" Classes="dim" IsVisible="False" TextWrapping="Wrap"
+                     Text="This tile has no definition yet — paint on it to create its page."/>
+        </StackPanel>
+      </Border>
+
       <!-- Canvas modes share the region: exactly one is visible, and the drawer keeps
            feeding whichever it is. -->
-      <Panel Grid.Column="2">
+      <Panel>
         <ScrollViewer x:Name="CanvasScroll"
                       Background="{DynamicResource VoidBrush}"
                       HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
@@ -331,6 +361,7 @@
           </ScrollViewer>
         </DockPanel>
       </Panel>
+      </DockPanel>
     </Grid>
 
   </DockPanel>

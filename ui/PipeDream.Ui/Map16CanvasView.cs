@@ -49,6 +49,19 @@ public class Map16CanvasView : Control
     /// <summary>X, Y or P pressed over a quadrant: the bit to toggle in its word.</summary>
     public event EventHandler<(int Tile, int Quad, ushort Bit)>? QuadFlagToggled;
 
+    /// <summary>Raised when the selected tile or lasso changes, so an inspector can follow it.</summary>
+    public event EventHandler? SelectionChanged;
+
+    /// <summary>The tiles the properties panel acts on: the lasso when there is one, else the
+    /// single selected tile.</summary>
+    public IEnumerable<int> SelectedTiles()
+    {
+        if (Selection is not { } s) { yield return SelectedTile; yield break; }
+        for (int j = 0; j < s.H; j++)
+            for (int i = 0; i < s.W; i++)
+                yield return Bank * Map16Layout.BankTiles + (s.Y + j) * Map16Layout.Cols + s.X + i;
+    }
+
     public Map16CanvasView() => Focusable = true;
 
     public void SetSheet(uint[] px, int w, int h, int tileCount)
@@ -162,6 +175,7 @@ public class Map16CanvasView : Control
             }
         }
 
+        SelectionChanged?.Invoke(this, EventArgs.Empty);
         lassoStart = lassoEnd = moveStart = null;
         e.Pointer.Capture(null);
         InvalidateVisual();

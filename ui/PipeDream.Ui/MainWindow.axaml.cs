@@ -68,6 +68,12 @@ public partial class MainWindow : Window
     private ToggleButton layerOne = null!, layerTwo = null!;
     private Button addLayer2 = null!, dropLayer2 = null!;
     private TextBlock layer2Note = null!;
+    private Border map16Props = null!;
+    private TextBlock m16SelLabel = null!, m16ActsNote = null!, m16Unallocated = null!;
+    private StackPanel m16Fields = null!;
+    private TextBox m16Acts = null!;
+    private CheckBox m16Priority = null!;
+    private ComboBox m16Palette = null!;
 
     public MainWindow()
     {
@@ -190,6 +196,38 @@ public partial class MainWindow : Window
         // Subscribed once, on the session: a committed definition change invalidates the tile
         // caches behind the level, the picker and the sheet alike.
         session.Map16Committed += (_, _) => OnMap16Committed();
+
+        // ---- Map16 properties inspector ----
+        map16Props = this.GetControl<Border>("Map16Props");
+        m16SelLabel = this.GetControl<TextBlock>("M16SelLabel");
+        m16Fields = this.GetControl<StackPanel>("M16Fields");
+        m16Unallocated = this.GetControl<TextBlock>("M16Unallocated");
+        m16Acts = this.GetControl<TextBox>("M16Acts");
+        m16ActsNote = this.GetControl<TextBlock>("M16ActsNote");
+        m16Priority = this.GetControl<CheckBox>("M16Priority");
+        m16Palette = this.GetControl<ComboBox>("M16Palette");
+        for (int i = 0; i < 8; i++) m16Palette.Items.Add($"{i}");
+
+        map16Canvas.SelectionChanged += (_, _) => RefreshMap16Props();
+        map16Canvas.TilePicked += (_, _) => RefreshMap16Props();
+        // Committed on Enter or on leaving the field, not per keystroke: half a hex number is
+        // still a number, and every commit rewrites the ROM.
+        m16Acts.KeyDown += (_, e) => { if (e.Key == Key.Enter) { ApplyM16Acts(); e.Handled = true; } };
+        m16Acts.LostFocus += (_, _) => ApplyM16Acts();
+        m16Priority.IsCheckedChanged += (_, _) =>
+        {
+            if (loadingM16Props) return;
+            bool on = m16Priority.IsChecked == true;
+            map16?.Transform(map16Canvas.SelectedTiles(),
+                             w => (ushort)(on ? w.Raw | 0x2000 : w.Raw & ~0x2000));
+        };
+        m16Palette.SelectionChanged += (_, _) =>
+        {
+            if (loadingM16Props || m16Palette.SelectedIndex < 0) return;
+            int row = m16Palette.SelectedIndex;
+            map16?.Transform(map16Canvas.SelectedTiles(),
+                             w => (ushort)((w.Raw & ~0x1C00) | (row << 10)));
+        };
 
         zoomSlider.PropertyChanged += (_, e) =>
         {
@@ -1314,9 +1352,11 @@ public partial class MainWindow : Window
         map16Canvas.ClearSelection();
 
         RefreshDrawer();
+        map16Props.IsVisible = map16;
         if (map16)
         {
             RefreshMap16Sheet();
+            RefreshMap16Props();
             map16Canvas.Focus();
             status.Text = "Map16 — right-drag stamps the 8x8 brush; X/Y/P flip the quadrant under the cursor";
         }
@@ -1328,6 +1368,60 @@ public partial class MainWindow : Window
         }
         else UpdateStatus();
         canvas.InvalidateVisual();
+    }
+
+    // ---- Map16 properties inspector ----
+
+    /// <summary>Guard so filling the fields from the selection does not read back as edits.</summary>
+    private bool loadingM16Props;
+
+    /// <summary>
+    /// Show the selected tile's properties. The controls reflect the FIRST tile of a selection and
+    /// apply to all of it — the ImGui behaviour, and the only sane one when a lasso can cover
+    /// tiles that disagree.
+    /// </summary>
+    private void RefreshMap16Props()
+    {
+        if (map16 is not { } m16) return;
+        var tiles = map16Canvas.SelectedTiles().ToList();
+        int first = tiles[0];
+        m16SelLabel.Text = tiles.Count > 1
+            ? $"{tiles.Count} tiles selected"
+            : $"tile 0x{first:X4}";
+
+        var def = m16.ReadDef(first);
+        m16Fields.IsVisible = def is not null;
+        m16Unallocated.IsVisible = def is null;
+        if (def is null) return;
+
+        loadingM16Props = true;
+        // Acts-like is an FG concept and needs LM's table; say which is missing rather than
+        // showing a box that does nothing.
+        bool acts = m16.HasActsAs && first < 0x4000;
+        m16Acts.IsEnabled = acts;
+        m16Acts.Text = m16.ActsAs(first) is { } a ? $"{a:X3}" : "";
+        m16ActsNote.Text = acts ? "" : first >= 0x4000 ? "n/a for BG tiles" : "no LM acts-like table";
+        m16Priority.IsChecked = def[0].Priority;
+        m16Palette.SelectedIndex = def[0].Palette;
+        loadingM16Props = false;
+    }
+
+    private void ApplyM16Acts()
+    {
+        if (loadingM16Props || map16 is not { } m16) return;
+        if (!int.TryParse(m16Acts.Text, System.Globalization.NumberStyles.HexNumber, null, out int v))
+        { RefreshMap16Props(); return; }
+        if (m16.SetActsAs(map16Canvas.SelectedTiles(), v))
+            status.Text = $"acts-like ← 0x{v & 0x3FFF:X3}";
+    }
+
+    private void OnFlipX(object? sender, RoutedEventArgs e) => FlipM16(vertical: false);
+    private void OnFlipY(object? sender, RoutedEventArgs e) => FlipM16(vertical: true);
+
+    private void FlipM16(bool vertical)
+    {
+        map16?.Flip(map16Canvas.SelectedTiles(), vertical);
+        RefreshMap16Props();
     }
 
     private void RefreshMap16Sheet()
