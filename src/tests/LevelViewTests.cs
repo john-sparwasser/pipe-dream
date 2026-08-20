@@ -95,6 +95,24 @@ public class LevelViewTests
         Assert.Null(view.LastClickedCell);
     }
 
+    /// <summary>The desk behind the level: the ImGui editor's diamond backdrop, as a 32x32
+    /// tile. Pin the tile's geometry — lighter-grey diamond (centre and edge midpoints) on the
+    /// dark base (corners) — since a wrong predicate still "renders fine", just blank.</summary>
+    [AvaloniaFact]
+    public void the_desk_pattern_is_lighter_diamonds_on_dark_grey()
+    {
+        var brush = Assert.IsType<Avalonia.Media.ImageBrush>(UiColors.DeskPattern);
+        Assert.Equal(Avalonia.Media.TileMode.Tile, brush.TileMode);
+        Assert.NotNull(brush.Source);
+
+        var px = UiColors.DeskTile();
+        Assert.Equal(32 * 32, px.Length);
+        Assert.Equal(0xFF1B1B1Bu, px[16 * 32 + 16]);   // diamond centre
+        Assert.Equal(0xFF1B1B1Bu, px[0 * 32 + 16]);    // edge midpoint — diamonds touch tips
+        Assert.Equal(0xFF101010u, px[0 * 32 + 0]);     // corner — base grey between diamonds
+        Assert.Equal(0xFF101010u, px[8 * 32 + 2]);     // off-diamond interior
+    }
+
     [AvaloniaFact]
     public void the_view_renders_without_a_gpu()
     {

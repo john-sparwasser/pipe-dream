@@ -439,7 +439,9 @@ public class LevelView : Control
     public override void Render(DrawingContext ctx)
     {
         var bounds = new Rect(Bounds.Size);
-        ctx.FillRectangle(Brushes.Black, bounds);
+        // Unused space — right of and below the level, or all of it before a ROM opens — is
+        // the diamond desk the ImGui editor drew; the level image covers its own area next.
+        ctx.FillRectangle(UiColors.DeskPattern, bounds);
         if (Source?.For(Phase) is not { } bmp) return;
 
         // One scaled blit of whatever the control covers; the ScrollViewer clips it to the
