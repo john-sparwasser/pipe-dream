@@ -26,6 +26,16 @@ public static class RomSelfCheck
         Check("SnesToPc($05E000) == 0x02E000", Rom.SnesToPc(0x05E000) == 0x02E000);
         Check("PcToSnes round-trips 0x2E000", Rom.SnesToPc(Rom.PcToSnes(0x2E000)) == 0x2E000);
 
+        // Everything below reads the reference ROMs, which are never redistributed. Most
+        // sections guard for that themselves, but several load the clean ROM unguarded and
+        // took the whole run down with an unhandled exception on a machine that has none —
+        // which is every CI runner and every fresh clone. One gate, before any of them.
+        if (!File.Exists(CleanRom))
+        {
+            Console.WriteLine($"(skip) reference ROMs not present under {ReferenceRoms.Root}");
+            return fails;
+        }
+
         if (File.Exists(CleanRom))
         {
             Console.WriteLine($"Clean ROM: {CleanRom}");
