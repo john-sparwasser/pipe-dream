@@ -35,7 +35,9 @@ public static class ObjectEngine
         }
     }
 
-    public static Cpu65816? LastCpu;    // debug hook
+    // Debug hook. Per-thread because readers (tests) render and inspect on one thread while
+    // xUnit runs other classes' renders in parallel — a plain static gets overwritten mid-test.
+    [ThreadStatic] public static Cpu65816? LastCpu;
 
     /// <summary>
     /// Render an edited object list by encoding it and running the ROM loader against the
