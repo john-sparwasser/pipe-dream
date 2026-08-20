@@ -9,13 +9,16 @@ namespace PipeDream.Ui;
 /// The level canvas. Controls are a deliberate match for the ImGui editor's ObjectTool, so
 /// muscle memory carries over:
 ///
-///   RIGHT click/drag   stamp the drawer's tile brush as Direct Map16 objects. Right-click
-///                      with a selection DUPLICATES it at the cursor instead.
-///   LEFT click         on a selected object → drag to move it
+///   RIGHT click/drag   place: the armed catalog object, else the drawer's Map16 tile as a
+///                      Direct Map16 object. A selection does NOT change what it does —
+///                      pick a tile, right-click, it lands there.
+///   CTRL + RIGHT click duplicate the selection at the cursor
+///   LEFT click         on a selected object → drag to move it, live under the cursor
 ///                      elsewhere            → rubber-band select (live, while dragging)
 ///   LEFT click, still  cycle the overlap stack under the cursor (LM-style: topmost, then
 ///                      the one beneath, wrapping)
 ///   CTRL + LEFT drag   grab the covered tiles as the stamp brush instead of selecting
+///   ALT + LEFT click   eyedropper: select the CGRAM colour under the pixel
 ///   DELETE             delete the selection
 ///   WHEEL              scroll horizontally (SHIFT: vertically). Vertical levels keep the
 ///                      normal up/down wheel.
@@ -34,7 +37,11 @@ public class LevelView : Control
         set => SetValue(ZoomProperty, value);
     }
 
-    /// <summary>Scroll offset in level pixels (not screen pixels).</summary>
+    /// <summary>Scroll offset in level pixels (not screen pixels). Zero in the app: the control
+    /// measures to the WHOLE level and the hosting ScrollViewer does the scrolling, so
+    /// control-local coordinates are already level coordinates. ponytail: kept because it makes
+    /// hit-testing testable without a ScrollViewer — set it and you are simulating a scroll,
+    /// nothing more.</summary>
     public Point Origin { get; set; }
 
     public LevelBitmap? Source { get; set; }
@@ -51,8 +58,7 @@ public class LevelView : Control
     public int CatalogSprite { get; set; } = -1;
 
     /// <summary>Object number armed from the Objects catalog, or -1. Right-click places it
-    /// INSTEAD of stamping the tile brush — the same precedence the ImGui tool uses: duplicate
-    /// a selection first, then a catalog object, then the brush.</summary>
+    /// INSTEAD of stamping the tile brush; arming one is explicit, so it wins.</summary>
     public int CatalogObject { get; set; } = -1;
 
     public event EventHandler? SpritesChanged;
@@ -63,21 +69,20 @@ public class LevelView : Control
     public (int X, int Y)? HoverCell { get; private set; }
     public (int X, int Y)? LastClickedCell { get; private set; }
 
-    /// <summary>Footprint of the stamp brush, outlined under the cursor so a grabbed 4x3
-    /// brush is visible before it is committed rather than after.</summary>
-    public int BrushW { get; set; } = 1;
-    public int BrushH { get; set; } = 1;
-
     /// <summary>Raised for every cell a RIGHT drag passes through — the paint stroke.</summary>
     public event EventHandler<(int X, int Y)>? CellPainted;
     public event EventHandler? StrokeEnded;
     public event EventHandler<(int X, int Y)>? CellPressed;
 
-    /// <summary>Right-click with a selection: duplicate it here rather than stamping.</summary>
+    /// <summary>Ctrl+right-click with a selection: duplicate it here.</summary>
     public event EventHandler<(int X, int Y)>? DuplicateRequested;
 
     /// <summary>Right-click with a catalog object armed: place it here.</summary>
     public event EventHandler<(int X, int Y)>? PlaceRequested;
+
+    /// <summary>Alt+left-click: sample the CGRAM colour under this LEVEL PIXEL (not cell — a
+    /// 16x16 cell holds up to 16 colours, so the pixel is the whole question).</summary>
+    public event EventHandler<(int X, int Y)>? SampleRequested;
 
     /// <summary>Ctrl+drag finished: take these cells as the stamp brush.</summary>
     public event EventHandler<(int X, int Y, int W, int H)>? GrabRequested;
@@ -89,9 +94,22 @@ public class LevelView : Control
     /// host, which owns the scroll viewer.</summary>
     public event EventHandler<(double Dx, double Dy)>? ScrollRequested;
 
-    static LevelView() => AffectsRender<LevelView>(ZoomProperty);
+    static LevelView()
+    {
+        AffectsRender<LevelView>(ZoomProperty);
+        AffectsMeasure<LevelView>(ZoomProperty);
+    }
 
     public LevelView() => Focusable = true;
+
+    /// <summary>
+    /// The whole level at the current zoom. Without this the control reports no desired size,
+    /// the hosting ScrollViewer arranges it at exactly the viewport, extent == viewport, and
+    /// the level simply cannot be scrolled — everything past the first screenful is
+    /// unreachable, which is what the Avalonia port shipped with.
+    /// </summary>
+    protected override Size MeasureOverride(Size availableSize)
+        => Source is { HasImages: true } s ? new Size(s.PxW * Zoom, s.PxH * Zoom) : default;
 
     /// <summary>Screen point → 16x16 cell, or null when outside the composed level.</summary>
     public (int X, int Y)? CellAt(Point p)
@@ -104,11 +122,15 @@ public class LevelView : Control
 
     // ---- drag state, mirroring the ImGui tool's dragStart/dragEnd/moveDrag/resizeDrag ----
     private (int X, int Y)? bandStart, bandEnd, moveStart;
-    private bool painting, grabbing;
+    private bool painting, grabbing, sampling;
+    /// <summary>A move drag has already applied at least one step, so the rest coalesce into
+    /// the same undo entry and a release is a drag, not a stationary click.</summary>
+    private bool moved;
     private (int X, int Y)? lastPainted;
     private (int Obj, int Edges, int Cx, int Cy)? resizeDrag;
-    // Sprite lasso works in LEVEL PIXELS, not cells: a sprite is selected by what it draws,
-    // and its drawn area rarely lines up with its spawn cell.
+    // The lasso works in LEVEL PIXELS, not cells — it follows the cursor exactly instead of
+    // snapping to the 16px grid. (Sprites are also SELECTED by pixel: a sprite is picked by
+    // what it draws, and its drawn area rarely lines up with its spawn cell.)
     private (int X, int Y)? pixelStart, pixelEnd;
 
     private (int X, int Y) LevelPixel(Point p)
@@ -168,13 +190,25 @@ public class LevelView : Control
         LastClickedCell = cell;
         CellPressed?.Invoke(this, cell);
 
+        // Alt+left is the eyedropper, in every mode. A modifier rather than an armed tool: a
+        // mode you can forget you are in costs more than a key you have to hold.
+        if (props.IsLeftButtonPressed && e.KeyModifiers.HasFlag(KeyModifiers.Alt))
+        {
+            sampling = true;
+            e.Pointer.Capture(this);
+            SampleRequested?.Invoke(this, LevelPixel(e.GetPosition(this)));
+            e.Handled = true;
+            return;
+        }
+
         if (Mode == EditMode.Sprites && Sprites is { } sp)
         {
             var lp = LevelPixel(e.GetPosition(this));
             if (props.IsRightButtonPressed)
             {
-                // Same rule as objects: duplicate a selection, else place from the catalog.
-                bool did = sp.Selection.Count > 0 ? sp.DuplicateSelected(cell.X, cell.Y)
+                // Same rule as objects: right-click places, Ctrl+right duplicates.
+                bool did = e.KeyModifiers.HasFlag(KeyModifiers.Control) && sp.Selection.Count > 0
+                         ? sp.DuplicateSelected(cell.X, cell.Y)
                          : CatalogSprite >= 0 && sp.Place(CatalogSprite, cell.X, cell.Y);
                 if (did) SpritesChanged?.Invoke(this, EventArgs.Empty);
             }
@@ -192,9 +226,11 @@ public class LevelView : Control
 
         if (props.IsRightButtonPressed)
         {
-            // Right-click precedence, matching the ImGui tool exactly: duplicate a selection,
-            // else place the armed catalog object, else stamp the tile brush.
-            if (Edit is { Selection.Count: > 0 }) DuplicateRequested?.Invoke(this, cell);
+            // Right-click is PLACE, whatever is selected: pick a tile in the drawer, right-click,
+            // it lands. Duplicating a selection moved to Ctrl+right — having a stray selection
+            // silently turn every right-click into a duplicate is what made placing look broken.
+            if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && Edit is { Selection.Count: > 0 })
+                DuplicateRequested?.Invoke(this, cell);
             else if (CatalogObject >= 0) PlaceRequested?.Invoke(this, cell);
             else
             {
@@ -215,7 +251,11 @@ public class LevelView : Control
             else if (!grabbing && Edit?.ObjectAt(cell.X, cell.Y) is int hit && Edit.Selection.Contains(hit))
                 moveStart = cell;
             else
+            {
                 bandStart = cell;
+                var lp = LevelPixel(e.GetPosition(this));
+                pixelStart = pixelEnd = lp;
+            }
             bandEnd = cell;
             e.Pointer.Capture(this);
         }
@@ -227,6 +267,10 @@ public class LevelView : Control
         base.OnPointerMoved(e);
         var cell = CellAt(e.GetPosition(this));
         if (cell != HoverCell) { HoverCell = cell; InvalidateVisual(); }
+
+        // Dragging the eyedropper reads continuously, so you can sweep it across the artwork and
+        // watch the readout rather than clicking once per guess.
+        if (sampling) { SampleRequested?.Invoke(this, LevelPixel(e.GetPosition(this))); return; }
         if (cell is not { } c) return;
 
         if (painting)
@@ -250,7 +294,19 @@ public class LevelView : Control
                 SelectionChanged?.Invoke(this, EventArgs.Empty);
                 InvalidateVisual();
             }
-            else if (moveStart is not null) { bandEnd = c; InvalidateVisual(); }
+            else if (moveStart is not null)
+            {
+                // Live: the sprites go where the cursor goes, one step per cell crossed, all
+                // coalesced into a single undo entry.
+                var prev = bandEnd ?? moveStart!.Value;
+                if (c != prev && sp.MoveSelected(c.X - prev.X, c.Y - prev.Y, moved))
+                {
+                    moved = true;
+                    SpritesChanged?.Invoke(this, EventArgs.Empty);
+                }
+                bandEnd = c;
+                InvalidateVisual();
+            }
             return;
         }
         // Hovering an edge of a lone selection shows the resize cursor, as the ImGui tool does.
@@ -265,7 +321,19 @@ public class LevelView : Control
 
         if (resizeDrag is not null || bandStart is not null || moveStart is not null)
         {
+            if (moveStart is not null)
+            {
+                // Live: the selection goes where the cursor goes, one step per cell crossed,
+                // all coalesced into a single undo entry.
+                var prev = bandEnd ?? moveStart.Value;
+                if (c != prev && Edit?.MoveSelected(c.X - prev.X, c.Y - prev.Y, moved) == true)
+                {
+                    moved = true;
+                    SelectionChanged?.Invoke(this, EventArgs.Empty);
+                }
+            }
             bandEnd = c;
+            if (bandStart is not null) pixelEnd = LevelPixel(e.GetPosition(this));
             // Live selection while banding, as the ImGui tool does — you see what you will get
             // before releasing. Ctrl+drag is a grab, so it selects nothing.
             if (bandStart is not null && !grabbing && Band is { } b && bandStart != bandEnd)
@@ -280,6 +348,12 @@ public class LevelView : Control
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
+        if (sampling)
+        {
+            sampling = false;
+            e.Pointer.Capture(null);
+            return;
+        }
         if (painting)
         {
             painting = false;
@@ -289,12 +363,12 @@ public class LevelView : Control
             return;
         }
 
-        if (Mode == EditMode.Sprites && Sprites is { } sp)
+        if (Mode == EditMode.Sprites && Sprites is not null)
         {
-            if (moveStart is { } sm && bandEnd is { } sn && sp.MoveSelected(sn.X - sm.X, sn.Y - sm.Y))
-                SpritesChanged?.Invoke(this, EventArgs.Empty);
+            // The move already happened, live, on the way here.
             pixelStart = pixelEnd = null;
             moveStart = bandEnd = null;
+            moved = false;
             e.Pointer.Capture(null);
             InvalidateVisual();
             return;
@@ -310,16 +384,17 @@ public class LevelView : Control
             if (a == b) { Edit?.CycleSelectionAt(a.X, a.Y); SelectionChanged?.Invoke(this, EventArgs.Empty); }
             else if (grabbing && Band is { } g) GrabRequested?.Invoke(this, g);
         }
-        else if (moveStart is { } m && bandEnd is { } n)
+        else if (moveStart is { } m && !moved)
         {
-            if (m == n) { Edit?.CycleSelectionAt(m.X, m.Y); SelectionChanged?.Invoke(this, EventArgs.Empty); }
-            else if (Edit?.MoveSelected(n.X - m.X, n.Y - m.Y) == true)
-                SelectionChanged?.Invoke(this, EventArgs.Empty);
+            // Never dragged anywhere: it was a stationary click, so cycle the stack instead.
+            Edit?.CycleSelectionAt(m.X, m.Y);
+            SelectionChanged?.Invoke(this, EventArgs.Empty);
         }
 
         bandStart = bandEnd = moveStart = null;
+        pixelStart = pixelEnd = null;
         resizeDrag = null;
-        grabbing = false;
+        grabbing = moved = false;
         e.Pointer.Capture(null);
         InvalidateVisual();
     }
@@ -367,8 +442,8 @@ public class LevelView : Control
         ctx.FillRectangle(Brushes.Black, bounds);
         if (Source?.For(Phase) is not { } bmp) return;
 
-        // Draw only the visible slice, scaled — the level is far wider than the viewport, so
-        // blitting the whole bitmap every frame would scale megabytes for nothing.
+        // One scaled blit of whatever the control covers; the ScrollViewer clips it to the
+        // viewport. The Origin/Min dance only does anything when Origin is set by hand.
         double z = Zoom;
         var src = new Rect(Origin.X / z, Origin.Y / z, Math.Min(bounds.Width / z, bmp.PixelSize.Width),
                            Math.Min(bounds.Height / z, bmp.PixelSize.Height));
@@ -395,9 +470,12 @@ public class LevelView : Control
         // Selection: the object's real footprint, from the tracked render.
         else if (Edit is { } ed)
         {
+            // Filled, not just ringed — the same light blue the Map16 canvas uses for ITS
+            // selection, so "these tiles are selected" reads the same in both editors.
             var pen = new Pen(UiColors.Selection, 1.5);
             foreach (int i in ed.Selection)
-                if (ed.BBox(i) is { } b) ctx.DrawRectangle(null, pen, CellRect(b.X, b.Y, b.W, b.H, z));
+                if (ed.BBox(i) is { } b)
+                    ctx.DrawRectangle(UiColors.SelectionFill, pen, CellRect(b.X, b.Y, b.W, b.H, z));
         }
 
         // Resize preview while dragging an edge, then handles on a lone idle selection.
@@ -408,15 +486,16 @@ public class LevelView : Control
             DrawHandles(ctx, he, z);
 
         // Rubber band: cyan while selecting, green while grabbing tiles — the ImGui colours.
-        if (Band is { } band && (bandStart is not null || moveStart is not null))
-            ctx.DrawRectangle(null, new Pen(grabbing ? UiColors.Grab : UiColors.Band, 1.5),
-                              CellRect(band.X, band.Y, band.W, band.H, z));
-
-        // Hover shows the BRUSH footprint, not a single cell — with a multi-tile brush the
-        // difference between "this cell" and "these twelve" matters before you commit.
-        if (HoverCell is { } h)
-            ctx.DrawRectangle(null, new Pen(Brushes.White, 1),
-                              CellRect(h.X, h.Y, Math.Max(1, BrushW), Math.Max(1, BrushH), z));
+        // The lasso follows the cursor exactly; only a GRAB snaps, because it takes whole cells.
+        if (grabbing)
+        {
+            if (Band is { } band && bandStart is not null)
+                ctx.DrawRectangle(null, new Pen(UiColors.Grab, 1.5),
+                                  CellRect(band.X, band.Y, band.W, band.H, z));
+        }
+        else if (PixelBand is { } lasso && bandStart is not null)
+            ctx.DrawRectangle(null, new Pen(UiColors.Band, 1.5),
+                              PixelRect(lasso.X, lasso.Y, lasso.W, lasso.H, z));
     }
 
     private Rect CellRect(int x, int y, int w, int h, double z)

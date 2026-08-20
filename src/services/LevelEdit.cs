@@ -236,10 +236,12 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         return (t, rw, rh);
     }
 
-    public bool MoveSelected(int dx, int dy)
+    /// <summary>Shift the selection. <paramref name="coalesce"/> skips the undo snapshot, so a
+    /// live drag across twenty cells stays ONE undo entry rather than twenty.</summary>
+    public bool MoveSelected(int dx, int dy, bool coalesce = false)
     {
         if (Selection.Count == 0 || (dx == 0 && dy == 0)) return false;
-        undo.Push([.. objects]);
+        if (!coalesce) undo.Push([.. objects]);
         redo.Clear();
         foreach (int i in Selection)
         {

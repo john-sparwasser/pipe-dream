@@ -58,8 +58,13 @@ public partial class MainWindow : Window
     private MenuItem recentMenu = null!, upgradePrepItem = null!, spriteOverlayItem = null!,
                      animateItem = null!;
     private PaletteGridView paletteGrid = null!;
-    private Slider palR = null!, palG = null!, palB = null!;
-    private TextBlock palRv = null!, palGv = null!, palBv = null!, paletteNote = null!, paletteIndex = null!;
+    private TextBlock paletteNote = null!, paletteIndex = null!;
+
+    /// <summary>The colour picker and the flyout that shows it over the clicked swatch. The
+    /// panel is held directly rather than reached through the flyout, whose content lives in its
+    /// own name scope — and so the tests can drive it without opening a popup.</summary>
+    internal readonly ColorPickerPanel picker = new();
+    private readonly Flyout pickerFlyout = new() { Placement = PlacementMode.Pointer };
     private ListBox spriteList = null!, objectList = null!;
     private CheckBox loadedOnly = null!;
     private TextBlock spFilesLabel = null!, objectHint = null!;
@@ -143,7 +148,23 @@ public partial class MainWindow : Window
             SetBrush(tiles, w, h);
             status.Text = $"grabbed {w}x{h} tiles as the brush — Esc or pick a tile to drop it";
         };
-        canvas.SelectionChanged += (_, _) => UpdateStatus();
+        // Moving and resizing raise this too, and they change PIXELS — without the push the
+        // objects stayed where they were drawn and the edit looked like it had not happened.
+        // RefreshPixels is a no-op when nothing is dirty, so a plain selection costs nothing.
+        canvas.SelectionChanged += (_, _) => { PushDirty(); UpdateStatus(); };
+        canvas.SampleRequested += (_, p) =>
+        {
+            if (session.SampleCgramIndex(p.X, p.Y) is not { } idx)
+            {
+                status.Text = "no CGRAM colour matches that pixel";
+                return;
+            }
+            // Land the user where they can act on it: the Palette tab, that swatch selected.
+            paletteTabs.SelectedIndex = PaletteTabIndex;
+            paletteGrid.Select(idx);
+            ShowPaletteColor(idx);
+            status.Text = $"picked {DescribeSwatch(idx)}";
+        };
         canvas.SpritesChanged += (_, _) =>
         {
             // A sprite edit changes what the overlay draws, so the level has to recompose.
@@ -272,19 +293,22 @@ public partial class MainWindow : Window
 
         palettePanel = this.GetControl<DockPanel>("PalettePanel");
         paletteGrid = this.GetControl<PaletteGridView>("PaletteGrid");
-        palR = this.GetControl<Slider>("PalR");
-        palG = this.GetControl<Slider>("PalG");
-        palB = this.GetControl<Slider>("PalB");
-        palRv = this.GetControl<TextBlock>("PalRv");
-        palGv = this.GetControl<TextBlock>("PalGv");
-        palBv = this.GetControl<TextBlock>("PalBv");
         paletteNote = this.GetControl<TextBlock>("PaletteNote");
         paletteIndex = this.GetControl<TextBlock>("PaletteIndex");
 
         paletteGrid.IsEdited = session.IsPaletteEdited;
-        paletteGrid.SelectionChanged += (_, i) => ShowPaletteColor(i);
-        foreach (var s in new[] { palR, palG, palB })
-            s.PropertyChanged += (_, e) => { if (e.Property == RangeBase.ValueProperty) OnPaletteSlider(); };
+        paletteGrid.Describe = DescribeSwatch;
+        paletteGrid.SelectionChanged += (_, i) => { ShowPaletteColor(i); OpenPicker(); };
+        picker.ColorChanged += (_, c) => OnPickerColor(c);
+        pickerFlyout.Content = picker;
+        // The open picker IS the undo boundary, as it was in the ImGui editor: everything done
+        // between opening and dismissing it is one entry, however many colours the drag crossed.
+        pickerFlyout.Opened += (_, _) => session.BeginPaletteStroke();
+        pickerFlyout.Closed += (_, _) =>
+        {
+            session.EndPaletteStroke();
+            AdoptSession();                // the phases and sheets the live drag skipped
+        };
 
         // ---- GFX canvas mode ----
         gfxScroll = this.GetControl<DockPanel>("GfxScroll");
@@ -362,9 +386,6 @@ public partial class MainWindow : Window
         {
             if (objectList.SelectedItem is not CatalogRow it) { canvas.CatalogObject = -1; return; }
             canvas.CatalogObject = it.Number;
-            // Outline where it will land, the same feedback a multi-tile brush gets.
-            canvas.BrushW = it.W;
-            canvas.BrushH = it.H;
             canvas.InvalidateVisual();
             status.Text = $"object {it.Label} armed — right-click the level to place";
         };
@@ -484,10 +505,6 @@ public partial class MainWindow : Window
         objectList.SelectedIndex = -1;
         canvas.CatalogObject = -1;
         brush = tiles is null ? null : (tiles, w, h);
-        // The canvas outlines the footprint under the cursor, so a 4x3 brush is visible
-        // before it is committed rather than after.
-        canvas.BrushW = tiles is null ? 1 : w;
-        canvas.BrushH = tiles is null ? 1 : h;
         canvas.InvalidateVisual();
     }
 
@@ -498,10 +515,26 @@ public partial class MainWindow : Window
         if (e.Key == Key.Z && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
             bool redo = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
-            // Undo follows the canvas mode. Each editor keeps its own history — a single stack
-            // across all three is a bigger piece of work (see the ponytail note on the palette
-            // tab), and undoing a level edit while looking at pixels would be worse than this.
-            if (modeGfx.IsChecked == true)
+            // Undo follows what you are LOOKING AT. Each editor keeps its own history — a single
+            // stack across all of them is a bigger piece of work, and undoing a level edit while
+            // looking at pixels would be worse than this.
+            //
+            // The Palette tab is checked first because it is a drawer tab rather than a canvas
+            // mode: with it open the canvas is still in Level mode, so testing the mode first
+            // would send Ctrl+Z to the level while the user is editing colours.
+            if (paletteTabs.SelectedIndex == PaletteTabIndex)
+            {
+                // Close any open stroke FIRST, so what the picker has already done becomes the
+                // entry that undo then takes back. (This used to re-apply the last picked colour
+                // through a stale pending value, which turned the second Ctrl+Z into a redo.)
+                session.EndPaletteStroke();
+                if (redo ? session.PaletteRedo() : session.PaletteUndo())
+                {
+                    AdoptSession();
+                    status.Text = redo ? "palette redo" : "palette undo";
+                }
+            }
+            else if (modeGfx.IsChecked == true)
             {
                 if (redo ? session.GfxPixels?.Redo() == true : session.GfxPixels?.Undo() == true)
                     RefreshGfx();
@@ -772,8 +805,10 @@ public partial class MainWindow : Window
     {
         int want = ReferenceEquals(sender, layerTwo) ? 1 : 0;
         string note = session.SetEditLayer(want);
-        if (note.Length > 0) status.Text = note;
         AdoptSession();
+        // AFTER the adopt: it ends in UpdateStatus, which was overwriting this the moment it was
+        // set — including the one message that explains why the click did nothing.
+        if (note.Length > 0) status.Text = note;
     }
 
     private async void OnPickBackground(object? sender, RoutedEventArgs e)
@@ -803,8 +838,11 @@ public partial class MainWindow : Window
     private void RefreshLayerBar()
     {
         layerOne.IsChecked = session.EditLayer == 0;
+        // Deliberately NOT disabled when layer 2 is a background image. Most levels are one, so
+        // the button spent most of its life greyed out and clicking it did nothing at all —
+        // whereas SetEditLayer already has the answer ("use +L2 to give it an object layer") and
+        // can only say it if the click gets through.
         layerTwo.IsChecked = session.EditLayer == 1;
-        layerTwo.IsEnabled = session.Layer2Editable;
         addLayer2.IsVisible = !session.Layer2Editable;
         dropLayer2.IsVisible = session.Layer2FromProject;
         layer2Note.Text = session.Layer2Editable && !session.LevelModeReadsLayer2 && session.Header is { } h
@@ -856,6 +894,7 @@ public partial class MainWindow : Window
     private void SetPhase(int phase)
     {
         canvas.Phase = phase;
+        session.LivePhase = phase;      // the phase a live recolour has to keep current
         canvas.InvalidateVisual();
     }
 
@@ -926,6 +965,9 @@ public partial class MainWindow : Window
     /// editing layer 1. Picking a tab therefore switches the mode (and drops the selection that
     /// belonged to the old one), which is why Esc also moves the tab.
     /// </summary>
+    /// <summary>Which drawer tab is the Palette one (see the TabStrip in the XAML).</summary>
+    internal const int PaletteTabIndex = 3;
+
     private void OnPaletteTab()
     {
         // The Palette tab belongs to no edit mode (ImGui parity: its tab carries a null mode),
@@ -959,6 +1001,11 @@ public partial class MainWindow : Window
         bool gfxMode = modeGfx.IsChecked == true;
         bool modal = map16Mode || gfxMode;          // a canvas mode that owns the drawer
         int tab = modal ? -1 : Math.Max(0, paletteTabs.SelectedIndex);
+
+        // The tabs choose what the drawer shows FOR THE LEVEL. Map16 and GFX modes own the
+        // drawer outright, so a tab strip whose every option is inert only invites a click that
+        // does nothing.
+        paletteTabs.IsVisible = !modal;
 
         this.GetControl<ScrollViewer>("PaletteScroll").IsVisible = tab == 0;
         this.GetControl<DockPanel>("ChrPanel").IsVisible = map16Mode;
@@ -1226,7 +1273,7 @@ public partial class MainWindow : Window
 
     // ---- palette tab ----
 
-    /// <summary>Guard against the sliders firing while they are being SET from a selection —
+    /// <summary>Guard against the picker firing while it is being LOADED from a selection —
     /// otherwise picking a swatch immediately writes its own colour back as an "edit".</summary>
     private bool loadingSwatch;
 
@@ -1241,75 +1288,49 @@ public partial class MainWindow : Window
         ShowPaletteColor(paletteGrid.Selected);
     }
 
-    /// <summary>Load a swatch into the sliders. BGR555 is five bits per channel, which is what
-    /// the sliders show: 0-31 is the real colour space, so nothing is quantised behind the
-    /// user's back the way a 24-bit picker would.</summary>
+    /// <summary>The readout under the swatch grid. Deliberately does NOT touch the picker: every
+    /// commit recomposes and refreshes this tab, and pushing the colour back into an open picker
+    /// would re-derive H/S/V from the quantised value, jumping the crosshair and losing the hue
+    /// mid-drag. Loading the picker is <see cref="OpenPicker"/>'s job and happens once, on open.</summary>
     private void ShowPaletteColor(int index)
+        => paletteIndex.Text = index < 0 ? "pick a colour" : DescribeSwatch(index);
+
+    /// <summary>The swatch hover text, as the ImGui grid had it.</summary>
+    private string DescribeSwatch(int index)
+        => $"0x{index:X2} r{index >> 4} c{index & 15}  {session.PaletteBgr(index):X4}"
+         + (session.IsPaletteEdited(index) ? "  (edited)" : "");
+
+    /// <summary>Load the picker with the clicked swatch and pop it over the cursor — ImGui
+    /// opened its ColorPicker3 in a popup on the swatch, and that is the gesture being restored.
+    /// BGR555 is five bits per channel and the picker works in that space directly, so nothing
+    /// is quantised behind the user's back the way a 24-bit picker would.</summary>
+    private void OpenPicker()
     {
-        if (index < 0)
-        {
-            paletteIndex.Text = "pick a colour";
-            palRv.Text = palGv.Text = palBv.Text = "";
-            return;
-        }
-        ushort bgr = session.PaletteBgr(index);
+        if (paletteGrid.Selected < 0) return;
         loadingSwatch = true;
-        palR.Value = bgr & 0x1F;
-        palG.Value = (bgr >> 5) & 0x1F;
-        palB.Value = (bgr >> 10) & 0x1F;
+        picker.Begin(session.PaletteBgr(paletteGrid.Selected));
         loadingSwatch = false;
-        paletteIndex.Text = $"0x{index:X2} r{index >> 4} c{index & 15}  {bgr:X4}";
-        palRv.Text = $"{palR.Value:0}";
-        palGv.Text = $"{palG.Value:0}";
-        palBv.Text = $"{palB.Value:0}";
+        pickerFlyout.ShowAt(paletteGrid, showAtPointer: true);
     }
 
     /// <summary>
-    /// How long after the last slider movement the level is recomposed. A colour is an input to
-    /// composition, so committing one costs a full recompose (~100ms) — firing that on every
-    /// step of a drag would make the slider unusable. The swatch updates immediately, the level
-    /// catches up when you stop, which is the same deal the ImGui editor made by deferring until
-    /// its colour picker closed.
+    /// Apply a picked colour to the level, live. There is no debounce: a colour change now
+    /// recomposes only the phase on screen and reuses its buffer, which is ~26ms rather than the
+    /// ~75ms a full scene rebuild cost, so it can keep up with the drag. The picker also only
+    /// raises this when the QUANTISED colour actually changes, which caps it at 32 steps an axis.
+    ///
+    /// Only the level image and this tab are refreshed. The Map16 sheet and the rest of the
+    /// drawer are recoloured too, but nobody is looking at them mid-drag; AdoptSession brings
+    /// them up to date when the picker closes.
     /// </summary>
-    internal const int PaletteCommitMs = 120;
-
-    private DispatcherTimer? paletteCommit;
-    private ushort pendingColor;
-
-    private void OnPaletteSlider()
+    private void OnPickerColor(ushort bgr)
     {
         if (loadingSwatch || paletteGrid.Selected < 0) return;
-        pendingColor = (ushort)(((int)palB.Value << 10) | ((int)palG.Value << 5) | (int)palR.Value);
+        if (!session.SetPaletteColor(paletteGrid.Selected, bgr)) return;
 
-        // Immediate feedback, cheaply: the swatch and the readouts, not the level.
-        paletteGrid.Colors[paletteGrid.Selected] = EditorSession.Rgba(pendingColor);
-        paletteGrid.InvalidateVisual();
-        palRv.Text = $"{palR.Value:0}";
-        palGv.Text = $"{palG.Value:0}";
-        palBv.Text = $"{palB.Value:0}";
-        paletteIndex.Text = $"0x{paletteGrid.Selected:X2} r{paletteGrid.Selected >> 4} "
-                          + $"c{paletteGrid.Selected & 15}  {pendingColor:X4}";
-
-        if (paletteCommit is null)
-        {
-            paletteCommit = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(PaletteCommitMs) };
-            paletteCommit.Tick += (_, _) => CommitPaletteEdit();
-        }
-        paletteCommit.Stop();                      // restart: only the LAST move commits
-        paletteCommit.Start();
-    }
-
-    /// <summary>Apply the previewed colour for real. Internal so tests can fire it directly —
-    /// the headless dispatcher does not run timers, and the behaviour worth pinning is what a
-    /// commit DOES, not that a DispatcherTimer ticks.</summary>
-    internal void CommitPaletteEdit()
-    {
-        paletteCommit?.Stop();
-        if (paletteGrid.Selected < 0) return;
-        if (!session.SetPaletteColor(paletteGrid.Selected, pendingColor)) return;
-        // AdoptSession is the one path that pulls every view onto the new scene, this tab
-        // included.
-        AdoptSession();
+        bitmap.SetImages(session.Phases, session.PxW, session.PxH, canvas.Phase);
+        canvas.InvalidateVisual();
+        RefreshPaletteTab();
     }
 
     private void OnResetPalette(object? sender, RoutedEventArgs e)
@@ -1458,7 +1479,7 @@ public partial class MainWindow : Window
     private void OnMap16Committed()
     {
         if (!session.HasLevel) return;
-        session.RecomposeScene();
+        session.RecomposeAfterMap16();
         AdoptSession();
         RefreshMap16Sheet();
     }

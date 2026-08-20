@@ -1,0 +1,45 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="clr-namespace:PipeDream.Ui"
+             x:Class="PipeDream.Ui.ColorPickerPanel">
+  <!-- The flyout's whole content. Built as its own control rather than inline in MainWindow's
+       XAML because a flyout has its own name scope, which GetControl cannot see — this way the
+       controls are reachable from code and the panel is directly instantiable in tests. -->
+  <StackPanel Spacing="8" Width="290">
+    <StackPanel Orientation="Horizontal" Spacing="8">
+      <ui:ColorPickerView x:Name="Picker"/>
+      <StackPanel Spacing="4" Width="52">
+        <TextBlock Classes="dim" Text="before"/>
+        <Border x:Name="BeforeSwatch" Height="26" BorderThickness="1"
+                BorderBrush="{DynamicResource BorderBrush}"/>
+        <TextBlock Classes="dim" Text="after"/>
+        <Border x:Name="AfterSwatch" Height="26" BorderThickness="1"
+                BorderBrush="{DynamicResource BorderBrush}"/>
+      </StackPanel>
+    </StackPanel>
+
+    <!-- 0-31 per channel is the hardware's own resolution, so these are exact rather than a
+         convenience: the square is for finding a colour, these are for landing on one. -->
+    <Grid ColumnDefinitions="14,*,32" RowDefinitions="Auto,Auto,Auto" RowSpacing="2">
+      <TextBlock Classes="dim" Text="R"/>
+      <Slider x:Name="PalR" Grid.Column="1" Minimum="0" Maximum="31"
+              TickFrequency="1" IsSnapToTickEnabled="True"/>
+      <TextBlock x:Name="PalRv" Grid.Column="2" Classes="mono"/>
+      <TextBlock Grid.Row="1" Classes="dim" Text="G"/>
+      <Slider x:Name="PalG" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="31"
+              TickFrequency="1" IsSnapToTickEnabled="True"/>
+      <TextBlock x:Name="PalGv" Grid.Row="1" Grid.Column="2" Classes="mono"/>
+      <TextBlock Grid.Row="2" Classes="dim" Text="B"/>
+      <Slider x:Name="PalB" Grid.Row="2" Grid.Column="1" Minimum="0" Maximum="31"
+              TickFrequency="1" IsSnapToTickEnabled="True"/>
+      <TextBlock x:Name="PalBv" Grid.Row="2" Grid.Column="2" Classes="mono"/>
+    </Grid>
+
+    <StackPanel Orientation="Horizontal" Spacing="6">
+      <TextBlock Classes="dim" Text="hex" VerticalAlignment="Center"/>
+      <TextBox x:Name="HexBox" Width="90" Classes="mono"/>
+      <TextBlock x:Name="HexNote" Classes="dim" VerticalAlignment="Center"
+                 Text="BGR555 or RRGGBB"/>
+    </StackPanel>
+  </StackPanel>
+</UserControl>

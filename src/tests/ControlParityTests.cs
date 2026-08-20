@@ -15,9 +15,10 @@ namespace PipeDream.Ui.Tests;
 /// carries over. Read off the ImGui editor's ObjectTool and LevelViewport before they were
 /// deleted (git history, if the exact behaviour is ever in doubt):
 ///
-///   RIGHT click/drag   stamp the tile brush (right-click WITH a selection duplicates it)
+///   RIGHT click/drag   stamp the tile brush — a selection does NOT change that
+///   CTRL+RIGHT click   duplicate the selection at the cursor
 ///   LEFT click+drag    rubber-band select, live while dragging
-///   LEFT on selection  drag to move
+///   LEFT on selection  drag to move, live under the cursor
 ///   LEFT click, still  cycle the overlap stack under the cursor
 ///   CTRL+LEFT drag     grab the covered tiles as the brush (no selection change)
 ///   DELETE             delete the selection
@@ -138,7 +139,7 @@ public class ControlParityTests(ITestOutputHelper log)
     }
 
     [AvaloniaFact]
-    public void right_click_with_a_selection_duplicates_it_instead_of_stamping()
+    public void ctrl_right_click_with_a_selection_duplicates_it()
     {
         if (Open() is not { } o) { log.WriteLine("SKIP: no ROM"); return; }
         var (w, c) = o;
@@ -152,11 +153,72 @@ public class ControlParityTests(ITestOutputHelper log)
         Assert.True(selected > 0);
         int before = edit.Objects.Count;
 
+        w.MouseDown(At(c, w, 24, 6), MouseButton.Right, RawInputModifiers.Control);
+        w.MouseUp(At(c, w, 24, 6), MouseButton.Right, RawInputModifiers.Control);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(before + selected, edit.Objects.Count);
+    }
+
+    /// <summary>The regression this pass was for: a stray selection used to turn every
+    /// right-click into a duplicate, so picking a Map16 tile and right-clicking placed nothing.
+    /// Stamping has to be what the plain right button does, selection or no selection.</summary>
+    [AvaloniaFact]
+    public void right_click_stamps_the_drawer_tile_even_with_a_selection()
+    {
+        if (Open() is not { } o) { log.WriteLine("SKIP: no ROM"); return; }
+        var (w, c) = o;
+        var edit = EditOf(w);
+
+        w.MouseDown(At(c, w, 0, 0), MouseButton.Left);
+        w.MouseMove(At(c, w, 20, 20));
+        w.MouseUp(At(c, w, 20, 20), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.NotEmpty(edit.Selection);
+
+        int tile = w.GetControl<Map16PaletteView>("Palette").Selected;
         w.MouseDown(At(c, w, 24, 6), MouseButton.Right);
         w.MouseUp(At(c, w, 24, 6), MouseButton.Right);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal(before + selected, edit.Objects.Count);
+        Assert.Equal(tile, edit.Scene.Grid.Get(24, 6));
+    }
+
+    /// <summary>Dragging a selection moves it WHILE the mouse is down, not on release, and the
+    /// whole drag is one undo entry.</summary>
+    [AvaloniaFact]
+    public void dragging_a_selection_moves_it_live_as_one_undo_entry()
+    {
+        if (Open() is not { } o) { log.WriteLine("SKIP: no ROM"); return; }
+        var (w, c) = o;
+        var edit = EditOf(w);
+
+        // Select one object by clicking it, then drag from a cell it owns.
+        (int X, int Y)? target = null;
+        for (int y = 0; y < 20 && target is null; y++)
+            for (int x = 0; x < 24; x++)
+                if (edit.ObjectAt(x, y) is not null) { target = (x, y); break; }
+        Assert.NotNull(target);
+        var (tx, ty) = target!.Value;
+
+        w.MouseDown(At(c, w, tx, ty), MouseButton.Left);
+        w.MouseUp(At(c, w, tx, ty), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        int sel = edit.Selection.Single();
+        int x0 = edit.Objects[sel].AbsoluteX;
+        int depth = edit.UndoDepth;
+
+        w.MouseDown(At(c, w, tx, ty), MouseButton.Left);
+        w.MouseMove(At(c, w, tx + 1, ty));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(x0 + 1, edit.Objects[sel].AbsoluteX);   // moved BEFORE the release
+
+        w.MouseMove(At(c, w, tx + 3, ty));
+        w.MouseUp(At(c, w, tx + 3, ty), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(x0 + 3, edit.Objects[sel].AbsoluteX);
+        Assert.Equal(depth + 1, edit.UndoDepth);             // one drag, one undo
     }
 
     [AvaloniaFact]

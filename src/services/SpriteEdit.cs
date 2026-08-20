@@ -21,9 +21,6 @@ public sealed class SpriteEdit(SpriteData sprites, SpriteOverlay? overlay, bool 
     public bool CanUndo => undo.Count > 0;
     public bool CanRedo => redo.Count > 0;
 
-    /// <summary>Sprites hidden while their originals are being dragged, so only the ghost shows.</summary>
-    public HashSet<int>? Hidden { get; set; }
-
     /// <summary>Build a sprite record at a cell. Vertical levels swap the axes: the "screen"
     /// runs down the level, so the cell's Y is the absolute coordinate.</summary>
     public static Sprite At(int number, int extra, int cx, int cy, bool vert, byte[]? extraBytes = null)
@@ -69,10 +66,12 @@ public sealed class SpriteEdit(SpriteData sprites, SpriteOverlay? overlay, bool 
         return Commit();
     }
 
-    public bool MoveSelected(int dx, int dy)
+    /// <summary>Shift the selection. <paramref name="coalesce"/> skips the undo snapshot, so a
+    /// live drag across twenty cells stays ONE undo entry rather than twenty.</summary>
+    public bool MoveSelected(int dx, int dy, bool coalesce = false)
     {
         if (Selection.Count == 0 || (dx == 0 && dy == 0)) return false;
-        Snapshot();
+        if (!coalesce) Snapshot();
         foreach (int i in Selection)
         {
             var s = Sprites.Sprites[i];

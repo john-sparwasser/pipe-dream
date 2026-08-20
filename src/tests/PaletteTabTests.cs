@@ -35,6 +35,13 @@ public class PaletteTabTests(ITestOutputHelper log) : IDisposable
     /// <summary>A colour that is definitely not what the ROM has there.</summary>
     private static ushort Different(ushort current) => (ushort)(current ^ 0x1F);
 
+    /// <summary>The window's own idea of CGRAM 0x42, read back through the session.</summary>
+    private static ushort s0x42(MainWindow w) => SessionOf(w).PaletteBgr(0x42);
+
+    private static EditorSession SessionOf(MainWindow w) => (EditorSession)typeof(MainWindow)
+        .GetField("session", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+        .GetValue(w)!;
+
     [Fact]
     public void an_edited_colour_reaches_the_composed_tiles_not_just_the_swatch()
     {
@@ -124,9 +131,10 @@ public class PaletteTabTests(ITestOutputHelper log) : IDisposable
         Assert.True(w.GetControl<DockPanel>("PalettePanel").IsVisible);
 
         var grid = w.GetControl<PaletteGridView>("PaletteGrid");
-        var r = w.GetControl<Slider>("PalR");
-        var g = w.GetControl<Slider>("PalG");
-        var b = w.GetControl<Slider>("PalB");
+        // The channel sliders live in the picker now, next to the square and the hue strip.
+        var r = w.picker.GetControl<Slider>("PalR");
+        var g = w.picker.GetControl<Slider>("PalG");
+        var b = w.picker.GetControl<Slider>("PalB");
 
         // Five bits per channel is what the hardware stores, so that is the slider range.
         Assert.Equal(31, r.Maximum);
@@ -134,7 +142,7 @@ public class PaletteTabTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(31, b.Maximum);
 
         // Click swatch 0x42 (row 4, column 2) the way the user would. Picking it loads the
-        // sliders and must NOT count as an edit on its own.
+        // picker and must NOT count as an edit on its own.
         var at = grid.TranslatePoint(new Point(2 * grid.Cell + grid.Cell / 2,
                                                4 * grid.Cell + grid.Cell / 2), w)!.Value;
         w.MouseDown(at, MouseButton.Left);
@@ -144,19 +152,266 @@ public class PaletteTabTests(ITestOutputHelper log) : IDisposable
         Assert.Contains("0x42", w.GetControl<TextBlock>("PaletteIndex").Text!);
         Assert.DoesNotContain("edit(s)", w.GetControl<TextBlock>("PaletteNote").Text!);
 
-        // Moving a slider previews immediately and commits after a pause: a commit is a full
-        // recompose, so it must not fire on every step of a drag.
+        Assert.Equal(s0x42(w), w.picker.Bgr);       // the picker opened on that swatch's colour
+
+        // Moving a channel applies straight through to the level — no debounce, because a
+        // recolour recomposes only the phase on screen and is fast enough to keep up.
         double before = r.Value;
         r.Value = before == 31 ? 0 : 31;
         Dispatcher.UIThread.RunJobs();
-        Assert.DoesNotContain("edit(s)", w.GetControl<TextBlock>("PaletteNote").Text!);
-        Assert.Equal(EditorSession.Rgba((ushort)((int)b.Value << 10 | (int)g.Value << 5 | (int)r.Value)),
-                     grid.Colors[0x42]);          // ...but the swatch already shows it
-
-        w.CommitPaletteEdit();                      // what the debounce timer does on its tick
-        Dispatcher.UIThread.RunJobs();
+        ushort want = (ushort)((int)b.Value << 10 | (int)g.Value << 5 | (int)r.Value);
+        Assert.Equal(want, s0x42(w));                       // the level really has it
+        Assert.Equal(EditorSession.Rgba(want), grid.Colors[0x42]);   // and so does the swatch
         Assert.Contains("edit(s)", w.GetControl<TextBlock>("PaletteNote").Text!);
-        Assert.True(w.GetControl<PaletteGridView>("PaletteGrid").Colors[0x42] != default);
+    }
+
+    /// <summary>
+    /// Clicking a swatch pops the picker over it, loaded with that colour — the ImGui gesture.
+    /// This is the only place in the app that uses a Flyout, so it is worth pinning that the
+    /// popup really mounts rather than silently doing nothing.
+    /// </summary>
+    [AvaloniaFact]
+    public void clicking_a_swatch_opens_the_picker_on_that_colour()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<TabStrip>("PaletteTabs").SelectedIndex = MainWindow.PaletteTabIndex;
+        Dispatcher.UIThread.RunJobs();
+
+        var grid = w.GetControl<PaletteGridView>("PaletteGrid");
+        var at = grid.TranslatePoint(new Point(2 * grid.Cell + grid.Cell / 2,
+                                               4 * grid.Cell + grid.Cell / 2), w)!.Value;
+        w.MouseDown(at, MouseButton.Left);
+        w.MouseUp(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(0x42, grid.Selected);
+        Assert.Equal(s0x42(w), w.picker.Bgr);
+        // Mounted in the flyout's presenter, which is what proves the popup actually opened.
+        Assert.IsType<FlyoutPresenter>(w.picker.Parent);
+    }
+
+    /// <summary>
+    /// Step-wise undo of palette edits, which the ImGui editor had and the Avalonia port
+    /// dropped in favour of a Reset-everything button.
+    ///
+    /// The case that matters is undoing back past a colour's FIRST edit: the entry has to be
+    /// REMOVED, not rewritten with the ROM's own colour, or the swatch keeps its edited marker
+    /// and the level counts as touched forever.
+    /// </summary>
+    [Fact]
+    public void palette_edits_undo_one_step_at_a_time()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new EditorSession();
+        Assert.True(s.OpenRom(Vanilla), s.Status);
+        s.ShowLevel(0x105);
+
+        ushort original = s.PaletteBgr(0x42);
+        ushort first = Different(original), second = (ushort)(first ^ 0x3E0);
+        Assert.True(s.SetPaletteColor(0x42, first));
+        Assert.True(s.SetPaletteColor(0x42, second));
+        Assert.Equal(2, s.PaletteUndoDepth);
+
+        Assert.True(s.PaletteUndo());
+        Assert.Equal(first, s.PaletteBgr(0x42));
+
+        Assert.True(s.PaletteUndo());
+        Assert.Equal(original, s.PaletteBgr(0x42));
+        Assert.False(s.IsPaletteEdited(0x42));      // gone, not overwritten with the ROM's colour
+        Assert.Equal(0, s.PaletteEditCount);
+
+        Assert.False(s.PaletteUndo());              // nothing left
+        Assert.True(s.PaletteRedo());
+        Assert.Equal(first, s.PaletteBgr(0x42));
+        Assert.True(s.IsPaletteEdited(0x42));
+    }
+
+    /// <summary>
+    /// A whole picker session is ONE undo entry, however many colours the drag crossed. The
+    /// picker fires a change per quantised step, so without this a single drag across the
+    /// saturation square would leave thirty entries to press Ctrl+Z through.
+    /// </summary>
+    [Fact]
+    public void a_whole_picker_session_undoes_as_one_step()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new EditorSession();
+        Assert.True(s.OpenRom(Vanilla), s.Status);
+        s.ShowLevel(0x105);
+        ushort original = s.PaletteBgr(0x42);
+
+        s.BeginPaletteStroke();
+        for (int i = 1; i <= 8; i++) Assert.True(s.SetPaletteColor(0x42, (ushort)(original ^ (i * 3))));
+        Assert.Equal(0, s.PaletteUndoDepth);        // nothing recorded while the picker is open
+        s.EndPaletteStroke();
+
+        Assert.Equal(1, s.PaletteUndoDepth);
+        Assert.True(s.PaletteUndo());
+        Assert.Equal(original, s.PaletteBgr(0x42));
+        Assert.False(s.IsPaletteEdited(0x42));
+    }
+
+    /// <summary>A picker opened and dismissed without landing anywhere new records nothing —
+    /// otherwise every look at a colour would leave an empty entry in the history.</summary>
+    [Fact]
+    public void a_picker_session_that_changes_nothing_records_nothing()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new EditorSession();
+        Assert.True(s.OpenRom(Vanilla), s.Status);
+        s.ShowLevel(0x105);
+        ushort original = s.PaletteBgr(0x42);
+
+        s.BeginPaletteStroke();
+        Assert.True(s.SetPaletteColor(0x42, Different(original)));
+        Assert.True(s.SetPaletteColor(0x42, original));    // ...and back again
+        s.EndPaletteStroke();
+
+        Assert.Equal(0, s.PaletteUndoDepth);
+    }
+
+    /// <summary>
+    /// The reported bug: pressing Ctrl+Z twice undid once and then REDID the edit. The handler
+    /// used to flush a stale "pending colour" before undoing, and after the first undo that
+    /// pending value no longer matched the level, so flushing it re-applied the edit and pushed
+    /// a fresh entry. Two presses must walk two steps back.
+    /// </summary>
+    [AvaloniaFact]
+    public void ctrl_z_twice_walks_two_steps_back_rather_than_redoing()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<TabStrip>("PaletteTabs").SelectedIndex = MainWindow.PaletteTabIndex;
+        Dispatcher.UIThread.RunJobs();
+
+        var session = SessionOf(w);
+        ushort original = session.PaletteBgr(0x42);
+        ushort first = Different(original), second = (ushort)(first ^ 0x3E0);
+
+        // Two separate picker sessions, as two edits by hand would be.
+        foreach (ushort c in new[] { first, second })
+        {
+            session.BeginPaletteStroke();
+            Assert.True(session.SetPaletteColor(0x42, c));
+            session.EndPaletteStroke();
+        }
+        Assert.Equal(second, session.PaletteBgr(0x42));
+        Assert.Equal(2, session.PaletteUndoDepth);
+
+        w.KeyPressQwerty(PhysicalKey.Z, RawInputModifiers.Control);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(first, session.PaletteBgr(0x42));
+
+        w.KeyPressQwerty(PhysicalKey.Z, RawInputModifiers.Control);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(original, session.PaletteBgr(0x42));   // NOT back to `second`
+        Assert.False(session.IsPaletteEdited(0x42));
+
+        // ...and redo still walks forward from there.
+        w.KeyPressQwerty(PhysicalKey.Z, RawInputModifiers.Control | RawInputModifiers.Shift);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(first, session.PaletteBgr(0x42));
+    }
+
+    /// <summary>Reset is one history entry rather than a cliff, so it can be taken back.</summary>
+    [Fact]
+    public void reset_is_undoable()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new EditorSession();
+        Assert.True(s.OpenRom(Vanilla), s.Status);
+        s.ShowLevel(0x105);
+
+        ushort target = Different(s.PaletteBgr(0x42));
+        Assert.True(s.SetPaletteColor(0x42, target));
+        Assert.True(s.ResetPalette());
+        Assert.Equal(0, s.PaletteEditCount);
+
+        Assert.True(s.PaletteUndo());
+        Assert.Equal(target, s.PaletteBgr(0x42));
+        Assert.Equal(1, s.PaletteEditCount);
+    }
+
+    /// <summary>Undo history is per level, like the edits themselves — undoing after a switch
+    /// would write one level's colours into another's CGRAM.</summary>
+    [Fact]
+    public void switching_level_drops_the_palette_history()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new EditorSession();
+        Assert.True(s.OpenRom(Vanilla), s.Status);
+        s.ShowLevel(0x105);
+        Assert.True(s.SetPaletteColor(0x42, Different(s.PaletteBgr(0x42))));
+        Assert.Equal(1, s.PaletteUndoDepth);
+
+        s.ShowLevel(0x106);
+        Assert.Equal(0, s.PaletteUndoDepth);
+        Assert.False(s.PaletteUndo());
+    }
+
+    /// <summary>
+    /// The eyedropper: a composed pixel back to the CGRAM entry it came from. It goes through
+    /// the Map16 tile's palette row rather than matching RGB alone, because the same colour sits
+    /// in several rows — black is in all of them — and "which entry is this tile using" is the
+    /// only answer worth giving.
+    /// </summary>
+    [Fact]
+    public void the_eyedropper_finds_the_cgram_entry_a_pixel_came_from()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new EditorSession();
+        Assert.True(s.OpenRom(Vanilla), s.Status);
+        s.ShowLevel(0x105);
+
+        // Sample every pixel of a band across the level and check each answer against the
+        // composed image: whatever index comes back must hold exactly that colour.
+        int found = 0;
+        for (int y = 0; y < 400; y += 7)
+            for (int x = 0; x < 700; x += 11)
+            {
+                if (s.SampleCgramIndex(x, y) is not { } idx) continue;
+                Assert.Equal(s.Phases[0]![y * s.PxW + x], s.PaletteRgba[idx]);
+                found++;
+            }
+        log.WriteLine($"sampled {found} pixels back to a CGRAM index");
+        Assert.True(found > 100, "the eyedropper matched almost nothing");
+    }
+
+    /// <summary>Alt+click on the level canvas is the eyedropper, and it must not also select,
+    /// band or paint on the way through.</summary>
+    [AvaloniaFact]
+    public void alt_click_on_the_canvas_picks_the_colour_and_selects_nothing()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var canvas = w.GetControl<LevelView>("Canvas");
+        var grid = w.GetControl<PaletteGridView>("PaletteGrid");
+        var session = SessionOf(w);
+
+        // A point well inside the level, in level pixels → screen.
+        const int lx = 200, ly = 300;
+        var at = canvas.TranslatePoint(new Point(lx * canvas.Zoom, ly * canvas.Zoom), w)!.Value;
+        int expected = session.SampleCgramIndex(lx, ly) ?? -1;
+        Assert.True(expected >= 0, "nothing to sample at the test point");
+
+        w.MouseDown(at, MouseButton.Left, RawInputModifiers.Alt);
+        w.MouseUp(at, MouseButton.Left, RawInputModifiers.Alt);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(expected, grid.Selected);
+        Assert.Equal(MainWindow.PaletteTabIndex, w.GetControl<TabStrip>("PaletteTabs").SelectedIndex);
+        Assert.Empty(session.Edit!.Selection);      // sampling is not selecting
     }
 
     /// <summary>The Palette tab is not an edit mode: opening it must leave the canvas doing

@@ -111,7 +111,8 @@
              editor works on it unchanged — this only says which one is active. -->
         <ToggleButton x:Name="LayerOne" Classes="mode" MinWidth="40" Content="L1"
                       IsChecked="True" Click="OnEditLayer"/>
-        <ToggleButton x:Name="LayerTwo" Classes="mode" MinWidth="40" Content="L2" Click="OnEditLayer"/>
+        <ToggleButton x:Name="LayerTwo" Classes="mode" MinWidth="40" Content="L2" Click="OnEditLayer"
+                      ToolTip.Tip="Edit layer 2's objects. Levels whose layer 2 is a background image have none until +L2 gives them one."/>
         <Button x:Name="BgButton" Content="BG…" Padding="8,3" Click="OnPickBackground"
                 ToolTip.Tip="Pick which background image layer 2 uses"/>
         <Button x:Name="AddLayer2" Content="+L2" Padding="8,3" Click="OnAddLayer2"
@@ -248,20 +249,8 @@
                     <TextBlock x:Name="PaletteIndex" Classes="mono" Width="96"/>
                     <Button x:Name="PaletteReset" Content="Reset" Padding="10,2" Click="OnResetPalette"/>
                   </StackPanel>
-                  <Grid ColumnDefinitions="14,*,32" RowDefinitions="Auto,Auto,Auto" RowSpacing="2">
-                    <TextBlock Classes="dim" Text="R"/>
-                    <Slider x:Name="PalR" Grid.Column="1" Minimum="0" Maximum="31"
-                            TickFrequency="1" IsSnapToTickEnabled="True"/>
-                    <TextBlock x:Name="PalRv" Grid.Column="2" Classes="mono"/>
-                    <TextBlock Grid.Row="1" Classes="dim" Text="G"/>
-                    <Slider x:Name="PalG" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="31"
-                            TickFrequency="1" IsSnapToTickEnabled="True"/>
-                    <TextBlock x:Name="PalGv" Grid.Row="1" Grid.Column="2" Classes="mono"/>
-                    <TextBlock Grid.Row="2" Classes="dim" Text="B"/>
-                    <Slider x:Name="PalB" Grid.Row="2" Grid.Column="1" Minimum="0" Maximum="31"
-                            TickFrequency="1" IsSnapToTickEnabled="True"/>
-                    <TextBlock x:Name="PalBv" Grid.Row="2" Grid.Column="2" Classes="mono"/>
-                  </Grid>
+                  <TextBlock Classes="dim" TextWrapping="Wrap"
+                             Text="Click a swatch to open the picker.  Alt+click the level to sample a colour."/>
                 </StackPanel>
               </Border>
               <ScrollViewer HorizontalScrollBarVisibility="Auto">

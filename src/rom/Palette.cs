@@ -80,4 +80,20 @@ public sealed class Palette
         uint R = (uint)(r << 3 | r >> 2), G = (uint)(g << 3 | g >> 2), B = (uint)(b << 3 | b >> 2);
         return 0xFF000000u | (B << 16) | (G << 8) | R;
     }
+
+    /// <summary>
+    /// 8-bit-per-channel RGB → the nearest SNES BGR555. The inverse of <see cref="ToRgba"/>:
+    /// it ROUNDS rather than truncating, so <c>ToBgr555(ToRgba(x)) == x</c> for all 32768
+    /// colours. A `>> 3` truncation would fail that — 255 would come back as 31 but 248 would
+    /// too, and a colour picker built on it would drift a step every time it read its own
+    /// output back.
+    /// </summary>
+    public static ushort ToBgr555(byte r, byte g, byte b)
+        => (ushort)((Five(b) << 10) | (Five(g) << 5) | Five(r));
+
+    private static int Five(byte v) => (v * 31 + 127) / 255;
+
+    /// <summary>The same, from a packed RGBA word as <see cref="ToRgba"/> produces.</summary>
+    public static ushort ToBgr555(uint rgba)
+        => ToBgr555((byte)(rgba & 0xFF), (byte)((rgba >> 8) & 0xFF), (byte)((rgba >> 16) & 0xFF));
 }

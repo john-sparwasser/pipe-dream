@@ -28,6 +28,9 @@ public class PaletteGridView : Control
     /// <summary>Which indices carry an edit, for the marker. Null = mark nothing.</summary>
     public Func<int, bool>? IsEdited { get; set; }
 
+    /// <summary>Hover text for one swatch, as the ImGui grid showed it. Null = no tooltip.</summary>
+    public Func<int, string>? Describe { get; set; }
+
     public int Selected { get; private set; } = -1;
 
     public event EventHandler<int>? SelectionChanged;
@@ -56,6 +59,26 @@ public class PaletteGridView : Control
         if (IndexAt(e.GetPosition(this)) is not { } i) return;
         Select(i);
         SelectionChanged?.Invoke(this, i);
+    }
+
+    private int hoverIndex = -1;
+
+    /// <summary>Retarget the tooltip as the pointer crosses swatches. One tip on the control,
+    /// rewritten on the way past, rather than 256 child controls to carry 256 tips.</summary>
+    protected override void OnPointerMoved(PointerEventArgs e)
+    {
+        base.OnPointerMoved(e);
+        if (Describe is null) return;
+        int i = IndexAt(e.GetPosition(this)) ?? -1;
+        if (i == hoverIndex) return;
+        hoverIndex = i;
+        ToolTip.SetTip(this, i >= 0 ? Describe(i) : null);
+    }
+
+    protected override void OnPointerExited(PointerEventArgs e)
+    {
+        base.OnPointerExited(e);
+        hoverIndex = -1;
     }
 
     public override void Render(DrawingContext ctx)

@@ -45,6 +45,15 @@ public sealed class Map16Edit
     /// <summary>Raised when committed bytes changed, so caches and sheets can be rebuilt.</summary>
     public event Action? Committed;
 
+    /// <summary>
+    /// Which tiles the commit that just fired changed, so only those need recomposing. EMPTY
+    /// means nothing visual changed (an acts-like edit is Map16 bytes but not pixels); NULL
+    /// means it is not known and everything has to be rebuilt.
+    /// </summary>
+    public IReadOnlyCollection<int>? CommittedTiles { get; private set; }
+
+    private readonly HashSet<int> strokeTiles = [];
+
     /// <summary>A tile's four quadrant words in VISUAL order, or null when it has no def.</summary>
     public Map16.Word[]? ReadDef(int tile)
     {
@@ -72,6 +81,7 @@ public sealed class Map16Edit
         rom.Data[fo] = (byte)raw;
         rom.Data[fo + 1] = (byte)(raw >> 8);
         stroke.Add((fo, before, raw));
+        strokeTiles.Add(tile);
         Capture(tile);
         return true;
     }
@@ -83,6 +93,8 @@ public sealed class Map16Edit
         redo.Clear();
         stroke.Clear();
         Dirty = true;
+        CommittedTiles = [.. strokeTiles];
+        strokeTiles.Clear();
         Committed?.Invoke();
     }
 
@@ -120,6 +132,7 @@ public sealed class Map16Edit
             rom.Data[fo + 1] = (byte)(v >> 8);
         }
         Dirty = true;
+        CommittedTiles = null;          // offsets, not tiles: the caller has to rebuild the lot
         Committed?.Invoke();
     }
 
@@ -221,6 +234,8 @@ public sealed class Map16Edit
         if (!any) return false;
         project?.MarkDirty();
         Dirty = true;
+        // Acts-like is behaviour, not art: the bytes changed, no pixel did.
+        CommittedTiles = [];
         Committed?.Invoke();
         return true;
     }

@@ -215,9 +215,26 @@ public class Layer2EditingTests(ITestOutputHelper log) : IDisposable
         var drop = w.GetControl<Button>("DropLayer2");
 
         Assert.True(l1.IsChecked);
-        // Exactly one of "switch to layer 2" and "create layer 2" makes sense at a time.
-        Assert.Equal(l2.IsEnabled, !add.IsVisible);
+        // +L2 is offered exactly when there is no object layer to switch to.
+        Assert.Equal(session(w).Layer2Editable, !add.IsVisible);
         // Dropping is only offered for a stream this project created, never the base ROM's.
         Assert.False(drop.IsVisible);
+
+        // L2 stays CLICKABLE either way. Most levels are background levels, so a disabled
+        // button was the usual state and clicking it did nothing whatsoever — no switch, and no
+        // word about why. Now the click lands and the status bar explains.
+        Assert.True(l2.IsEnabled);
+        if (session(w).Layer2Editable) return;
+
+        l2.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(0, session(w).EditLayer);                 // still layer 1...
+        Assert.True(l1.IsChecked);                             // ...and the bar says so
+        Assert.False(l2.IsChecked);
+        Assert.Contains("+L2", w.GetControl<TextBlock>("Status").Text!);   // ...and says why
+
+        static EditorSession session(MainWindow w) => (EditorSession)typeof(MainWindow)
+            .GetField("session", System.Reflection.BindingFlags.NonPublic
+                               | System.Reflection.BindingFlags.Instance)!.GetValue(w)!;
     }
 }

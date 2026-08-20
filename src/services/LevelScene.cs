@@ -122,6 +122,99 @@ public sealed class LevelScene
     /// composition the level uses, so a tile looks identical in both places.</summary>
     public (uint[] Px, int W, int H) Sheet(int phase = 0) => Map16.ComposeSheet(TileCaches[phase & 3]);
 
+    /// <summary>GFX per phase, kept across recolours. Loading it is the expensive half of a
+    /// compose and a colour change cannot move it.</summary>
+    private readonly Gfx.FgTiles?[] fg = new Gfx.FgTiles?[4];
+
+    /// <summary>
+    /// Recompose every phase for a changed PALETTE, in place. A colour is an input to
+    /// composition — it is baked into each tile's pixels — so there is no way to tint the
+    /// result afterwards; the tiles genuinely have to be rebuilt.
+    ///
+    /// What this skips is everything a colour cannot have changed: parsing the level, rendering
+    /// the object streams, and capturing the sprite OAM. Rebuilding the whole scene costs ~75ms
+    /// a colour, which is a slideshow to drag against; this is roughly a quarter of that, and
+    /// less again after the first call once the GFX is cached.
+    ///
+    /// <paramref name="onlyPhase"/> narrows it to the one phase on screen. Composing a phase is
+    /// bandwidth-bound — 13.5MB in and out for a full-width level — so doing all four costs
+    /// nearly four times as much even in parallel. Tile animation is off unless the user turns
+    /// it on, which makes the other three phases invisible work during a colour drag; they are
+    /// brought back up to date when the drag ends.
+    /// </summary>
+    public void Repalette(Rom rom, int levelNum, IReadOnlyDictionary<int, ushort>? edits,
+                          int? onlyPhase = null)
+    {
+        void Phase(int p)
+        {
+            var pal = PaletteFor(rom, levelNum, p, edits);
+            var tiles = Fg(rom, levelNum, p);
+
+            Palettes[p] = pal;
+            Backdrop[p] = pal.Rgba[0];
+            TileCaches[p] = Map16.ComposeAll(rom, Level.Header, tiles, pal);
+            if (BgImage is not null) BgCaches[p] = Map16.ComposeAllBg(rom, tiles, pal);
+
+            Phases[p] = Map16.ComposeLevelInto(Phases[p] ?? new uint[Width * Height],
+                                               TileCaches[p], pal.Rgba[0], Grid,
+                                               BgImage, BgCaches[p], Layer2, VisibleRows);
+            DrawOverlay(p);
+        }
+
+        if (onlyPhase is { } q) Phase(q & 3);
+        else Parallel.For(0, 4, Phase);
+    }
+
+    private Palette PaletteFor(Rom rom, int levelNum, int p, IReadOnlyDictionary<int, ushort>? edits)
+    {
+        var pal = Palette.Load(rom, Level.Header, levelNum, p);
+        if (edits is not null)
+            foreach (var (i, c) in edits)
+            {
+                if (i is < 0 or > 255) continue;
+                pal.Bgr[i] = c;
+                pal.Rgba[i] = Palette.ToRgba(c);
+            }
+        return pal;
+    }
+
+    private Gfx.FgTiles Fg(Rom rom, int levelNum, int p)
+        => fg[p] ??= Gfx.FgTiles.Load(rom, Level.Header.Tileset, levelNum, p);
+
+    /// <summary>Drop the cached GFX, for the one thing a colour or a definition cannot change:
+    /// the graphics themselves being edited or repointed.</summary>
+    public void InvalidateGfx() => Array.Clear(fg);
+
+    /// <summary>
+    /// Recompose only the named Map16 tiles and only the cells that use them. Editing one
+    /// definition rebuilt the entire scene — parse, objects, sprite OAM, all 512 tiles and every
+    /// pixel of a 13.5MB image, four times over — for a change that touches 256 pixels of art.
+    ///
+    /// An empty set is a real answer, not a no-op to be defended against: changing a tile's
+    /// acts-like byte commits Map16 bytes and changes nothing you can see.
+    /// </summary>
+    public void RecomposeTiles(Rom rom, int levelNum, IReadOnlyCollection<int> tiles,
+                               IReadOnlyDictionary<int, ushort>? edits)
+    {
+        if (tiles.Count == 0) return;
+        var set = tiles as HashSet<int> ?? [.. tiles];
+
+        Parallel.For(0, 4, p =>
+        {
+            var pal = PaletteFor(rom, levelNum, p, edits);
+            Palettes[p] = pal;
+            Map16.ComposeInto(TileCaches[p], rom, Level.Header, Fg(rom, levelNum, p), pal, set);
+        });
+
+        // The grid is small (a full-width level is under 14k cells) and scanning it beats
+        // tracking a tile→cells index that every object edit would have to maintain.
+        for (int y = 0; y < Grid.Height; y++)
+            for (int x = 0; x < Grid.Width; x++)
+                if (set.Contains(Grid.Get(x, y)) || (Layer2 is { } l2 && set.Contains(l2.Get(x, y))))
+                    RecomposeCell(x, y);
+        RedrawOverlay();
+    }
+
     /// <summary>
     /// Recompose ONE cell in every animation phase. Composing the whole level per edit would
     /// be ~13MB of work for one 16x16 tile; this is the incremental path the ImGui canvas
@@ -161,9 +254,13 @@ public sealed class LevelScene
     /// re-blits after applying dirty cells for the same reason.</summary>
     public void RedrawOverlay()
     {
-        if (Overlay is null) return;
-        for (int p = 0; p < 4; p++)
-            if (Phases[p] is { } img && Palettes[p] is { } pal) Overlay.Draw(img, Width, Height, pal);
+        for (int p = 0; p < 4; p++) DrawOverlay(p);
+    }
+
+    private void DrawOverlay(int p)
+    {
+        if (Overlay is { } o && Phases[p] is { } img && Palettes[p] is { } pal)
+            o.Draw(img, Width, Height, pal);
     }
 
     /// <summary>Swap in a re-rendered grid and repaint only the cells that actually changed.

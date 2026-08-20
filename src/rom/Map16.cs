@@ -61,10 +61,17 @@ public static class Map16
     /// </summary>
     public static uint[][] ComposeAll(Rom rom, LevelHeader h, int level = -1, int animPhase = 0,
                                       Palette? palOverride = null)
+        => ComposeAll(rom, h, Gfx.FgTiles.Load(rom, h.Tileset, level, animPhase),   // bypass + phase
+                      palOverride ?? Palette.Load(rom, h, level, animPhase));       // + LM custom palette
+
+    /// <summary>
+    /// The same, over GFX that is already loaded. Recolouring a level re-composes every tile
+    /// but the graphics have not moved — and loading them is the expensive half (~11ms a phase
+    /// against ~2ms to compose all 512 tiles), so a live colour drag reuses them.
+    /// </summary>
+    public static uint[][] ComposeAll(Rom rom, LevelHeader h, Gfx.FgTiles fg, Palette pal)
     {
         var defPtr = BuildDefPointers(rom, h.Tileset);
-        var fg = Gfx.FgTiles.Load(rom, h.Tileset, level, animPhase);   // bypass + animation phase
-        var pal = palOverride ?? Palette.Load(rom, h, level, animPhase);   //         + LM custom palette
         var tiles = new uint[rom.Map16TileCount][];         // 0x200, + LM extended pages (§7a)
         for (int t = 0; t < FgTiles; t++)
             tiles[t] = Compose(Definition(rom, defPtr, t), fg.Fetch, pal);
@@ -73,12 +80,29 @@ public static class Map16
         return tiles;
     }
 
+    /// <summary>
+    /// Recompose JUST these tiles into an existing cache. Editing a Map16 definition changes one
+    /// tile's pixels, and composing all 512 to find that out is most of the cost of the edit.
+    /// </summary>
+    public static void ComposeInto(uint[][] cache, Rom rom, LevelHeader h, Gfx.FgTiles fg,
+                                   Palette pal, IEnumerable<int> tiles)
+    {
+        var defPtr = BuildDefPointers(rom, h.Tileset);
+        foreach (int t in tiles)
+            if (t >= 0 && t < cache.Length)
+                cache[t] = Compose(t < FgTiles ? Definition(rom, defPtr, t) : LmExtendedDef(rom, t),
+                                   fg.Fetch, pal);
+    }
+
     /// <summary>Compose the 0x200 BG Map16 tiles (defs at fixed $0D9100 + idx*8, CONTRACT §10).</summary>
     public static uint[][] ComposeAllBg(Rom rom, LevelHeader h, int level = -1, int animPhase = 0,
                                         Palette? palOverride = null)
+        => ComposeAllBg(rom, Gfx.FgTiles.Load(rom, h.Tileset, level, animPhase),
+                        palOverride ?? Palette.Load(rom, h, level, animPhase));
+
+    /// <summary>The same, over already-loaded GFX — see the ComposeAll overload.</summary>
+    public static uint[][] ComposeAllBg(Rom rom, Gfx.FgTiles fg, Palette pal)
     {
-        var fg = Gfx.FgTiles.Load(rom, h.Tileset, level, animPhase);
-        var pal = palOverride ?? Palette.Load(rom, h, level, animPhase);
         var tiles = new uint[0x200][];
         for (int t = 0; t < 0x200; t++)
         {
@@ -167,12 +191,25 @@ public static class Map16
     {
         int rows = Math.Min(visibleRows, grid.Height);
         int W = grid.Width * 16, H = rows * 16;
-        var img = new uint[W * H];
+        return (ComposeLevelInto(new uint[W * H], cache, backdrop, grid, bgImg, bgCache, l2, visibleRows),
+                W, H);
+    }
+
+    /// <summary>
+    /// The same, into a buffer the caller already has. A full-width level is 13.5MB a phase, so
+    /// recomposing one repeatedly — which is what dragging a colour does — allocates and
+    /// discards more than the work itself costs.
+    /// </summary>
+    public static uint[] ComposeLevelInto(uint[] img, uint[][] cache, uint backdrop, Map16Grid grid,
+        ushort[]? bgImg, uint[][]? bgCache, Map16Grid? l2, int visibleRows)
+    {
+        int rows = Math.Min(visibleRows, grid.Height);
+        int W = grid.Width * 16, H = rows * 16;
         Array.Fill(img, backdrop);
         if (bgImg is not null && bgCache is not null) DrawBgImage(img, W, H, grid.Width, bgImg, bgCache);
         else if (l2 is not null) DrawGrid(img, W, H, l2, cache);
         DrawGrid(img, W, H, grid, cache);
-        return (img, W, H);
+        return img;
     }
 
     /// <summary>Compose the 512-tile picker sheet from a precomputed cache.</summary>

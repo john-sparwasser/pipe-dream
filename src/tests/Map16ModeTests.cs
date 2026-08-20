@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
@@ -198,6 +199,76 @@ public class Map16ModeTests(ITestOutputHelper log)
         Assert.False(w.GetControl<ScrollViewer>("PaletteScroll").IsVisible);
         Assert.True(w.GetControl<DockPanel>("ChrPanel").IsVisible);
         Assert.True(w.GetControl<Border>("Drawer").IsVisible);
+        // ...and the tabs that choose what the drawer shows for the LEVEL go with it: every one
+        // of them is inert in this mode, so leaving them up only invites a dead click.
+        Assert.False(w.GetControl<TabStrip>("PaletteTabs").IsVisible);
+
+        w.GetControl<Avalonia.Controls.Primitives.ToggleButton>("ModeLevel")
+         .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(w.GetControl<TabStrip>("PaletteTabs").IsVisible);
+    }
+
+    /// <summary>
+    /// A committed definition edit used to rebuild the whole scene — a quarter of a second before
+    /// the stamped tile appeared. It now recomposes only the edited tile and the cells that use
+    /// it, and the thing that has to hold is that the shortcut is INVISIBLE: the image it
+    /// produces must be the one a full rebuild would have produced, to the pixel. Missing a cell
+    /// leaves stale artwork on screen, which reads as "the edit did not take".
+    /// </summary>
+    [Fact]
+    public void a_targeted_repaint_matches_what_a_full_rebuild_would_draw()
+    {
+        if (Prepped is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new EditorSession();
+        Assert.True(s.OpenRom(p), s.Status);
+        s.ShowLevel(0x105);
+        var m16 = s.Map16!;
+
+        // A tile the level actually uses.
+        int tile = -1, uses = 0;
+        for (int y = 0; y < s.Scene!.Grid.Height && tile < 0; y++)
+            for (int x = 0; x < s.Scene.Grid.Width; x++)
+            {
+                int t = s.Scene.Grid.Get(x, y);
+                if (t != Map16Grid.Empty && m16.ReadDef(t) is not null) { tile = t; break; }
+            }
+        Assert.True(tile >= 0, "no usable tile in the level");
+        for (int y = 0; y < s.Scene.Grid.Height; y++)
+            for (int x = 0; x < s.Scene.Grid.Width; x++)
+                if (s.Scene.Grid.Get(x, y) == tile) uses++;
+        log.WriteLine($"tile 0x{tile:X3} used by {uses} cells");
+        Assert.True(uses > 1, "need a tile used more than once for this to prove anything");
+
+        // Blank every quadrant: whatever the tile looked like, it does not look like that now.
+        for (int q = 0; q < 4; q++) m16.StampQuad(tile, q, Map16Edit.Empty);
+        m16.EndStroke();
+        Assert.Equal(new[] { tile }, m16.CommittedTiles!.ToArray());
+
+        s.RecomposeAfterMap16();                       // the fast path
+        var targeted = (uint[])s.Phases[0]!.Clone();
+
+        s.RecomposeScene();                            // the full rebuild, same ROM state
+        var full = s.Phases[0]!;
+
+        Assert.Equal(full.Length, targeted.Length);
+        int differing = 0;
+        for (int i = 0; i < full.Length; i++) if (full[i] != targeted[i]) differing++;
+        Assert.True(differing == 0, $"{differing} pixels differ from a full rebuild");
+    }
+
+    /// <summary>An acts-like edit commits Map16 bytes but moves no pixel, and says so — the
+    /// level does not need repainting for it at all.</summary>
+    [Fact]
+    public void an_acts_like_edit_reports_that_nothing_visual_changed()
+    {
+        if (Edit() is not { } e) { log.WriteLine("SKIP: no ROM"); return; }
+        var (_, edit) = e;
+        if (!edit.HasActsAs) { log.WriteLine("SKIP: base has no acts-as table"); return; }
+
+        Assert.True(edit.SetActsAs([0x100], 0x130));
+        Assert.NotNull(edit.CommittedTiles);
+        Assert.Empty(edit.CommittedTiles!);
     }
 
     [AvaloniaFact]

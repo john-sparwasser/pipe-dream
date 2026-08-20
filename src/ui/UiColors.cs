@@ -31,6 +31,10 @@ internal static class UiColors
     /// <summary>Translucent fill under a selection ring.</summary>
     public static readonly IBrush SelectionFill = new SolidColorBrush(Color.FromArgb(0x28, 0x4F, 0xC1, 0xE9));
 
+    /// <summary>Outline around the colour picker's square and hue strip — matches BorderColor
+    /// in Theme.axaml, which the picker cannot reach because it draws itself.</summary>
+    public static readonly IBrush PickerEdge = new SolidColorBrush(Color.Parse("#333944"));
+
     /// <summary>Sprites highlight in their own hue: they overlap objects constantly, and one
     /// colour for both would make a sprite selection unreadable over a selected object.</summary>
     public static readonly IBrush Sprite = new SolidColorBrush(Color.Parse("#6FE0C0"));
