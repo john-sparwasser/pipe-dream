@@ -1,4 +1,4 @@
-name: windows
+name: build
 
 on:
   push:
@@ -8,7 +8,15 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: ubuntu-latest
+            rid: linux-x64
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -18,8 +26,8 @@ jobs:
       # ROM-dependent tests skip themselves when no SMW ROM is present, which is always here.
       - run: dotnet test src/tests/PipeDream.Tests.csproj -c Release
 
-      - run: dotnet publish src/PipeDream.csproj -c Release -r win-x64 --self-contained true -o bin/publish
+      - run: dotnet publish src/PipeDream.csproj -c Release -r ${{ matrix.rid }} --self-contained true -o bin/publish
       - uses: actions/upload-artifact@v4
         with:
-          name: PipeDream-win-x64
+          name: PipeDream-${{ matrix.rid }}
           path: bin/publish
