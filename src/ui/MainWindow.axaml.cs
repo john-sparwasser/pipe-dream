@@ -428,6 +428,48 @@ public partial class MainWindow : Window
         if (session.NeedsVanillaRom && Application.Current?.ApplicationLifetime
                 is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)
             Opened += OnFirstOpened;
+
+        // Same reasoning as the first-run prompt: a real desktop only, and the window has to be
+        // up before it can own a dialog.
+        if (Application.Current?.ApplicationLifetime
+                is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)
+            Opened += OnStartupUpdateCheck;
+    }
+
+    /// <summary>
+    /// The once-a-day check, fired and forgotten. Nothing is shown unless there really is a
+    /// newer release: a startup that says "you are up to date" every morning is noise, and one
+    /// that reports a failed check is reporting something the user cannot act on.
+    /// </summary>
+    private async void OnStartupUpdateCheck(object? sender, EventArgs e)
+    {
+        Opened -= OnStartupUpdateCheck;
+        // First run has a modal of its own going up; asking about updates over the top of it is
+        // the wrong first impression.
+        if (session.NeedsVanillaRom) return;
+        try
+        {
+            if (await session.FindUpdate(userAsked: false) is { } found)
+                await UpdateWindow.Prompt(this, session, found);
+        }
+        catch { /* a check must never be why the editor failed to start */ }
+    }
+
+    /// <summary>Help → Check for updates. Unlike the startup check this one always answers,
+    /// because the user asked a question.</summary>
+    private async void OnCheckUpdates(object? sender, RoutedEventArgs e)
+    {
+        status.Text = "checking for updates…";
+        try
+        {
+            if (await session.FindUpdate(userAsked: true) is { } found)
+            {
+                await UpdateWindow.Prompt(this, session, found);
+                return;
+            }
+            status.Text = $"Pipe Dream {session.CurrentVersion} — no newer build available";
+        }
+        catch (Exception ex) { status.Text = "update check failed: " + ex.Message; }
     }
 
     private async void OnFirstOpened(object? sender, EventArgs e)

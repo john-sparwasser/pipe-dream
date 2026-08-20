@@ -96,6 +96,9 @@
         <MenuItem x:Name="SpriteOverlayItem" Header="_Sprite overlay" Click="OnToggleSprites"/>
         <MenuItem x:Name="AnimateItem" Header="_Animate tiles" Click="OnToggleAnimate"/>
       </MenuItem>
+      <MenuItem Header="_Help">
+        <MenuItem Header="Check for _updates…" Click="OnCheckUpdates"/>
+      </MenuItem>
     </Menu>
 
     <!-- Header: canvas-mode toggle + per-mode controls -->

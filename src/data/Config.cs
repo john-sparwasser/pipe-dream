@@ -12,6 +12,19 @@ internal sealed class Config
     public string? VanillaRomPath { get; set; }
     public List<string> RecentProjects { get; set; } = new();
 
+    /// <summary>Whether to ask GitHub about newer releases on startup. On by default; the only
+    /// thing it sends is the request itself, and a build that never checks is a build that
+    /// stays old.</summary>
+    public bool CheckForUpdates { get; set; } = true;
+
+    /// <summary>A release the user said no to, so it is not offered again. Stored as the
+    /// version string rather than a bool, because skipping 0.1.9 must not also skip 0.1.10.</summary>
+    public string? SkippedUpdate { get; set; }
+
+    /// <summary>When the last automatic check went out, so startup does not ask on every
+    /// launch.</summary>
+    public DateTime? LastUpdateCheckUtc { get; set; }
+
     /// <summary>Config directory for a platform. Split out from <see cref="Dir"/> so the
     /// per-OS choice can be tested from any host. .NET maps ApplicationData to %APPDATA% on
     /// Windows and $XDG_CONFIG_HOME (or ~/.config) on Linux — both already conventional —
@@ -61,10 +74,17 @@ internal sealed class Config
             File.WriteAllText(tmp, json);
             // The replace itself can still lose a race with a reader holding the file open, so
             // give it a couple of tries before giving up.
+            //
+            // BOTH exception types, and that is not belt-and-braces: Windows reports a losing
+            // File.Move(overwrite) as UnauthorizedAccessException ("Access to the path is
+            // denied"), not IOException. Catching only the latter meant the retry never ran on
+            // the platform it was written for, and the loser surfaced the failure as "could not
+            // open project" — with nothing the user could do about it.
             for (int attempt = 0; ; attempt++)
             {
                 try { File.Move(tmp, FilePath, overwrite: true); return; }
-                catch (IOException) when (attempt < 3) { Thread.Sleep(5); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException
+                                          && attempt < 3) { Thread.Sleep(5); }
             }
         }
         finally { try { if (File.Exists(tmp)) File.Delete(tmp); } catch { } }

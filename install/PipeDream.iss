@@ -58,3 +58,13 @@ Root: HKA; Subkey: "Software\Classes\.pdp\OpenWithProgids"; ValueType: binary; V
 
 [Run]
 Filename: "{app}\PipeDream.exe"; Description: "Launch Pipe Dream"; Flags: nowait postinstall skipifsilent
+; The in-app updater installs silently, which skips the entry above — so it passes /relaunch=1
+; to get the new build started again. CI's silent install check does not pass it, so the test
+; stays headless.
+Filename: "{app}\PipeDream.exe"; Flags: nowait; Check: WantsRelaunch
+
+[Code]
+function WantsRelaunch: Boolean;
+begin
+  Result := ExpandConstant('{param:relaunch|0}') = '1';
+end;

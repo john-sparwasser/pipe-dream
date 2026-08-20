@@ -1,0 +1,28 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PipeDream.Ui.UpdateWindow"
+        Width="440" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Title="Update Pipe Dream"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+  <StackPanel Margin="16" Spacing="12">
+    <TextBlock x:Name="Headline" FontSize="15" FontWeight="SemiBold"
+               Foreground="{DynamicResource TextBrush}"/>
+    <TextBlock x:Name="Detail" TextWrapping="Wrap" Foreground="{DynamicResource TextDimBrush}"/>
+
+    <!-- Release notes, when the release has a body. Capped: this is a prompt, not a changelog
+         viewer, and a long body would push the buttons off a small screen. -->
+    <ScrollViewer x:Name="NotesBox" MaxHeight="140" IsVisible="False">
+      <TextBlock x:Name="Notes" TextWrapping="Wrap" FontSize="12"
+                 Foreground="{DynamicResource TextDimBrush}"/>
+    </ScrollViewer>
+
+    <ProgressBar x:Name="Bar" IsVisible="False" Height="6" Minimum="0" Maximum="1"/>
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button x:Name="SkipButton" Content="Skip this version" Click="OnSkip"/>
+      <Button x:Name="LaterButton" Content="Later" Click="OnLater" IsCancel="True"/>
+      <Button x:Name="InstallButton" Content="Install and restart" Click="OnInstall" IsDefault="True"/>
+    </StackPanel>
+  </StackPanel>
+</Window>

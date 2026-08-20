@@ -20,6 +20,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>PipeDream</AssemblyName>
     <RootNamespace>PipeDream</RootNamespace>
+    <!-- What the updater compares against a release tag. CI overrides it with the same
+         0.1.<run> the installer is stamped with; a dev build keeps this. -->
+    <Version>0.1.0</Version>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>

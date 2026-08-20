@@ -32,6 +32,7 @@ jobs:
       - run: >
           dotnet publish src/PipeDream.csproj -c Release -r ${{ matrix.rid }} --self-contained true
           -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none
+          -p:Version=0.1.${{ github.run_number }}
           -o bin/publish
       - uses: actions/upload-artifact@v7
         if: matrix.os != 'windows-latest'      # Windows ships the installer below, not a loose exe

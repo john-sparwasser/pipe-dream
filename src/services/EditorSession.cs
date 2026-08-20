@@ -174,6 +174,54 @@ public sealed class EditorSession
         catch (Exception e) { return "Could not read file: " + e.Message; }
     }
 
+    // ---- updates ----
+    // The UI cannot reach the config or the filesystem (ArchitectureTests enforces it), so the
+    // whole update path is exposed here: settings, the check, the download, the install.
+
+    /// <summary>Whether startup asks GitHub about newer releases.</summary>
+    public bool CheckForUpdates
+    {
+        get => Config.CheckForUpdates;
+        set { Config.CheckForUpdates = value; Config.Save(); }
+    }
+
+    /// <summary>
+    /// A newer release, or null for nothing to offer. <paramref name="userAsked"/> forces the
+    /// request; otherwise it is rate-limited to once a day and honours the setting, so calling
+    /// this on every startup is free.
+    /// </summary>
+    public async Task<UpdateInfo?> FindUpdate(bool userAsked, CancellationToken ct = default)
+    {
+        if (!UpdateCheck.Due(userAsked, Config.CheckForUpdates, Config.LastUpdateCheckUtc, DateTime.UtcNow))
+            return null;
+
+        // Stamped before the result is known: a check that went out counts, or a machine that is
+        // offline for a week would retry on every single launch.
+        Config.LastUpdateCheckUtc = DateTime.UtcNow;
+        Config.Save();
+
+        return await UpdateCheck.Latest(UpdateCheck.Current, Config.SkippedUpdate,
+                                        OperatingSystem.IsWindows(), ct);
+    }
+
+    /// <summary>Never offer this version again. A later one still gets through.</summary>
+    public void SkipUpdate(UpdateInfo u)
+    {
+        Config.SkippedUpdate = u.Display;
+        Config.Save();
+    }
+
+    /// <summary>The running build's version, for the about/update dialog.</summary>
+    public string CurrentVersion => UpdateCheck.Current.ToString(3);
+
+    public Task<string> DownloadUpdate(UpdateInfo u, IProgress<double>? progress = null,
+                                       CancellationToken ct = default)
+        => UpdateCheck.Download(u, progress, ct);
+
+    /// <summary>Start the install. The caller must close the app immediately after a null
+    /// return — see <see cref="UpdateCheck.Apply"/>.</summary>
+    public string? ApplyUpdate(string downloadedFile) => UpdateCheck.Apply(downloadedFile);
+
     /// <summary>True on the very first run, before the config knows where a vanilla ROM lives.</summary>
     public bool NeedsVanillaRom => Config.VanillaRomPath is null;
 
