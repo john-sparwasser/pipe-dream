@@ -26,7 +26,13 @@ jobs:
       # ROM-dependent tests skip themselves when no SMW ROM is present, which is always here.
       - run: dotnet test src/tests/PipeDream.Tests.csproj -c Release
 
-      - run: dotnet publish src/PipeDream.csproj -c Release -r ${{ matrix.rid }} --self-contained true -o bin/publish
+      # One file: the runtime and every dependency live inside the executable, unpacked to a
+      # temp dir on first run. Native libraries need the second flag to come along; without
+      # it they stay beside the exe and the "single file" is a lie.
+      - run: >
+          dotnet publish src/PipeDream.csproj -c Release -r ${{ matrix.rid }} --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none
+          -o bin/publish
       - uses: actions/upload-artifact@v7
         with:
           name: PipeDream-${{ matrix.rid }}
