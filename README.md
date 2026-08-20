@@ -223,6 +223,10 @@ changes, and there is no tool ordering to get right.
 
 Plus:
 
+- **A built-in updater** — check for a newer release, download it, and replace the running
+  install in place. No fetching a fresh build by hand, no re-running `install.ps1`, and
+  nothing that touches `%APPDATA%\PipeDream` or your projects. Wants a tagged release feed to
+  point at, so it follows on from publishing real releases rather than CI artifacts.
 - **Custom base ROMs you can create and share** — package a prepared base (patches, ASM,
   resources) for another creator to build against. A `.pdp` already pins its base, so sharing
   the base is what makes sharing a project complete.
