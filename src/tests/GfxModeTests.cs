@@ -281,7 +281,6 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(want, w.GetControl<PaletteGridView>("GfxColors").Selected);
     }
 
-    /// <summary>
     /// Choosing a GFX file and editing its pixels are ONE screen, reached from the GFX header
     /// mode. There used to be two: a "GFX" drawer tab listing the bins, and a separate GFX canvas
     /// mode that could only be entered from an Edit button inside it — so picking a file meant
@@ -343,6 +342,55 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
 
         Assert.Equal(target.File, g.File);
         log.WriteLine($"clicked bin {target.Name} -> editor now on {g.File:X3}");
+    }
+
+    /// <summary>
+    /// A committed pixel stroke rebuilds the scene, which REPLACES both layers' object editors.
+    /// The window caches them, so without a re-adopt the level canvas goes on editing a
+    /// discarded list: the object count dropped, the pixels never moved, and the edit was
+    /// thrown away at the next adopt. "Delete does nothing" is what that looks like.
+    /// </summary>
+    [AvaloniaFact]
+    public void a_gfx_commit_does_not_leave_the_level_canvas_on_a_discarded_editor()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        var s = SessionOf(w);
+        var canvas = w.GetControl<LevelView>("Canvas");
+
+        w.GetControl<ToggleButton>("ModeGfx").RaiseEvent(
+            new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        var view = w.GetControl<GfxCanvasView>("GfxCanvas");
+        s.GfxPixels!.Color = 5;
+        Point AtPx(int x, int y) => view.TranslatePoint(
+            new Point(x * view.Zoom + view.Zoom / 2, y * view.Zoom + view.Zoom / 2), w)!.Value;
+        w.MouseDown(AtPx(1, 1), MouseButton.Left);
+        w.MouseUp(AtPx(1, 1), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        w.GetControl<ToggleButton>("ModeLevel").RaiseEvent(
+            new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Same(s.Edit, canvas.Edit);
+
+        // ...and the level canvas still repaints what it edits.
+        Point AtCell(int x, int y) => canvas.TranslatePoint(
+            new Point(x * 16 * canvas.Zoom + 8 - canvas.Origin.X,
+                      y * 16 * canvas.Zoom + 8 - canvas.Origin.Y), w)!.Value;
+        w.MouseDown(AtCell(0, 20), MouseButton.Left);
+        w.MouseMove(AtCell(12, 25));
+        w.MouseUp(AtCell(12, 25), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.NotEmpty(canvas.Edit!.Selection);
+
+        var before = (uint[])s.Phases[0]!.Clone();
+        w.KeyPressQwerty(PhysicalKey.Delete, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.NotEqual(before, s.Phases[0]!);
     }
 
     private static EditorSession SessionOf(MainWindow w) => (EditorSession)typeof(MainWindow)

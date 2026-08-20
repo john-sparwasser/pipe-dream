@@ -136,6 +136,61 @@ public class SpriteModeTests(ITestOutputHelper log)
 
     // ---- through the window ----
 
+    /// <summary>
+    /// Dragging a selected sprite moves it, and the press is hit-tested where the sprite is
+    /// DRAWN — the spawn cell is usually somewhere else entirely, so testing that instead sent
+    /// every drag down the rubber-band path and the selection never moved.
+    /// </summary>
+    [AvaloniaFact]
+    public void dragging_a_selected_sprite_by_its_graphics_moves_it()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = RomPath;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        var canvas = w.GetControl<LevelView>("Canvas");
+        w.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);      // sprite mode
+        Dispatcher.UIThread.RunJobs();
+        if (canvas.Sprites is not { } sp) { log.WriteLine("SKIP: level has no sprites"); return; }
+        canvas.Zoom = 1;                 // keep the whole gesture inside the headless viewport
+        Dispatcher.UIThread.RunJobs();
+
+        // Grab a sprite by a pixel it DRAWS that is not in its spawn cell — the case that used
+        // to fall through to the rubber band. Most sprites draw wider than their one cell.
+        int? pick = null, gx = null, gy = null;
+        for (int i = 0; i < sp.Sprites.Sprites.Count && pick is null; i++)
+        {
+            var (x0, y0, x1, y1) = sp.PixelRect(i);
+            var c = sp.Sprites.Sprites[i].Cell(false);
+            for (int y = y0; y < y1 && pick is null; y += 4)
+                for (int x = x0; x < x1; x += 4)
+                {
+                    if (x > 900 || y > 500 || (x / 16, y / 16) == c) continue;
+                    pick = i; gx = x; gy = y; break;
+                }
+        }
+        if (pick is not { } idx) { log.WriteLine("SKIP: no sprite drawn off its spawn cell"); return; }
+        int px = gx!.Value, py = gy!.Value;
+        var cell = sp.Sprites.Sprites[idx].Cell(false);
+        log.WriteLine($"sprite {idx}: cell {cell}, grabbing pixel ({px},{py}) in cell ({px / 16},{py / 16})");
+
+        sp.Selection.Clear();
+        sp.Selection.Add(idx);
+
+        // Drag two cells right, one down.
+        Point At(int x, int y) => canvas.TranslatePoint(
+            new Point(x * canvas.Zoom - canvas.Origin.X, y * canvas.Zoom - canvas.Origin.Y), w)!.Value;
+        w.MouseDown(At(px, py), MouseButton.Left);
+        w.MouseMove(At(px + 32, py + 16));
+        w.MouseUp(At(px + 32, py + 16), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains(idx, sp.Selection);
+        Assert.Equal((cell.X + 2, cell.Y + 1), sp.Sprites.Sprites[idx].Cell(false));
+        Assert.Equal(1, sp.UndoDepth);        // one drag, one undo entry
+    }
+
     [AvaloniaFact]
     public void esc_toggles_between_object_and_sprite_editing()
     {

@@ -10,13 +10,16 @@ and behaviours this editor has to match, and all are far more precise than commu
 | [JackTheSpades/SpriteToolSuperDelux](https://github.com/JackTheSpades/SpriteToolSuperDelux) | `~/SpriteToolSuperDelux` | `a38c1a8` | PIXI — inserts custom sprites into a ROM |
 | [HertzDevil/AddmusicK](https://github.com/HertzDevil/AddmusicK) | `~/AddmusicK` | `c6f8f46` | AMK — inserts music and sound effects |
 | [VitorVilela7/UberASMTool](https://github.com/VitorVilela7/UberASMTool) | `~/UberASMTool` | `828aff3` | runs custom code per level / gamemode / frame |
+| GPS V1.4.5 ([SMWC](https://www.smwcentral.net/?p=section&a=details&id=40056)) | `~/GPS` | zip, Mar 2024 | Gopher Popcorn Stew — inserts custom blocks |
 
-None is built. Clone with `git clone --depth 1` if you re-fetch; `git pull` to refresh.
+None is built. The first four are git clones — `git pull` to refresh. **GPS is not a git repo**:
+it has no public upstream, so `~/GPS` is an extracted release zip with `PROVENANCE.txt`
+recording where it came from. Re-fetch per the note in that file.
 
-They stack: **Asar is the assembler the other three drive.** PIXI, AMK and UberASM each claim
-ROM space through it, each ship their own `list.txt`-style manifest, and each hijack SMW's main
-loop. A hack with all four applied is the normal case, which is why their conflict notes matter
-as much as their formats.
+They stack: **Asar is the assembler the other four drive.** PIXI, AMK, UberASM and GPS each
+claim ROM space through it, each ship their own `list.txt`-style manifest, and each hijack SMW's
+main loop. A hack with all five applied is the normal case, which is why their conflict notes
+matter as much as their formats.
 
 Everything below is **[TOOL-DOC]** — stated in these repos' own manuals, headers, or build
 files, read this session. None of it is byte-verified against a ROM here. Promote a fact to
@@ -41,6 +44,10 @@ files, read this session. None of it is byte-verified against a ROM here. Promot
   inferred, and they double as a map of where SMW's per-frame and per-level hooks live.
 - **AMK is where the audio side of the ROM is specified** — the two SFX ports, the SPC engine
   upload, and the ARAM budget that constrains anything music-related.
+- **GPS defines what a map16 tile *does*** — pipe-dream places map16 tiles; GPS is what gives a
+  tile custom behaviour, via SMW's `db $42` block system and Lunar Magic's contact handlers.
+  Its `defines.asm` and `main.asm` are the clearest statement anywhere of how a block is reached
+  from a collision, and its `routines/` folder documents the map16 read/write path we duplicate.
 - **Asar and PIXI expose a C ABI**, so if pipe-dream ever needs to assemble or insert rather
   than reimplement, there is a linkable path (see the API notes below).
 
@@ -176,32 +183,80 @@ Hijack points, all `autoclean JML` except the bank-`$05` loader:
   effect. A zero length byte ends the effect, so those trailing blocks are unreachable. Flagged
   AMBIGUOUS in the graph — verify against `SoundEffect.cpp` before citing it.
 
+## GPS — what to look at
+
+| you want | look at |
+|---|---|
+| the address map blocks are written against | `defines.asm` — SA-1 aware, this is the important one |
+| the block dispatch framework | `main.asm` |
+| **the block API contract** | `blocks/template.asm` — the entry points a block implements |
+| the shared routine library | `routines/` — 27 routines, map16 / spawn / destroy / score |
+| the tool itself | `src/main.cpp` (30KB, ships in `src.zip`) |
+| the format and CLI docs | `README.txt`, `Changes.txt` |
+
+- **A block is reached through Lunar Magic's contact handlers.** GPS writes twelve identical
+  16-byte stubs over `$06F690`…`$06F7E0` (Below, Above, Side, SpriteV, SpriteH, WallFeet,
+  WallBody, …). Each stub loads `id*3+1` — the byte offset of that contact type's `JMP` in the
+  block header, because `db $42` is followed by three-byte `JMP`s — and `JSL block_execute`.
+- **`block_execute`** checks `block_bank_byte` (0 = not inserted), pulls a 16-bit pointer from
+  `block_pointers_1`, or `block_pointers_2-$8000` for ids ≥ `$4000` where the already-shifted
+  negative X *is* the range test, adds the contact offset, `LDX $15E9`, then `JML [$0000|!dp]`.
+- **`db $37` is the wall-run header.** Contact offsets ≥ `#$001E` (WallFeet/WallBody) are only
+  honoured when the block's first byte reads `$37` — that byte is the entire opt-in mechanism.
+  Two extra hijacks support it: `WallRun` at `$06F67B` and `FixSpriteH` at `$06F717`.
+- **SA-1 is resolved at assembly time**, same trick as UberASM: `read1($00FFD5)==$23` detects
+  SA-1 and `$00FFD7==$0D` picks `fullsa1rom` over `sa1rom`, flipping `!dp` `$0000`→`$3000`,
+  `!addr` `$0000`→`$6000`, `!bank` `$800000`→`$000000`, `!sprite_slots` `$0C`→`$16`. The
+  `define_sprite_table` macro emits two aliases per table (`!sprite_status` *and* `!14C8`), which
+  is why routines can be written with raw vanilla addresses and still be SA-1 correct.
+- **Block positions live in `$98-$99` (Y) and `$9A-$9B` (X)**, level space, and `$1933` is the
+  layer being processed. `$5B` bit 0 (vertical level) is why `get_map16`/`change_map16` swap
+  `$99`/`$9B` internally — and why a `swap_XY` routine exists purely to undo it. Worth knowing
+  before trusting either convention.
+- **`-O2` is a documented crash risk**: it truncates the bank-byte table, so undefined block IDs
+  end up with no bank byte and **will crash if Mario touches them**. `-O2` also silently implies
+  `-O1` (not in the README). `-O3` parses but errors as unimplemented.
+- Block IDs run **`0x200`-`0x7FFF`**, acts-like must be `< 0x8000` — bounds the README only
+  implies. The shipped `list.txt` is empty apart from a comment.
+- GPS finds its own data in an already-patched ROM via a `"GPS_VeRsIoN"` marker embedding the
+  table addresses and sizes. It can also **detect and strip BTSD** (string-scans for
+  "Blocktool Super Deluxe"), but only hack version `$3136`.
+- **README is out of date in one spot**: `-nw` was added in V1.4.5 and appears in the tool's own
+  `-h` output but not the README. Flagged AMBIGUOUS in the graph.
+- Sharp edges found in the routine library, all flagged in the graph: `$185E` is overloaded
+  across three routines; `move_spawn_above_block` does `TAX` with no `PHX` and so clobbers the
+  caller's X, unlike all four of its siblings; `rainbow_shatter_block` differs from
+  `shatter_block` by exactly one omitted `LDA #$00`.
+
 ## Querying them
 
-All four have a graphify knowledge graph built (2026-08-19), same layout as this repo's:
+All five have a graphify knowledge graph built (asar/PIXI/AMK/UberASM 2026-08-19, GPS
+2026-08-20), same layout as this repo's:
 
 ```
 ~/asar/graphify-out/                    1091 nodes / 2252 edges /  67 communities
 ~/SpriteToolSuperDelux/graphify-out/    1641 nodes / 2954 edges / 111 communities
 ~/AddmusicK/graphify-out/               1018 nodes / 1899 edges /  75 communities
 ~/UberASMTool/graphify-out/              329 nodes /  583 edges /  20 communities
+~/GPS/graphify-out/                      239 nodes /  420 edges /  12 communities
 ```
 
 `graph.html` for browsing, `GRAPH_REPORT.md` for the community map, `graph.json` to query.
 Run `graphify query "<question>"` from inside any of them. Rebuild with `graphify . --update`.
 
-Caveats recorded at build time. All four carry dangling-endpoint edges, where the AST
+Caveats recorded at build time. All five carry dangling-endpoint edges, where the AST
 referenced symbols outside the corpus (asar 74 of 2350, PIXI 333 of 3327, AMK 82 of 1991,
-UberASM 50 of 686), plus some collapsed parallel edges where the same pair got both
-`implements` and `references`. Files with C++ parse errors are only partially extracted:
+UberASM 50 of 686, GPS 14 of 443), plus some collapsed parallel edges where the same pair got
+both `implements` and `references`. Files with C++ parse errors are only partially extracted:
 `arch-65816.cpp`, `arch-superfx.cpp`, `sprite.cpp`, `Music.cpp`, `MML/Lexers/Core.cpp`, and the
 `asar.h`/`asardll.h` headers. Not extracted at all: PIXI's 89 CFG-Editor resource PNGs, and
 AMK's `back.png` nav arrow.
 
-**One gap worth remembering**: graphify does not recognise `.asm`, so UberASM's 15 assembly
-files were extracted by a subagent reading them directly, and they are **absent from that
-repo's `manifest.json`** — a `--update` will not notice when they change. Re-extract them by
-hand, or accept the graph going stale on the assembly side. The same blind spot applies to
-PIXI's `asm/` tree, which was never extracted at all.
+**One gap worth remembering**: graphify does not recognise `.asm`, so UberASM's 15 and GPS's 30
+assembly files were extracted by a subagent reading them directly, and they are **absent from
+those repos' `manifest.json`** — a `--update` will not notice when they change. Re-extract them
+by hand, or accept the graph going stale on the assembly side. Since the assembly *is* the
+interesting part of both tools, that matters. The same blind spot applies to PIXI's `asm/` tree,
+which was never extracted at all.
 
 So treat a *missing* edge as "look at the source", never as "no such relation".

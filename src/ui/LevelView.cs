@@ -214,8 +214,9 @@ public class LevelView : Control
             }
             else if (props.IsLeftButtonPressed)
             {
-                if (sp.IndexAtCell(cell.X, cell.Y) is int hit && sp.Selection.Contains(hit))
-                    moveStart = cell;
+                // Pressing on what a selected sprite DRAWS drags it, like a selected object.
+                // The test is by pixel because that is how sprites are selected and drawn.
+                if (sp.SelectionCovers(lp.X, lp.Y)) moveStart = cell;
                 else { pixelStart = lp; pixelEnd = lp; }
                 bandEnd = cell;
                 e.Pointer.Capture(this);
@@ -306,6 +307,13 @@ public class LevelView : Control
                 }
                 bandEnd = c;
                 InvalidateVisual();
+            }
+            else
+            {
+                // Same affordance objects get: the hand says this one is draggable.
+                var hp = LevelPixel(e.GetPosition(this));
+                Cursor = sp.SelectionCovers(hp.X, hp.Y) ? new Cursor(StandardCursorType.Hand)
+                                                        : Cursor.Default;
             }
             return;
         }

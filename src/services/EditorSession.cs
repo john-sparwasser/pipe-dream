@@ -63,6 +63,12 @@ public sealed class EditorSession
     private readonly HashSet<int> touched = [];
 
     public event EventHandler? Changed;
+
+    /// <summary>The scene and BOTH layers' editors were replaced (see <see cref="Rebuild"/>).
+    /// Anything holding one has to let go: an edit made through a discarded LevelEdit renders
+    /// into a discarded scene, so it looks like it worked and changes nothing on screen.</summary>
+    public event EventHandler? SceneRebuilt;
+
     public string Status { get; private set; } = "";
 
     private void Report(string s) { Status = s; Changed?.Invoke(this, EventArgs.Empty); }
@@ -1098,6 +1104,7 @@ public sealed class EditorSession
             }
             else layer2 = null;
             Changed?.Invoke(this, EventArgs.Empty);
+            SceneRebuilt?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception ex) { Report($"{what} failed: {ex.Message}"); }
     }

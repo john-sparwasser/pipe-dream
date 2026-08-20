@@ -6,6 +6,15 @@
         Icon="/assets/pipe-icon-64.png"
         Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
 
+  <Window.Resources>
+    <!-- Lucide icons (ISC), path data verbatim except circles/rects rewritten as arcs and
+         leading relative 'm' made absolute so subpaths survive concatenation. Lucide is
+         stroke-drawn, so these render via Path + Stroke, not PathIcon (which fills). -->
+    <StreamGeometry x:Key="IconTentTree">M6 4A2 2 0 1 1 2 4A2 2 0 1 1 6 4 M14 5l3-3 3 3 M14 10l3-3 3 3 M17 14V2 M17 14H7l-5 8h20Z M8 14v8 M9 14l5 8</StreamGeometry>
+    <StreamGeometry x:Key="IconGrid3x3">M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2 M3 9h18 M3 15h18 M9 3v18 M15 3v18</StreamGeometry>
+    <StreamGeometry x:Key="IconSquarePen">M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7 M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z</StreamGeometry>
+  </Window.Resources>
+
   <Window.Styles>
     <!-- Header mode toggle: the canvas IS the editor, so switching editors is a canvas mode
          rather than another panel competing for the drawer. -->
@@ -27,6 +36,20 @@
     </Style>
     <Style Selector="ToggleButton.mode:checked:pointerover /template/ ContentPresenter">
       <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
+    </Style>
+    <!-- Mode icons follow the label's colour states; stroked because Lucide is stroked. -->
+    <Style Selector="ToggleButton.mode Path">
+      <Setter Property="Stroke" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="StrokeThickness" Value="1.5"/>
+      <Setter Property="StrokeLineCap" Value="Round"/>
+      <Setter Property="StrokeJoin" Value="Round"/>
+      <Setter Property="Width" Value="15"/>
+      <Setter Property="Height" Value="15"/>
+      <Setter Property="Stretch" Value="Uniform"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="ToggleButton.mode:checked Path">
+      <Setter Property="Stroke" Value="White"/>
     </Style>
 
     <Style Selector="Border.panel">
@@ -131,9 +154,24 @@
          than a dozen differently-sized buttons. -->
     <Border DockPanel.Dock="Top" Classes="panel bar" BorderThickness="0,0,0,1" Padding="10,6">
       <StackPanel Orientation="Horizontal" Spacing="6">
-        <ToggleButton x:Name="ModeLevel" Classes="mode" Content="Level" IsChecked="True" Click="OnMode"/>
-        <ToggleButton x:Name="ModeMap16" Classes="mode" Content="Map16" Click="OnMode"/>
-        <ToggleButton x:Name="ModeGfx"   Classes="mode" Content="GFX"   Click="OnMode"/>
+        <ToggleButton x:Name="ModeLevel" Classes="mode" IsChecked="True" Click="OnMode">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <Path Data="{StaticResource IconTentTree}"/>
+            <TextBlock Text="Level" VerticalAlignment="Center"/>
+          </StackPanel>
+        </ToggleButton>
+        <ToggleButton x:Name="ModeMap16" Classes="mode" Click="OnMode">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <Path Data="{StaticResource IconGrid3x3}"/>
+            <TextBlock Text="Map16" VerticalAlignment="Center"/>
+          </StackPanel>
+        </ToggleButton>
+        <ToggleButton x:Name="ModeGfx" Classes="mode" Click="OnMode">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <Path Data="{StaticResource IconSquarePen}"/>
+            <TextBlock Text="GFX" VerticalAlignment="Center"/>
+          </StackPanel>
+        </ToggleButton>
 
         <Rectangle Classes="sep" Margin="10,4"/>
 
@@ -157,21 +195,24 @@
         <ComboBox x:Name="LevelBox" Width="104"/>
         <Button Content="Reload" MinWidth="72" Click="OnReloadLevel"/>
         <Button Content="Exits" MinWidth="72" Click="OnLevelExits"/>
-
-        <Rectangle Classes="sep" Margin="10,4"/>
-
-        <TextBlock Classes="dim" Text="zoom"/>
-        <Slider x:Name="ZoomSlider" Width="140" Minimum="1" Maximum="8" Value="2"
-                TickFrequency="1" IsSnapToTickEnabled="True"/>
-        <TextBlock x:Name="ZoomLabel" Classes="mono" Width="26"/>
       </StackPanel>
     </Border>
 
-    <!-- Status bar -->
-    <Border DockPanel.Dock="Bottom" Classes="panel" BorderThickness="0,1,0,0" Padding="12,5">
-      <Grid ColumnDefinitions="*,Auto">
-        <TextBlock x:Name="Status" Classes="dim" Text="no ROM loaded — File ▸ Open ROM"/>
-        <TextBlock x:Name="Hover" Grid.Column="1" Classes="mono"/>
+    <!-- Status bar. Zoom lives down here rather than in the header, where Lunar Magic keeps it:
+         it is a view setting, not an edit tool. Percent, in 10% steps — "2x" is a rendering
+         detail, "120%" is what the user is choosing. -, = step it from anywhere. -->
+    <Border DockPanel.Dock="Bottom" Classes="panel" BorderThickness="0,1,0,0" Padding="12,4">
+      <Grid ColumnDefinitions="*,Auto,Auto">
+        <TextBlock x:Name="Status" Classes="dim" Text="no ROM loaded — File ▸ Open ROM"
+                   VerticalAlignment="Center"/>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" Margin="12,0,16,0">
+          <TextBlock Classes="dim" Text="zoom" VerticalAlignment="Center"/>
+          <Slider x:Name="ZoomSlider" Width="130" Minimum="100" Maximum="800" Value="200"
+                  TickFrequency="10" IsSnapToTickEnabled="True" VerticalAlignment="Center"
+                  ToolTip.Tip="Level zoom — or press - and = to step it"/>
+          <TextBlock x:Name="ZoomLabel" Classes="mono" Width="40" VerticalAlignment="Center"/>
+        </StackPanel>
+        <TextBlock x:Name="Hover" Grid.Column="2" Classes="mono" VerticalAlignment="Center"/>
       </Grid>
     </Border>
 

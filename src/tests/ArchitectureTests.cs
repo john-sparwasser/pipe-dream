@@ -28,13 +28,15 @@ namespace PipeDream.Ui.Tests;
 /// </summary>
 public class ArchitectureTests(ITestOutputHelper log)
 {
-    /// <summary>Repo root, found by walking up from the test binary until the app project shows.</summary>
-    private static string Root()
+    /// <summary>Repo root, from this file's compile-time path. Walking up from the test BINARY
+    /// broke the moment the build went to a different drive (`--artifacts-path`, CI caches) —
+    /// the sources these tests scan are anchored to the sources, not to wherever the DLL landed.</summary>
+    private static string Root([System.Runtime.CompilerServices.CallerFilePath] string self = "")
     {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "src", "PipeDream.csproj")))
-            dir = dir.Parent;
-        Assert.NotNull(dir);
+        // <repo>/src/tests/ArchitectureTests.cs → <repo>
+        var dir = new DirectoryInfo(Path.GetDirectoryName(self)!).Parent?.Parent;
+        Assert.True(dir is not null && File.Exists(Path.Combine(dir.FullName, "src", "PipeDream.csproj")),
+                    $"repo root not found from '{self}'");
         return dir!.FullName;
     }
 

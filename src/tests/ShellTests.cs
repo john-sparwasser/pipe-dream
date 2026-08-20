@@ -117,6 +117,40 @@ public class ShellTests(ITestOutputHelper log)
                     $"canvas did not reclaim the drawer's width ({withDrawer} -> {scroll.Bounds.Width})");
     }
 
+    /// <summary>Zoom is a PERCENT in 10% steps, stepped by - and =, and it lives in the status
+    /// bar. Whole-number multipliers were the ImGui port's shortcut; Lunar Magic's zoom is a
+    /// percent and jumping 100% at a time is far too coarse on a level this wide.</summary>
+    [AvaloniaFact]
+    public void minus_and_equals_step_the_zoom_by_ten_percent()
+    {
+        if (Open() is not { } w) { log.WriteLine("SKIP: no ROM"); return; }
+        var canvas = Find<LevelView>(w, "Canvas");
+        var slider = Find<Slider>(w, "ZoomSlider");
+        var label = Find<TextBlock>(w, "ZoomLabel");
+        Assert.Equal(200, slider.Value);
+        Assert.Equal(2.0, canvas.Zoom);
+        Assert.Equal("200%", label.Text);
+
+        w.KeyPressQwerty(PhysicalKey.Equal, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(210, slider.Value);
+        Assert.Equal(2.1, canvas.Zoom);
+        Assert.Equal("210%", label.Text);
+
+        w.KeyPressQwerty(PhysicalKey.Minus, RawInputModifiers.None);
+        w.KeyPressQwerty(PhysicalKey.Minus, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(190, slider.Value);
+        Assert.Equal(1.9, canvas.Zoom);
+
+        // The floor holds: - at 100% stays at 100% rather than inverting the level.
+        slider.Value = slider.Minimum;
+        w.KeyPressQwerty(PhysicalKey.Minus, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(100, slider.Value);
+        Assert.Equal(1.0, canvas.Zoom);
+    }
+
     [AvaloniaFact]
     public void clicking_the_canvas_reports_the_cell_under_the_cursor()
     {

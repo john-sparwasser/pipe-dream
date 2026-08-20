@@ -165,12 +165,9 @@ public partial class MainWindow : Window
             ShowPaletteColor(idx);
             status.Text = $"picked {DescribeSwatch(idx)}";
         };
-        canvas.SpritesChanged += (_, _) =>
-        {
-            // A sprite edit changes what the overlay draws, so the level has to recompose.
-            session.RefreshSprites();
-            AdoptSession();
-        };
+        // A sprite edit changes what the overlay draws, so the level has to recompose. The
+        // adopt comes from SceneRebuilt, below.
+        canvas.SpritesChanged += (_, _) => session.RefreshSprites();
 
         // ---- Map16 canvas mode ----
         map16Canvas = this.GetControl<Map16CanvasView>("Map16Canvas");
@@ -250,15 +247,16 @@ public partial class MainWindow : Window
                              w => (ushort)((w.Raw & ~0x1C00) | (row << 10)));
         };
 
+        // The slider is in PERCENT; the canvas scales by a factor.
         zoomSlider.PropertyChanged += (_, e) =>
         {
             if (e.Property != RangeBase.ValueProperty) return;
-            canvas.Zoom = zoomSlider.Value;
-            zoomLabel.Text = $"{zoomSlider.Value:0}x";
+            canvas.Zoom = zoomSlider.Value / 100.0;
+            zoomLabel.Text = $"{zoomSlider.Value:0}%";
             canvas.InvalidateVisual();
             canvas.InvalidateMeasure();
         };
-        zoomLabel.Text = "2x";
+        zoomLabel.Text = $"{zoomSlider.Value:0}%";
 
         bankBox.SelectionChanged += (_, _) =>
         {
@@ -418,6 +416,12 @@ public partial class MainWindow : Window
             sv.Offset = new Vector(Math.Max(0, sv.Offset.X + d.Dx), Math.Max(0, sv.Offset.Y + d.Dy));
         };
 
+        // A rebuild swaps in a new scene and new layer editors, and the caches here (edit,
+        // canvas.Edit, the bitmap's phase images) all point at the old ones until this runs.
+        // Without it a GFX pixel commit — which rebuilds — left the canvas editing a discarded
+        // object list: the delete happened, nothing on screen changed, and the edit was lost.
+        session.SceneRebuilt += (_, _) => AdoptSession();
+
         if (EditorSession.FindStartupRom(Program.RomPath) is { } path) LoadRom(path);
 
         // First run has nothing configured to prepare project bases from, so ask once the window
@@ -548,8 +552,8 @@ public partial class MainWindow : Window
         canvas.InvalidateVisual();
     }
 
-    /// <summary>Global keys, matching the ImGui editor: Ctrl+Z undo, Ctrl+Shift+Z redo, and
-    /// Esc leaving a non-Level canvas mode before it touches selection.</summary>
+    /// <summary>Global keys, matching the ImGui editor: Ctrl+Z undo, Ctrl+Shift+Z redo, Esc
+    /// leaving a non-Level canvas mode before it touches selection, and - / = zooming.</summary>
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key == Key.Z && e.KeyModifiers.HasFlag(KeyModifiers.Control))
@@ -590,6 +594,15 @@ public partial class MainWindow : Window
             }
             e.Handled = true;
         }
+        // Browser bindings, and the same keys the GFX canvas's [ ] do for its own sheet: the
+        // zoom keys always act on whatever canvas is showing.
+        else if (e.Key is Key.OemMinus or Key.Subtract or Key.OemPlus or Key.Add)
+        {
+            int dir = e.Key is Key.OemMinus or Key.Subtract ? -1 : 1;
+            if (modeGfx.IsChecked == true) StepGfxZoom(dir);
+            else StepZoom(dir);
+            e.Handled = true;
+        }
         else if (e.Key == Key.Escape)
         {
             if (modeLevel.IsChecked != true) OnMode(modeLevel, new RoutedEventArgs());
@@ -613,6 +626,15 @@ public partial class MainWindow : Window
             }
             e.Handled = true;
         }
+    }
+
+    /// <summary>One tick of the level zoom, in the slider's own units — the slider IS the zoom
+    /// state, so stepping it keeps the label and the canvas in step for free.</summary>
+    private void StepZoom(int dir)
+    {
+        zoomSlider.Value = Math.Clamp(zoomSlider.Value + dir * zoomSlider.TickFrequency,
+                                      zoomSlider.Minimum, zoomSlider.Maximum);
+        status.Text = $"zoom {zoomSlider.Value:0}%";
     }
 
     private void UpdateStatus()

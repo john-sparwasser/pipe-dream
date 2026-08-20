@@ -39,14 +39,17 @@ public sealed class SpriteEdit(SpriteData sprites, SpriteOverlay? overlay, bool 
         return (cx * 16, cy * 16, cx * 16 + 16, cy * 16 + 16);
     }
 
-    /// <summary>Sprite whose SPAWN CELL is this cell — placement and drag-start use the cell,
-    /// because that is the thing being moved.</summary>
-    public int? IndexAtCell(int cx, int cy)
-    {
-        for (int i = 0; i < Sprites.Sprites.Count; i++)
-            if (Sprites.Sprites[i].Cell(vertical) == (cx, cy)) return i;
-        return null;
-    }
+    /// <summary>Is this level pixel inside a SELECTED sprite's drawn area? Pressing there starts
+    /// a move, as it does on a selected object — and it has to ask the same pixel geometry
+    /// selection does: hit-testing the spawn cell instead meant the sprite you could see and
+    /// select was not the one you could grab, so the drag banded a new selection instead.</summary>
+    public bool SelectionCovers(int px, int py)
+        => Selection.Any(i =>
+        {
+            if (i < 0 || i >= Sprites.Sprites.Count) return false;
+            var (x0, y0, x1, y1) = PixelRect(i);
+            return px >= x0 && px < x1 && py >= y0 && py < y1;
+        });
 
     /// <summary>Select everything whose drawn pixels overlap a level-pixel rectangle.</summary>
     public void SelectInPixelRect(int rx, int ry, int rw, int rh)
