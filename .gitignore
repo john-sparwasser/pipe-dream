@@ -17,6 +17,11 @@ reference/lm-help/
 *.sfc
 *.sfc.bak
 
+# Worktrees belong OUTSIDE the repo (see CLAUDE.md). This is the backstop for the ones
+# Claude Code's --worktree / EnterWorktree create inside it: a nested worktree is a second
+# full checkout, and `git add -A` would otherwise try to commit the whole thing.
+.claude/worktrees/
+
 # Editor / UI state
 imgui.ini
 *.user
