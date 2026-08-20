@@ -37,3 +37,38 @@ jobs:
         with:
           name: PipeDream-${{ matrix.rid }}
           path: bin/publish
+
+      # Windows also gets an installer. Inno Setup ships on the runner image; the version is
+      # the run number so every build is upgradable over the last.
+      - name: Build installer
+        if: matrix.os == 'windows-latest'
+        run: >
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          /DAppVersion=0.1.${{ github.run_number }} install\PipeDream.iss
+
+      # An installer nobody ran is a guess. Install it silently, check the three things it
+      # promises, then take it back off and check that too.
+      - name: Check the installer installs and uninstalls
+        if: matrix.os == 'windows-latest'
+        run: |
+          $setup = Get-Item bin\setup\PipeDream-Setup-*.exe
+          Start-Process $setup '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait
+          $app = "$env:LOCALAPPDATA\Programs\PipeDream\PipeDream.exe"
+          $lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Pipe Dream.lnk"
+          if (-not (Test-Path $app)) { throw "no exe at $app" }
+          if (-not (Test-Path $lnk)) { throw "no Start Menu shortcut" }
+          $progId = (Get-ItemProperty 'HKCU:\Software\Classes\.pdp').'(default)'
+          if ($progId -ne 'PipeDream.Project') { throw ".pdp -> '$progId'" }
+          & $app --selfcheck
+          if ($LASTEXITCODE -ne 0) { throw "installed binary failed --selfcheck ($LASTEXITCODE)" }
+          # Inno's uninstaller relaunches itself from a temp copy, so -Wait returns early.
+          Start-Process (Get-Item "$env:LOCALAPPDATA\Programs\PipeDream\unins*.exe") '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait
+          $deadline = (Get-Date).AddSeconds(60)
+          while ((Test-Path $app) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+          if (Test-Path $app) { throw 'uninstall left the exe behind' }
+
+      - uses: actions/upload-artifact@v7
+        if: matrix.os == 'windows-latest'
+        with:
+          name: PipeDream-Setup
+          path: bin/setup/*.exe

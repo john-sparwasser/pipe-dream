@@ -2,6 +2,17 @@
 
 Per-user install — no admin rights, nothing outside your own profile.
 
+## From a build (no source needed)
+
+Download **PipeDream-Setup** from the [latest build](https://github.com/john-sparwasser/pipe-dream/actions/workflows/build.yml),
+unzip it and run the setup. It installs the same three things as the script below, plus an
+entry in Add/Remove Programs to take it back off again.
+
+The installer is unsigned, so SmartScreen will warn on first run — "More info" then "Run
+anyway". Signing it needs a certificate this project does not have.
+
+## From source
+
 ```powershell
 .\install\install.ps1
 ```
@@ -18,6 +29,7 @@ Re-run it any time to upgrade in place. `-SkipPublish` reuses the last published
 ```powershell
 .\install\uninstall.ps1
 ```
+
 
 Removes all three. Your config (`%APPDATA%\PipeDream`) and project folders are left alone,
 so uninstalling never costs you work.
