@@ -34,12 +34,13 @@ jobs:
           -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none
           -o bin/publish
       - uses: actions/upload-artifact@v7
+        if: matrix.os != 'windows-latest'      # Windows ships the installer below, not a loose exe
         with:
           name: PipeDream-${{ matrix.rid }}
           path: bin/publish
 
-      # Windows also gets an installer. Inno Setup ships on the runner image; the version is
-      # the run number so every build is upgradable over the last.
+      # Windows ships an installer instead of the bare exe. Inno Setup is on the runner image;
+      # the version is the run number, so every build upgrades over the last one.
       - name: Build installer
         if: matrix.os == 'windows-latest'
         run: >

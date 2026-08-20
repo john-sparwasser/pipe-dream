@@ -92,14 +92,17 @@ osx-arm64 --self-contained true -o bin/publish` (or `osx-x64` for Intel).
 [`.github/workflows/build.yml`](.github/workflows/build.yml) runs on every push to `main`,
 every pull request, and on demand. Two-runner matrix:
 
-| Runner           | RID         | Artifact               |
-|------------------|-------------|------------------------|
-| `windows-latest` | `win-x64`   | `PipeDream-win-x64`    |
-| `ubuntu-latest`  | `linux-x64` | `PipeDream-linux-x64`  |
+| Runner           | RID         | Artifact                          |
+|------------------|-------------|-----------------------------------|
+| `windows-latest` | `win-x64`   | `PipeDream-Setup` (installer)     |
+| `ubuntu-latest`  | `linux-x64` | `PipeDream-linux-x64` (one file)  |
 
-Each job runs the full test suite in Release, then publishes a self-contained build and
-uploads it as a workflow artifact. So **every green commit leaves a runnable Windows and Linux
-build behind** — grab one from the
+Each job runs the full test suite in Release, then publishes a self-contained single-file
+build. Windows wraps it in an installer — per-user, with a Start Menu entry, the `.pdp`
+association and an uninstaller — and CI proves that installer works by installing it,
+running `--selfcheck` from the installed binary, and uninstalling it again. Linux uploads
+the executable as-is. So **every green commit leaves an installable Windows build and a
+runnable Linux one behind** — grab either from the
 [Actions tab](https://github.com/john-sparwasser/pipe-dream/actions/workflows/build.yml)
 instead of building locally (GitHub requires a login to download artifacts, and they expire).
 The same builds are linked from [pipedream.nexus](https://pipedream.nexus).
