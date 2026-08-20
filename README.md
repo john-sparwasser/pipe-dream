@@ -1,0 +1,198 @@
+# Pipe Dream
+
+[![build](https://github.com/john-sparwasser/pipe-dream/actions/workflows/build.yml/badge.svg)](https://github.com/john-sparwasser/pipe-dream/actions/workflows/build.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+A Super Mario World level editor that operates on the ROM directly — the same pointer tables,
+level headers, object streams and Map16 pages the game itself reads. Not an emulator
+front-end, not a patch format: you open a ROM, move a pipe, and the bytes that come out are
+the bytes SMW loads.
+
+ROMs already edited by **Lunar Magic** stay readable and stay writable. Pipe Dream honours
+LM's RATS allocation tags, its Direct Map16 ASM, its secondary-exit and ExAnimation
+structures, so a hack in progress does not have to pick a side.
+
+C# on .NET 10, [Avalonia](https://avaloniaui.net) 11.3 for the UI, MIT licensed.
+Project site: **[pipedream.nexus](https://pipedream.nexus)**
+
+> **Status: pre-release, under active development.** The core loop — open a ROM, edit a level,
+> save something the game runs — works. Expect sharp edges and keep backups of any ROM you
+> point it at. Overworld, title screen and credits editing are out of scope for now.
+
+You supply your own copy of Super Mario World. No game data is distributed here.
+
+---
+
+## Build and run
+
+Requires the **.NET 10 SDK**. Nothing else — Avalonia and its natives come from NuGet.
+
+```bash
+git clone https://github.com/john-sparwasser/pipe-dream
+cd pipe-dream
+
+dotnet build src/PipeDream.csproj                  # compile
+dotnet run   --project src/PipeDream.csproj        # launch the editor
+dotnet test  src/tests/PipeDream.Tests.csproj      # 63 test files, headless
+```
+
+Pass a ROM or project straight through, plus an optional level in hex:
+
+```bash
+dotnet run --project src/PipeDream.csproj -- rom.smc 105
+```
+
+### Self-contained publish
+
+```bash
+dotnet publish src/PipeDream.csproj -c Release -r win-x64 --self-contained true -o bin/publish
+```
+
+Swap the RID for `linux-x64`, `osx-arm64`, `win-arm64`, `linux-arm64` or `osx-x64` — Avalonia
+ships natives for all six. Each payload is ~85 MB because it carries its own runtime, so the
+target machine needs nothing preinstalled. `dotnet publish -r <rid>` cross-builds from any
+host (there is no AOT step), but macOS signing/notarization and Linux AppImage tooling need
+their own OS — see [`reference/PORTABILITY.md`](reference/PORTABILITY.md).
+
+### Windows install script
+
+```powershell
+.\install\install.ps1          # -SkipPublish reuses the last bin\publish
+.\install\uninstall.ps1
+```
+
+Per-user, no admin: publishes, copies to `%LOCALAPPDATA%\Programs\PipeDream`, adds a Start
+Menu shortcut, and registers `.pdp` under `HKCU\Software\Classes` (via `OpenWithProgids` as
+well as the default, so it does not silently steal the extension from another tool). Re-run to
+upgrade in place. Uninstall leaves `%APPDATA%\PipeDream` and your projects alone. Details in
+[`install/README.md`](install/README.md).
+
+Linux and macOS build and run from the same source today; the one-click packaging for them is
+not written yet.
+
+## Automated builds
+
+[`.github/workflows/build.yml`](.github/workflows/build.yml) runs on every push to `main`,
+every pull request, and on demand. Two-runner matrix:
+
+| Runner           | RID         | Artifact               |
+|------------------|-------------|------------------------|
+| `windows-latest` | `win-x64`   | `PipeDream-win-x64`    |
+| `ubuntu-latest`  | `linux-x64` | `PipeDream-linux-x64`  |
+
+Each job runs the full test suite in Release, then publishes a self-contained build and
+uploads it as a workflow artifact. So **every green commit leaves a runnable Windows and Linux
+build behind** — grab one from the
+[Actions tab](https://github.com/john-sparwasser/pipe-dream/actions/workflows/build.yml)
+instead of building locally (GitHub requires a login to download artifacts, and they expire).
+The same builds are linked from [pipedream.nexus](https://pipedream.nexus).
+
+ROM-dependent tests skip themselves when no SMW ROM is present, which is always the case on
+CI, so the suite is green without game data.
+
+## Architecture
+
+One assembly (`src/PipeDream.csproj`, assembly name `PipeDream`), organised by layer:
+
+```
+src/            Program, App — what actually starts, plus the command-line tools
+src/ui/         windows, views, canvases: draws and takes input, owns nothing
+src/services/   what the editor DOES — composition, editing, catalogs, the save cycle
+src/rom/        the SNES/SMW formats: levels, Map16, GFX, sprites, prep, Lunar Magic
+src/data/       the project file, config, the ROM builder — the storage layer
+src/tests/      its own project, excluded from the app
+```
+
+The rule: **the UI talks to the services layer and nothing else.** It goes through
+`EditorSession` rather than touching a `Rom` or a `Project`, so it cannot reach past the
+services to the project file or the config. Storage is the editor's database — not called from
+the presentation layer, and it knows nothing about it.
+
+The concrete payoff is that the whole open → edit → save → build cycle stays runnable with no
+window at all, which is what makes both the test suite and the command line possible.
+
+Because it is a single assembly, the compiler no longer enforces any of that — internals are
+visible everywhere. `src/tests/ArchitectureTests.cs` reads these folders and fails the test
+run when the boundary slips. **That test is the whole enforcement; treat a failure as a build
+break, not a style note.**
+
+`src/ui/` gets `PipeDream.Services` as a global `<Using>` since every file needs it; the `rom`
+and `data` layers sit in namespace `PipeDream` and need nothing.
+
+### One executable, two halves
+
+`PipeDream.exe` opens the editor. With `--headless` — or any command flag — it runs the ROM
+tooling instead; `--headless` alone lists the commands. On Windows it is a GUI-subsystem
+binary, so it has no console of its own and borrows the terminal's via a six-line
+`Program.AttachParentConsole` guarded by `OperatingSystem.IsWindows()` (the only
+Windows-specific code in the app). Launched with no terminal at all, redirect output to a file.
+
+```bash
+PipeDream.exe --headless                    # list the ROM commands
+PipeDream.exe --selfcheck  rom.smc          # parse + round-trip check
+PipeDream.exe --render     rom.smc 105 out.png
+PipeDream.exe --diff       a.smc b.smc      # changed runs + new RATS blocks
+PipeDream.exe --newproject ...              # create a .pdp
+PipeDream.exe --buildproject ...            # build the output ROM
+```
+
+| Area        | Commands |
+|-------------|----------|
+| Projects    | `--newproject` `--buildproject` `--bps` |
+| Inspection  | `--selfcheck` `--diff` `--markers` `--disasm` `--dumpcell` `--pixitrace` |
+| Levels      | `--render` `--exits` `--entrances` `--mainentrance` `--sprites` |
+| Graphics    | `--gfxsheet` `--blobsheet` `--tilepng` `--map16def` `--writedm16` |
+| Animation   | `--exanim` `--globalexanim` |
+
+Implemented in `src/DebugCommands.cs`, dispatched from `src/Program.cs`.
+
+### The `.pdp` project file
+
+`src/data/ProjectFile.cs`. Plain JSON: a **semantic snapshot of every edit relative to a
+pinned base ROM**, containing no ROM data at all. Which means it is shareable — a collaborator
+with a byte-identical base opens it and sees the same project — and it diffs in git like any
+other text file. The base ROM is read, never written; builds are outputs.
+
+Explicit DTOs rather than the domain structs, because `LevelObject`/`Sprite` are readonly
+structs whose computed properties would serialize as noise and cannot round-trip by
+reflection. Key conventions worth knowing before you touch it:
+
+- Map16 **vanilla** def slots are keyed by the def slot's SNES **address** (hex) — canonical
+  across tilesets, since tiles below `0x200` alias per-tileset regions, and stable across ROM
+  expansion.
+- **Extended** tiles (`0x200`+) are keyed by **tile number** (hex), because their region
+  relocates on page allocation.
+- Level keys are 3-digit hex. `SchemaVersion` is 1; fields are added beside existing ones
+  rather than folded in, so older `.pdp` files keep loading.
+
+## ROM format work
+
+The data contract between Lunar Magic and the ROM — what to read to open a level, what to
+write to save it — is documented in [`reference/CONTRACT.md`](reference/CONTRACT.md), with
+every claim tagged by how well it is known:
+
+- **[CONFIRMED]** — verified byte-for-byte against real ROMs in-repo
+- **[LM-DOC]** — stated in FuSoYa's Lunar Magic help
+- **[COMMUNITY]** — well-known SMW lore, not yet byte-verified here
+
+Behaviour is traced against the actual SMW disassembly rather than guessed from a wiki: the
+level loader decode at `$058601`, RATS validation (`(word4 XOR word6) == 0xFFFF`, required —
+random ROM data really does contain the bytes `53 54 41 52`), LoROM mapping, copier-header
+detection by `size mod 0x8000 == 0x200`.
+
+Other docs in [`reference/`](reference/): `ROM_TOOLING.md`, `PORTABILITY.md`, `AVALONIA.md`,
+`SPRITE_DISPLAY.md`, `MESEN.md`, `REFACTORING.md`.
+
+Bulk third-party material is deliberately not committed — the split SMW disassembly and the
+decompiled Lunar Magic help are regenerable locally and not redistributed. `*.smc`/`*.sfc` are
+gitignored so game data cannot land in a commit by accident.
+
+## Roadmap
+
+- Download and manage custom sprites, blocks, backgrounds and music from inside the tool
+- Create and share custom base ROMs
+
+## License
+
+MIT — see [LICENSE](LICENSE). Not affiliated with Nintendo; Super Mario World is a trademark
+of Nintendo.
