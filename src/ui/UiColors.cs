@@ -39,4 +39,30 @@ internal static class UiColors
     /// colour for both would make a sprite selection unreadable over a selected object.</summary>
     public static readonly IBrush Sprite = new SolidColorBrush(Color.Parse("#6FE0C0"));
     public static readonly IBrush SpriteFill = new SolidColorBrush(Color.FromArgb(0x30, 0x6F, 0xE0, 0xC0));
+
+    /// <summary>The desk behind the level — dark grey with lighter diamonds, the ImGui
+    /// editor's DrawDeskBackdrop (0xFF101010 under 0xFF1B1B1B diamonds, half-diagonal 16px,
+    /// centres every 32px). A tiled brush from one 32x32 bitmap rather than per-diamond
+    /// geometry: the pattern is fixed in SCREEN pixels, so one tile covers any zoom.</summary>
+    public static IBrush DeskPattern => desk ??= MakeDesk();
+    private static IBrush? desk;
+
+    /// <summary>The tile's pixels, separate from the bitmap so the geometry is testable —
+    /// a headless WriteableBitmap cannot be read back.</summary>
+    internal static uint[] DeskTile()
+    {
+        const uint baseC = 0xFF101010u, diamond = 0xFF1B1B1Bu;   // packed RGBA, as composition uses
+        var px = new uint[32 * 32];
+        for (int y = 0; y < 32; y++)
+            for (int x = 0; x < 32; x++)
+                px[y * 32 + x] = Math.Abs(x - 16) + Math.Abs(y - 16) <= 16 ? diamond : baseC;
+        return px;
+    }
+
+    private static IBrush MakeDesk()
+        => new ImageBrush(LevelBitmap.FromPixels(DeskTile(), 32, 32))
+        {
+            TileMode = TileMode.Tile,
+            DestinationRect = new Avalonia.RelativeRect(0, 0, 32, 32, Avalonia.RelativeUnit.Absolute),
+        };
 }
