@@ -54,7 +54,9 @@ public class UpdateCheckTests
     }
 
     [Theory]
-    // Windows wants the installer, and only the installer.
+    // Windows wants the installer, and only the installer — versionless (what CI ships now)
+    // or versioned (older releases).
+    [InlineData("PipeDream-Setup.exe", true, true)]
     [InlineData("PipeDream-Setup-0.1.42.exe", true, true)]
     [InlineData("PipeDream-linux-x64", true, false)]
     [InlineData("PipeDream.exe", true, false)]

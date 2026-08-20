@@ -73,7 +73,7 @@ jobs:
       - name: Check the installer installs and uninstalls
         if: matrix.os == 'windows-latest'
         run: |
-          $setup = Get-Item bin\setup\PipeDream-Setup-*.exe
+          $setup = Get-Item bin\setup\PipeDream-Setup.exe
           Start-Process $setup '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait
           $app = "$env:LOCALAPPDATA\Programs\PipeDream\PipeDream.exe"
           $lnk = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Pipe Dream.lnk"

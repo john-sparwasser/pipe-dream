@@ -35,7 +35,9 @@ WizardStyle=modern
 Compression=lzma2/max
 SolidCompression=yes
 OutputDir=..\bin\setup
-OutputBaseFilename=PipeDream-Setup-{#AppVersion}
+; Versionless on purpose: the download link and the updater's temp file stay stable across
+; releases; the version lives in AppVersion above and in the release tag.
+OutputBaseFilename=PipeDream-Setup
 ; Tells Explorer to re-read associations once, instead of after the next reboot.
 ChangesAssociations=yes
 
