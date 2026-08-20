@@ -110,7 +110,7 @@ public class ArchitectureTests(ITestOutputHelper log)
                              .Contains("Avalonia"))
             .Select(Path.GetFileName)
             .ToList();
-        foreach (string o in offences) log.WriteLine(o!);
+        foreach (var o in offences) log.WriteLine(o!);
         Assert.Empty(offences);
     }
 

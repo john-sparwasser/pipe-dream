@@ -18,8 +18,8 @@ jobs:
             rid: linux-x64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
@@ -27,7 +27,7 @@ jobs:
       - run: dotnet test src/tests/PipeDream.Tests.csproj -c Release
 
       - run: dotnet publish src/PipeDream.csproj -c Release -r ${{ matrix.rid }} --self-contained true -o bin/publish
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: PipeDream-${{ matrix.rid }}
           path: bin/publish

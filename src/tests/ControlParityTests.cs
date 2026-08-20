@@ -175,7 +175,7 @@ public class ControlParityTests(ITestOutputHelper log)
         Assert.True(selected > 0);
 
         c.Focus();
-        w.KeyPress(Key.Delete, RawInputModifiers.None);
+        w.KeyPressQwerty(PhysicalKey.Delete, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(before - selected, edit.Objects.Count);
@@ -197,11 +197,11 @@ public class ControlParityTests(ITestOutputHelper log)
         int after = edit.Objects.Count;
         Assert.True(after > before);
 
-        w.KeyPress(Key.Z, RawInputModifiers.Control);
+        w.KeyPressQwerty(PhysicalKey.Z, RawInputModifiers.Control);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(before, edit.Objects.Count);
 
-        w.KeyPress(Key.Z, RawInputModifiers.Control | RawInputModifiers.Shift);
+        w.KeyPressQwerty(PhysicalKey.Z, RawInputModifiers.Control | RawInputModifiers.Shift);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(after, edit.Objects.Count);
     }

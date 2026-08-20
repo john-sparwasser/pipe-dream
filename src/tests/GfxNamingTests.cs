@@ -92,7 +92,7 @@ public class GfxNamingTests : IDisposable
         // the stock pass must not then list the same id twice.
         var rom = WithImports((0x02, "forked-gfx02"));
         var all = Gfx.Candidates(rom, includeStock: true, "");
-        Assert.Single(all.Where(i => i == 0x02));
+        Assert.Single(all, i => i == 0x02);
     }
 
     [RealRomFact]

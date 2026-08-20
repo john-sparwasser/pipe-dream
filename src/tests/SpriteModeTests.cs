@@ -147,11 +147,11 @@ public class SpriteModeTests(ITestOutputHelper log)
         var canvas = w.GetControl<LevelView>("Canvas");
 
         Assert.Equal(LevelView.EditMode.Objects, canvas.Mode);
-        w.KeyPress(Key.Escape, RawInputModifiers.None);
+        w.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(LevelView.EditMode.Sprites, canvas.Mode);
 
-        w.KeyPress(Key.Escape, RawInputModifiers.None);
+        w.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(LevelView.EditMode.Objects, canvas.Mode);
     }

@@ -135,12 +135,12 @@ public class CatalogTests(ITestOutputHelper log)
         var (w, c) = o;
         var tabs = w.GetControl<TabStrip>("PaletteTabs");
 
-        w.KeyPress(Key.Escape, RawInputModifiers.None);
+        w.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(LevelView.EditMode.Sprites, c.Mode);
         Assert.Equal(1, tabs.SelectedIndex);
 
-        w.KeyPress(Key.Escape, RawInputModifiers.None);
+        w.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(LevelView.EditMode.Objects, c.Mode);
         Assert.Equal(0, tabs.SelectedIndex);
