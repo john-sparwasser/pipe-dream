@@ -167,7 +167,10 @@ public partial class MainWindow : Window
         };
         // A sprite edit changes what the overlay draws, so the level has to recompose. The
         // adopt comes from SceneRebuilt, below.
-        canvas.SpritesChanged += (_, _) => session.RefreshSprites();
+        canvas.SpritesChanged += (_, _) => { session.RefreshSprites(); PushSpritePixels(); };
+        // A live drag step shifts cached overlay pixels in place instead of rebuilding the
+        // scene, so only the bitmap upload is left to do here.
+        canvas.SpritesMoved += (_, d) => { session.MoveSprites(d.Dx, d.Dy); PushSpritePixels(); };
 
         // ---- Map16 canvas mode ----
         map16Canvas = this.GetControl<Map16CanvasView>("Map16Canvas");
@@ -587,6 +590,17 @@ public partial class MainWindow : Window
             {
                 if (redo ? map16?.Redo() == true : map16?.Undo() == true) RefreshMap16Sheet();
             }
+            // Sprite mode has its own history — without this branch Ctrl+Z in sprite mode fell
+            // through and silently rewound the OBJECT stack instead.
+            else if (canvas.Mode == LevelView.EditMode.Sprites && session.Sprites is { } sp)
+            {
+                if (redo ? sp.Redo() : sp.Undo())
+                {
+                    session.RefreshSprites();
+                    PushSpritePixels();
+                    status.Text = redo ? "sprite redo" : "sprite undo";
+                }
+            }
             else if (redo ? edit?.Redo() == true : edit?.Undo() == true)
             {
                 PushDirty();
@@ -661,6 +675,14 @@ public partial class MainWindow : Window
     private void PushDirty()
     {
         if (!session.RefreshPixels()) return;
+        bitmap.SetImages(session.Phases, session.PxW, session.PxH, 0);
+        canvas.InvalidateVisual();
+    }
+
+    /// <summary>Upload after a sprite edit: the session repainted the phases in place, so only
+    /// the bitmap needs pushing — no sheet or drawer is affected by a sprite list change.</summary>
+    private void PushSpritePixels()
+    {
         bitmap.SetImages(session.Phases, session.PxW, session.PxH, 0);
         canvas.InvalidateVisual();
     }

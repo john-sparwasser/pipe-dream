@@ -62,6 +62,10 @@ public class LevelView : Control
     public int CatalogObject { get; set; } = -1;
 
     public event EventHandler? SpritesChanged;
+
+    /// <summary>Selected sprites moved by (Dx, Dy) cells during a live drag — the cheap
+    /// overlay-shift refresh, not the full sprite-list rebuild SpritesChanged asks for.</summary>
+    public event EventHandler<(int Dx, int Dy)>? SpritesMoved;
     public int Phase { get; set; }
     public bool ShowGrid { get; set; } = true;
     public bool Vertical { get; set; }
@@ -303,7 +307,7 @@ public class LevelView : Control
                 if (c != prev && sp.MoveSelected(c.X - prev.X, c.Y - prev.Y, moved))
                 {
                     moved = true;
-                    SpritesChanged?.Invoke(this, EventArgs.Empty);
+                    SpritesMoved?.Invoke(this, (c.X - prev.X, c.Y - prev.Y));
                 }
                 bandEnd = c;
                 InvalidateVisual();

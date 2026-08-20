@@ -1073,10 +1073,63 @@ public sealed class EditorSession
     }
 
     /// <summary>
-    /// Redraw the level after a sprite edit: a moved sprite leaves its old pixels behind, so the
-    /// image is recomposed and the overlay re-captured from the edited list.
+    /// Redraw the level after a sprite edit: a changed sprite leaves its old pixels behind, so
+    /// the cells under every OLD sprite are recomposed and the overlay rebuilt from the edited
+    /// list. A sprite edit cannot change the terrain, so the full scene rebuild this used to do
+    /// — parse, objects, four composed phases — was a quarter second of pure cost per edit.
     /// </summary>
-    public void RefreshSprites() => Rebuild("sprite recompose");
+    public void RefreshSprites()
+    {
+        if (Rom is null || Scene is null || Sprites is not { } sp)
+        { Rebuild("sprite recompose"); return; }
+        if (showSprites && Scene.Overlay is { } old)
+            foreach (var (x0, y0, x1, y1) in old.DrawnRects())
+                for (int cy = y0 >> 4; cy <= (y1 - 1) >> 4; cy++)
+                    for (int cx = x0 >> 4; cx <= (x1 - 1) >> 4; cx++)
+                        Scene.RecomposeCell(cx, cy);
+        DrawSprites(sp.Sprites);
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// One live sprite-drag step: recompose only the cells under the moved sprites' OLD pixels,
+    /// shift their cached OAM, and re-blit the overlay. Routing a drag through RefreshSprites
+    /// rebuilt the entire scene — parse, objects, four composed phases, a 65816 capture per
+    /// sprite — per cell crossed, which made dragging a slideshow; a move changes nothing but
+    /// where the overlay draws.
+    /// </summary>
+    public void MoveSprites(int dxCells, int dyCells)
+    {
+        if (Scene is not { Overlay: { } old } scene || Sprites is not { } sp)
+        { RefreshSprites(); return; }
+
+        if (showSprites)
+            foreach (int i in sp.Selection)
+            {
+                if (i < 0 || i >= sp.Sprites.Sprites.Count) continue;
+                // Bounds come from the PRE-move overlay (the records have already moved).
+                // Badge-only sprites (null bounds) drew one cell at the spawn cell, whose old
+                // position is the record's cell minus this step.
+                var (x0, y0, x1, y1) = old.PixelBounds(i) is { } b
+                    ? (b.MinX, b.MinY, b.MaxX, b.MaxY)
+                    : OldBadgeRect(sp.Sprites.Sprites[i]);
+                for (int cy = y0 >> 4; cy <= (y1 - 1) >> 4; cy++)
+                    for (int cx = x0 >> 4; cx <= (x1 - 1) >> 4; cx++)
+                        scene.RecomposeCell(cx, cy);
+            }
+
+        var moved = old.Moved(sp.Selection, dxCells * 16, dyCells * 16, sp.Sprites);
+        scene.Overlay = moved;
+        sp.Overlay = moved;
+        if (showSprites) scene.RedrawOverlay();
+
+        (int, int, int, int) OldBadgeRect(Sprite s)
+        {
+            var (cx, cy) = s.Cell(Vertical);
+            int px = (cx - dxCells) * 16, py = (cy - dyCells) * 16;
+            return (px, py, px + 16, py + 16);
+        }
+    }
 
     /// <summary>
     /// Recompose the level from the ROM and re-render the object list over it, keeping the

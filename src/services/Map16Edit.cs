@@ -33,8 +33,10 @@ public sealed class Map16Edit
     public const ushort Empty = 0x1004;
 
     private readonly List<(int Fo, ushort Before, ushort After)> stroke = [];
-    private readonly Stack<(int Fo, ushort Before, ushort After)[]> undo = new();
-    private readonly Stack<(int Fo, ushort Before, ushort After)[]> redo = new();
+    // Each entry carries the tiles its stroke touched, so undo/redo can use the same
+    // targeted recompose a commit gets instead of falling back to a full scene rebuild.
+    private readonly Stack<((int Fo, ushort Before, ushort After)[] Edits, int[] Tiles)> undo = new();
+    private readonly Stack<((int Fo, ushort Before, ushort After)[] Edits, int[] Tiles)> redo = new();
 
     public bool Dirty { get; private set; }
     public bool InStroke => stroke.Count > 0;
@@ -89,7 +91,7 @@ public sealed class Map16Edit
     public void EndStroke()
     {
         if (stroke.Count == 0) return;
-        undo.Push([.. stroke]);
+        undo.Push(([.. stroke], [.. strokeTiles]));
         redo.Clear();
         stroke.Clear();
         Dirty = true;
@@ -103,7 +105,7 @@ public sealed class Map16Edit
         EndStroke();
         if (undo.Count == 0) return false;
         var e = undo.Pop();
-        Apply(e, redo: false);
+        Apply(e.Edits, e.Tiles, redo: false);
         redo.Push(e);
         return true;
     }
@@ -112,7 +114,7 @@ public sealed class Map16Edit
     {
         if (redo.Count == 0) return false;
         var e = redo.Pop();
-        Apply(e, redo: true);
+        Apply(e.Edits, e.Tiles, redo: true);
         undo.Push(e);
         return true;
     }
@@ -122,7 +124,7 @@ public sealed class Map16Edit
     /// would otherwise be restored to its intermediate value rather than its original.
     /// Reversing costs nothing when the offsets are distinct and removes the hazard either way.
     /// </summary>
-    private void Apply((int Fo, ushort Before, ushort After)[] edits, bool redo)
+    private void Apply((int Fo, ushort Before, ushort After)[] edits, int[] tiles, bool redo)
     {
         for (int i = 0; i < edits.Length; i++)
         {
@@ -132,7 +134,7 @@ public sealed class Map16Edit
             rom.Data[fo + 1] = (byte)(v >> 8);
         }
         Dirty = true;
-        CommittedTiles = null;          // offsets, not tiles: the caller has to rebuild the lot
+        CommittedTiles = tiles;
         Committed?.Invoke();
     }
 

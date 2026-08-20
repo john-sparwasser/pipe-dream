@@ -71,6 +71,36 @@ public sealed class SpriteOverlay
                 oam.Max(o => o.X + (o.Big ? 16 : 8)), oam.Max(o => o.Y + (o.Big ? 16 : 8)));
     }
 
+    /// <summary>Level-pixel rect each drawn sprite covers — badge/box sprites fall back to their
+    /// spawn cell — for restoring the pixels under an overlay about to be replaced.</summary>
+    public IEnumerable<(int X0, int Y0, int X1, int Y1)> DrawnRects()
+    {
+        for (int i = 0; i < items.Length; i++)
+        {
+            if (PixelBounds(i) is { } b) yield return (b.MinX, b.MinY, b.MaxX, b.MaxY);
+            else
+            {
+                var (cx, cy) = items[i].s.Cell(vert);
+                yield return (cx * 16, cy * 16, cx * 16 + 16, cy * 16 + 16);
+            }
+        }
+    }
+
+    /// <summary>The overlay after the given sprites moved by (dxPx, dyPx) level pixels: records
+    /// swapped for the already-moved list, cached tiles shifted — no re-capture. A capture's OAM
+    /// is seeded relative to the spawn cell, so shifting it IS the capture at the new position.</summary>
+    public SpriteOverlay Moved(IEnumerable<int> which, int dxPx, int dyPx, SpriteData current)
+    {
+        var next = ((Sprite s, List<SpriteRender.Oam>? oam)[])items.Clone();
+        foreach (int i in which)
+        {
+            if (i < 0 || i >= next.Length || i >= current.Sprites.Count) continue;
+            next[i] = (current.Sprites[i],
+                       next[i].oam?.Select(o => o with { X = o.X + dxPx, Y = o.Y + dyPx }).ToList());
+        }
+        return new SpriteOverlay(next, sp, vert, pixi);
+    }
+
     /// <summary>Draw one sprite shifted by (shiftX, shiftY) pixels — for drag ghosts.</summary>
     public void DrawOne(int i, uint[] img, int W, int H, Palette pal, int shiftX, int shiftY)
     {
