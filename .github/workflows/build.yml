@@ -3,6 +3,7 @@ name: build
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -23,6 +24,18 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # A tagged build is stamped with its tag ("v0.2.0" -> 0.2.0) so the updater's version
+      # compare agrees with the release feed (UpdateCheck.ParseTag); everything else keeps
+      # the run-number scheme.
+      - name: Pick the version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=0.1.${{ github.run_number }}" >> "$GITHUB_ENV"
+          fi
+
       # ROM-dependent tests skip themselves when no SMW ROM is present, which is always here.
       - run: dotnet test src/tests/PipeDream.Tests.csproj -c Release
 
@@ -32,21 +45,28 @@ jobs:
       - run: >
           dotnet publish src/PipeDream.csproj -c Release -r ${{ matrix.rid }} --self-contained true
           -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none
-          -p:Version=0.1.${{ github.run_number }}
+          -p:Version=${{ env.VERSION }}
           -o bin/publish
+
+      # The updater's contract (UpdateCheck.WantsAsset): the Linux asset's name contains
+      # "linux" and the file IS the binary — Apply() renames the download over the installed
+      # exe — so it ships under this name, never zipped.
+      - name: Name the linux binary for the release feed
+        if: matrix.os != 'windows-latest'
+        run: mv bin/publish/PipeDream bin/publish/PipeDream-linux-x64
       - uses: actions/upload-artifact@v7
         if: matrix.os != 'windows-latest'      # Windows ships the installer below, not a loose exe
         with:
           name: PipeDream-${{ matrix.rid }}
-          path: bin/publish
+          path: bin/publish/PipeDream-linux-x64
 
       # Windows ships an installer instead of the bare exe. Inno Setup is on the runner image;
-      # the version is the run number, so every build upgrades over the last one.
+      # the version always moves forward, so every build upgrades over the last one.
       - name: Build installer
         if: matrix.os == 'windows-latest'
         run: >
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          /DAppVersion=0.1.${{ github.run_number }} install\PipeDream.iss
+          /DAppVersion=${{ env.VERSION }} install\PipeDream.iss
 
       # An installer nobody ran is a guess. Install it silently, check the three things it
       # promises, then take it back off and check that too.
@@ -76,3 +96,21 @@ jobs:
         with:
           name: PipeDream-Setup
           path: bin/setup/*.exe
+
+  # Pushing a v* tag publishes the verified builds as a GitHub release — the feed the in-app
+  # updater reads (UpdateCheck.Repo). Both matrix legs must pass first, so a release asset is
+  # always a build whose tests ran and whose installer installed and uninstalled cleanly.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          merge-multiple: true
+          path: dist
+      - run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
