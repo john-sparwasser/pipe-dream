@@ -20,20 +20,26 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0               # git describe below needs the tag history
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
-      # A tagged build is stamped with its tag ("v0.2.0" -> 0.2.0) so the updater's version
-      # compare agrees with the release feed (UpdateCheck.ParseTag); everything else keeps
-      # the run-number scheme.
+      # A tagged build is stamped with its tag ("v0.0.2" -> 0.0.2) so the updater's version
+      # compare agrees with the release feed (UpdateCheck.ParseTag). An untagged build gets
+      # the latest tag plus the run number as a FOURTH part (0.0.2.123): the updater compares
+      # three parts (UpdateCheck.Normalise), so a CI build never outranks the release line —
+      # the old 0.1.<run> scheme sat above every 0.0.x release and made installed CI builds
+      # deaf to updates forever.
       - name: Pick the version
         shell: bash
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
           else
-            echo "VERSION=0.1.${{ github.run_number }}" >> "$GITHUB_ENV"
+            base=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo v0.0.0)
+            echo "VERSION=${base#v}.${{ github.run_number }}" >> "$GITHUB_ENV"
           fi
 
       # ROM-dependent tests skip themselves when no SMW ROM is present, which is always here.
