@@ -206,8 +206,28 @@ gitignored so game data cannot land in a commit by accident.
 
 ## Roadmap
 
-- Download and manage custom sprites, blocks, backgrounds and music from inside the tool
-- Create and share custom base ROMs
+Five managers, built into the editor, eventually replacing the separate insertion tools a hack
+currently has to chain together by hand:
+
+| Manager         | Folds in |
+|-----------------|----------|
+| **Blocks**      | Custom block behaviour and Map16 wiring — the GPS step |
+| **Sprites**     | Custom sprites, their tables and per-level assignment — the PIXI step |
+| **UberASM**     | Per-level, per-gamemode and global custom ASM — the UberASMTool step |
+| **Music**       | Custom songs, sample groups and track slots — the AddmusicK step |
+| **Backgrounds** | The ExGFX-and-Map16 shuffle a custom background takes today |
+
+Each with the same shape: browse and install from the community, record in the `.pdp` what the
+project uses, and re-apply on build — so nothing needs re-inserting by hand after a level
+changes, and there is no tool ordering to get right.
+
+Plus:
+
+- **Custom base ROMs you can create and share** — package a prepared base (patches, ASM,
+  resources) for another creator to build against. A `.pdp` already pins its base, so sharing
+  the base is what makes sharing a project complete.
+
+No timelines, and these land one at a time.
 
 ## License
 
