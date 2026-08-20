@@ -33,6 +33,31 @@
       <Setter Property="Background" Value="{DynamicResource PanelBrush}"/>
       <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
     </Style>
+
+    <!-- One height for everything that sits in a toolbar row. Buttons, combos and text boxes
+         all have different intrinsic heights, so a row of them lands on three different
+         baselines unless they are pinned to one. 28px is what the mode toggles come out at. -->
+    <Style Selector="Border.bar Button, Border.bar ToggleButton, Border.bar ComboBox,
+                     Border.bar TextBox, Border.bar CheckBox">
+      <Setter Property="MinHeight" Value="28"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Border.bar Button, Border.bar ComboBox, Border.bar TextBox">
+      <Setter Property="Padding" Value="10,3"/>
+      <Setter Property="CornerRadius" Value="5"/>
+    </Style>
+    <Style Selector="Border.bar Slider">
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Border.bar TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <!-- Separator between groups in a toolbar row, so the groups read as groups. -->
+    <Style Selector="Rectangle.sep">
+      <Setter Property="Width" Value="1"/>
+      <Setter Property="Margin" Value="6,4"/>
+      <Setter Property="Fill" Value="{DynamicResource BorderBrush}"/>
+    </Style>
     <Style Selector="TextBlock.dim">
       <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
       <Setter Property="VerticalAlignment" Value="Center"/>
@@ -101,39 +126,43 @@
       </MenuItem>
     </Menu>
 
-    <!-- Header: canvas-mode toggle + per-mode controls -->
-    <Border DockPanel.Dock="Top" Classes="panel" BorderThickness="0,0,0,1" Padding="10,7">
+    <!-- Header: canvas-mode toggle + per-mode controls. Groups are separated by a rule and the
+         controls inside share one height, so the row reads left to right as three groups rather
+         than a dozen differently-sized buttons. -->
+    <Border DockPanel.Dock="Top" Classes="panel bar" BorderThickness="0,0,0,1" Padding="10,6">
       <StackPanel Orientation="Horizontal" Spacing="6">
         <ToggleButton x:Name="ModeLevel" Classes="mode" Content="Level" IsChecked="True" Click="OnMode"/>
         <ToggleButton x:Name="ModeMap16" Classes="mode" Content="Map16" Click="OnMode"/>
         <ToggleButton x:Name="ModeGfx"   Classes="mode" Content="GFX"   Click="OnMode"/>
 
-        <Rectangle Width="1" Margin="10,3" Fill="{DynamicResource BorderBrush}"/>
+        <Rectangle Classes="sep" Margin="10,4"/>
 
         <!-- Which LAYER the canvas edits. Layer 2 is the same object stream format, so the whole
              editor works on it unchanged — this only says which one is active. -->
-        <ToggleButton x:Name="LayerOne" Classes="mode" MinWidth="40" Content="L1"
+        <ToggleButton x:Name="LayerOne" Classes="mode" MinWidth="44" Content="L1"
                       IsChecked="True" Click="OnEditLayer"/>
-        <ToggleButton x:Name="LayerTwo" Classes="mode" MinWidth="40" Content="L2" Click="OnEditLayer"
+        <ToggleButton x:Name="LayerTwo" Classes="mode" MinWidth="44" Content="L2" Click="OnEditLayer"
                       ToolTip.Tip="Edit layer 2's objects. Levels whose layer 2 is a background image have none until +L2 gives them one."/>
-        <Button x:Name="BgButton" Content="BG…" Padding="8,3" Click="OnPickBackground"
+        <Button x:Name="BgButton" Content="BG…" MinWidth="52" Click="OnPickBackground"
                 ToolTip.Tip="Pick which background image layer 2 uses"/>
-        <Button x:Name="AddLayer2" Content="+L2" Padding="8,3" Click="OnAddLayer2"
+        <Button x:Name="AddLayer2" Content="+L2" MinWidth="52" Click="OnAddLayer2"
                 ToolTip.Tip="Layer 2 is a background image — give it an editable object layer. Most background levels also use a level mode that never loads layer-2 objects, so change the mode in Properties as well."/>
-        <Button x:Name="DropLayer2" Content="−L2" Padding="8,3" Click="OnDropLayer2"
+        <Button x:Name="DropLayer2" Content="−L2" MinWidth="52" Click="OnDropLayer2"
                 ToolTip.Tip="Drop this project's layer-2 objects and restore the base ROM's background image"/>
         <TextBlock x:Name="Layer2Note" Classes="mono"/>
 
-        <Rectangle Width="1" Margin="10,3" Fill="{DynamicResource BorderBrush}"/>
+        <Rectangle Classes="sep" Margin="10,4"/>
 
         <TextBlock Classes="dim" Text="level"/>
-        <ComboBox x:Name="LevelBox" Width="96"/>
-        <Button Content="Reload" Padding="8,3" Click="OnReloadLevel"/>
-        <Button Content="Exits" Padding="8,3" Click="OnLevelExits"/>
+        <ComboBox x:Name="LevelBox" Width="104"/>
+        <Button Content="Reload" MinWidth="72" Click="OnReloadLevel"/>
+        <Button Content="Exits" MinWidth="72" Click="OnLevelExits"/>
 
-        <TextBlock Classes="dim" Text="zoom" Margin="10,0,0,0"/>
+        <Rectangle Classes="sep" Margin="10,4"/>
+
+        <TextBlock Classes="dim" Text="zoom"/>
         <Slider x:Name="ZoomSlider" Width="140" Minimum="1" Maximum="8" Value="2"
-                TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center"/>
+                TickFrequency="1" IsSnapToTickEnabled="True"/>
         <TextBlock x:Name="ZoomLabel" Classes="mono" Width="26"/>
       </StackPanel>
     </Border>
@@ -154,25 +183,27 @@
         <DockPanel>
           <TabStrip x:Name="PaletteTabs" DockPanel.Dock="Top"
                     Background="{DynamicResource SurfaceBrush}">
+            <!-- GFX is NOT here: it is a canvas mode, and its bins live with its editor. -->
             <TabStripItem Content="Map16" IsSelected="True"/>
             <TabStripItem Content="Sprites"/>
             <TabStripItem Content="Objects"/>
             <TabStripItem Content="Palette"/>
-            <TabStripItem Content="GFX"/>
           </TabStrip>
 
-          <Border x:Name="PaletteBar" DockPanel.Dock="Top" Padding="10,8" Background="{DynamicResource SurfaceBrush}">
+          <Border x:Name="PaletteBar" Classes="bar" DockPanel.Dock="Top" Padding="10,6"
+                  Background="{DynamicResource SurfaceBrush}">
             <StackPanel Orientation="Horizontal" Spacing="6">
               <TextBlock Classes="dim" Text="bank"/>
-              <ComboBox x:Name="BankBox" Width="74" SelectedIndex="0">
+              <ComboBox x:Name="BankBox" Width="82" SelectedIndex="0">
                 <ComboBoxItem Content="0 FG"/>
                 <ComboBoxItem Content="1 FG"/>
                 <ComboBoxItem Content="2 BG"/>
               </ComboBox>
-              <TextBlock Classes="dim" Text="size" Margin="8,0,0,0"/>
+              <Rectangle Classes="sep"/>
+              <TextBlock Classes="dim" Text="size"/>
               <Slider x:Name="TileZoom" Width="90" Minimum="1" Maximum="4" Value="2"
-                      TickFrequency="1" IsSnapToTickEnabled="True" VerticalAlignment="Center"/>
-              <TextBlock x:Name="SelLabel" Classes="mono" Margin="6,0,0,0"/>
+                      TickFrequency="1" IsSnapToTickEnabled="True"/>
+              <TextBlock x:Name="SelLabel" Classes="mono" Margin="4,0,0,0"/>
             </StackPanel>
           </Border>
 
@@ -261,28 +292,29 @@
               </ScrollViewer>
             </DockPanel>
 
-            <!-- GFX tab: the level's ten VRAM bins. Each one shows what it currently holds and
-                 can be repointed by id, by picking a file, or by importing a raw .bin. -->
-            <ScrollViewer x:Name="GfxBinPanel" IsVisible="False">
-              <StackPanel x:Name="GfxBins" Margin="8" Spacing="8"/>
-            </ScrollViewer>
-
-            <!-- GFX canvas mode's drawer: the paint colours and a jump list of the level's
-                 bins, so the file you want is one click away rather than a hex id to recall. -->
+            <!-- GFX canvas mode's drawer: SELECTING a file and EDITING it are one screen. The
+                 paint colours sit at the top, then the level's ten VRAM bins — each showing what
+                 it holds, previewing it, and repointable by id, by file, or by raw .bin import.
+                 Clicking a bin opens it in the editor beside it, so there is no separate tab to
+                 go to and come back from. -->
             <DockPanel x:Name="GfxToolPanel" IsVisible="False">
-              <Border DockPanel.Dock="Top" Padding="10,8" Background="{DynamicResource SurfaceBrush}">
-                <StackPanel Spacing="6">
+              <Border Classes="bar" DockPanel.Dock="Top" Padding="10,6"
+                      Background="{DynamicResource SurfaceBrush}">
+                <StackPanel Spacing="8">
                   <StackPanel Orientation="Horizontal" Spacing="6">
                     <TextBlock Classes="dim" Text="palette"/>
-                    <ComboBox x:Name="GfxPalRow" Width="66"/>
+                    <ComboBox x:Name="GfxPalRow" Width="82"/>
                     <TextBlock x:Name="GfxColorNote" Classes="mono"/>
                   </StackPanel>
                   <ui:PaletteGridView x:Name="GfxColors" HorizontalAlignment="Left"/>
-                  <TextBlock Classes="dim" Text="level bins"/>
                 </StackPanel>
               </Border>
+              <Border DockPanel.Dock="Top" Padding="10,6,10,4"
+                      Background="{DynamicResource SurfaceBrush}">
+                <TextBlock Classes="dim" Text="level bins — click one to edit it"/>
+              </Border>
               <ScrollViewer>
-                <StackPanel x:Name="GfxJumps" Margin="10,4" Spacing="3"/>
+                <StackPanel x:Name="GfxBins" Margin="10,6" Spacing="10"/>
               </ScrollViewer>
             </DockPanel>
           </Panel>
@@ -335,17 +367,19 @@
           <ui:Map16CanvasView x:Name="Map16Canvas" Margin="8"/>
         </ScrollViewer>
         <DockPanel x:Name="GfxScroll" IsVisible="False" Background="{DynamicResource VoidBrush}">
-          <Border DockPanel.Dock="Top" Classes="panel" BorderThickness="0,0,0,1" Padding="10,6">
+          <Border DockPanel.Dock="Top" Classes="panel bar" BorderThickness="0,0,0,1" Padding="10,6">
             <StackPanel Orientation="Horizontal" Spacing="6">
               <TextBlock Classes="dim" Text="GFX"/>
-              <TextBox x:Name="GfxFileBox" Width="60" Text="014"/>
+              <TextBox x:Name="GfxFileBox" Width="66" Text="014"/>
               <TextBlock x:Name="GfxFileNote" Classes="mono"/>
-              <Button Content="Browse…" Padding="8,2" Click="OnBrowseGfx"/>
-              <Rectangle Width="1" Margin="6,3" Fill="{DynamicResource BorderBrush}"/>
-              <Button Content="−" Width="26" Padding="0,2" Click="OnGfxZoomOut"/>
-              <Button Content="+" Width="26" Padding="0,2" Click="OnGfxZoomIn"/>
-              <ToggleButton x:Name="GfxPencil" Classes="mode" MinWidth="60" Content="Pencil" Click="OnGfxTool"/>
-              <ToggleButton x:Name="GfxFill" Classes="mode" MinWidth="60" Content="Fill" Click="OnGfxTool"/>
+              <Button Content="Browse…" MinWidth="80" Click="OnBrowseGfx"/>
+              <Rectangle Classes="sep"/>
+              <Button Content="−" Width="30" Padding="0" Click="OnGfxZoomOut"/>
+              <Button Content="+" Width="30" Padding="0" Click="OnGfxZoomIn"/>
+              <Rectangle Classes="sep"/>
+              <ToggleButton x:Name="GfxPencil" Classes="mode" MinWidth="66" Content="Pencil" Click="OnGfxTool"/>
+              <ToggleButton x:Name="GfxFill" Classes="mode" MinWidth="66" Content="Fill" Click="OnGfxTool"/>
+              <Rectangle Classes="sep"/>
               <TextBlock Classes="dim" Text="left: paint   right: pick colour   F: tool   [ ]: zoom"/>
             </StackPanel>
           </Border>

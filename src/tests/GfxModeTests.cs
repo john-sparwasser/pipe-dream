@@ -281,6 +281,70 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(want, w.GetControl<PaletteGridView>("GfxColors").Selected);
     }
 
+    /// <summary>
+    /// Choosing a GFX file and editing its pixels are ONE screen, reached from the GFX header
+    /// mode. There used to be two: a "GFX" drawer tab listing the bins, and a separate GFX canvas
+    /// mode that could only be entered from an Edit button inside it — so picking a file meant
+    /// leaving the editor, and the tab was a dead end in every other mode.
+    /// </summary>
+    [AvaloniaFact]
+    public void the_bins_live_with_the_editor_and_there_is_no_separate_gfx_tab()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        // The drawer's tabs are the LEVEL's views; GFX is not among them any more.
+        var tabs = w.GetControl<TabStrip>("PaletteTabs");
+        Assert.Equal(4, tabs.ItemCount);
+        Assert.DoesNotContain("GFX", tabs.Items.OfType<TabStripItem>().Select(t => $"{t.Content}"));
+
+        w.GetControl<ToggleButton>("ModeGfx").RaiseEvent(
+            new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        // GFX mode's drawer carries both halves: the paint colours AND every bin, each with its
+        // preview, so the file you want is visible rather than a hex id to recall.
+        Assert.True(w.GetControl<DockPanel>("GfxToolPanel").IsVisible);
+        Assert.True(w.GetControl<PaletteGridView>("GfxColors").IsVisible);
+        var bins = w.GetControl<StackPanel>("GfxBins");
+        Assert.Equal(SessionOf(w).GfxBins.Length, bins.Children.Count);
+    }
+
+    /// <summary>Clicking a bin opens it in the editor beside it — the selection and the edit are
+    /// the same gesture, which is the whole point of merging the two.</summary>
+    [AvaloniaFact]
+    public void clicking_a_bin_opens_that_file_in_the_editor()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeGfx").RaiseEvent(
+            new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var session = SessionOf(w);
+        var g = session.GfxPixels!;
+        // A bin holding some other file, so opening it is observable.
+        int i = Array.FindIndex(session.GfxBins, b => b.File != g.File && b.File != 0x7F);
+        if (i < 0) { log.WriteLine("SKIP: every bin holds the open file"); return; }
+        var target = session.GfxBins[i];
+
+        var bins = w.GetControl<StackPanel>("GfxBins");
+        var card = (Border)bins.Children[i];
+        var at = card.TranslatePoint(new Point(4, 4), w)!.Value;
+        w.MouseDown(at, MouseButton.Left);
+        w.MouseUp(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(target.File, g.File);
+        log.WriteLine($"clicked bin {target.Name} -> editor now on {g.File:X3}");
+    }
+
     private static EditorSession SessionOf(MainWindow w) => (EditorSession)typeof(MainWindow)
         .GetField("session", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
         .GetValue(w)!;

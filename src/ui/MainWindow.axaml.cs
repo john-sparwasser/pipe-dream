@@ -7,6 +7,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 
 namespace PipeDream.Ui;
 
@@ -50,9 +51,8 @@ public partial class MainWindow : Window
     private TextBox gfxFileBox = null!;
     private TextBlock gfxFileNote = null!, gfxColorNote = null!;
     private ToggleButton gfxPencil = null!, gfxFill = null!;
-    private ScrollViewer gfxBinPanel = null!;
     private DockPanel gfxToolPanel = null!, gfxScroll = null!;
-    private StackPanel gfxBins = null!, gfxJumps = null!;
+    private StackPanel gfxBins = null!;
     private ComboBox gfxPalRow = null!;
     private PaletteGridView gfxColors = null!;
     private MenuItem recentMenu = null!, upgradePrepItem = null!, spriteOverlayItem = null!,
@@ -317,10 +317,8 @@ public partial class MainWindow : Window
         gfxFileNote = this.GetControl<TextBlock>("GfxFileNote");
         gfxPencil = this.GetControl<ToggleButton>("GfxPencil");
         gfxFill = this.GetControl<ToggleButton>("GfxFill");
-        gfxBinPanel = this.GetControl<ScrollViewer>("GfxBinPanel");
         gfxToolPanel = this.GetControl<DockPanel>("GfxToolPanel");
         gfxBins = this.GetControl<StackPanel>("GfxBins");
-        gfxJumps = this.GetControl<StackPanel>("GfxJumps");
         gfxPalRow = this.GetControl<ComboBox>("GfxPalRow");
         gfxColors = this.GetControl<PaletteGridView>("GfxColors");
         gfxColors.Rows = 1;
@@ -1055,7 +1053,6 @@ public partial class MainWindow : Window
         spritePanel.IsVisible = tab == 1;
         objectPanel.IsVisible = tab == 2;
         palettePanel.IsVisible = tab == 3;
-        gfxBinPanel.IsVisible = tab == 4;
         // The bank/size row drives the Map16 sheet in both the picker and the Map16 canvas;
         // it means nothing to a catalog or to the pixel editor.
         paletteBar.IsVisible = map16Mode || tab == 0;
@@ -1063,7 +1060,6 @@ public partial class MainWindow : Window
         if (spritePanel.IsVisible) EnsureSpriteCatalog();
         if (objectPanel.IsVisible) EnsureObjectCatalog();
         if (palettePanel.IsVisible) RefreshPaletteTab();
-        if (gfxBinPanel.IsVisible) RefreshGfxBins();
     }
 
     /// <summary>Sprite thumbnails are drawn with THIS level's SP GFX and palette, so the catalog
@@ -1180,39 +1176,11 @@ public partial class MainWindow : Window
         gfxColors.Select(g.Color);
         gfxColorNote.Text = ColorNote(g.Color);
 
-        RefreshGfxJumps();
-    }
-
-    /// <summary>The level's ten bins as jump buttons: the file you want is one click away rather
-    /// than a hex id to remember.</summary>
-    private void RefreshGfxJumps()
-    {
-        gfxJumps.Children.Clear();
-        if (session.GfxPixels is not { } g) return;
-        foreach (var bin in session.GfxBins)
-        {
-            var b = new Button
-            {
-                Content = $"{bin.Name}  {bin.File:X3}",
-                Padding = new Thickness(8, 2),
-                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
-                HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Left,
-                IsEnabled = bin.File != 0x7F,
-            };
-            if (bin.File == g.File) b.Background = UiColors.Accent;
-            int file = bin.File, palRow = bin.PalRow;
-            b.Click += (_, _) =>
-            {
-                g.Open(file);
-                gfxPalRow.SelectedIndex = palRow;   // colour through the bin's natural row
-                RefreshGfx();
-            };
-            gfxJumps.Children.Add(b);
-        }
+        RefreshGfxBins();          // the bins list IS the file picker now
     }
 
     /// <summary>
-    /// The GFX tab: one block per VRAM bin — what it holds, how it got there, and the three ways
+    /// The GFX drawer: one block per VRAM bin — what it holds, how it got there, and the three ways
     /// to change it (type an id, pick a file, import a raw .bin). Built in code rather than
     /// bound, because it is ten near-identical composites and a template plus a view model for
     /// each would be more machinery than the thing it builds.
@@ -1272,12 +1240,8 @@ public partial class MainWindow : Window
                 status.Text = session.SetGfxSlot(bypWord, picked);
                 AdoptSession();
             };
-            var edit = new Button { Content = "Edit", Padding = new Thickness(8, 1),
-                                    IsEnabled = bin.File != 0x7F };
-            edit.Click += (_, _) => EditGfxFile(bin.File, palRow);
             buttons.Children.Add(import);
             buttons.Children.Add(browse);
-            buttons.Children.Add(edit);
 
             var block = new StackPanel { Spacing = 4 };
             block.Children.Add(head);
@@ -1294,12 +1258,31 @@ public partial class MainWindow : Window
             else
                 block.Children.Add(new TextBlock { Text = "(empty)", Classes = { "mono" } });
 
-            block.Children.Add(new Border
+            // The whole block IS the "open this one" target — selecting a bin and editing it are
+            // the same gesture now, so a separate Edit button would be a second way to do one
+            // thing. The open bin carries the accent border, as a selected swatch does.
+            bool open = session.GfxPixels is { } gp && gp.File == bin.File;
+            var card = new Border
             {
-                Height = 1, Background = this.FindResource("BorderBrush") as IBrush,
-                Margin = new Thickness(0, 4, 0, 0),
-            });
-            gfxBins.Children.Add(block);
+                Child = block,
+                Padding = new Thickness(8, 6),
+                CornerRadius = new CornerRadius(5),
+                BorderThickness = new Thickness(open ? 1.5 : 1),
+                BorderBrush = open ? UiColors.Accent : this.FindResource("BorderBrush") as IBrush,
+                // Transparent, never null: a null background is not hit-testable, so the card
+                // would take no clicks except on the controls inside it.
+                Background = open ? UiColors.SelectionFill : Brushes.Transparent,
+                Cursor = new Cursor(StandardCursorType.Hand),
+            };
+            if (bin.File != 0x7F)
+                card.PointerPressed += (_, e) =>
+                {
+                    // Not when the click landed on the id box or a button inside the card.
+                    if (e.Source is Visual v && v.FindAncestorOfType<Button>() is not null) return;
+                    if (e.Source is Visual t && t.FindAncestorOfType<TextBox>() is not null) return;
+                    EditGfxFile(file, palRow);
+                };
+            gfxBins.Children.Add(card);
         }
     }
 
