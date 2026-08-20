@@ -17,7 +17,8 @@ Project site: **[pipedream.nexus](https://pipedream.nexus)**
 
 > **Status: pre-release, under active development.** The core loop — open a ROM, edit a level,
 > save something the game runs — works. Expect sharp edges and keep backups of any ROM you
-> point it at. Overworld, title screen and credits editing are out of scope for now.
+> point it at. Overworld, title screen and credits editing are not built yet — see the
+> [roadmap](#roadmap).
 
 You supply your own copy of Super Mario World. No game data is distributed here.
 
@@ -209,8 +210,14 @@ gitignored so game data cannot land in a commit by accident.
 
 ## Roadmap
 
-Five managers, built into the editor, eventually replacing the separate insertion tools a hack
-currently has to chain together by hand:
+**Feature parity with Lunar Magic** is the headline item — the point where Pipe Dream can be
+the only editor open. That means the things listed as out of scope above (overworld, title
+screen, credits) plus the smaller LM tools you would otherwise switch back for. Reading and
+writing LM's own structures already works, so parity is a matter of covering what it edits,
+not of interoperating with it.
+
+Then five managers, built into the editor, eventually replacing the separate insertion tools a
+hack currently has to chain together by hand:
 
 | Manager         | Folds in |
 |-----------------|----------|
