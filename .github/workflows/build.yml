@@ -59,8 +59,10 @@ jobs:
           if (-not (Test-Path $lnk)) { throw "no Start Menu shortcut" }
           $progId = (Get-ItemProperty 'HKCU:\Software\Classes\.pdp').'(default)'
           if ($progId -ne 'PipeDream.Project') { throw ".pdp -> '$progId'" }
-          & $app --selfcheck
-          if ($LASTEXITCODE -ne 0) { throw "installed binary failed --selfcheck ($LASTEXITCODE)" }
+          # The editor is a GUI-subsystem binary, so PowerShell does not wait on it and never
+          # sets $LASTEXITCODE — Start-Process is the only way to read the code back.
+          $check = Start-Process $app '--selfcheck' -Wait -PassThru
+          if ($check.ExitCode -ne 0) { throw "installed binary failed --selfcheck ($($check.ExitCode))" }
           # Inno's uninstaller relaunches itself from a temp copy, so -Wait returns early.
           Start-Process (Get-Item "$env:LOCALAPPDATA\Programs\PipeDream\unins*.exe") '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait
           $deadline = (Get-Date).AddSeconds(60)
