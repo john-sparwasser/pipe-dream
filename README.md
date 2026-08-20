@@ -70,6 +70,23 @@ upgrade in place. Uninstall leaves `%APPDATA%\PipeDream` and your projects alone
 Linux and macOS build and run from the same source today; the one-click packaging for them is
 not written yet.
 
+### Native macOS builds — in progress
+
+There is nothing Mac-specific left in the app, so a `.app` bundle is mostly packaging work:
+`Contents/MacOS`, an `Info.plist`, an `.icns`, and `CFBundleDocumentTypes` to declare `.pdp`
+(no install step at all on macOS), shipped as a `.dmg`.
+
+The hold-up is **Gatekeeper, not the code.** An unsigned bundle gets quarantined — "damaged,
+move to Trash" — and needs a right-click→Open or `xattr -dr com.apple.quarantine` to launch,
+which is not something to ask of someone downloading a level editor. Apple Silicon goes
+further and refuses to run a binary with no signature at all, so ad-hoc signing
+(`codesign -s -`) is the floor. A clean double-click install needs an **Apple Developer ID
+(~$99/yr)** plus `codesign` and notarization, and `notarytool` only runs on real macOS — so it
+also means adding a `macos-latest` runner to CI, not just another RID.
+
+Until that's sorted, build it yourself: `dotnet publish src/PipeDream.csproj -c Release -r
+osx-arm64 --self-contained true -o bin/publish` (or `osx-x64` for Intel).
+
 ## Automated builds
 
 [`.github/workflows/build.yml`](.github/workflows/build.yml) runs on every push to `main`,
