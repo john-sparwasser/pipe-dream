@@ -112,6 +112,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
     steps:
       - uses: actions/download-artifact@v7
         with:
@@ -120,3 +122,27 @@ jobs:
       - run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
         env:
           GH_TOKEN: ${{ github.token }}
+
+      # Announce it in Discord: the generated notes as the embed body, one field per asset
+      # holding its direct download link. gh ships its own jq engine (--jq), so this needs
+      # nothing installed. Skipped when the secret is unset, so a fork tagging a build does
+      # not fail here. The 3800-char slice keeps long notes under Discord's 4096 cap.
+      - name: Announce the release in Discord
+        if: env.DISCORD_WEBHOOK != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json body,url,assets --jq '{
+              embeds: [{
+                title: "Pipe Dream \(env.GITHUB_REF_NAME)",
+                url: .url,
+                color: 3447003,
+                description: ((.body // "") | .[0:3800]),
+                fields: [.assets[] | {
+                  name: .name,
+                  value: "[Download](\(.url)) · \(.size / 1048576 | floor) MB",
+                  inline: true
+                }]
+              }]
+            }' |
+          curl -fsS -X POST -H 'Content-Type: application/json' -d @- "$DISCORD_WEBHOOK"
