@@ -66,33 +66,35 @@ public class GfxNamingTests : IDisposable
     }
 
     [RealRomFact]
-    public void candidates_list_imports_in_id_order_and_only_adds_stock_when_asked()
+    public void candidates_are_one_side_or_the_other_in_id_order()
     {
         var rom = WithImports((0x102, "c"), (0x100, "a"), (0x101, "b"));
 
-        var custom = Gfx.Candidates(rom, includeStock: false, "");
+        var custom = Gfx.Candidates(rom, custom: true, "");
         Assert.Equal([0x100, 0x101, 0x102], custom);
 
-        var all = Gfx.Candidates(rom, includeStock: true, "");
-        Assert.Contains(0x00, all);
-        Assert.Contains(0x33, all);
-        Assert.DoesNotContain(0x34, all);          // stock range is 0x00-0x33
-        Assert.True(all.Count > custom.Count);
-        Assert.Equal(all.OrderBy(i => i), all);    // still id-ordered
+        var bases = Gfx.Candidates(rom, custom: false, "");
+        Assert.Contains(0x00, bases);
+        Assert.Contains(0x33, bases);
+        Assert.DoesNotContain(0x34, bases);        // base range is 0x00-0x33
+        Assert.DoesNotContain(0x100, bases);       // ...and never the custom side
+        Assert.Equal(bases.OrderBy(i => i), bases);
 
-        // Filtering applies to the combined list. "a" matches the file NAMED "a" and the
-        // stock file whose id is $00A — both intentional, nothing else.
-        Assert.Equal([0x00A, 0x100], Gfx.Candidates(rom, includeStock: true, "a"));
+        // Filtering applies within a side: "a" finds the file NAMED "a" among the custom ones and
+        // the base file whose id is $00A, and neither list leaks into the other.
+        Assert.Equal([0x100], Gfx.Candidates(rom, custom: true, "a"));
+        Assert.Equal([0x00A], Gfx.Candidates(rom, custom: false, "a"));
     }
 
     [RealRomFact]
-    public void an_import_shadowing_a_stock_id_is_listed_once()
+    public void a_fork_of_a_base_file_lists_as_base_not_custom()
     {
-        // Imports can only land at 0x100+, but a project could carry a fork of a stock file;
-        // the stock pass must not then list the same id twice.
+        // Imports can only land at 0x100+, but a project carries forks of base files under their
+        // own ids. A fork is still the ROM's file: listing it as custom would promise an ExGFX id
+        // it does not have, and listing it twice would offer the same file two ways.
         var rom = WithImports((0x02, "forked-gfx02"));
-        var all = Gfx.Candidates(rom, includeStock: true, "");
-        Assert.Single(all, i => i == 0x02);
+        Assert.Single(Gfx.Candidates(rom, custom: false, ""), i => i == 0x02);
+        Assert.DoesNotContain(0x02, Gfx.Candidates(rom, custom: true, ""));
     }
 
     [RealRomFact]

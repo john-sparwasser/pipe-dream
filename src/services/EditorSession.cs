@@ -271,19 +271,6 @@ public sealed class EditorSession
     }
 
     /// <summary>
-    /// Where to look for a ROM at startup: the one asked for, else the conventional location.
-    /// The filesystem is storage, so the probing lives here and the window just gets a path.
-    /// </summary>
-    public static string? FindStartupRom(string? requested)
-    {
-        if (requested is not null && File.Exists(requested)) return requested;
-        string fallback = Path.Combine(
-            Environment.GetEnvironmentVariable("PIPEDREAM_SMW_ROOT") ?? @"C:\SMW\Projects",
-            ".resources", "SMW.smc");
-        return File.Exists(fallback) ? fallback : null;
-    }
-
-    /// <summary>
     /// A free folder for a new project inside <paramref name="parent"/>, named after the base
     /// ROM. Project.Create refuses to overwrite an existing base, so the name steps until one
     /// is free rather than failing on the user's second project.
@@ -414,11 +401,12 @@ public sealed class EditorSession
     public (string Name, int PalRow, int BypWord, int Def, int File)[] GfxBins
         => Rom is { } r && Scene is { } s ? Gfx.LevelSlots(r, s.Level.Header, LevelNum) : [];
 
-    /// <summary>How a bin's current file got there, for the drawer's badge.</summary>
+    /// <summary>How a bin's current file got there, for the drawer's badge. A base file — fork or
+    /// not — says nothing: it is the normal case, and a badge on all ten bins is not a badge.</summary>
     public string GfxBinNote(int bypWord, int file, int def)
-        => Rom is null ? ""
-         : Rom.ImportedGfx.ContainsKey(file) ? "imported"
-         : Rom.GfxSlotOverrides.ContainsKey((LevelNum, bypWord)) ? "override"
+        => Rom is not { } r ? ""
+         : Gfx.SourceSnes(r, file) < 0 && r.ImportedGfx.ContainsKey(file) ? "custom"
+         : r.GfxSlotOverrides.ContainsKey((LevelNum, bypWord)) ? "override"
          : file != def ? "bypass" : "";
 
     public string? GfxName(int file)
@@ -451,39 +439,41 @@ public sealed class EditorSession
     }
 
     /// <summary>
-    /// Import a raw planar .bin as a project ExGFX file and point a bin at it: detect its depth
-    /// from the size, normalise to the ROM's depth, and store it under the next FREE id ≥ 0x100.
+    /// Import a raw planar .bin as a custom ExGFX file: detect its depth from the size, normalise
+    /// to the ROM's depth, and store it under the next FREE id ≥ 0x100. Returns that id, or -1 with
+    /// the reason in the status.
     ///
-    /// The id must be fresh — skipping both prior imports and ids the ROM itself resolves — or
-    /// the import would shadow a real ExGFX file other levels use.
+    /// The id must be fresh — skipping both prior imports and ids the ROM itself resolves — or the
+    /// import would shadow a real ExGFX file other levels use. Pointing a bin at the result is a
+    /// separate step (<see cref="SetGfxSlot"/>): importing and assigning are different decisions.
     /// </summary>
-    public string ImportGfx(int bypWord, string path)
+    public (int Id, string Status) ImportGfx(string path)
     {
-        if (Rom is null) return "no ROM open";
+        if (Rom is null) return (-1, "no ROM open");
         byte[] bytes;
         try { bytes = File.ReadAllBytes(path); }
-        catch (Exception e) { return $"import failed: {e.Message}"; }
+        catch (Exception e) { return (-1, $"import failed: {e.Message}"); }
 
         int bpp = Gfx.DetectBpp(bytes);
         if (bpp == 0)
-            return $"import rejected: {Path.GetFileName(path)} is 0x{bytes.Length:X} bytes — "
-                 + "not whole 3bpp (x24) or 4bpp (x32) planar tiles";
+            return (-1, $"import rejected: {Path.GetFileName(path)} is 0x{bytes.Length:X} bytes — "
+                      + "not whole 3bpp (x24) or 4bpp (x32) planar tiles");
         int romBpp = Gfx.RomBpp(Rom);
         bytes = Gfx.NormalizeBpp(bytes, bpp, romBpp, out bool plane3Dropped);
 
         int id = 0x100;
         while (id <= 0xFFF && (Rom.ImportedGfx.ContainsKey(id) || Gfx.SourceSnes(Rom, id) >= 0)) id++;
-        if (id > 0xFFF) return "import failed: no free ExGFX id (0x100-0xFFF all in use)";
+        if (id > 0xFFF) return (-1, "import failed: no free ExGFX id (0x100-0xFFF all in use)");
 
         Rom.ImportedGfx[id] = bytes;
         // The filename is the only human-meaningful label an import has; keeping it beats
         // leaving the user with a bare hex id.
         Rom.ImportedGfxNames[id] = Path.GetFileNameWithoutExtension(path);
         Gfx.InvalidateCache(Rom);
+        Project?.MarkDirty();
 
-        SetGfxSlot(bypWord, id);
-        return $"imported {Path.GetFileName(path)} as GFX{id:X3} ({bpp}bpp → {romBpp}bpp)"
-             + (plane3Dropped ? " — nonzero plane 3 data discarded" : "");
+        return (id, $"imported {Path.GetFileName(path)} as GFX{id:X3} ({bpp}bpp → {romBpp}bpp)"
+                  + (plane3Dropped ? " — nonzero plane 3 data discarded" : ""));
     }
 
     /// <summary>The sheet for the file currently open in the pixel editor.</summary>
@@ -491,22 +481,68 @@ public sealed class EditorSession
         => GfxPixels is { } g && Scene?.Palettes[0] is { } pal ? g.Sheet(pal) : ([], 0, 0);
 
     /// <summary>
-    /// Files a picker should offer, filtered. <paramref name="filter"/> matches names anywhere and
-    /// hex ids by prefix, so "grass" finds it by name and "10" finds $100-$10F.
+    /// Files a picker should offer — the project's custom ExGFX or the ROM's base files, filtered.
+    /// <paramref name="filter"/> matches names anywhere and hex ids by prefix, so "grass" finds it
+    /// by name and "10" finds $100-$10F.
     /// </summary>
-    public List<GfxFileInfo> GfxFiles(bool includeStock, string filter)
+    public List<GfxFileInfo> GfxFiles(bool custom, string filter)
     {
         if (Rom is null) return [];
-        return Gfx.Candidates(Rom, includeStock, filter).Select(id => new GfxFileInfo
+        return Gfx.Candidates(Rom, custom, filter).Select(id => new GfxFileInfo
         {
             Id = id,
-            Imported = Rom.ImportedGfx.ContainsKey(id),
+            Custom = Gfx.SourceSnes(Rom, id) < 0,
             Name = GfxName(id),
             Description = Gfx.Describe(Rom, id),
             // Palette row 2 (the FG row) is the least misleading single choice for a preview; the
             // real row depends on which bin the file ends up in.
             Sheet = GfxFileSheet(id, 2),
         }).ToList();
+    }
+
+    /// <summary>Whether the open GFX file is one of the ROM's own — including a copy-on-write fork
+    /// of one, which has no ExGFX id of its own yet. False means a custom ExGFX file. This is what
+    /// makes a save ask for a name, and what the mode's badge shows.</summary>
+    public bool GfxIsStock
+        => Rom is { } r && GfxPixels is { } g && Gfx.SourceSnes(r, g.File) >= 0;
+
+    /// <summary>Committed GFX pixel edits that are not in project.pdp yet.</summary>
+    public bool GfxDirty => GfxPixels?.Dirty == true;
+
+    /// <summary>
+    /// Save the open GFX file into the project as a custom ExGFX.
+    ///
+    /// An already-custom file is just written under its own id. A STOCK file MOVES to the next
+    /// free id ≥ 0x100 under <paramref name="name"/>: the stock file is restored for everyone
+    /// else, and this level's bins that pointed at it are repointed to the new file — the same
+    /// shape <see cref="ImportGfx"/> gives an imported .bin, so the edit travels with the level
+    /// instead of shadowing stock graphics ROM-wide.
+    /// </summary>
+    public string SaveGfx(string name)
+    {
+        if (Rom is null || GfxPixels is not { } g) return "no GFX open";
+        if (Project is null) return "no project open — File ▸ New Project first";
+        g.EndStroke();
+        if (Gfx.EditableBytes(Rom, g.File, out _) is not { } bytes) return $"GFX{g.File:X3} is empty";
+
+        if (Gfx.SourceSnes(Rom, g.File) >= 0)
+        {
+            int id = 0x100;
+            while (id <= 0xFFF && (Rom.ImportedGfx.ContainsKey(id) || Gfx.SourceSnes(Rom, id) >= 0)) id++;
+            if (id > 0xFFF) return "save failed: no free ExGFX id (0x100-0xFFF all in use)";
+            int from = g.File;
+            Rom.ImportedGfx[id] = bytes;
+            Rom.ImportedGfx.Remove(from);        // the stock file comes back for every other user
+            Rom.ImportedGfxNames[id] = name.Trim();
+            Gfx.InvalidateCache(Rom);
+            g.Retarget(from, id);
+            foreach (var bin in GfxBins)
+                if (bin.File == from) SetGfxSlot(bin.BypWord, id);
+        }
+        else if (name.Trim().Length > 0) Rom.ImportedGfxNames[g.File] = name.Trim();
+
+        Save();
+        return $"saved GFX{g.File:X3}" + (GfxName(g.File) is { } n ? $" \"{n}\"" : "");
     }
 
     /// <summary>Rename an imported file. Stock files have no name to change — vanilla ships no
@@ -1229,6 +1265,150 @@ public sealed class EditorSession
         return true;
     }
 
+    // ---- course bot ----
+    // Named handles on level slots, so courses are organized by name instead of number. An
+    // entry is an ordinary project level whose slot was auto-picked and seeded by copying a
+    // base level; only the name (ProjectFile.CourseBot) is new state.
+
+    /// <summary>Overworld-enterable level slots — the pool Course Bot assigns from and
+    /// offers as bases.</summary>
+    public static IEnumerable<int> EnterableLevels()
+    {
+        for (int l = 0x001; l <= 0x024; l++) yield return l;
+        for (int l = 0x101; l <= 0x13B; l++) yield return l;
+    }
+
+    /// <summary>Course Bot entries, sorted by name.</summary>
+    public IReadOnlyList<(int Level, string Name)> CourseBotEntries =>
+        Project is null ? []
+        : Project.Data.CourseBot
+            .Select(kv => (Level: Convert.ToInt32(kv.Key, 16), kv.Value))
+            .OrderBy(e => e.Value, StringComparer.OrdinalIgnoreCase).ThenBy(e => e.Level)
+            .ToList();
+
+    /// <summary>The course name a level slot carries, or null.</summary>
+    public string? CourseBotName(int level) =>
+        Project?.Data.CourseBot.GetValueOrDefault(level.ToString("X3"));
+
+    /// <summary>
+    /// Whether a slot can take a new course. A project entry does not by itself mean "used":
+    /// every save stashes whichever level is being shown, so a merely-visited level carries an
+    /// entry identical to its base ROM parse — that slot is still free.
+    /// </summary>
+    private bool SlotIsFree(int level)
+    {
+        var data = Project!.Data;
+        if (data.CourseBot.ContainsKey(level.ToString("X3"))) return false;
+        if (data.LevelOrNull(level) is not { } s) return true;
+        if (s.Header is not null || s.MainEntrance is not null || s.Layer2Objects is not null
+            || s.Layer2Background is not null || s.Palette.Count > 0 || s.GfxOverrides.Count > 0)
+            return false;
+        if (!s.Objects.Select(o => o.ToLevelObject())
+                      .SequenceEqual(LevelParser.Parse(Rom!, level).Objects)) return false;
+        var sd = SpriteData.Parse(Rom!, level);
+        // Sprite.ExtraBytes is an array, so records carrying them never compare equal — that
+        // only ever calls a free slot "used", never the reverse.
+        return s.SpriteMemory == sd.SpriteMemory && s.Buoyancy == sd.Buoyancy
+            && s.Sprites.Select(x => x.ToSprite()).SequenceEqual(sd.Sprites);
+    }
+
+    /// <summary>
+    /// Create a Course Bot level: the first free enterable slot, seeded with a FULL copy of
+    /// <paramref name="baseLevel"/> — header, main entrance, both layers, sprites, palette and
+    /// GFX bins — so the slot's build output is determined entirely by its project entry.
+    /// Returns the new slot, or -1 with the reason in Status.
+    /// </summary>
+    public int CreateCourseBotLevel(string name, int baseLevel)
+    {
+        if (Project is null || Rom is null) { Report("no project open"); return -1; }
+        name = name.Trim();
+        if (name.Length == 0) { Report("a course needs a name"); return -1; }
+        StashCurrent();                       // a copy of the shown level must be fresh
+        // The shown level is never the slot: its next stash would overwrite the copy with
+        // whatever is on screen.
+        int slot = EnterableLevels().Where(l => l != LevelNum && SlotIsFree(l))
+                                    .DefaultIfEmpty(-1).First();
+        if (slot < 0) { Report("no free enterable level slot left"); return -1; }
+
+        var data = Project.Data;
+        // Start from the base's project entry when it has one (its object/sprite edits live
+        // only there), then fill the rest from the session ROM, whose reads already merge the
+        // session edits (header overrides, replayed entrance tables).
+        var state = data.LevelOrNull(baseLevel)?.Clone() ?? new ProjectFile.LevelState();
+        var parsed = LevelParser.Parse(Rom, baseLevel);
+        state.Header = Convert.ToHexString(parsed.Header.ToBytes());
+        if (data.LevelOrNull(baseLevel) is null)
+            state.Objects = parsed.Objects.Select(ProjectFile.ObjectDto.From).ToList();
+        // Layer 2 is recorded EXPLICITLY either way: null in the base's entry means "keep the
+        // base ROM's layer 2", and the new slot's own base layer 2 is a different one.
+        if (state.Layer2Objects is null && state.Layer2Background is null)
+        {
+            if (Rom.Layer2IsBackground(baseLevel))
+                state.Layer2Background = Rom.Layer2Pointer(baseLevel) & 0xFFFF;
+            else
+                state.Layer2Objects = LevelParser.ParseLayer2(Rom, baseLevel)!
+                    .Select(ProjectFile.ObjectDto.From).ToList();
+        }
+        if (state.Sprites.Count == 0 && state.SpriteMemory == 0 && state.Buoyancy == 0)
+        {
+            // ponytail: all-defaults reads as "never stashed"; a base deliberately emptied of
+            // sprites AT memory setting 0 copies the ROM's list instead — harmless to re-delete.
+            var sd = SpriteData.Parse(Rom, baseLevel);
+            state.SpriteMemory = sd.SpriteMemory;
+            state.Buoyancy = sd.Buoyancy;
+            state.Sprites = sd.Sprites.Select(ProjectFile.SpriteDto.From).ToList();
+        }
+        state.MainEntrance = Convert.ToHexString(Rom.ReadMainEntrance(baseLevel).ToBytes());
+        state.GfxOverrides = Rom.GfxSlotOverrides.Where(kv => kv.Key.Level == baseLevel)
+                                .ToDictionary(kv => kv.Key.Word, kv => kv.Value);
+
+        string key = slot.ToString("X3");
+        data.Levels[key] = state;
+        data.CourseBot[key] = name;
+
+        // Seed the session ROM the way Hydrate would on reopen, so the slot shows the copy
+        // right away — and so the save-time entrance re-read (ProjectCapture) captures the
+        // copied bytes rather than the slot's base ones.
+        Rom.LevelHeaderOverrides[slot] = Convert.FromHexString(state.Header);
+        foreach (var (word, file) in state.GfxOverrides) Rom.GfxSlotOverrides[(slot, word)] = file;
+        Rom.WriteMainEntrance(slot, new MainEntrance(Convert.FromHexString(state.MainEntrance)));
+        if (state.Layer2Background is { } bg) Rom.SetLayer2Pointer(slot, 0xFF0000 | bg);
+
+        Project.MarkDirty();
+        Report($"course \"{name}\" created in level ${slot:X3} from ${baseLevel:X3}");
+        return slot;
+    }
+
+    /// <summary>
+    /// Delete a Course Bot level: the name goes and the slot's project entry goes with it, so
+    /// the slot reverts to the base ROM. The per-slot bytes create wrote into the session ROM
+    /// (entrance table, layer-2 pointer) are restored from the base copy — a build replays
+    /// onto a fresh base anyway, this just keeps what is on screen honest.
+    /// </summary>
+    public string DeleteCourseBotLevel(int level)
+    {
+        if (Project is null || Rom is null) { Report("no project open"); return Status; }
+        string key = level.ToString("X3");
+        if (!Project.Data.CourseBot.Remove(key))
+        {
+            Report($"${level:X3} is not a Course Bot level");
+            return Status;
+        }
+        Project.Data.Levels.Remove(key);
+        Rom.LevelHeaderOverrides.Remove(level);
+        foreach (var k in Rom.GfxSlotOverrides.Keys.Where(k => k.Level == level).ToArray())
+            Rom.GfxSlotOverrides.Remove(k);
+        var baseRom = Rom.Load(Project.BaseRomPath);
+        Rom.WriteMainEntrance(level, baseRom.ReadMainEntrance(level));
+        Rom.SetLayer2Pointer(level, baseRom.Layer2Pointer(level));
+        Project.MarkDirty();
+        touched.Remove(level);
+        // Same number, so ShowLevel does not stash the dying state on the way out.
+        if (level == LevelNum) ShowLevel(level);
+        Report($"course level ${level:X3} deleted — slot reverted to the base ROM");
+        return Status;
+    }
+
     // ---- saving ----
 
     /// <summary>Fold the live level into the project snapshot. Called before every write, and
@@ -1273,6 +1453,7 @@ public sealed class EditorSession
         if (Project is null) return "no project open — File ▸ New Project first";
         Project.Save();                       // SyncBeforeSave folds the live level in
         touched.Clear();
+        if (GfxPixels is { } g) g.Dirty = false;
         Report($"saved {Project.Name}");
         return Status;
     }

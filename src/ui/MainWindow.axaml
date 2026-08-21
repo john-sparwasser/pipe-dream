@@ -15,6 +15,15 @@
     <StreamGeometry x:Key="IconSquarePen">M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7 M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z</StreamGeometry>
     <StreamGeometry x:Key="IconBird">M16 7h.01 M3.4 18H12a8 8 0 0 0 8-8V7a4 4 0 0 0-7.28-2.3L2 20 M20 7l2 .5-2 .5 M10 18v3 M14 17.75V21 M7 18a6 6 0 0 0 3.84-10.61</StreamGeometry>
     <StreamGeometry x:Key="IconScanBox">M12 12v5.5 M17 3h2a2 2 0 0 1 2 2v2 M21 17v2a2 2 0 0 1-2 2h-2 M3 7V5a2 2 0 0 1 2-2h2 M7 21H5a2 2 0 0 1-2-2v-2 M7.264 9.252 12 12l4.737-2.748 M7.995 8.514A2 2 0 0 0 7 10.244v3.516a2 2 0 0 0 .996 1.73l3 1.74a2 2 0 0 0 2.008 0l3-1.74A2 2 0 0 0 17 13.76v-3.517a2 2 0 0 0-.995-1.73l-3-1.742a2 2 0 0 0-1.892-.064z</StreamGeometry>
+    <StreamGeometry x:Key="IconFolderSearch">M11 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H19a2 2 0 0 1 2 2v1.5 M20 17A3 3 0 1 1 14 17A3 3 0 1 1 20 17 M21 21l-1.9-1.9</StreamGeometry>
+    <StreamGeometry x:Key="IconPencil">M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z M15 5l4 4</StreamGeometry>
+    <StreamGeometry x:Key="IconPaintBucket">M19 11l-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z M5 2l5 5 M2 13h15 M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z</StreamGeometry>
+    <StreamGeometry x:Key="IconEraser">M7 21l-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21 M22 21H7 M5 11l9 9</StreamGeometry>
+    <StreamGeometry x:Key="IconPipette">M2 22l1-1h3l9-9 M3 21v-3l9-9 M15 6l3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z</StreamGeometry>
+    <StreamGeometry x:Key="IconSave">M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z M17 21v-8a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v8 M7 3v4a1 1 0 0 0 1 1h7</StreamGeometry>
+    <StreamGeometry x:Key="IconCircleCheck">M22 12A10 10 0 1 1 2 12A10 10 0 1 1 22 12 M9 12l2 2 4-4</StreamGeometry>
+    <StreamGeometry x:Key="IconStar">M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z</StreamGeometry>
+    <StreamGeometry x:Key="IconBot">M12 8V4H8 M6 8H18A2 2 0 0 1 20 10V18A2 2 0 0 1 18 20H6A2 2 0 0 1 4 18V10A2 2 0 0 1 6 8 M2 14h2 M20 14h2 M15 13v2 M9 13v2</StreamGeometry>
     <StreamGeometry x:Key="IconPalette">M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z M13.5 6.5h.01 M17.5 10.5h.01 M6.5 12.5h.01 M8.5 7.5h.01</StreamGeometry>
   </Window.Resources>
 
@@ -40,8 +49,9 @@
     <Style Selector="ToggleButton.mode:checked:pointerover /template/ ContentPresenter">
       <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
     </Style>
-    <!-- Mode icons follow the label's colour states; stroked because Lucide is stroked. -->
-    <Style Selector="ToggleButton.mode Path">
+    <!-- Mode icons follow the label's colour states; stroked because Lucide is stroked. The
+         Button half covers header buttons that carry an icon without being a mode (Course Bot). -->
+    <Style Selector="ToggleButton.mode Path, Button.mode Path">
       <Setter Property="Stroke" Value="{DynamicResource TextDimBrush}"/>
       <Setter Property="StrokeThickness" Value="1.5"/>
       <Setter Property="StrokeLineCap" Value="Round"/>
@@ -99,6 +109,69 @@
       <Setter Property="Margin" Value="6,4"/>
       <Setter Property="Fill" Value="{DynamicResource BorderBrush}"/>
     </Style>
+    <!-- Lucide inside a toolbar button, same stroked treatment as the mode toggles. Greys with
+         the button so a disabled Save reads as disabled icon and all. -->
+    <Style Selector="Border.bar Button Path">
+      <Setter Property="Stroke" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="StrokeThickness" Value="1.5"/>
+      <Setter Property="StrokeLineCap" Value="Round"/>
+      <Setter Property="StrokeJoin" Value="Round"/>
+      <Setter Property="Width" Value="14"/>
+      <Setter Property="Height" Value="14"/>
+      <Setter Property="Stretch" Value="Uniform"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Border.bar Button:disabled Path">
+      <Setter Property="Stroke" Value="{DynamicResource TextFaintBrush}"/>
+    </Style>
+    <!-- The one action an otherwise empty canvas offers: accent-filled, so it reads as the thing
+         to press rather than as chrome. -->
+    <Style Selector="Button.cta">
+      <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="Padding" Value="20,11"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="FontSize" Value="14"/>
+      <Setter Property="BorderThickness" Value="0"/>
+    </Style>
+    <Style Selector="Button.cta:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
+      <Setter Property="TextBlock.Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Button.cta Path">
+      <Setter Property="Stroke" Value="White"/>
+      <Setter Property="StrokeThickness" Value="1.5"/>
+      <Setter Property="StrokeLineCap" Value="Round"/>
+      <Setter Property="StrokeJoin" Value="Round"/>
+      <Setter Property="Width" Value="17"/>
+      <Setter Property="Height" Value="17"/>
+      <Setter Property="Stretch" Value="Uniform"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <!-- What a file IS, as a badge rather than a word: circle-check for one of the ROM's own,
+         star (accented) for a custom ExGFX. -->
+    <Style Selector="Path.kind">
+      <Setter Property="Stroke" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="StrokeThickness" Value="1.5"/>
+      <Setter Property="StrokeLineCap" Value="Round"/>
+      <Setter Property="StrokeJoin" Value="Round"/>
+      <Setter Property="Width" Value="15"/>
+      <Setter Property="Height" Value="15"/>
+      <Setter Property="Stretch" Value="Uniform"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Path.kind.custom">
+      <Setter Property="Stroke" Value="{DynamicResource AccentBrush}"/>
+    </Style>
+    <!-- The name of the thing being edited: the loudest text in its bar. -->
+    <Style Selector="TextBlock.subject">
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="FontSize" Value="14"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
     <Style Selector="TextBlock.dim">
       <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
       <Setter Property="VerticalAlignment" Value="Center"/>
@@ -135,7 +208,6 @@
         <MenuItem Header="_New Project…" Click="OnNewProject" InputGesture="Ctrl+N"/>
         <MenuItem Header="_Open Project…" Click="OnOpenProject" InputGesture="Ctrl+O"/>
         <MenuItem x:Name="RecentMenu" Header="_Recent Projects"/>
-        <MenuItem Header="Open _ROM…" Click="OnOpenRom"/>
         <Separator/>
         <MenuItem Header="_Save" Click="OnSave" InputGesture="Ctrl+S"/>
         <MenuItem Header="_Build ROM" Click="OnBuild" InputGesture="Ctrl+B"/>
@@ -191,6 +263,15 @@
           </StackPanel>
         </ToggleButton>
 
+        <!-- Not a mode: opens the course manager, so a Button rather than a toggle. -->
+        <Button Classes="mode" Click="OnCourseBot"
+                ToolTip.Tip="Organize entry levels by name — create, open and delete named courses">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <TextBlock Text="Course Bot" VerticalAlignment="Center"/>
+            <Path Data="{StaticResource IconBot}"/>
+          </StackPanel>
+        </Button>
+
         <Rectangle Classes="sep" Margin="10,4"/>
 
         <!-- Which LAYER the canvas edits. Layer 2 is the same object stream format, so the whole
@@ -227,7 +308,7 @@
           <TextBlock Classes="dim" Text="zoom" VerticalAlignment="Center"/>
           <Slider x:Name="ZoomSlider" Width="130" Minimum="100" Maximum="800" Value="200"
                   TickFrequency="10" IsSnapToTickEnabled="True" VerticalAlignment="Center"
-                  ToolTip.Tip="Level zoom — or press - and = to step it"/>
+                  ToolTip.Tip="Zoom for the canvas that is showing — or press - and = to step it"/>
           <TextBlock x:Name="ZoomLabel" Classes="mono" Width="40" VerticalAlignment="Center"/>
         </StackPanel>
         <TextBlock x:Name="Hover" Grid.Column="2" Classes="mono" VerticalAlignment="Center"/>
@@ -377,17 +458,6 @@
                  Clicking a bin opens it in the editor beside it, so there is no separate tab to
                  go to and come back from. -->
             <DockPanel x:Name="GfxToolPanel" IsVisible="False">
-              <Border Classes="bar" DockPanel.Dock="Top" Padding="10,6"
-                      Background="{DynamicResource SurfaceBrush}">
-                <StackPanel Spacing="8">
-                  <StackPanel Orientation="Horizontal" Spacing="6">
-                    <TextBlock Classes="dim" Text="palette"/>
-                    <ComboBox x:Name="GfxPalRow" Width="82"/>
-                    <TextBlock x:Name="GfxColorNote" Classes="mono"/>
-                  </StackPanel>
-                  <ui:PaletteGridView x:Name="GfxColors" HorizontalAlignment="Left"/>
-                </StackPanel>
-              </Border>
               <Border DockPanel.Dock="Top" Padding="10,6,10,4"
                       Background="{DynamicResource SurfaceBrush}">
                 <TextBlock Classes="dim" Text="level bins — click one to edit it"/>
@@ -403,6 +473,18 @@
       <GridSplitter Grid.Column="1" ResizeDirection="Columns"/>
 
       <DockPanel Grid.Column="2">
+
+      <!-- GFX paint colours, at the bottom right of the canvas rather than up in the drawer: the
+           swatch you pick and the pixel you place it on belong next to each other, and this puts
+           them one row above the zoom gutter instead of across the window. -->
+      <Border x:Name="GfxPaletteBar" DockPanel.Dock="Bottom" Classes="panel bar" IsVisible="False"
+              BorderThickness="0,1,0,0" Padding="10,6">
+        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+          <TextBlock Classes="dim" Text="palette"/>
+          <ComboBox x:Name="GfxPalRow" Width="82"/>
+          <ui:PaletteGridView x:Name="GfxColors" VerticalAlignment="Center"/>
+        </StackPanel>
+      </Border>
 
       <!-- Map16 mode gets a right-hand inspector for the selected tile(s): what it acts as, its
            palette row, priority and flips. Mode-specific, so it appears with the mode. -->
@@ -448,23 +530,57 @@
         <DockPanel x:Name="GfxScroll" IsVisible="False" Background="{DynamicResource VoidBrush}">
           <Border DockPanel.Dock="Top" Classes="panel bar" BorderThickness="0,0,0,1" Padding="10,6">
             <StackPanel Orientation="Horizontal" Spacing="6">
-              <TextBlock Classes="dim" Text="GFX"/>
-              <TextBox x:Name="GfxFileBox" Width="66" Text="014"/>
+              <Path x:Name="GfxKind" Classes="kind"/>
+              <TextBlock x:Name="GfxFileName" Classes="subject"/>
               <TextBlock x:Name="GfxFileNote" Classes="mono"/>
-              <Button Content="Browse…" MinWidth="80" Click="OnBrowseGfx"/>
+              <Button MinWidth="80" Click="OnBrowseGfx"
+                      ToolTip.Tip="Load another graphics file into the editor">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <Path Data="{StaticResource IconFolderSearch}"/>
+                  <TextBlock Text="Load" VerticalAlignment="Center"/>
+                </StackPanel>
+              </Button>
+              <Button x:Name="GfxSave" MinWidth="80" Click="OnSaveGfx"
+                      ToolTip.Tip="Save these pixels into the project as a custom ExGFX file">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <Path Data="{StaticResource IconSave}"/>
+                  <TextBlock Text="Save" VerticalAlignment="Center"/>
+                </StackPanel>
+              </Button>
               <Rectangle Classes="sep"/>
-              <Button Content="−" Width="30" Padding="0" Click="OnGfxZoomOut"/>
-              <Button Content="+" Width="30" Padding="0" Click="OnGfxZoomIn"/>
-              <Rectangle Classes="sep"/>
-              <ToggleButton x:Name="GfxPencil" Classes="mode" MinWidth="66" Content="Pencil" Click="OnGfxTool"/>
-              <ToggleButton x:Name="GfxFill" Classes="mode" MinWidth="66" Content="Fill" Click="OnGfxTool"/>
-              <Rectangle Classes="sep"/>
-              <TextBlock Classes="dim" Text="left: paint   right: pick colour   F: tool   [ ]: zoom"/>
+              <ToggleButton x:Name="GfxErase" Classes="mode" MinWidth="44" Click="OnGfxTool"
+                            ToolTip.Tip="Eraser — clears a pixel to transparent. F cycles tools">
+                <Path Data="{StaticResource IconEraser}"/>
+              </ToggleButton>
+              <ToggleButton x:Name="GfxFill" Classes="mode" MinWidth="44" Click="OnGfxTool"
+                            ToolTip.Tip="Fill the tile under the cursor. F cycles tools">
+                <Path Data="{StaticResource IconPaintBucket}"/>
+              </ToggleButton>
+              <ToggleButton x:Name="GfxPencil" Classes="mode" MinWidth="44" Click="OnGfxTool"
+                            ToolTip.Tip="Pencil. F cycles tools">
+                <Path Data="{StaticResource IconPencil}"/>
+              </ToggleButton>
+              <ToggleButton x:Name="GfxDropper" Classes="mode" MinWidth="44" Click="OnGfxTool"
+                            ToolTip.Tip="Eyedropper — takes the colour under the cursor. Right-click does it with any tool">
+                <Path Data="{StaticResource IconPipette}"/>
+              </ToggleButton>
             </StackPanel>
           </Border>
-          <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-            <ui:GfxCanvasView x:Name="GfxCanvas" Margin="8"/>
-          </ScrollViewer>
+          <!-- An empty bin has no sheet to draw, so the canvas offers the one thing that can
+               change that instead of sitting blank. Same handler as the header's Load. -->
+          <Panel Background="{x:Static ui:UiColors.DeskPattern}">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+              <ui:GfxCanvasView x:Name="GfxCanvas" Margin="8"/>
+            </ScrollViewer>
+            <Button x:Name="GfxEmptyLoad" Classes="cta" IsVisible="False" Click="OnBrowseGfx"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    ToolTip.Tip="This bin has no graphics — load a file into it">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Path Data="{StaticResource IconFolderSearch}"/>
+                <TextBlock Text="Load" VerticalAlignment="Center"/>
+              </StackPanel>
+            </Button>
+          </Panel>
         </DockPanel>
       </Panel>
       </DockPanel>

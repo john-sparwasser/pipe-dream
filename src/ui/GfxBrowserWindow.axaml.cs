@@ -3,6 +3,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media.Imaging;
+using Avalonia.Platform.Storage;
 
 namespace PipeDream.Ui;
 
@@ -17,7 +18,7 @@ public partial class GfxBrowserWindow : Window
     public sealed class Row(GfxFileInfo info)
     {
         public int Id => info.Id;
-        public bool Imported => info.Imported;
+        public bool Custom => info.Custom;
         public string Label => info.Label;
         public string? Name => info.Name;
         public bool HasName => info.Name is { Length: > 0 };
@@ -38,7 +39,7 @@ public partial class GfxBrowserWindow : Window
     private readonly EditorSession session = null!;
     private ListBox files = null!;
     private TextBox filter = null!;
-    private CheckBox includeStock = null!;
+    private RadioButton showCustom = null!;
     private TextBlock renameHint = null!;
 
     /// <summary>Parameterless for the XAML loader; the real entry point is the other one.</summary>
@@ -49,28 +50,52 @@ public partial class GfxBrowserWindow : Window
         this.session = session;
         files = this.GetControl<ListBox>("Files");
         filter = this.GetControl<TextBox>("Filter");
-        includeStock = this.GetControl<CheckBox>("IncludeStock");
+        showCustom = this.GetControl<RadioButton>("ShowCustom");
         renameHint = this.GetControl<TextBlock>("RenameHint");
         this.GetControl<TextBlock>("Purpose").Text = purpose;
 
         filter.TextChanged += (_, _) => Refresh();
-        includeStock.IsCheckedChanged += (_, _) => Refresh();
+        // One subscription covers the pair: switching to base unchecks this one, which is also a
+        // change of its own.
+        showCustom.IsCheckedChanged += (_, _) => Refresh();
         files.SelectionChanged += (_, _) => renameHint.Text =
-            files.SelectedItem is Row { Imported: true, HasName: false } ? "unnamed" : "";
+            files.SelectedItem is Row { Custom: true, HasName: false } ? "unnamed" : "";
         Refresh();
     }
 
-    private void Refresh()
+    /// <summary>Refill the list from the switcher and the filter. <paramref name="want"/> is the id
+    /// to land on — a freshly imported file — otherwise the selection is kept where it was.</summary>
+    private void Refresh(int? want = null)
     {
-        int? keep = (files.SelectedItem as Row)?.Id;
-        var rows = session.GfxFiles(includeStock.IsChecked == true, filter.Text ?? "")
+        int? keep = want ?? (files.SelectedItem as Row)?.Id;
+        var rows = session.GfxFiles(showCustom.IsChecked == true, filter.Text ?? "")
                           .Select(i => new Row(i)).ToList();
         files.ItemsSource = rows;
         files.SelectedItem = rows.FirstOrDefault(r => r.Id == keep) ?? rows.FirstOrDefault();
         if (rows.Count == 0)
             renameHint.Text = filter.Text is { Length: > 0 }
                 ? "nothing matches that filter"
-                : "no custom GFX imported yet — use Import… in the GFX tab";
+                : "no custom GFX yet — Import .bin… makes one";
+    }
+
+    /// <summary>Import a raw planar .bin as a new custom file. It lands here rather than on a bin
+    /// in the drawer because importing is about getting graphics INTO the project; pointing a bin
+    /// at them is the Select that follows.</summary>
+    private async void OnImport(object? sender, RoutedEventArgs e)
+    {
+        var picked = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Import raw planar GFX",
+            AllowMultiple = false,
+            FileTypeFilter = [new FilePickerFileType("Raw planar GFX") { Patterns = ["*.bin"] }],
+        });
+        if (picked.Count == 0 || picked[0].TryGetLocalPath() is not { } path) return;
+
+        var (id, note) = session.ImportGfx(path);
+        renameHint.Text = note;
+        if (id < 0) return;
+        showCustom.IsChecked = true;          // it is a custom file now, so show that side
+        Refresh(id);
     }
 
     private void OnSelect(object? sender, RoutedEventArgs e)
@@ -94,7 +119,7 @@ public partial class GfxBrowserWindow : Window
         var dlg = new TextPromptWindow($"Name for GFX{r.Id:X3}", r.Name ?? "");
         await dlg.ShowDialog(this);
         if (dlg.Result is not { } name) return;
-        if (!session.RenameGfx(r.Id, name)) { renameHint.Text = "stock files have no name"; return; }
+        if (!session.RenameGfx(r.Id, name)) { renameHint.Text = "base files have no name"; return; }
         Refresh();
     }
 }

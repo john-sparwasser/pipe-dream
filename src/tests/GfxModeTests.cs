@@ -109,6 +109,36 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(0, g.UndoDepth);
     }
 
+    /// <summary>The eraser writes colour 0 — transparent in this format — and undoes as one stroke
+    /// like any other. The eyedropper writes nothing at all: if it fell through to the pencil it
+    /// would paint the pixel it was asked to read.</summary>
+    [Fact]
+    public void the_eraser_clears_a_pixel_and_the_dropper_writes_nothing()
+    {
+        if (Open() is not { } s) { log.WriteLine("SKIP: no ROM"); return; }
+        var g = s.GfxPixels!;
+        g.Open(0x14);
+
+        g.Color = 3;                                  // something to erase, whatever was there
+        Assert.True(g.Paint(1, 1, out _));
+        g.EndStroke();
+        Assert.Equal(3, g.ColorAt(1, 1));
+
+        g.Current = GfxEdit.Tool.Eraser;
+        Assert.True(g.Paint(1, 1, out _));
+        Assert.Equal(0, g.ColorAt(1, 1));
+        g.EndStroke();
+        Assert.True(g.Undo());
+        Assert.Equal(3, g.ColorAt(1, 1));             // the erase was one undo entry
+
+        int history = g.UndoDepth;
+        g.Current = GfxEdit.Tool.Dropper;
+        Assert.False(g.Paint(1, 1, out _));
+        g.EndStroke();                                // an empty stroke closes to nothing
+        Assert.Equal(3, g.ColorAt(1, 1));
+        Assert.Equal(history, g.UndoDepth);
+    }
+
     [Fact]
     public void fill_floods_within_one_tile_only()
     {
@@ -151,9 +181,10 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
     }
 
     /// <summary>Import allocates a FRESH id, unlike an edit's copy-on-write fork — an import
-    /// that reused an existing id would shadow a real ExGFX file other levels use.</summary>
+    /// that reused an existing id would shadow a real ExGFX file other levels use. Pointing a bin
+    /// at it is a separate step, so the two are asserted separately.</summary>
     [Fact]
-    public void importing_allocates_a_new_id_and_points_the_bin_at_it()
+    public void importing_allocates_a_new_id_and_a_bin_can_then_take_it()
     {
         if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
         var s = new EditorSession();
@@ -165,14 +196,16 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         Directory.CreateDirectory(dir);
         File.WriteAllBytes(bin, new byte[0x40 * 32]);
 
-        int bypWord = s.GfxBins.First(b => b.Name == "FG3").BypWord;
-        string note = s.ImportGfx(bypWord, bin);
+        var (id, note) = s.ImportGfx(bin);
         log.WriteLine(note);
         Assert.Contains("imported", note);
+        Assert.True(id >= 0x100, $"expected a fresh ExGFX id, got {id:X3}");
+        Assert.Equal("test", s.GfxName(id));
 
-        int now = s.GfxBins.First(b => b.Name == "FG3").File;
-        Assert.True(now >= 0x100, $"expected a fresh ExGFX id, got {now:X3}");
-        Assert.Equal("test", s.GfxName(now));
+        int bypWord = s.GfxBins.First(b => b.Name == "FG3").BypWord;
+        s.SetGfxSlot(bypWord, id);
+        Assert.Equal(id, s.GfxBins.First(b => b.Name == "FG3").File);
+        Assert.Equal("custom", s.GfxBinNote(bypWord, id, def: 0));
     }
 
     [Fact]
@@ -185,9 +218,10 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         File.WriteAllBytes(bin, new byte[100]);          // not a whole number of planar tiles
 
         var bin0 = s.GfxBins.First(b => b.Name == "FG3");
-        string note = s.ImportGfx(bin0.BypWord, bin);
+        var (id, note) = s.ImportGfx(bin);
         log.WriteLine(note);
         Assert.Contains("rejected", note);
+        Assert.True(id < 0);
         Assert.Equal(bin0.File, s.GfxBins.First(b => b.Name == "FG3").File);
     }
 
@@ -391,6 +425,145 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         w.KeyPressQwerty(PhysicalKey.Delete, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
         Assert.NotEqual(before, s.Phases[0]!);
+    }
+
+    /// <summary>The drawer and the header are two halves of one gesture: the clicked bin is the
+    /// SELECTED slot — accent-bordered, and what Load fills. Highlighting "whichever bin holds the
+    /// open file" instead lit up two cards whenever two bins shared a file, and left Load with no
+    /// way to tell which of them was meant. An unused bin (0x7F) is selectable too: that is how it
+    /// gets given a file at all.</summary>
+    [AvaloniaFact]
+    public void clicking_a_bin_selects_that_slot_and_only_that_slot()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeGfx").RaiseEvent(
+            new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var session = SessionOf(w);
+        var bins = w.GetControl<StackPanel>("GfxBins");
+        static bool Selected(Control c) => ((Border)c).BorderThickness.Left > 1;
+
+        void Click(int i)
+        {
+            var card = (Border)bins.Children[i];
+            // A card further down the drawer is scrolled out of the clip, and a click at a point
+            // the ScrollViewer is clipping hits nothing.
+            card.BringIntoView();
+            Dispatcher.UIThread.RunJobs();
+            var at = card.TranslatePoint(new Point(4, 4), w)!.Value;
+            w.MouseDown(at, MouseButton.Left);
+            w.MouseUp(at, MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        // A bin the level really uses, then one it does not — both must end up selected, alone.
+        foreach (int i in new[] { Array.FindIndex(session.GfxBins, b => b.File != 0x7F),
+                                  Array.FindIndex(session.GfxBins, b => b.File == 0x7F) })
+        {
+            if (i < 0) { log.WriteLine("SKIP: no such bin in this level"); continue; }
+            Click(i);
+            Assert.True(Selected(bins.Children[i]), $"bin {session.GfxBins[i].Name} did not select");
+            Assert.Single(bins.Children, Selected);
+            // An empty bin trades the sheet for the Load button rather than showing stale pixels.
+            Assert.Equal(session.GfxBins[i].File == 0x7F,
+                         w.GetControl<Button>("GfxEmptyLoad").IsVisible);
+        }
+    }
+
+    /// <summary>One zoom control, two canvases at wildly different scales: each mode keeps its own
+    /// value and range, and gets it back on the way in. Sharing one number would land the pixel
+    /// editor at 200% (unusable) or the level at 1200%.</summary>
+    [AvaloniaFact]
+    public void the_gutter_zoom_is_per_canvas_mode_and_is_remembered()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var zoom = w.GetControl<Slider>("ZoomSlider");
+        var level = w.GetControl<LevelView>("Canvas");
+        var sheet = w.GetControl<GfxCanvasView>("GfxCanvas");
+        double levelPct = zoom.Value;
+
+        void Mode(string name) =>
+            w.GetControl<ToggleButton>(name).RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+
+        Mode("ModeGfx");
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(1600, zoom.Maximum);              // whole screen pixels per GFX pixel
+        Assert.Equal(sheet.Zoom * 100, zoom.Value);
+
+        zoom.Value = 1200;
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(12, sheet.Zoom);
+        Assert.Equal(levelPct / 100, level.Zoom);      // the level's zoom was left alone
+
+        Mode("ModeLevel");
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(800, zoom.Maximum);
+        Assert.Equal(levelPct, zoom.Value);
+
+        Mode("ModeGfx");
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(1200, zoom.Value);
+        Assert.Equal(12, sheet.Zoom);
+    }
+
+    /// <summary>Explicit save: a fork of a STOCK file moves out to its own named ExGFX id, the
+    /// stock file comes back, the level's bin follows the new file, and the .pdp on disk carries
+    /// it. Undo still works afterwards, which is the part the id move can silently break.</summary>
+    [Fact]
+    public void saving_a_forked_stock_file_writes_a_named_exgfx_and_repoints_the_bin()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), Vanilla), s.Status);
+
+        var g = s.GfxPixels!;
+        int stock = s.GfxBins[0].File;                  // FG1 — a bin the level really draws from
+        g.Open(stock);
+        int before = g.ColorAt(0, 0)!.Value;
+        g.Color = before == 3 ? 1 : 3;
+        Assert.True(g.Paint(0, 0, out _));
+        g.EndStroke();
+
+        Assert.True(s.GfxIsStock, "a stock file has no ExGFX id yet");
+        log.WriteLine(s.SaveGfx("test-clouds"));
+
+        Assert.NotEqual(stock, g.File);
+        Assert.True(g.File >= 0x100);
+        Assert.Equal("test-clouds", s.GfxName(g.File));
+        Assert.Equal(g.Color, g.ColorAt(0, 0));
+        Assert.Equal(before, StockPixel(s, stock));     // the stock file itself is unedited again
+        Assert.Equal(g.File, s.GfxBins[0].File);        // the bin follows the saved file
+        Assert.False(s.GfxDirty, "a save left the editor still claiming unsaved edits");
+        Assert.False(s.GfxIsStock);               // ...and a second save just writes it
+
+        var reopened = Project.Open(s.Project!.FilePath);
+        Assert.True(reopened.Data.Gfx.ContainsKey(g.File.ToString("X3")));
+        Assert.Equal("test-clouds", reopened.Data.GfxNames[g.File.ToString("X3")]);
+        Assert.False(reopened.Data.Gfx.ContainsKey(stock.ToString("X3")), "the stock fork stayed behind");
+
+        Assert.True(g.Undo());                          // history followed the id
+        Assert.Equal(before, g.ColorAt(0, 0));
+    }
+
+    /// <summary>Pixel (0,0) of a file as the ROM resolves it right now.</summary>
+    private static int StockPixel(EditorSession s, int file)
+    {
+        var g = s.GfxPixels!;
+        int keep = g.File;
+        g.Open(file);
+        int c = g.ColorAt(0, 0)!.Value;
+        g.Open(keep);
+        return c;
     }
 
     private static EditorSession SessionOf(MainWindow w) => (EditorSession)typeof(MainWindow)

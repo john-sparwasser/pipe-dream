@@ -34,6 +34,11 @@ public sealed class ProjectFile
     /// Project-scoped like Map16 — an entrance is a global record that any level's
     /// secondary exit can point at.</summary>
     public Dictionary<string, string> Entrances { get; set; } = new();
+    /// <summary>Course Bot entries: level key hex ("105") → display name. A named handle on a
+    /// level slot so courses are picked by name instead of number; the slot's content is an
+    /// ordinary <see cref="Levels"/> entry. A separate map (the <see cref="GfxNames"/> pattern)
+    /// so an older .pdp still loads unchanged.</summary>
+    public Dictionary<string, string> CourseBot { get; set; } = new();
 
     public sealed class BaseRomInfo
     {
@@ -89,6 +94,10 @@ public sealed class ProjectFile
         public Dictionary<int, int> Palette { get; set; } = new();
         /// <summary>GFX slot overrides: bypass word index (0-15) → GFX file id.</summary>
         public Dictionary<int, int> GfxOverrides { get; set; } = new();
+
+        /// <summary>Deep copy, via the same JSON round-trip the file itself makes.</summary>
+        public LevelState Clone() =>
+            JsonSerializer.Deserialize<LevelState>(JsonSerializer.Serialize(this, JsonOpts), JsonOpts)!;
     }
 
     public sealed class ObjectDto

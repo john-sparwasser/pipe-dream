@@ -22,16 +22,20 @@
     <StackPanel DockPanel.Dock="Top" Spacing="8">
       <TextBlock x:Name="Purpose" Classes="dim" TextWrapping="Wrap"/>
       <TextBlock Classes="dim" TextWrapping="Wrap"
-                 Text="Imported files keep the name of the .bin they came from. The filter matches names anywhere and hex ids by prefix."/>
+                 Text="Base is the ROM's own graphics; custom is what this project imported or saved. Imported files keep the name of the .bin they came from, and the filter matches names anywhere and hex ids by prefix."/>
       <StackPanel Orientation="Horizontal" Spacing="8">
         <TextBox x:Name="Filter" Width="220" Watermark="filter by name or id"/>
-        <CheckBox x:Name="IncludeStock" Content="include stock GFX"/>
+        <RadioButton x:Name="ShowBase" GroupName="Source" Content="base" IsChecked="True"
+                     VerticalAlignment="Center"/>
+        <RadioButton x:Name="ShowCustom" GroupName="Source" Content="custom"
+                     VerticalAlignment="Center"/>
       </StackPanel>
     </StackPanel>
 
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right"
                 Spacing="8" Margin="0,12,0,0">
       <TextBlock x:Name="RenameHint" Classes="dim"/>
+      <Button Content="Import .bin…" Click="OnImport"/>
       <Button Content="Rename…" Click="OnRename"/>
       <Button Content="Cancel" Click="OnCancel"/>
       <Button Content="Select" Click="OnSelect" IsDefault="True"/>

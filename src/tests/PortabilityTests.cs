@@ -20,6 +20,25 @@ public class PortabilityTests
         Assert.Equal(Path.Combine("/home/u/.config", "PipeDream"), other);
     }
 
+    /// <summary>Startup reopens the head of the recent list, so "most recent first" is load-bearing:
+    /// if a reopen pushed the wrong end, every launch would land in some old project.</summary>
+    [Fact]
+    public void the_last_project_opened_is_the_head_of_the_recent_list()
+    {
+        // Nonexistent paths on purpose: Touch writes through to the user's config, and the
+        // session's getter prunes anything that is not there, so these leave nothing behind.
+        string a = Path.Combine(Path.GetTempPath(), "pd-recent-a", "project.pdp");
+        string b = Path.Combine(Path.GetTempPath(), "pd-recent-b", "project.pdp");
+        var c = new Config();
+        c.TouchRecentProject(a);
+        c.TouchRecentProject(b);
+        Assert.Equal(b, c.RecentProjects[0]);
+
+        c.TouchRecentProject(a);                              // reopening an older one promotes it
+        Assert.Equal(a, c.RecentProjects[0]);
+        Assert.Equal(2, c.RecentProjects.Count);
+    }
+
     [Fact]
     public void recent_projects_dedupe_by_the_hosts_path_rules()
     {

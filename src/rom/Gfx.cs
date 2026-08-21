@@ -439,14 +439,20 @@ public static class Gfx
             }
     }
 
-    /// <summary>Files worth offering in a picker, in id order: imported ExGFX first, then the
-    /// ROM's stock files when asked for.</summary>
-    public static List<int> Candidates(Rom rom, bool includeStock, string filter)
+    /// <summary>
+    /// Files worth offering in a picker, in id order: either the project's CUSTOM ExGFX files or
+    /// the ROM's own base files, never both — a picker that mixes them makes "where did this come
+    /// from" unanswerable.
+    ///
+    /// The split is by what the ROM RESOLVES, not by what has been edited: a copy-on-write fork of
+    /// a base file lives in ImportedGfx but is still that base file, and listing it as custom would
+    /// promise an ExGFX id it does not have.
+    /// </summary>
+    public static List<int> Candidates(Rom rom, bool custom, string filter)
     {
-        var ids = new List<int>(rom.ImportedGfx.Keys);
-        if (includeStock)
-            for (int f = 0; f < 0x34; f++)
-                if (!rom.ImportedGfx.ContainsKey(f)) ids.Add(f);
+        var ids = custom
+            ? rom.ImportedGfx.Keys.Where(id => SourceSnes(rom, id) < 0).ToList()
+            : Enumerable.Range(0, 0x34).ToList();
         ids.Sort();
         if (filter.Length == 0) return ids;
         return ids.Where(id => Matches(rom, id, filter)).ToList();
@@ -462,13 +468,11 @@ public static class Gfx
         id.ToString("X").StartsWith(filter, StringComparison.OrdinalIgnoreCase) ||
         id.ToString("X3").StartsWith(filter, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>One line describing what a file holds, for a picker row.</summary>
+    /// <summary>One line describing what a file holds, for a picker row. Spelled out rather than
+    /// "3bpp": the depth is the one fact that decides whether a file fits this ROM at all, and the
+    /// thumbnail beside it already says how much of a sheet there is.</summary>
     public static string Describe(Rom rom, int id)
-    {
-        int bpp = RomBpp(rom);
-        if (Cached(rom, id) is not { } d) return "(empty)";
-        return $"{d.Length / TileBytes(bpp)} tiles, {bpp}bpp, 0x{d.Length:X} bytes";
-    }
+        => Cached(rom, id) is null ? "(empty)" : $"{RomBpp(rom)} bits per pixel";
 
     /// <summary>
     /// The level's 10 VRAM GFX bins (FG/BG/SP), resolved through the tileset lists and the Super

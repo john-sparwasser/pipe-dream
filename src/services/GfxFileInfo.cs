@@ -10,13 +10,15 @@ public sealed class GfxFileInfo
 {
     public required int Id { get; init; }
 
-    /// <summary>True for a project import (renameable, and it shadows any stock file of the same
-    /// id); false for a file the ROM itself resolves.</summary>
-    public required bool Imported { get; init; }
+    /// <summary>True for a custom ExGFX file the project owns (renameable); false for one of the
+    /// ROM's own base files, fork or not.</summary>
+    public required bool Custom { get; init; }
 
     public string? Name { get; init; }
     public required string Description { get; init; }
     public (uint[] Px, int W, int H) Sheet { get; init; }
 
-    public string Label => $"GFX{Id:X3}" + (Imported ? "  custom" : "  stock");
+    /// <summary>Only the custom side is called out — the list is one kind or the other, so saying
+    /// "base" on every base row is noise.</summary>
+    public string Label => $"GFX{Id:X3}" + (Custom ? "  custom" : "");
 }

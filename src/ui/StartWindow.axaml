@@ -1,0 +1,18 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PipeDream.Ui.StartWindow"
+        Title="pipe-dream" Width="520" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+  <StackPanel Margin="20" Spacing="12">
+    <TextBlock Text="Open a project" FontSize="16"
+               Foreground="{DynamicResource TextBrush}"/>
+    <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource TextDimBrush}"
+               Text="Editing happens inside a project — a folder holding your work and a private copy of its base ROM. Create one, or pick up where you left off."/>
+    <StackPanel x:Name="RecentList" Spacing="2"/>
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="Open Project…" Click="OnOpen"/>
+      <Button Content="New Project…" Click="OnNew" IsDefault="True"/>
+    </StackPanel>
+  </StackPanel>
+</Window>

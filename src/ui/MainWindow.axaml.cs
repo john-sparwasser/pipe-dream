@@ -48,10 +48,12 @@ public partial class MainWindow : Window
     private TabStrip paletteTabs = null!;
     private DockPanel spritePanel = null!, objectPanel = null!, palettePanel = null!;
     private GfxCanvasView gfxCanvas = null!;
-    private TextBox gfxFileBox = null!;
-    private TextBlock gfxFileNote = null!, gfxColorNote = null!;
-    private ToggleButton gfxPencil = null!, gfxFill = null!;
+    private Avalonia.Controls.Shapes.Path gfxKind = null!;
+    private Button gfxSave = null!, gfxEmptyLoad = null!;
+    private TextBlock gfxFileName = null!, gfxFileNote = null!;
+    private ToggleButton gfxPencil = null!, gfxFill = null!, gfxErase = null!, gfxDropper = null!;
     private DockPanel gfxToolPanel = null!, gfxScroll = null!;
+    private Border gfxPaletteBar = null!;
     private StackPanel gfxBins = null!;
     private ComboBox gfxPalRow = null!;
     private PaletteGridView gfxColors = null!;
@@ -83,6 +85,9 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         AvaloniaXamlLoader.Load(this);
+
+        // Top-left, not the OS's pick: at 1500x900 the default placement can hang off screen.
+        Position = new PixelPoint(0, 0);
 
         canvas = this.GetControl<LevelView>("Canvas");
         palette = this.GetControl<Map16PaletteView>("Palette");
@@ -253,13 +258,9 @@ public partial class MainWindow : Window
         // The slider is in PERCENT; the canvas scales by a factor.
         zoomSlider.PropertyChanged += (_, e) =>
         {
-            if (e.Property != RangeBase.ValueProperty) return;
-            canvas.Zoom = zoomSlider.Value / 100.0;
-            zoomLabel.Text = $"{zoomSlider.Value:0}%";
-            canvas.InvalidateVisual();
-            canvas.InvalidateMeasure();
+            if (e.Property == RangeBase.ValueProperty) ApplyZoom();
         };
-        zoomLabel.Text = $"{zoomSlider.Value:0}%";
+        ApplyZoom();
 
         bankBox.SelectionChanged += (_, _) =>
         {
@@ -314,18 +315,24 @@ public partial class MainWindow : Window
         // ---- GFX canvas mode ----
         gfxScroll = this.GetControl<DockPanel>("GfxScroll");
         gfxCanvas = this.GetControl<GfxCanvasView>("GfxCanvas");
-        gfxFileBox = this.GetControl<TextBox>("GfxFileBox");
+        gfxKind = this.GetControl<Avalonia.Controls.Shapes.Path>("GfxKind");
+        gfxFileName = this.GetControl<TextBlock>("GfxFileName");
         gfxFileNote = this.GetControl<TextBlock>("GfxFileNote");
+        gfxSave = this.GetControl<Button>("GfxSave");
+        gfxEmptyLoad = this.GetControl<Button>("GfxEmptyLoad");
         gfxPencil = this.GetControl<ToggleButton>("GfxPencil");
         gfxFill = this.GetControl<ToggleButton>("GfxFill");
+        gfxErase = this.GetControl<ToggleButton>("GfxErase");
+        gfxDropper = this.GetControl<ToggleButton>("GfxDropper");
         gfxToolPanel = this.GetControl<DockPanel>("GfxToolPanel");
+        gfxPaletteBar = this.GetControl<Border>("GfxPaletteBar");
         gfxBins = this.GetControl<StackPanel>("GfxBins");
         gfxPalRow = this.GetControl<ComboBox>("GfxPalRow");
         gfxColors = this.GetControl<PaletteGridView>("GfxColors");
         gfxColors.Rows = 1;
         gfxColors.Cell = 20;
 
-        for (int i = 0; i < 16; i++) gfxPalRow.Items.Add($"row {i}");
+        for (int i = 0; i < 16; i++) gfxPalRow.Items.Add($"{i}");
         gfxPalRow.SelectedIndex = 2;
         gfxPalRow.SelectionChanged += (_, _) =>
         {
@@ -333,42 +340,35 @@ public partial class MainWindow : Window
             g.PalRow = Math.Max(0, gfxPalRow.SelectedIndex);
             RefreshGfx();
         };
-        gfxColorNote = this.GetControl<TextBlock>("GfxColorNote");
         gfxColors.SelectionChanged += (_, i) =>
         {
             if (session.GfxPixels is { } g) g.Color = i;
-            gfxColorNote.Text = ColorNote(i);
         };
-
-        // Enter commits a typed id, as the ImGui field does — a recompose per keystroke would
-        // fire on every half-typed number.
-        gfxFileBox.KeyDown += (_, e) =>
-        {
-            if (e.Key != Key.Enter) return;
-            CommitGfxFileBox();
-            e.Handled = true;
-        };
-        gfxFileBox.LostFocus += (_, _) => CommitGfxFileBox();
 
         gfxCanvas.PixelPainted += (_, p) =>
         {
             if (session.GfxPixels is not { } g) return;
+            // The eyedropper takes rather than paints, so left-click with it does what right-click
+            // does with every other tool.
+            if (g.Current == GfxEdit.Tool.Dropper) { PickGfxColor(p.X, p.Y); return; }
             if (!g.Paint(p.X, p.Y, out bool forked)) return;
             if (forked) status.Text = $"GFX{g.File:X3} forked into the project — "
-                                    + "edits shadow the stock file everywhere";
+                                    + "edits shadow the base file everywhere";
             RefreshGfxSheet();                    // live feedback, without a level recompose
         };
-        gfxCanvas.StrokeEnded += (_, _) => session.GfxPixels?.EndStroke();
-        gfxCanvas.ColorPicked += (_, p) =>
+        gfxCanvas.StrokeEnded += (_, _) =>
         {
-            if (session.GfxPixels?.ColorAt(p.X, p.Y) is not { } c) return;
-            session.GfxPixels.Color = c;
-            gfxColors.Select(c);
-            gfxColorNote.Text = ColorNote(c);
+            session.GfxPixels?.EndStroke();
+            gfxSave.IsEnabled = session.GfxDirty;         // the stroke is what there is to save
         };
-        gfxCanvas.ToolToggled += (_, _) => SetGfxTool(session.GfxPixels?.Current == GfxEdit.Tool.Pencil
-                                                          ? GfxEdit.Tool.Fill : GfxEdit.Tool.Pencil);
-        gfxCanvas.ZoomStepped += (_, d) => StepGfxZoom(d);
+        gfxCanvas.ColorPicked += (_, p) => PickGfxColor(p.X, p.Y);
+        // F cycles the four tools in enum order rather than toggling two.
+        gfxCanvas.ToolToggled += (_, _) =>
+        {
+            if (session.GfxPixels is { } g)
+                SetGfxTool((GfxEdit.Tool)(((int)g.Current + 1) % 4));
+        };
+        gfxCanvas.ZoomStepped += (_, d) => StepZoom(d);
 
         paletteTabs.SelectionChanged += (_, _) => OnPaletteTab();
         loadedOnly.IsCheckedChanged += (_, _) => ApplySpriteFilter();
@@ -425,39 +425,74 @@ public partial class MainWindow : Window
         // object list: the delete happened, nothing on screen changed, and the edit was lost.
         session.SceneRebuilt += (_, _) => AdoptSession();
 
-        if (EditorSession.FindStartupRom(Program.RomPath) is { } path) LoadRom(path);
+        // An explicit ROM argument opens projectless — that is the test suite's and the
+        // command line's hatch, not a user path. A normal launch starts empty and the
+        // startup chooser asks for a project.
+        if (Program.RomPath is { } romArg && EditorSession.FileExists(romArg)) LoadRom(romArg);
 
-        // First run has nothing configured to prepare project bases from, so ask once the window
-        // is actually up — a modal owned by an unshown window has nothing to centre on. Only on a
-        // real desktop: a headless test run has no one to answer it and would block forever.
-        if (session.NeedsVanillaRom && Application.Current?.ApplicationLifetime
-                is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)
-            Opened += OnFirstOpened;
-
-        // Same reasoning as the first-run prompt: a real desktop only, and the window has to be
-        // up before it can own a dialog.
+        // Startup dialogs wait for the window to actually be up — a modal owned by an unshown
+        // window has nothing to centre on. Only on a real desktop: a headless test run has no
+        // one to answer them and would block forever.
         if (Application.Current?.ApplicationLifetime
                 is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)
-            Opened += OnStartupUpdateCheck;
+            Opened += OnFirstOpened;
     }
 
     /// <summary>
-    /// The once-a-day check, fired and forgotten. Nothing is shown unless there really is a
-    /// newer release: a startup that says "you are up to date" every morning is noise, and one
-    /// that reports a failed check is reporting something the user cannot act on.
+    /// The startup sequence, one modal at a time so they never stack: first run's vanilla-ROM
+    /// prompt, then the last project reopened (or the chooser when there is none), then the
+    /// once-a-day update check. The check is fired
+    /// and forgotten — nothing is shown unless there really is a newer release: a startup that
+    /// says "you are up to date" every morning is noise, and one that reports a failed check is
+    /// reporting something the user cannot act on.
     /// </summary>
-    private async void OnStartupUpdateCheck(object? sender, EventArgs e)
+    private async void OnFirstOpened(object? sender, EventArgs e)
     {
-        Opened -= OnStartupUpdateCheck;
-        // First run has a modal of its own going up; asking about updates over the top of it is
-        // the wrong first impression.
-        if (session.NeedsVanillaRom) return;
+        Opened -= OnFirstOpened;
+        if (session.NeedsVanillaRom)
+        {
+            var dlg = new FirstRunWindow();
+            await dlg.ShowDialog(this);
+            if (dlg.Chosen is { } rom)
+            {
+                session.SetVanillaRom(rom);
+                status.Text = "vanilla ROM set — new projects will prep from it";
+            }
+        }
+
+        // Pick up where the last session left off. The recent list is pruned of anything that has
+        // moved or been deleted, so its head is the last project that can actually be opened —
+        // and a base-ROM problem still routes through the recovery flow rather than being
+        // swallowed. Anything that leaves nothing open falls through to the chooser.
+        if (!session.HasRom && session.RecentProjects.FirstOrDefault() is { } last)
+            await OpenProjectPath(last);
+
+        if (!session.HasRom) await PromptForProject();
+
         try
         {
             if (await session.FindUpdate(userAsked: false) is { } found)
                 await UpdateWindow.Prompt(this, session, found);
         }
         catch { /* a check must never be why the editor failed to start */ }
+    }
+
+    /// <summary>
+    /// The chooser loops until something is actually open: cancelling a picker lands back here
+    /// rather than in a dead editor. Dismissing the chooser itself is the way out — the File
+    /// menu can do everything it can.
+    /// </summary>
+    private async Task PromptForProject()
+    {
+        while (!session.HasRom)
+        {
+            var dlg = new StartWindow(session.RecentProjects);
+            await dlg.ShowDialog(this);
+            if (dlg.OpenRecent is { } pdp) await OpenProjectPath(pdp);
+            else if (dlg.CreateNew) await NewProjectFlow();
+            else if (dlg.OpenExisting) await OpenProjectFlow();
+            else return;
+        }
     }
 
     /// <summary>Help → Check for updates. Unlike the startup check this one always answers,
@@ -475,16 +510,6 @@ public partial class MainWindow : Window
             status.Text = $"Pipe Dream {session.CurrentVersion} — no newer build available";
         }
         catch (Exception ex) { status.Text = "update check failed: " + ex.Message; }
-    }
-
-    private async void OnFirstOpened(object? sender, EventArgs e)
-    {
-        Opened -= OnFirstOpened;
-        var dlg = new FirstRunWindow();
-        await dlg.ShowDialog(this);
-        if (dlg.Chosen is not { } rom) return;
-        session.SetVanillaRom(rom);
-        status.Text = "vanilla ROM set — new projects will prep from it";
     }
 
     private void LoadRom(string path)
@@ -613,8 +638,7 @@ public partial class MainWindow : Window
         else if (e.Key is Key.OemMinus or Key.Subtract or Key.OemPlus or Key.Add)
         {
             int dir = e.Key is Key.OemMinus or Key.Subtract ? -1 : 1;
-            if (modeGfx.IsChecked == true) StepGfxZoom(dir);
-            else StepZoom(dir);
+            StepZoom(dir);
             e.Handled = true;
         }
         else if (e.Key == Key.Escape)
@@ -642,13 +666,53 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>One tick of the level zoom, in the slider's own units — the slider IS the zoom
-    /// state, so stepping it keeps the label and the canvas in step for free.</summary>
+    /// <summary>One tick of zoom, in the slider's own units — the slider IS the zoom state, so
+    /// stepping it keeps the label and whichever canvas it drives in step for free.</summary>
     private void StepZoom(int dir)
     {
         zoomSlider.Value = Math.Clamp(zoomSlider.Value + dir * zoomSlider.TickFrequency,
                                       zoomSlider.Minimum, zoomSlider.Maximum);
         status.Text = $"zoom {zoomSlider.Value:0}%";
+    }
+
+    // The gutter slider drives whichever canvas is showing, but 200% is a sane level zoom and a
+    // useless pixel zoom, so each mode keeps its own value and its own range. GFX starts at 8
+    // screen pixels per GFX pixel, which is what the ImGui editor opened at.
+    private double levelZoomPct = 200, gfxZoomPct = 800;
+
+    /// <summary>Point the zoom control at a mode: its range, its step, and the value it was left
+    /// at. Call it AFTER the mode flags flip — <see cref="ApplyZoom"/> reads them.</summary>
+    private void ApplyZoomTarget(bool gfx)
+    {
+        // Read the wanted value first: narrowing the range coerces Value, which lands in the
+        // remembered field on the way through.
+        double want = gfx ? gfxZoomPct : levelZoomPct;
+        (zoomSlider.Minimum, zoomSlider.Maximum, zoomSlider.TickFrequency) =
+            gfx ? (400.0, 1600.0, 100.0)      // whole screen pixels per GFX pixel, 4x to 16x
+                : (100.0, 800.0, 10.0);
+        zoomSlider.Value = want;
+        ApplyZoom();                          // in case the value never changed
+    }
+
+    /// <summary>Push the slider's percent onto the canvas it is driving, and remember it there.</summary>
+    private void ApplyZoom()
+    {
+        double pct = zoomSlider.Value;
+        zoomLabel.Text = $"{pct:0}%";
+        if (modeGfx?.IsChecked == true)
+        {
+            gfxZoomPct = pct;
+            gfxCanvas.Zoom = pct / 100.0;
+            gfxCanvas.InvalidateMeasure();
+            gfxCanvas.InvalidateVisual();
+        }
+        else
+        {
+            levelZoomPct = pct;
+            canvas.Zoom = pct / 100.0;
+            canvas.InvalidateVisual();
+            canvas.InvalidateMeasure();
+        }
     }
 
     private void UpdateStatus()
@@ -691,7 +755,6 @@ public partial class MainWindow : Window
 
     private static FilePickerFileType RomType => new("SNES ROM") { Patterns = ["*.smc", "*.sfc"] };
     private static FilePickerFileType ProjectType => new("pipe-dream project") { Patterns = ["*.pdp"] };
-    private static FilePickerFileType BinType => new("Raw planar GFX") { Patterns = ["*.bin"] };
 
     /// <summary>Pick a GFX file by sight. Returns null when the browser was cancelled.</summary>
     private async Task<int?> PickGfxFile(string purpose)
@@ -701,10 +764,44 @@ public partial class MainWindow : Window
         return dlg.Picked;
     }
 
+    /// <summary>
+    /// Load a graphics file. With a drawer bin selected this is the two-sided gesture: the file
+    /// REPLACES that bin for this level (a Super GFX Bypass override, recorded in the project) and
+    /// opens in the editor. With no bin selected it only opens — Load must not rewire a level
+    /// slot nobody pointed at.
+    /// </summary>
     private async void OnBrowseGfx(object? sender, RoutedEventArgs e)
     {
-        if (await PickGfxFile("Open GFX in the tile editor") is not { } picked) return;
+        var slot = session.GfxBins.Where(b => b.BypWord == gfxSlot)
+                          .Select(b => ((string Name, int PalRow)?)(b.Name, b.PalRow))
+                          .FirstOrDefault();
+        if (await PickGfxFile(slot is { } s ? $"Load into this level's {s.Name} bin"
+                                            : "Open a graphics file in the tile editor") is not { } picked)
+            return;
+
+        if (slot is { } bin)
+        {
+            status.Text = session.SetGfxSlot(gfxSlot, picked);
+            gfxPalRow.SelectedIndex = bin.PalRow;
+            AdoptSession();                     // the level draws through the new file now
+        }
         session.GfxPixels?.Open(picked);
+        RefreshGfx();
+    }
+
+    /// <summary>Save the edited sheet as a custom ExGFX. A stock file is being forked out into one
+    /// for the first time, so it needs a name — an existing custom file already has both.</summary>
+    private async void OnSaveGfx(object? sender, RoutedEventArgs e)
+    {
+        string name = "";
+        if (session.GfxIsStock)
+        {
+            var dlg = new TextPromptWindow("Name for the new ExGFX file", "");
+            await dlg.ShowDialog(this);
+            if (dlg.Result is not { } picked) return;          // cancelled: nothing saved
+            name = picked;
+        }
+        status.Text = session.SaveGfx(name);
         RefreshGfx();
     }
 
@@ -717,13 +814,9 @@ public partial class MainWindow : Window
         return files.Count > 0 ? files[0].TryGetLocalPath() : null;
     }
 
-    private async void OnOpenRom(object? sender, RoutedEventArgs e)
-    {
-        // A real native file dialog, which ImGui cannot do — it draws its own.
-        if (await PickFile("Open SMW ROM", RomType) is { } p) LoadRom(p);
-    }
+    private async void OnOpenProject(object? sender, RoutedEventArgs e) => await OpenProjectFlow();
 
-    private async void OnOpenProject(object? sender, RoutedEventArgs e)
+    private async Task OpenProjectFlow()
     {
         if (await PickFile("Open project", ProjectType) is not { } p) return;
         await OpenProjectPath(p);
@@ -759,9 +852,11 @@ public partial class MainWindow : Window
         levelBox.SelectedIndex = session.LevelNum;
     }
 
+    private async void OnNewProject(object? sender, RoutedEventArgs e) => await NewProjectFlow();
+
     /// <summary>New project: pick the folder to create it in, then the base ROM. A verified
     /// vanilla base is prepped automatically, which is why no "prep?" question is asked.</summary>
-    private async void OnNewProject(object? sender, RoutedEventArgs e)
+    private async Task NewProjectFlow()
     {
         var dirs = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
@@ -782,6 +877,7 @@ public partial class MainWindow : Window
     private void OnSave(object? sender, RoutedEventArgs e)
     {
         status.Text = session.Save();
+        gfxSave.IsEnabled = session.GfxDirty;    // Ctrl+S saved the pixels too
         UpdateTitle();
     }
 
@@ -813,6 +909,23 @@ public partial class MainWindow : Window
             AdoptSession();
             status.Text = $"header applied — {Convert.ToHexString(h.ToBytes())}";
         }
+        UpdateTitle();
+    }
+
+    /// <summary>Course Bot: named entry levels, managed in a modal. Opening one jumps the
+    /// editor to its slot through the level box, which drives the whole ShowLevel flow.</summary>
+    private async void OnCourseBot(object? sender, RoutedEventArgs e)
+    {
+        if (!session.HasProject)
+        {
+            status.Text = "open a project first — Course Bot lives in the .pdp";
+            return;
+        }
+        var dlg = new CourseBotWindow(session);
+        await dlg.ShowDialog(this);
+        status.Text = session.Status;
+        if (dlg.Picked is { } lv && lv != levelBox.SelectedIndex) levelBox.SelectedIndex = lv;
+        else AdoptSession();          // a delete may have reverted the level on screen
         UpdateTitle();
     }
 
@@ -1094,6 +1207,7 @@ public partial class MainWindow : Window
         this.GetControl<ScrollViewer>("PaletteScroll").IsVisible = tab == 0;
         this.GetControl<DockPanel>("ChrPanel").IsVisible = map16Mode;
         gfxToolPanel.IsVisible = gfxMode;
+        gfxPaletteBar.IsVisible = gfxMode;      // canvas-side, but the same mode decides it
         spritePanel.IsVisible = tab == 1;
         objectPanel.IsVisible = tab == 2;
         palettePanel.IsVisible = tab == 3;
@@ -1149,41 +1263,29 @@ public partial class MainWindow : Window
 
     // ---- GFX canvas mode and the GFX tab ----
 
-    private static string ColorNote(int i)
-        => i == 0 ? "colour 0 — transparent in-game" : $"colour {i}";
-
-    private int gfxZoom = 1;                       // index into GfxEdit.Zooms
-
-    private void CommitGfxFileBox()
-    {
-        if (session.GfxPixels is not { } g) return;
-        if (!int.TryParse(gfxFileBox.Text, System.Globalization.NumberStyles.HexNumber, null, out int id))
-        { gfxFileBox.Text = $"{g.File:X3}"; return; }
-        if (id == g.File) return;
-        g.Open(id);                                // aborts an uncommitted stroke on the way
-        RefreshGfx();
-    }
-
     private void SetGfxTool(GfxEdit.Tool tool)
     {
         if (session.GfxPixels is { } g) g.Current = tool;
         gfxPencil.IsChecked = tool == GfxEdit.Tool.Pencil;
         gfxFill.IsChecked = tool == GfxEdit.Tool.Fill;
+        gfxErase.IsChecked = tool == GfxEdit.Tool.Eraser;
+        gfxDropper.IsChecked = tool == GfxEdit.Tool.Dropper;
     }
 
     private void OnGfxTool(object? sender, RoutedEventArgs e)
-        => SetGfxTool(ReferenceEquals(sender, gfxFill) ? GfxEdit.Tool.Fill : GfxEdit.Tool.Pencil);
+        => SetGfxTool(ReferenceEquals(sender, gfxFill) ? GfxEdit.Tool.Fill
+                    : ReferenceEquals(sender, gfxErase) ? GfxEdit.Tool.Eraser
+                    : ReferenceEquals(sender, gfxDropper) ? GfxEdit.Tool.Dropper
+                    : GfxEdit.Tool.Pencil);
 
-    private void StepGfxZoom(int delta)
+    /// <summary>Take the colour under a sheet pixel as the paint colour — the eyedropper tool and
+    /// the right-click shortcut are the same act.</summary>
+    private void PickGfxColor(int px, int py)
     {
-        gfxZoom = Math.Clamp(gfxZoom + delta, 0, GfxEdit.Zooms.Length - 1);
-        gfxCanvas.Zoom = GfxEdit.Zooms[gfxZoom];
-        gfxCanvas.InvalidateMeasure();
-        gfxCanvas.InvalidateVisual();
+        if (session.GfxPixels?.ColorAt(px, py) is not { } c) return;
+        session.GfxPixels.Color = c;
+        gfxColors.Select(c);
     }
-
-    private void OnGfxZoomIn(object? sender, RoutedEventArgs e) => StepGfxZoom(1);
-    private void OnGfxZoomOut(object? sender, RoutedEventArgs e) => StepGfxZoom(-1);
 
     /// <summary>Re-decode the sheet only. This is the live-paint path, so it must NOT recompose
     /// the level — that happens once when the stroke ends.</summary>
@@ -1200,10 +1302,17 @@ public partial class MainWindow : Window
     private void RefreshGfx()
     {
         if (session.GfxPixels is not { } g) return;
-        gfxFileBox.Text = $"{g.File:X3}";
-        gfxFileNote.Text = $"({g.Status})" + (g.Name is { } n ? $" \"{n}\"" : "");
+        // The file, by name where it has one. The badge says which kind it is, so the note is
+        // only the id — and only when the name is not already showing it.
+        bool stock = session.GfxIsStock;
+        gfxFileName.Text = g.Name ?? $"GFX{g.File:X3}";
+        gfxFileNote.Text = g.Name is null ? "" : $"GFX{g.File:X3}";
+        gfxKind.Data = (StreamGeometry)this.FindResource(stock ? "IconCircleCheck" : "IconStar")!;
+        gfxKind.Classes.Set("custom", !stock);
+        ToolTip.SetTip(gfxKind, stock ? "a base ROM graphics file" : "a custom ExGFX file");
+        gfxSave.IsEnabled = session.GfxDirty;
+        gfxEmptyLoad.IsVisible = g.Layout.Tiles == 0;      // nothing to paint on — offer Load
         SetGfxTool(g.Current);
-        gfxCanvas.Zoom = GfxEdit.Zooms[gfxZoom];
         RefreshGfxSheet();
 
         // The row's colours as paint swatches — only as many as the ROM's depth can hold, since
@@ -1218,7 +1327,6 @@ public partial class MainWindow : Window
         gfxColors.Colors = row;
         gfxColors.InvalidateMeasure();
         gfxColors.Select(g.Color);
-        gfxColorNote.Text = ColorNote(g.Color);
 
         RefreshGfxBins();          // the bins list IS the file picker now
     }
@@ -1265,31 +1373,10 @@ public partial class MainWindow : Window
             if (session.GfxName(bin.File) is { } gname)
                 head.Children.Add(new TextBlock { Text = $"\"{gname}\"", Classes = { "mono" } });
 
-            var buttons = new StackPanel
-            {
-                Orientation = Avalonia.Layout.Orientation.Horizontal,
-                Spacing = 4,
-            };
-            var import = new Button { Content = "Import…", Padding = new Thickness(8, 1) };
-            import.Click += async (_, _) =>
-            {
-                if (await PickFile("Raw GFX (.bin)", BinType) is not { } path) return;
-                status.Text = session.ImportGfx(bypWord, path);
-                AdoptSession();
-            };
-            var browse = new Button { Content = "Browse…", Padding = new Thickness(8, 1) };
-            browse.Click += async (_, _) =>
-            {
-                if (await PickGfxFile("Select GFX for this bin") is not { } picked) return;
-                status.Text = session.SetGfxSlot(bypWord, picked);
-                AdoptSession();
-            };
-            buttons.Children.Add(import);
-            buttons.Children.Add(browse);
-
+            // No per-bin Import/Browse buttons: the header's Load covers both, and ten cards each
+            // carrying two buttons buried the thing the card is actually for — its sheet.
             var block = new StackPanel { Spacing = 4 };
             block.Children.Add(head);
-            block.Children.Add(buttons);
 
             var (px, w, h) = session.GfxFileSheet(bin.File, bin.PalRow);
             if (px.Length > 0)
@@ -1302,10 +1389,11 @@ public partial class MainWindow : Window
             else
                 block.Children.Add(new TextBlock { Text = "(empty)", Classes = { "mono" } });
 
-            // The whole block IS the "open this one" target — selecting a bin and editing it are
-            // the same gesture now, so a separate Edit button would be a second way to do one
-            // thing. The open bin carries the accent border, as a selected swatch does.
-            bool open = session.GfxPixels is { } gp && gp.File == bin.File;
+            // The whole block IS the "select this bin" target — selecting a bin and editing its
+            // file are the same gesture, so a separate Edit button would be a second way to do one
+            // thing. The selected bin carries the accent border, as a selected swatch does, and it
+            // is what the header's Load fills.
+            bool open = bin.BypWord == gfxSlot;
             var card = new Border
             {
                 Child = block,
@@ -1318,20 +1406,26 @@ public partial class MainWindow : Window
                 Background = open ? UiColors.SelectionFill : Brushes.Transparent,
                 Cursor = new Cursor(StandardCursorType.Hand),
             };
-            if (bin.File != 0x7F)
-                card.PointerPressed += (_, e) =>
-                {
-                    // Not when the click landed on the id box or a button inside the card.
-                    if (e.Source is Visual v && v.FindAncestorOfType<Button>() is not null) return;
-                    if (e.Source is Visual t && t.FindAncestorOfType<TextBox>() is not null) return;
-                    EditGfxFile(file, palRow);
-                };
+            // An UNUSED bin (0x7F) is clickable too: selecting it is how it gets given something.
+            card.PointerPressed += (_, e) =>
+            {
+                // Not when the click landed on the id box or a button inside the card.
+                if (e.Source is Visual v && v.FindAncestorOfType<Button>() is not null) return;
+                if (e.Source is Visual t && t.FindAncestorOfType<TextBox>() is not null) return;
+                gfxSlot = bypWord;
+                EditGfxFile(file, palRow);
+            };
             gfxBins.Children.Add(card);
         }
     }
 
-    /// <summary>Open a file in the GFX canvas mode — the "Edit" button on a bin, and how the
-    /// jump list works too.</summary>
+    /// <summary>The drawer bin the header's Load fills, as its bypass word. -1 = none, and then
+    /// Load only opens a file for editing.</summary>
+    private int gfxSlot = -1;
+
+    /// <summary>Open a bin's file in the GFX canvas mode. An unused bin (0x7F) resolves nowhere and
+    /// is opened all the same: the canvas then shows its Load button instead of the last file's
+    /// pixels, which is the honest answer to "what is in this bin".</summary>
     private void EditGfxFile(int file, int palRow)
     {
         if (session.GfxPixels is not { } g) return;
@@ -1440,6 +1534,7 @@ public partial class MainWindow : Window
         gfxScroll.IsVisible = gfx;
         edit?.Selection.Clear();
         map16Canvas.ClearSelection();
+        ApplyZoomTarget(gfx);          // the gutter control follows the canvas it is driving
 
         RefreshDrawer();
         map16Props.IsVisible = map16;
@@ -1452,6 +1547,11 @@ public partial class MainWindow : Window
         }
         else if (gfx)
         {
+            // Entered from the header rather than a bin click: adopt whichever bin holds the file
+            // the editor is already on, so the drawer shows what Load would replace.
+            if (gfxSlot < 0 && session.GfxPixels is { } gp)
+                gfxSlot = session.GfxBins.Where(b => b.File == gp.File)
+                                 .Select(b => (int?)b.BypWord).FirstOrDefault() ?? -1;
             RefreshGfx();
             gfxCanvas.Focus();
             status.Text = "GFX — left paints, right picks a colour, F switches tool, [ ] zooms";

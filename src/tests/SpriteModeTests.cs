@@ -210,4 +210,106 @@ public class SpriteModeTests(ITestOutputHelper log)
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(LevelView.EditMode.Objects, canvas.Mode);
     }
+
+    /// <summary>Clicking bare canvas in sprite mode drops the selection — a stale selection is
+    /// what turns the next Ctrl+right into a surprise duplicate.</summary>
+    [AvaloniaFact]
+    public void left_clicking_empty_space_clears_the_sprite_selection()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = RomPath;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        var canvas = w.GetControl<LevelView>("Canvas");
+        w.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);      // sprite mode
+        Dispatcher.UIThread.RunJobs();
+        if (canvas.Sprites is not { } sp || sp.Sprites.Sprites.Count == 0)
+        { log.WriteLine("SKIP: level has no sprites"); return; }
+        canvas.Zoom = 1;
+        Dispatcher.UIThread.RunJobs();
+
+        // A viewport pixel no sprite draws on (with a margin, so rounding cannot land on one).
+        int? ex = null, ey = null;
+        for (int y = 8; y < 400 && ex is null; y += 16)
+            for (int x = 8; x < 900; x += 16)
+            {
+                bool hit = false;
+                for (int i = 0; i < sp.Sprites.Sprites.Count && !hit; i++)
+                {
+                    var (x0, y0, x1, y1) = sp.PixelRect(i);
+                    hit = x >= x0 - 8 && x < x1 + 8 && y >= y0 - 8 && y < y1 + 8;
+                }
+                if (!hit) { ex = x; ey = y; break; }
+            }
+        if (ex is not { } px) { log.WriteLine("SKIP: no empty pixel in view"); return; }
+        log.WriteLine($"clicking empty pixel ({px},{ey})");
+
+        sp.Selection.Clear();
+        sp.Selection.Add(0);
+
+        Point At(int x, int y) => canvas.TranslatePoint(
+            new Point(x * canvas.Zoom - canvas.Origin.X, y * canvas.Zoom - canvas.Origin.Y), w)!.Value;
+        w.MouseDown(At(px, ey!.Value), MouseButton.Left);
+        w.MouseUp(At(px, ey!.Value), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Empty(sp.Selection);
+    }
+
+    /// <summary>Ctrl+left picks a selection one sprite at a time instead of lassoing, and toggles
+    /// back off. It must not clear what is already selected — that is the plain click's job.</summary>
+    [AvaloniaFact]
+    public void ctrl_left_click_toggles_one_sprite_in_and_out_of_the_selection()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = RomPath;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        var canvas = w.GetControl<LevelView>("Canvas");
+        w.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);      // sprite mode
+        Dispatcher.UIThread.RunJobs();
+        if (canvas.Sprites is not { } sp || sp.Sprites.Sprites.Count == 0)
+        { log.WriteLine("SKIP: level has no sprites"); return; }
+        canvas.Zoom = 1;
+        Dispatcher.UIThread.RunJobs();
+
+        // A viewport pixel that hit-tests to exactly one known sprite.
+        int? tx = null, ty = null, target = null;
+        for (int i = 0; i < sp.Sprites.Sprites.Count && target is null; i++)
+        {
+            var (x0, y0, x1, y1) = sp.PixelRect(i);
+            for (int y = y0; y < y1 && target is null; y += 4)
+                for (int x = x0; x < x1; x += 4)
+                {
+                    if (x > 900 || y > 400 || sp.SpriteAt(x, y) != i) continue;
+                    target = i; tx = x; ty = y; break;
+                }
+        }
+        if (target is not { } idx) { log.WriteLine("SKIP: no sprite pixel in view"); return; }
+        log.WriteLine($"ctrl-clicking sprite {idx} at ({tx},{ty})");
+
+        // Something else already selected, to prove the toggle adds rather than replaces.
+        int other = idx == 0 ? sp.Sprites.Sprites.Count - 1 : 0;
+        sp.Selection.Clear();
+        if (other != idx) sp.Selection.Add(other);
+
+        Point At(int x, int y) => canvas.TranslatePoint(
+            new Point(x * canvas.Zoom - canvas.Origin.X, y * canvas.Zoom - canvas.Origin.Y), w)!.Value;
+        void CtrlClick()
+        {
+            w.MouseDown(At(tx!.Value, ty!.Value), MouseButton.Left, RawInputModifiers.Control);
+            w.MouseUp(At(tx!.Value, ty!.Value), MouseButton.Left, RawInputModifiers.Control);
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        CtrlClick();
+        Assert.Contains(idx, sp.Selection);
+        if (other != idx) Assert.Contains(other, sp.Selection);   // the existing pick survives
+
+        CtrlClick();
+        Assert.DoesNotContain(idx, sp.Selection);
+        if (other != idx) Assert.Contains(other, sp.Selection);
+    }
 }

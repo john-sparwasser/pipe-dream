@@ -51,6 +51,18 @@ public sealed class SpriteEdit(SpriteData sprites, SpriteOverlay? overlay, bool 
             return px >= x0 && px < x1 && py >= y0 && py < y1;
         });
 
+    /// <summary>Topmost sprite whose drawn pixels cover this level pixel, or -1. Later entries
+    /// in the list draw over earlier ones, so the search runs backwards.</summary>
+    public int SpriteAt(int px, int py)
+    {
+        for (int i = Sprites.Sprites.Count - 1; i >= 0; i--)
+        {
+            var (x0, y0, x1, y1) = PixelRect(i);
+            if (px >= x0 && px < x1 && py >= y0 && py < y1) return i;
+        }
+        return -1;
+    }
+
     /// <summary>Select everything whose drawn pixels overlap a level-pixel rectangle.</summary>
     public void SelectInPixelRect(int rx, int ry, int rw, int rh)
     {

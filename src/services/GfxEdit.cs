@@ -18,11 +18,9 @@ public sealed class GfxEdit
 
     internal GfxEdit(Rom rom) => this.rom = rom;
 
-    public enum Tool { Pencil, Fill }
-
-    /// <summary>Zoom steps, in screen pixels per GFX pixel — the same three the ImGui editor
-    /// offers, since below 4x a pixel is not clickable and above 16x nothing fits.</summary>
-    public static readonly double[] Zooms = [4, 8, 16];
+    /// <summary>Eraser is the pencil writing colour 0 — in this format that IS transparent, so
+    /// "erase" needs no separate concept. Dropper writes nothing at all; it reads.</summary>
+    public enum Tool { Pencil, Fill, Eraser, Dropper }
 
     public int File { get; private set; } = 0x14;
     public int PalRow { get; set; } = 2;
@@ -36,7 +34,9 @@ public sealed class GfxEdit
     private int color = 1;
     public Tool Current { get; set; } = Tool.Pencil;
 
-    public bool Dirty { get; private set; }
+    /// <summary>Committed edits that project.pdp does not have yet. Cleared by the session's save,
+    /// which is what greys the mode's Save button back out.</summary>
+    public bool Dirty { get; internal set; }
     public int UndoDepth => undo.Count;
 
     /// <summary>Raised when committed bytes changed: every consumer of this file is stale.</summary>
@@ -103,20 +103,25 @@ public sealed class GfxEdit
     /// the caller's cue to redraw the sheet. Forks a stock file on first touch —
     /// <paramref name="forked"/> reports that, because it is worth telling the user their edit
     /// now shadows the stock file everywhere.
+    ///
+    /// The Dropper writes nothing and is refused here rather than silently painting: reading a
+    /// colour also has to move the palette selection, which belongs to whoever draws it.
     /// </summary>
     public bool Paint(int px, int py, out bool forked)
     {
         forked = false;
+        if (Current == Tool.Dropper) return false;
         var (tiles, w, h) = Layout;
         if (px < 0 || py < 0 || px >= w || py >= h || (py / 8) * 16 + px / 8 >= tiles) return false;
         if (Gfx.EditableBytes(rom, File, out forked) is not { } g) return false;
 
         if (stroke.Count == 0) strokeFile = File;
         int before = stroke.Count;
-        if (Current == Tool.Pencil)
-            Gfx.WritePixel(g, ((py / 8) * 16 + px / 8) * Gfx.TileBytes(Bpp), Bpp, px & 7, py & 7, Color, stroke);
-        else
+        if (Current == Tool.Fill)
             Gfx.FillTile(g, Bpp, px, py, Color, stroke);
+        else
+            Gfx.WritePixel(g, ((py / 8) * 16 + px / 8) * Gfx.TileBytes(Bpp), Bpp, px & 7, py & 7,
+                           Current == Tool.Eraser ? 0 : Color, stroke);
         return stroke.Count != before;
     }
 
@@ -154,6 +159,24 @@ public sealed class GfxEdit
         redo.Push(e);
         Announce();
         return true;
+    }
+
+    /// <summary>Follow a file that changed id — a stock fork saved out as its own ExGFX. The open
+    /// file and every history entry pointing at the old id now point at the new one, so undo
+    /// still lands on the bytes it recorded instead of quietly doing nothing.</summary>
+    internal void Retarget(int from, int to)
+    {
+        Remap(undo); Remap(redo);
+        if (File == from) File = to;
+        if (strokeFile == from) strokeFile = to;
+
+        void Remap(Stack<(int File, (int Off, byte Before, byte After)[] Edits)> s)
+        {
+            var items = s.ToArray();                        // top first
+            s.Clear();
+            for (int i = items.Length - 1; i >= 0; i--)
+                s.Push(items[i].File == from ? (to, items[i].Edits) : items[i]);
+        }
     }
 
     public bool Redo()

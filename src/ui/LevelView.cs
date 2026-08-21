@@ -218,12 +218,30 @@ public class LevelView : Control
             }
             else if (props.IsLeftButtonPressed)
             {
+                int hit = sp.SpriteAt(lp.X, lp.Y);
+                if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
+                {
+                    // Ctrl+left toggles one sprite in or out, so a selection can be picked
+                    // rather than lassoed. No band and no drag: Ctrl is the toggle here, not
+                    // the grab it is over objects.
+                    if (hit >= 0 && !sp.Selection.Remove(hit)) sp.Selection.Add(hit);
+                    SelectionChanged?.Invoke(this, EventArgs.Empty);
+                }
                 // Pressing on what a selected sprite DRAWS drags it, like a selected object.
                 // The test is by pixel because that is how sprites are selected and drawn.
-                if (sp.SelectionCovers(lp.X, lp.Y)) moveStart = cell;
-                else { pixelStart = lp; pixelEnd = lp; }
-                bandEnd = cell;
-                e.Pointer.Capture(this);
+                else if (sp.SelectionCovers(lp.X, lp.Y)) { moveStart = cell; bandEnd = cell; e.Pointer.Capture(this); }
+                else
+                {
+                    // A press picks the sprite under that pixel and nothing when there is
+                    // nothing there, so clicking empty space clears the selection. The band
+                    // overwrites this the moment you actually drag.
+                    sp.Selection.Clear();
+                    if (hit >= 0) sp.Selection.Add(hit);
+                    SelectionChanged?.Invoke(this, EventArgs.Empty);
+                    pixelStart = pixelEnd = lp;
+                    bandEnd = cell;
+                    e.Pointer.Capture(this);
+                }
             }
             InvalidateVisual();
             return;
