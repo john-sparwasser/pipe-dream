@@ -220,9 +220,9 @@ public class Layer2EditingTests(ITestOutputHelper log) : IDisposable
         // Dropping is only offered for a stream this project created, never the base ROM's.
         Assert.False(drop.IsVisible);
 
-        // L2 stays CLICKABLE either way. Most levels are background levels, so a disabled
-        // button was the usual state and clicking it did nothing whatsoever — no switch, and no
-        // word about why. Now the click lands and the status bar explains.
+        // L2 stays CLICKABLE either way: a disabled button was the usual state on background
+        // levels, and a dead control is harder to read than one that lands and changes nothing.
+        // The +L2 button beside it is the affordance that gives the level a layer 2.
         Assert.True(l2.IsEnabled);
         if (session(w).Layer2Editable) return;
 
@@ -231,7 +231,6 @@ public class Layer2EditingTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(0, session(w).EditLayer);                 // still layer 1...
         Assert.True(l1.IsChecked);                             // ...and the bar says so
         Assert.False(l2.IsChecked);
-        Assert.Contains("+L2", w.GetControl<TextBlock>("Status").Text!);   // ...and says why
 
         static EditorSession session(MainWindow w) => (EditorSession)typeof(MainWindow)
             .GetField("session", System.Reflection.BindingFlags.NonPublic

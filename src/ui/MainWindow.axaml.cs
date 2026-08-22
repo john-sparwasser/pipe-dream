@@ -43,7 +43,7 @@ public partial class MainWindow : Window
     private Map16PaletteView palette = null!;
     private ComboBox levelBox = null!, bankBox = null!;
     private Slider zoomSlider = null!, tileZoom = null!;
-    private TextBlock status = null!, hover = null!, zoomLabel = null!, selLabel = null!;
+    private TextBlock readout = null!, zoomLabel = null!, selLabel = null!;
     private Border drawer = null!, paletteBar = null!;
     private TabStrip paletteTabs = null!;
     private DockPanel spritePanel = null!, objectPanel = null!, palettePanel = null!;
@@ -96,8 +96,7 @@ public partial class MainWindow : Window
         zoomSlider = this.GetControl<Slider>("ZoomSlider");
         tileZoom = this.GetControl<Slider>("TileZoom");
         split = this.GetControl<Grid>("Split");
-        status = this.GetControl<TextBlock>("Status");
-        hover = this.GetControl<TextBlock>("Hover");
+        readout = this.GetControl<TextBlock>("Readout");
         zoomLabel = this.GetControl<TextBlock>("ZoomLabel");
         selLabel = this.GetControl<TextBlock>("SelLabel");
         drawer = this.GetControl<Border>("Drawer");
@@ -111,14 +110,15 @@ public partial class MainWindow : Window
         layer2Note = this.GetControl<TextBlock>("Layer2Note");
 
         canvas.Source = bitmap;
-        canvas.PointerMoved += (_, _) => UpdateHover();
+        canvas.PointerMoved += (_, _) => UpdateReadout();
+        canvas.PointerExited += (_, _) => UpdateReadout();
 
         // RIGHT drag stamps the drawer's tile, one undo entry per stroke (ImGui parity: the
         // left button belongs to selection).
         canvas.CellPainted += (_, c) =>
         {
             if (edit is null) return;
-            if (edit.TilePlacementBlocked is { } why) { status.Text = why; return; }
+            if (edit.TilePlacementBlocked is { } why) return;
             // A grabbed multi-tile brush wins over the drawer's single selected tile.
             bool changed = brush is { } b
                 ? edit.PaintBrush(c.X, c.Y, b.Tiles, b.W, b.H)
@@ -129,46 +129,41 @@ public partial class MainWindow : Window
         {
             edit?.EndStroke();   // cells become DM16 objects here; the grid is re-rendered
             PushDirty();
-            UpdateStatus();
         };
         canvas.DuplicateRequested += (_, c) =>
         {
-            if (edit?.DuplicateSelected(c.X, c.Y) == true) { PushDirty(); UpdateStatus(); }
+            if (edit?.DuplicateSelected(c.X, c.Y) == true) PushDirty();
         };
         canvas.PlaceRequested += (_, c) =>
         {
             if (edit is null || canvas.CatalogObject < 0) return;
             edit.PlaceObject(canvas.CatalogObject, c.X, c.Y);
             PushDirty();
-            UpdateStatus();
         };
         canvas.DeleteRequested += (_, _) =>
         {
-            if (edit?.DeleteSelected() == true) { PushDirty(); UpdateStatus(); }
+            if (edit?.DeleteSelected() == true) PushDirty();
         };
         canvas.GrabRequested += (_, g) =>
         {
             if (edit is null) return;
             var (tiles, w, h) = edit.GrabTiles(g.X, g.Y, g.W, g.H);
             SetBrush(tiles, w, h);
-            status.Text = $"grabbed {w}x{h} tiles as the brush — Esc or pick a tile to drop it";
         };
         // Moving and resizing raise this too, and they change PIXELS — without the push the
         // objects stayed where they were drawn and the edit looked like it had not happened.
         // RefreshPixels is a no-op when nothing is dirty, so a plain selection costs nothing.
-        canvas.SelectionChanged += (_, _) => { PushDirty(); UpdateStatus(); };
+        canvas.SelectionChanged += (_, _) => PushDirty();;
         canvas.SampleRequested += (_, p) =>
         {
             if (session.SampleCgramIndex(p.X, p.Y) is not { } idx)
             {
-                status.Text = "no CGRAM colour matches that pixel";
                 return;
             }
             // Land the user where they can act on it: the Palette tab, that swatch selected.
             paletteTabs.SelectedIndex = PaletteTabIndex;
             paletteGrid.Select(idx);
             ShowPaletteColor(idx);
-            status.Text = $"picked {DescribeSwatch(idx)}";
         };
         // A sprite edit changes what the overlay draws, so the level has to recompose. The
         // adopt comes from SceneRebuilt, below.
@@ -198,7 +193,7 @@ public partial class MainWindow : Window
             if (map16 is null) return;
             // Painting an empty page CREATES it; the allocation relocates the def region, so
             // it has to happen before the quadrant offset is taken.
-            if (map16.EnsurePage(q.Tile) is { } why) { status.Text = why; return; }
+            if (map16.EnsurePage(q.Tile) is { } why) return;
             map16.StampQuad(q.Tile, q.Quad, GfxBrushWord(q.Bx, q.By));
         };
         map16Canvas.StrokeEnded += (_, _) => map16?.EndStroke();
@@ -216,7 +211,6 @@ public partial class MainWindow : Window
         map16Canvas.MoveRequested += (_, m) =>
         {
             if (map16?.MoveTiles(map16Canvas.Bank, m.X, m.Y, m.W, m.H, m.Dx, m.Dy) is { } why)
-                status.Text = why;
             map16?.EndStroke();
         };
         // Subscribed once, on the session: a committed definition change invalidates the tile
@@ -260,7 +254,7 @@ public partial class MainWindow : Window
         {
             if (e.Property == RangeBase.ValueProperty) ApplyZoom();
         };
-        ApplyZoom();
+        ApplyZoomTarget(gfx: false);      // one source of truth for the range, step and value
 
         bankBox.SelectionChanged += (_, _) =>
         {
@@ -279,7 +273,7 @@ public partial class MainWindow : Window
             palette.Zoom = tileZoom.Value;
             palette.InvalidateMeasure();
             palette.InvalidateVisual();
-            FitDrawerToPalette();
+            ApplyDrawerPane(drawerPane);        // the Map16 row got wider or narrower
         };
 
         // ---- drawer tabs: Map16 tiles / sprite catalog / object catalog ----
@@ -332,12 +326,11 @@ public partial class MainWindow : Window
         gfxColors.Rows = 1;
         gfxColors.Cell = 20;
 
-        for (int i = 0; i < 16; i++) gfxPalRow.Items.Add($"{i}");
-        gfxPalRow.SelectedIndex = 2;
         gfxPalRow.SelectionChanged += (_, _) =>
         {
-            if (session.GfxPixels is not { } g) return;
-            g.PalRow = Math.Max(0, gfxPalRow.SelectedIndex);
+            if (refillingGfxRows || session.GfxPixels is not { } g) return;
+            if (gfxPalRow.SelectedItem is not int row) return;
+            g.PalRow = row;
             RefreshGfx();
         };
         gfxColors.SelectionChanged += (_, i) =>
@@ -352,8 +345,6 @@ public partial class MainWindow : Window
             // does with every other tool.
             if (g.Current == GfxEdit.Tool.Dropper) { PickGfxColor(p.X, p.Y); return; }
             if (!g.Paint(p.X, p.Y, out bool forked)) return;
-            if (forked) status.Text = $"GFX{g.File:X3} forked into the project — "
-                                    + "edits shadow the base file everywhere";
             RefreshGfxSheet();                    // live feedback, without a level recompose
         };
         gfxCanvas.StrokeEnded += (_, _) =>
@@ -369,6 +360,13 @@ public partial class MainWindow : Window
                 SetGfxTool((GfxEdit.Tool)(((int)g.Current + 1) % 4));
         };
         gfxCanvas.ZoomStepped += (_, d) => StepZoom(d);
+        // Every canvas feeds the same gutter readout; exiting blanks it.
+        foreach (var c in new Control[] { map16Canvas, gfxCanvas })
+        {
+            c.PointerMoved += (_, _) => UpdateReadout();
+            c.PointerExited += (_, _) => UpdateReadout();
+        }
+        gfxCanvas.PalRowStepped += (_, d) => StepGfxPalRow(d);
 
         paletteTabs.SelectionChanged += (_, _) => OnPaletteTab();
         loadedOnly.IsCheckedChanged += (_, _) => ApplySpriteFilter();
@@ -376,17 +374,12 @@ public partial class MainWindow : Window
         {
             if (spriteList.SelectedItem is not CatalogRow it) { canvas.CatalogSprite = -1; return; }
             canvas.CatalogSprite = it.Number;
-            // Placing needs sprite mode; saying so beats a right-click that silently paints.
-            status.Text = canvas.Mode == LevelView.EditMode.Sprites
-                ? $"sprite {it.Label} armed — right-click the level to place"
-                : $"sprite {it.Label} armed — press Esc for sprite mode, then right-click";
         };
         objectList.SelectionChanged += (_, _) =>
         {
             if (objectList.SelectedItem is not CatalogRow it) { canvas.CatalogObject = -1; return; }
             canvas.CatalogObject = it.Number;
             canvas.InvalidateVisual();
-            status.Text = $"object {it.Label} armed — right-click the level to place";
         };
 
         for (int i = 0; i < EditorSession.LevelCount; i++) levelBox.Items.Add($"${i:X3}");
@@ -398,7 +391,7 @@ public partial class MainWindow : Window
         };
 
         palette.Zoom = tileZoom.Value;
-        FitDrawerToPalette();
+        ApplyDrawerPane(Pane.Level);
 
         // ---- menu items that depend on state ----
         recentMenu = this.GetControl<MenuItem>("RecentMenu");
@@ -456,7 +449,6 @@ public partial class MainWindow : Window
             if (dlg.Chosen is { } rom)
             {
                 session.SetVanillaRom(rom);
-                status.Text = "vanilla ROM set — new projects will prep from it";
             }
         }
 
@@ -495,11 +487,10 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>Help → Check for updates. Unlike the startup check this one always answers,
-    /// because the user asked a question.</summary>
+    /// <summary>Help → Check for updates. Shows the update window when there is one; with no status
+    /// line to write to, "you are up to date" and a failed check both pass in silence.</summary>
     private async void OnCheckUpdates(object? sender, RoutedEventArgs e)
     {
-        status.Text = "checking for updates…";
         try
         {
             if (await session.FindUpdate(userAsked: true) is { } found)
@@ -507,15 +498,14 @@ public partial class MainWindow : Window
                 await UpdateWindow.Prompt(this, session, found);
                 return;
             }
-            status.Text = $"Pipe Dream {session.CurrentVersion} — no newer build available";
         }
-        catch (Exception ex) { status.Text = "update check failed: " + ex.Message; }
+        catch { /* Help ▸ Check for updates: a failed check is nothing the user can act on */ }
     }
 
     private void LoadRom(string path)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        if (!session.OpenRom(path)) { status.Text = session.Status; return; }
+        if (!session.OpenRom(path)) return;
         composeMs = sw.Elapsed.TotalMilliseconds;
         AdoptSession();
         levelBox.SelectedIndex = session.LevelNum;
@@ -545,7 +535,6 @@ public partial class MainWindow : Window
         spriteList.ItemsSource = null;
         RefreshDrawer();
         RefreshLayerBar();
-        UpdateStatus();
         UpdateTitle();
     }
 
@@ -603,7 +592,6 @@ public partial class MainWindow : Window
                 if (redo ? session.PaletteRedo() : session.PaletteUndo())
                 {
                     AdoptSession();
-                    status.Text = redo ? "palette redo" : "palette undo";
                 }
             }
             else if (modeGfx.IsChecked == true)
@@ -623,13 +611,11 @@ public partial class MainWindow : Window
                 {
                     session.RefreshSprites();
                     PushSpritePixels();
-                    status.Text = redo ? "sprite redo" : "sprite undo";
                 }
             }
             else if (redo ? edit?.Redo() == true : edit?.Undo() == true)
             {
                 PushDirty();
-                UpdateStatus();
             }
             e.Handled = true;
         }
@@ -644,7 +630,7 @@ public partial class MainWindow : Window
         else if (e.Key == Key.Escape)
         {
             if (modeLevel.IsChecked != true) OnMode(modeLevel, new RoutedEventArgs());
-            else if (brush is not null) { SetBrush(null, 1, 1); status.Text = "brush dropped"; }
+            else if (brush is not null) SetBrush(null, 1, 1);
             else
             {
                 // Esc cycles Layer 1 <-> sprite selection, as the ImGui editor does, and
@@ -658,9 +644,6 @@ public partial class MainWindow : Window
                 // the same state, so leaving the tab behind would show a sprite catalog while
                 // the canvas edits objects.
                 paletteTabs.SelectedIndex = canvas.Mode == LevelView.EditMode.Sprites ? 1 : 0;
-                status.Text = canvas.Mode == LevelView.EditMode.Sprites
-                    ? "sprite mode — left-drag selects by what a sprite DRAWS, right-click places"
-                    : $"level ${levelNum:X3}";
             }
             e.Handled = true;
         }
@@ -672,7 +655,6 @@ public partial class MainWindow : Window
     {
         zoomSlider.Value = Math.Clamp(zoomSlider.Value + dir * zoomSlider.TickFrequency,
                                       zoomSlider.Minimum, zoomSlider.Maximum);
-        status.Text = $"zoom {zoomSlider.Value:0}%";
     }
 
     // The gutter slider drives whichever canvas is showing, but 200% is a sane level zoom and a
@@ -687,6 +669,9 @@ public partial class MainWindow : Window
         // Read the wanted value first: narrowing the range coerces Value, which lands in the
         // remembered field on the way through.
         double want = gfx ? gfxZoomPct : levelZoomPct;
+        // The level steps in 10%: a fractional zoom is drawn filtered rather than nearest, so it
+        // stays clean (LevelView.Unsampled). The GFX sheet steps in whole multiples instead —
+        // pixel editing wants the pixel you click to be exactly the pixel you paint.
         (zoomSlider.Minimum, zoomSlider.Maximum, zoomSlider.TickFrequency) =
             gfx ? (400.0, 1600.0, 100.0)      // whole screen pixels per GFX pixel, 4x to 16x
                 : (100.0, 800.0, 10.0);
@@ -694,43 +679,63 @@ public partial class MainWindow : Window
         ApplyZoom();                          // in case the value never changed
     }
 
-    /// <summary>Push the slider's percent onto the canvas it is driving, and remember it there.</summary>
+    /// <summary>Push the slider's percent onto the canvas it is driving, and remember it there.
+    /// The percent is taken at face value — how a fractional one gets DRAWN is the canvas's call
+    /// (see <see cref="LevelView.Unsampled"/>).</summary>
     private void ApplyZoom()
     {
         double pct = zoomSlider.Value;
+        double zoom = pct / 100.0;
         zoomLabel.Text = $"{pct:0}%";
         if (modeGfx?.IsChecked == true)
         {
             gfxZoomPct = pct;
-            gfxCanvas.Zoom = pct / 100.0;
+            gfxCanvas.Zoom = zoom;
             gfxCanvas.InvalidateMeasure();
             gfxCanvas.InvalidateVisual();
         }
         else
         {
             levelZoomPct = pct;
-            canvas.Zoom = pct / 100.0;
+            canvas.Zoom = zoom;
             canvas.InvalidateVisual();
             canvas.InvalidateMeasure();
         }
     }
 
-    private void UpdateStatus()
+    /// <summary>
+    /// The gutter readout: what is under the cursor, in the terms of whichever canvas is showing —
+    /// a level cell and its Map16 tile, a Map16 tile and what it acts as, a GFX tile and pixel.
+    ///
+    /// Blank when the cursor is off the canvas. A last-hovered value that sticks reads as the thing
+    /// you are pointing at NOW, which is how a stale tile number gets copied into a bug report.
+    /// </summary>
+    private void UpdateReadout()
+        => readout.Text = modeGfx.IsChecked == true ? GfxReadout()
+                        : modeMap16.IsChecked == true ? Map16Readout()
+                        : LevelReadout();
+
+    private string LevelReadout()
     {
-        if (!session.HasLevel) return;
-        // Object count comes from the EDIT, not the parsed level: painting appends objects,
-        // and watching that number move is the clearest sign the stroke really became data.
-        string undoNote = edit is { UndoDepth: > 0 } ? $"   {edit.UndoDepth} edit(s)" : "";
-        status.Text = $"level ${levelNum:X3}   {session.PxW}x{session.PxH}px   " +
-                      $"{session.ObjectCount} objects   composed in {composeMs:F0}ms{undoNote}";
+        if (canvas.HoverCell is not { } c) return "";
+        if (session.TileAt(c.X, c.Y) is not { } tile) return $"({c.X,3},{c.Y,2})  empty";
+        string acts = map16?.ActsAs(tile) is { } a ? $"  acts 0x{a:X3}" : "";
+        return $"({c.X,3},{c.Y,2})  tile 0x{tile:X3}{acts}";
     }
 
-    private void UpdateHover()
-        => hover.Text = canvas.HoverCell is { } c
-            ? session.TileAt(c.X, c.Y) is { } tile
-                ? $"({c.X,3},{c.Y,2})  tile 0x{tile:X3}"
-                : $"({c.X,3},{c.Y,2})  empty"
-            : "";
+    private string Map16Readout()
+    {
+        if (map16Canvas.HoverQuad is not { } h || map16 is not { } m16) return "";
+        if (m16.ReadDef(h.Tile) is not { } def) return $"tile 0x{h.Tile:X4}  unallocated";
+        string acts = m16.ActsAs(h.Tile) is { } a ? $"  acts 0x{a:X3}" : "";
+        return $"tile 0x{h.Tile:X4}{acts}  pal {def[0].Palette}";
+    }
+
+    private string GfxReadout()
+    {
+        if (gfxSlot < 0 || gfxCanvas.Hover is not { } p || session.GfxPixels is not { } g) return "";
+        return $"GFX{g.File:X3}  tile 0x{(p.Y / 8) * 16 + p.X / 8:X2}  px ({p.X & 7},{p.Y & 7})";
+    }
 
     /// <summary>Push what an edit changed into the bitmap. The composition already happened in
     /// the session's phase images, so this is only the copy — and because the bitmap takes whole
@@ -781,8 +786,8 @@ public partial class MainWindow : Window
 
         if (slot is { } bin)
         {
-            status.Text = session.SetGfxSlot(gfxSlot, picked);
-            gfxPalRow.SelectedIndex = bin.PalRow;
+            session.SetGfxSlot(gfxSlot, picked);
+            if (session.GfxPixels is { } gp) gp.PalRow = bin.PalRow;   // the picker follows in RefreshGfx
             AdoptSession();                     // the level draws through the new file now
         }
         session.GfxPixels?.Open(picked);
@@ -801,7 +806,7 @@ public partial class MainWindow : Window
             if (dlg.Result is not { } picked) return;          // cancelled: nothing saved
             name = picked;
         }
-        status.Text = session.SaveGfx(name);
+        session.SaveGfx(name);
         RefreshGfx();
     }
 
@@ -831,12 +836,10 @@ public partial class MainWindow : Window
     {
         if (session.OpenProject(pdp))
         {
-            status.Text = session.Status;
             AdoptSession();
             levelBox.SelectedIndex = session.LevelNum;
             return;
         }
-        status.Text = session.Status;
         if (session.PendingBaseProblem is null) return;      // a real failure, not a missing base
 
         while (session.PendingBaseProblem is { } problem)
@@ -847,7 +850,6 @@ public partial class MainWindow : Window
             if (dlg.Located is not { } rom) { session.CancelPendingOpen(); return; }
             if (session.AdoptPendingBase(rom) is null) break;
         }
-        status.Text = session.Status;
         AdoptSession();
         levelBox.SelectedIndex = session.LevelNum;
     }
@@ -869,27 +871,26 @@ public partial class MainWindow : Window
         if (baseRom is null) return;
 
         session.NewProject(EditorSession.ProjectFolderFor(folder, baseRom), baseRom);
-        status.Text = session.Status;
         AdoptSession();
         levelBox.SelectedIndex = session.LevelNum;
     }
 
     private void OnSave(object? sender, RoutedEventArgs e)
     {
-        status.Text = session.Save();
+        session.Save();
         gfxSave.IsEnabled = session.GfxDirty;    // Ctrl+S saved the pixels too
         UpdateTitle();
     }
 
     private void OnBuild(object? sender, RoutedEventArgs e)
     {
-        status.Text = session.Build();
+        session.Build();
         UpdateTitle();
     }
 
     private void OnExportBps(object? sender, RoutedEventArgs e)
     {
-        status.Text = session.ExportBps();
+        session.ExportBps();
         UpdateTitle();
     }
 
@@ -901,13 +902,12 @@ public partial class MainWindow : Window
         var dlg = new LevelPropertiesWindow(header, entrance, session.HasHeaderOverride);
         await dlg.ShowDialog(this);
 
-        if (dlg.RevertRequested) { session.RevertHeader(); AdoptSession(); status.Text = "header reverted"; return; }
+        if (dlg.RevertRequested) { session.RevertHeader(); AdoptSession(); return; }
         if (dlg.AppliedEntry is { } en) session.ApplyEntry(en);
         if (dlg.AppliedHeader is { } h && h != header)
         {
             session.ApplyHeader(h);
             AdoptSession();
-            status.Text = $"header applied — {Convert.ToHexString(h.ToBytes())}";
         }
         UpdateTitle();
     }
@@ -918,12 +918,10 @@ public partial class MainWindow : Window
     {
         if (!session.HasProject)
         {
-            status.Text = "open a project first — Course Bot lives in the .pdp";
             return;
         }
         var dlg = new CourseBotWindow(session);
         await dlg.ShowDialog(this);
-        status.Text = session.Status;
         if (dlg.Picked is { } lv && lv != levelBox.SelectedIndex) levelBox.SelectedIndex = lv;
         else AdoptSession();          // a delete may have reverted the level on screen
         UpdateTitle();
@@ -933,7 +931,6 @@ public partial class MainWindow : Window
     {
         if (await PickFile("Choose your verified vanilla SMW ROM", RomType) is not { } p) return;
         session.SetVanillaRom(p);
-        status.Text = "vanilla ROM set — new projects will prep from it";
     }
 
     private void OnExit(object? sender, RoutedEventArgs e) => Close();
@@ -950,8 +947,6 @@ public partial class MainWindow : Window
         if (dlg.Applied is { } exits && edit.WriteExits(exits))
         {
             PushDirty();
-            UpdateStatus();
-            status.Text = $"{exits.Count} screen exit(s) applied";
         }
         if (dlg.OpenEntrance is { } at) await ShowEntrance(at);
         UpdateTitle();
@@ -963,9 +958,7 @@ public partial class MainWindow : Window
         var dlg = new SecondaryEntranceWindow(index, session.ReadEntrance);
         await dlg.ShowDialog(this);
         if (dlg.Applied is not { } a) return;
-        status.Text = session.WriteEntrance(a.Index, a.Entrance)
-            ? $"secondary entrance ${a.Index:X3} written — {Convert.ToHexString(a.Entrance.ToBytes())}"
-            : $"secondary entrance ${a.Index:X3} unchanged";
+        session.WriteEntrance(a.Index, a.Entrance);
         UpdateTitle();
     }
 
@@ -993,19 +986,14 @@ public partial class MainWindow : Window
     {
         session.ReloadLevel();
         AdoptSession();
-        status.Text = $"level ${levelNum:X3} reloaded";
     }
 
     // ---- layer 2 ----
 
     private void OnEditLayer(object? sender, RoutedEventArgs e)
     {
-        int want = ReferenceEquals(sender, layerTwo) ? 1 : 0;
-        string note = session.SetEditLayer(want);
+        session.SetEditLayer(ReferenceEquals(sender, layerTwo) ? 1 : 0);
         AdoptSession();
-        // AFTER the adopt: it ends in UpdateStatus, which was overwriting this the moment it was
-        // set — including the one message that explains why the click did nothing.
-        if (note.Length > 0) status.Text = note;
     }
 
     private async void OnPickBackground(object? sender, RoutedEventArgs e)
@@ -1013,19 +1001,16 @@ public partial class MainWindow : Window
         var dlg = new BackgroundPickerWindow(session.Backgrounds(), session.CurrentBackground);
         await dlg.ShowDialog(this);
         if (dlg.Picked is not { } lo16) return;
-        status.Text = session.SetLayer2Background(lo16);
         AdoptSession();
     }
 
     private void OnAddLayer2(object? sender, RoutedEventArgs e)
     {
-        status.Text = session.SetLayer2ObjectMode(true);
         AdoptSession();
     }
 
     private void OnDropLayer2(object? sender, RoutedEventArgs e)
     {
-        status.Text = session.SetLayer2ObjectMode(false);
         AdoptSession();
     }
 
@@ -1054,7 +1039,7 @@ public partial class MainWindow : Window
 
     private void OnUpgradePrep(object? sender, RoutedEventArgs e)
     {
-        status.Text = session.UpgradeBasePrep();
+        session.UpgradeBasePrep();
         AdoptSession();
         levelBox.SelectedIndex = session.LevelNum;
     }
@@ -1063,7 +1048,6 @@ public partial class MainWindow : Window
     {
         session.ShowSprites = !session.ShowSprites;
         AdoptSession();
-        status.Text = session.ShowSprites ? "sprite overlay on" : "sprite overlay off";
     }
 
     /// <summary>
@@ -1081,7 +1065,6 @@ public partial class MainWindow : Window
             animate.Start();
         }
         animateItem.Icon = animate is null ? null : new TextBlock { Text = "✓" };
-        status.Text = animate is null ? "tile animation stopped" : "tile animation running";
     }
 
     private DispatcherTimer? animate;
@@ -1097,12 +1080,12 @@ public partial class MainWindow : Window
 
     private void OnUndo(object? sender, RoutedEventArgs e)
     {
-        if (edit?.Undo() == true) { PushDirty(); UpdateStatus(); }
+        if (edit?.Undo() == true) PushDirty();
     }
 
     private void OnRedo(object? sender, RoutedEventArgs e)
     {
-        if (edit?.Redo() == true) { PushDirty(); UpdateStatus(); }
+        if (edit?.Redo() == true) PushDirty();
     }
 
     private void OnTogglePalette(object? sender, RoutedEventArgs e) => drawer.IsVisible = !drawer.IsVisible;
@@ -1116,19 +1099,18 @@ public partial class MainWindow : Window
         var cols = split.ColumnDefinitions;
         if (drawer.IsVisible)
         {
-            cols[0].Width = new GridLength(drawerWidth);
+            cols[0].Width = new GridLength(WantedDrawerWidth(drawerPane));
             cols[1].Width = GridLength.Auto;
         }
         else
         {
-            if (cols[0].Width.IsAbsolute && cols[0].Width.Value > 0) drawerWidth = cols[0].Width.Value;
+            if (cols[0].Width.IsAbsolute && cols[0].Width.Value > 0)
+                drawerWidths[drawerPane] = cols[0].Width.Value;
             cols[0].Width = new GridLength(0);
             cols[1].Width = new GridLength(0);
         }
         split.InvalidateMeasure();
     }
-
-    private double drawerWidth = DrawerWidthFor(2);
 
     /// <summary>
     /// Chrome around the palette content inside the drawer: the drawer's right border plus
@@ -1137,18 +1119,47 @@ public partial class MainWindow : Window
     /// </summary>
     private const double DrawerChrome = 1 + 18;
 
-    private static double DrawerWidthFor(double tileZoom)
-        => Map16PaletteView.ContentWidth(tileZoom) + DrawerChrome;
+    /// <summary>A GFX bin card is its sheet at 2x (a GFX file is 128 pixels across) plus the card's
+    /// padding and border and the list's margin.</summary>
+    private const double GfxBinCardWidth = 128 * 2 + 8 * 2 + 1 * 2 + 10 * 2;
 
-    /// <summary>Size the drawer to hold a whole row of Map16 tiles. The splitter can still
-    /// widen it; this only ever sets the width that stops tiles being cut off.</summary>
-    private void FitDrawerToPalette()
+    /// <summary>The Map16 drawer's CHR grid is NARROWER than the two control rows above it, so the
+    /// rows are what set the floor there.</summary>
+    private const double Map16BarWidth = 300;
+
+    /// <summary>Which thing the drawer is holding. Not the same as the canvas mode by accident —
+    /// each mode's drawer shows different content, and they are nowhere near the same width.</summary>
+    private enum Pane { Level, Map16, Graphics }
+
+    private Pane drawerPane = Pane.Level;
+
+    /// <summary>Where each pane was last left. Absent = never seen, so it opens at its content
+    /// width; a splitter drag is remembered per pane rather than dragging all three.</summary>
+    private readonly Dictionary<Pane, double> drawerWidths = [];
+
+    /// <summary>What a pane's content actually needs: a whole Map16 tile row, the 8x8 CHR grid and
+    /// its controls, or an uncut GFX bin card.</summary>
+    private double NaturalDrawerWidth(Pane pane) => DrawerChrome + pane switch
     {
-        drawerWidth = DrawerWidthFor(palette.Zoom);
+        Pane.Map16 => Math.Max(ChrPaletteView.ContentWidth(chr.Zoom), Map16BarWidth),
+        Pane.Graphics => GfxBinCardWidth,
+        _ => Map16PaletteView.ContentWidth(palette.Zoom),
+    };
+
+    private double WantedDrawerWidth(Pane pane)
+        => Math.Max(drawerWidths.GetValueOrDefault(pane), NaturalDrawerWidth(pane));
+
+    /// <summary>Point the drawer at a pane: bank the width the outgoing one was left at, then take
+    /// the incoming one's — its own remembered width, or what its content needs the first time.
+    /// Re-running it for the CURRENT pane is how a content resize (the Map16 tile zoom) re-floors
+    /// the drawer without discarding a splitter drag.</summary>
+    private void ApplyDrawerPane(Pane pane)
+    {
         var col = split.ColumnDefinitions[0];
-        col.MinWidth = drawerWidth;
-        if (drawer.IsVisible && (!col.Width.IsAbsolute || col.Width.Value < drawerWidth))
-            col.Width = new GridLength(drawerWidth);
+        if (col.Width.IsAbsolute && col.Width.Value > 0) drawerWidths[drawerPane] = col.Width.Value;
+        drawerPane = pane;
+        col.MinWidth = NaturalDrawerWidth(pane);
+        if (drawer.IsVisible) col.Width = new GridLength(WantedDrawerWidth(pane));
     }
 
     // ---- drawer tabs ----
@@ -1278,6 +1289,52 @@ public partial class MainWindow : Window
                     : ReferenceEquals(sender, gfxDropper) ? GfxEdit.Tool.Dropper
                     : GfxEdit.Tool.Pencil);
 
+    /// <summary>Step the paint palette row within what the selected bin is allowed. The combo box
+    /// IS the state, so its own handler carries the change to the editor, the sheet and the drawer's
+    /// preview of the selected bin.</summary>
+    private void StepGfxPalRow(int delta)
+    {
+        int i = Math.Clamp(gfxPalRow.SelectedIndex + delta, 0, gfxPalRow.ItemCount - 1);
+        if (i == gfxPalRow.SelectedIndex) return;
+        gfxPalRow.SelectedIndex = i;
+    }
+
+    private bool refillingGfxRows;
+
+    /// <summary>
+    /// The palette rows the selected bin can legitimately use: SMW loads layer graphics under CGRAM
+    /// rows 0-7 and sprite graphics under 8-15, so an FG/BG bin offering row 9 (or an SP bin
+    /// offering row 2) is offering a preview the game will never draw. With no bin selected nothing
+    /// constrains the choice, so all sixteen are there.
+    /// </summary>
+    private (int First, int Count) GfxRowRange()
+        => session.GfxBins.FirstOrDefault(b => b.BypWord == gfxSlot).Name switch
+        {
+            null => (0, 16),
+            var n when n.StartsWith("SP") => (8, 8),
+            _ => (0, 8),
+        };
+
+    /// <summary>Fill the row picker with what this bin allows and land on the nearest legal row to
+    /// the one being painted with. The items ARE the row numbers, so a list starting at 8 does not
+    /// make index 0 mean row 0.</summary>
+    private (int First, int Count) gfxRows = (-1, 0);
+
+    private void RefreshGfxPalRows(int row)
+    {
+        var want = GfxRowRange();
+        row = Math.Clamp(row, want.First, want.First + want.Count - 1);
+        refillingGfxRows = true;
+        if (want != gfxRows)
+        {
+            gfxRows = want;
+            gfxPalRow.ItemsSource = Enumerable.Range(want.First, want.Count).Cast<object>().ToList();
+        }
+        gfxPalRow.SelectedIndex = row - want.First;
+        refillingGfxRows = false;
+        if (session.GfxPixels is { } g) g.PalRow = row;      // the clamp has to reach the editor
+    }
+
     /// <summary>Take the colour under a sheet pixel as the paint colour — the eyedropper tool and
     /// the right-click shortcut are the same act.</summary>
     private void PickGfxColor(int px, int py)
@@ -1288,12 +1345,13 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Re-decode the sheet only. This is the live-paint path, so it must NOT recompose
-    /// the level — that happens once when the stroke ends.</summary>
-    private void RefreshGfxSheet()
+    /// the level — that happens once when the stroke ends. <paramref name="blank"/> draws nothing
+    /// at all, which also makes the canvas untouchable: a zero-size sheet hit-tests to no pixel.</summary>
+    private void RefreshGfxSheet(bool blank = false)
     {
         if (session.GfxPixels is not { } g) return;
-        var (px, w, h) = session.GfxSheet();
-        gfxCanvas.Tiles = g.Layout.Tiles;
+        var (px, w, h) = blank ? ([], 0, 0) : session.GfxSheet();
+        gfxCanvas.Tiles = blank ? 0 : g.Layout.Tiles;
         gfxCanvas.SetSheet(px, w, h);
     }
 
@@ -1302,18 +1360,24 @@ public partial class MainWindow : Window
     private void RefreshGfx()
     {
         if (session.GfxPixels is not { } g) return;
+        // No bin selected means nothing is being edited, so the view is EMPTY — showing whichever
+        // file the editor happens to have open would read as some bin's contents.
+        bool none = gfxSlot < 0;
         // The file, by name where it has one. The badge says which kind it is, so the note is
         // only the id — and only when the name is not already showing it.
         bool stock = session.GfxIsStock;
-        gfxFileName.Text = g.Name ?? $"GFX{g.File:X3}";
-        gfxFileNote.Text = g.Name is null ? "" : $"GFX{g.File:X3}";
+        gfxKind.IsVisible = !none;
+        gfxFileName.Text = none ? "no bin selected" : g.Name ?? $"GFX{g.File:X3}";
+        gfxFileNote.Text = none ? "pick one in the drawer" : g.Name is null ? "" : $"GFX{g.File:X3}";
         gfxKind.Data = (StreamGeometry)this.FindResource(stock ? "IconCircleCheck" : "IconStar")!;
         gfxKind.Classes.Set("custom", !stock);
         ToolTip.SetTip(gfxKind, stock ? "a base ROM graphics file" : "a custom ExGFX file");
-        gfxSave.IsEnabled = session.GfxDirty;
-        gfxEmptyLoad.IsVisible = g.Layout.Tiles == 0;      // nothing to paint on — offer Load
+        gfxSave.IsEnabled = !none && session.GfxDirty;
+        // Nothing to paint on: an empty BIN offers Load, no bin at all offers nothing.
+        gfxEmptyLoad.IsVisible = !none && g.Layout.Tiles == 0;
         SetGfxTool(g.Current);
-        RefreshGfxSheet();
+        RefreshGfxPalRows(g.PalRow);      // the rows this bin allows, before anything reads one
+        RefreshGfxSheet(none);
 
         // The row's colours as paint swatches — only as many as the ROM's depth can hold, since
         // a 3bpp file has no colour 8. Index 0 keeps the sheet's grey convention: in a tile it
@@ -1322,7 +1386,7 @@ public partial class MainWindow : Window
         var row = new uint[count];
         var pal = session.PaletteRgba;
         for (int i = 0; i < count; i++)
-            row[i] = i == 0 ? 0xFF303030u : pal[Math.Max(0, gfxPalRow.SelectedIndex) * 16 + i];
+            row[i] = i == 0 ? 0xFF303030u : pal[g.PalRow * 16 + i];
         gfxColors.Cols = count;
         gfxColors.Colors = row;
         gfxColors.InvalidateMeasure();
@@ -1349,7 +1413,7 @@ public partial class MainWindow : Window
                 if (!int.TryParse(idBox.Text, System.Globalization.NumberStyles.HexNumber,
                                   null, out int id)) { idBox.Text = $"{file:X3}"; return; }
                 if (id == file) return;
-                status.Text = session.SetGfxSlot(bypWord, id);
+                session.SetGfxSlot(bypWord, id);
                 AdoptSession();
             }
             idBox.KeyDown += (_, e) => { if (e.Key == Key.Enter) { Commit(); e.Handled = true; } };
@@ -1378,7 +1442,11 @@ public partial class MainWindow : Window
             var block = new StackPanel { Spacing = 4 };
             block.Children.Add(head);
 
-            var (px, w, h) = session.GfxFileSheet(bin.File, bin.PalRow);
+            // The SELECTED bin previews in the row being painted with, so the drawer and the editor
+            // show the same colours; the others keep the row the level actually loads them under.
+            int previewRow = bin.BypWord == gfxSlot && session.GfxPixels is { } sel
+                ? sel.PalRow : bin.PalRow;
+            var (px, w, h) = session.GfxFileSheet(bin.File, previewRow);
             if (px.Length > 0)
                 block.Children.Add(new Image
                 {
@@ -1399,7 +1467,9 @@ public partial class MainWindow : Window
                 Child = block,
                 Padding = new Thickness(8, 6),
                 CornerRadius = new CornerRadius(5),
-                BorderThickness = new Thickness(open ? 1.5 : 1),
+                // Same thickness selected or not: a thicker border relays the card and the whole
+                // list jiggles as the selection moves. Colour and fill carry the state instead.
+                BorderThickness = new Thickness(1),
                 BorderBrush = open ? UiColors.Accent : this.FindResource("BorderBrush") as IBrush,
                 // Transparent, never null: a null background is not hit-testable, so the card
                 // would take no clicks except on the controls inside it.
@@ -1430,7 +1500,7 @@ public partial class MainWindow : Window
     {
         if (session.GfxPixels is not { } g) return;
         g.Open(file);
-        gfxPalRow.SelectedIndex = palRow;
+        g.PalRow = palRow;                 // the bin's own row; the picker follows in RefreshGfx
         OnMode(modeGfx, new RoutedEventArgs());
     }
 
@@ -1500,7 +1570,6 @@ public partial class MainWindow : Window
     {
         if (!session.ResetPalette()) return;
         AdoptSession();
-        status.Text = "palette edits dropped";
     }
 
     private void OnToggleGrid(object? sender, RoutedEventArgs e)
@@ -1518,6 +1587,11 @@ public partial class MainWindow : Window
 
     // Radio behaviour without a group: exactly one canvas mode is active. Switching drops
     // every mode's in-flight drag, as the ImGui view toggle does.
+    /// <summary>Give a canvas the keyboard once layout has caught up. Focusing a control in the
+    /// same breath as making it visible silently does nothing — it is not in the tree yet — and
+    /// then the mode's own keys (F, [ ], the palette arrows) go nowhere until it is clicked.</summary>
+    private static void FocusWhenLaidOut(Control c) => Dispatcher.UIThread.Post(() => c.Focus());
+
     private void OnMode(object? sender, RoutedEventArgs e)
     {
         foreach (var b in new[] { modeLevel, modeMap16, modeGfx })
@@ -1535,6 +1609,7 @@ public partial class MainWindow : Window
         edit?.Selection.Clear();
         map16Canvas.ClearSelection();
         ApplyZoomTarget(gfx);          // the gutter control follows the canvas it is driving
+        ApplyDrawerPane(gfx ? Pane.Graphics : map16 ? Pane.Map16 : Pane.Level);
 
         RefreshDrawer();
         map16Props.IsVisible = map16;
@@ -1542,8 +1617,7 @@ public partial class MainWindow : Window
         {
             RefreshMap16Sheet();
             RefreshMap16Props();
-            map16Canvas.Focus();
-            status.Text = "Map16 — right-drag stamps the 8x8 brush; X/Y/P flip the quadrant under the cursor";
+            FocusWhenLaidOut(map16Canvas);
         }
         else if (gfx)
         {
@@ -1553,10 +1627,9 @@ public partial class MainWindow : Window
                 gfxSlot = session.GfxBins.Where(b => b.File == gp.File)
                                  .Select(b => (int?)b.BypWord).FirstOrDefault() ?? -1;
             RefreshGfx();
-            gfxCanvas.Focus();
-            status.Text = "GFX — left paints, right picks a colour, F switches tool, [ ] zooms";
+            FocusWhenLaidOut(gfxCanvas);
         }
-        else UpdateStatus();
+
         canvas.InvalidateVisual();
     }
 
@@ -1601,8 +1674,7 @@ public partial class MainWindow : Window
         if (loadingM16Props || map16 is not { } m16) return;
         if (!int.TryParse(m16Acts.Text, System.Globalization.NumberStyles.HexNumber, null, out int v))
         { RefreshMap16Props(); return; }
-        if (m16.SetActsAs(map16Canvas.SelectedTiles(), v))
-            status.Text = $"acts-like ← 0x{v & 0x3FFF:X3}";
+        m16.SetActsAs(map16Canvas.SelectedTiles(), v);
     }
 
     private void OnFlipX(object? sender, RoutedEventArgs e) => FlipM16(vertical: false);

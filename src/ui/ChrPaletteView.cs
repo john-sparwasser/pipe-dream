@@ -20,6 +20,12 @@ public class ChrPaletteView : Control
 
     public double Zoom { get; set; } = 2.0;
 
+    /// <summary>Width the grid needs at a zoom, margin included — what the drawer sizes to so the
+    /// last tile column is not cut off. Mirrors <see cref="Map16PaletteView.ContentWidth"/>; Pad is
+    /// the view's margin in the window's XAML.</summary>
+    public const double Pad = 8;
+    public static double ContentWidth(double zoom) => Cols * 8 * zoom + Pad * 2;
+
     /// <summary>Selected 8x8 tile, and the rectangle when several were lassoed.</summary>
     public int Selected { get; private set; }
     public (int X, int Y, int W, int H) Brush { get; private set; } = (0, 0, 1, 1);

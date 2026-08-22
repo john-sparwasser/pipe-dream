@@ -446,7 +446,9 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
 
         var session = SessionOf(w);
         var bins = w.GetControl<StackPanel>("GfxBins");
-        static bool Selected(Control c) => ((Border)c).BorderThickness.Left > 1;
+        // By colour, not thickness: the border keeps one width so the list does not reflow as the
+        // selection moves.
+        static bool Selected(Control c) => ReferenceEquals(((Border)c).BorderBrush, UiColors.Accent);
 
         void Click(int i)
         {
@@ -473,6 +475,126 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
             Assert.Equal(session.GfxBins[i].File == 0x7F,
                          w.GetControl<Button>("GfxEmptyLoad").IsVisible);
         }
+    }
+
+    /// <summary>With no bin selected there is nothing to edit, so the canvas is EMPTY — not the last
+    /// file the editor happened to have open, which would read as some bin's contents. And with no
+    /// sheet there is no pixel to hit, so the empty view cannot be painted on either.</summary>
+    [AvaloniaFact]
+    public void no_bin_selected_shows_an_empty_canvas()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        var session = SessionOf(w);
+
+        // A file no bin in this level holds, so entering the mode adopts no bin.
+        int orphan = Enumerable.Range(0, 0x34).First(f => session.GfxBins.All(b => b.File != f));
+        session.GfxPixels!.Open(orphan);
+        w.GetControl<ToggleButton>("ModeGfx").RaiseEvent(
+            new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var canvas = w.GetControl<GfxCanvasView>("GfxCanvas");
+        Assert.Equal(0, canvas.Tiles);
+        Assert.False(w.GetControl<Button>("GfxEmptyLoad").IsVisible);   // no bin to load INTO
+        Assert.False(w.GetControl<Button>("GfxSave").IsEnabled);
+        Assert.Equal("no bin selected", w.GetControl<TextBlock>("GfxFileName").Text);
+
+        // Clicking a bin fills it in.
+        var bins = w.GetControl<StackPanel>("GfxBins");
+        int i = Array.FindIndex(session.GfxBins, b => b.File != 0x7F);
+        var card = (Border)bins.Children[i];
+        card.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+        var at = card.TranslatePoint(new Point(4, 4), w)!.Value;
+        w.MouseDown(at, MouseButton.Left);
+        w.MouseUp(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(canvas.Tiles > 0, "selecting a bin did not bring its sheet back");
+    }
+
+    /// <summary>A bin can only be previewed in rows the game would actually load it under: SMW puts
+    /// layer graphics in CGRAM rows 0-7 and sprite graphics in 8-15. Offering all sixteen let an SP
+    /// sheet be painted against colours it can never be drawn with, which reads as the palette
+    /// being wrong rather than the row being impossible.</summary>
+    [AvaloniaFact]
+    public void a_bins_palette_rows_are_limited_to_its_half_of_cgram()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeGfx").RaiseEvent(
+            new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var session = SessionOf(w);
+        var bins = w.GetControl<StackPanel>("GfxBins");
+        var rows = w.GetControl<ComboBox>("GfxPalRow");
+
+        void ClickBin(string name)
+        {
+            var card = (Border)bins.Children[Array.FindIndex(session.GfxBins, b => b.Name == name)];
+            card.BringIntoView();
+            Dispatcher.UIThread.RunJobs();
+            var at = card.TranslatePoint(new Point(4, 4), w)!.Value;
+            w.MouseDown(at, MouseButton.Left);
+            w.MouseUp(at, MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        ClickBin("SP1");
+        Assert.Equal(8, rows.ItemCount);
+        Assert.Equal(8, rows.Items[0]);
+        Assert.Equal(15, rows.Items[7]);
+        Assert.InRange(session.GfxPixels!.PalRow, 8, 15);
+
+        // Up from the top of the sprite rows stays in the sprite rows.
+        for (int i = 0; i < 12; i++) w.KeyPressQwerty(PhysicalKey.ArrowUp, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(8, session.GfxPixels!.PalRow);
+
+        ClickBin("FG1");
+        Assert.Equal(8, rows.ItemCount);
+        Assert.Equal(0, rows.Items[0]);
+        Assert.Equal(7, rows.Items[7]);
+        Assert.InRange(session.GfxPixels!.PalRow, 0, 7);
+    }
+
+    /// <summary>Up/Down cycle the paint palette row while drawing — the row is the thing you change
+    /// most, and the combo box being the state is what carries it to the editor, the sheet and the
+    /// drawer's preview of the selected bin in one go. It clamps rather than wrapping: row 0 is the
+    /// end of the list, not the way to row 15.</summary>
+    [AvaloniaFact]
+    public void up_and_down_cycle_the_palette_row_in_graphics_mode()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeGfx").RaiseEvent(
+            new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var session = SessionOf(w);
+        var rows = w.GetControl<ComboBox>("GfxPalRow");
+        int start = rows.SelectedIndex;
+
+        w.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(start + 1, rows.SelectedIndex);
+        Assert.Equal(start + 1, session.GfxPixels!.PalRow);      // the editor repaints in that row
+
+        for (int i = 0; i <= start + 1; i++)
+            w.KeyPressQwerty(PhysicalKey.ArrowUp, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(0, rows.SelectedIndex);
+        Assert.Equal(0, session.GfxPixels!.PalRow);
     }
 
     /// <summary>One zoom control, two canvases at wildly different scales: each mode keeps its own

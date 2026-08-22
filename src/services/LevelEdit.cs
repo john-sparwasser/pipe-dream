@@ -376,6 +376,11 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         return (rz.W != ObjectEngine.SizeSrc.None, rz.H != ObjectEngine.SizeSrc.None);
     }
 
+    /// <summary>Declared size in cells: DM16's own model, or the byte-3 nibble sources.</summary>
+    private static (int W, int H) DeclaredSize(LevelObject o, ObjectEngine.ObjResize rz)
+        => o.IsDm16 ? o.Dm16Size()
+                    : (ObjectEngine.SizeOf(o.Byte3, rz.W), ObjectEngine.SizeOf(o.Byte3, rz.H));
+
     /// <summary>The size a drag would produce, without committing: (x, y, w, h) in cells.
     /// <paramref name="edges"/> is the ImGui bitmask — 1 left, 2 right, 4 top, 8 bottom.</summary>
     public (int X, int Y, int W, int H)? PreviewResize(int index, int edges, int dx, int dy)
@@ -384,8 +389,7 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         var o = objects[index];
         var rz = ResizeInfo(o);
         bool dm = o.IsDm16;
-        var (w0, h0) = dm ? o.Dm16Size()
-                          : (ObjectEngine.SizeOf(o.Byte3, rz.W), ObjectEngine.SizeOf(o.Byte3, rz.H));
+        var (w0, h0) = DeclaredSize(o, rz);
         int maxW = dm ? 128 : ObjectEngine.MaxSize(rz.W), maxH = dm ? 256 : ObjectEngine.MaxSize(rz.H);
         int nx = o.AbsoluteX, ny = o.Y, nw = w0, nh = h0;
         if ((edges & 2) != 0) nw = Math.Clamp(w0 + dx, 1, maxW);
@@ -399,6 +403,20 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         return (nx, ny, nw, nh);
     }
 
+    /// <summary>PreviewResize expressed on the rendered footprint, for the canvas's drag box.
+    /// An object's declared rect (anchor + byte-3 size) often differs from what it actually
+    /// draws, and everything else on screen — selection, handles — hugs the footprint, so a
+    /// preview drawn at declared coordinates jumps away from the object being resized.</summary>
+    public (int X, int Y, int W, int H)? PreviewResizeBox(int index, int edges, int dx, int dy)
+    {
+        if (PreviewResize(index, edges, dx, dy) is not { } p) return null;
+        // Delta against the ZERO-delta preview, not the declared size: both pass through the
+        // same clamps, so the box starts exactly on the footprint and only the drag moves it.
+        if (BBox(index) is not { } b || PreviewResize(index, edges, 0, 0) is not { } p0) return p;
+        return (b.X + (p.X - p0.X), b.Y + (p.Y - p0.Y),
+                Math.Max(1, b.W + (p.W - p0.W)), Math.Max(1, b.H + (p.H - p0.H)));
+    }
+
     /// <summary>Commit a resize drag. Returns false when the drag produced no change.</summary>
     public bool Resize(int index, int edges, int dx, int dy)
     {
@@ -406,8 +424,7 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         var o = objects[index];
         var rz = ResizeInfo(o);
         bool dm = o.IsDm16;
-        var (w0, h0) = dm ? o.Dm16Size()
-                          : (ObjectEngine.SizeOf(o.Byte3, rz.W), ObjectEngine.SizeOf(o.Byte3, rz.H));
+        var (w0, h0) = DeclaredSize(o, rz);
         if (p.X == o.AbsoluteX && p.Y == o.Y && p.W == w0 && p.H == h0) return false;
 
         undo.Push([.. objects]);

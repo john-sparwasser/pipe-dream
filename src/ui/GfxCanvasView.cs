@@ -11,10 +11,11 @@ namespace PipeDream.Ui;
 ///
 /// Controls match the ImGui editor's GFX mode exactly:
 ///
-///   LEFT drag     pencil paints (fill floods once per click instead)
-///   RIGHT click   eyedrop the colour under the cursor
-///   F             switch pencil / fill
+///   LEFT drag     the current tool acts (pencil, fill, eraser; the eyedropper reads)
+///   RIGHT click   eyedrop the colour under the cursor, whatever the tool
+///   F             cycle the tools
 ///   [ ]           zoom out / in
+///   up / down     step the palette row
 ///
 /// Note the difference from the level canvas, where right-drag paints and left selects. There is
 /// nothing to select here — every pixel belongs to the sheet — so this mode uses the ordinary
@@ -36,9 +37,12 @@ public class GfxCanvasView : Control
     /// <summary>Right-click: the colour index under the cursor was picked.</summary>
     public event EventHandler<(int X, int Y)>? ColorPicked;
 
-    /// <summary>Keys the mode owns: F toggles the tool, [ and ] zoom.</summary>
+    /// <summary>Keys the mode owns: F cycles the tool, [ and ] zoom, up/down step the palette row.
+    /// They live here rather than on the window because the window never sees them — the top level
+    /// eats arrow keys for focus navigation before a bubbling handler runs.</summary>
     public event EventHandler? ToolToggled;
     public event EventHandler<int>? ZoomStepped;
+    public event EventHandler<int>? PalRowStepped;
 
     private WriteableBitmap? sheet;
     private int sheetW, sheetH;
@@ -85,6 +89,10 @@ public class GfxCanvasView : Control
         PixelPainted?.Invoke(this, px);
     }
 
+    /// <summary>The hover ends with the pointer, as on the level canvas.</summary>
+    protected override void OnPointerExited(PointerEventArgs e)
+    { base.OnPointerExited(e); Hover = null; InvalidateVisual(); }
+
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
@@ -117,6 +125,8 @@ public class GfxCanvasView : Control
             case Key.F: ToolToggled?.Invoke(this, EventArgs.Empty); e.Handled = true; break;
             case Key.OemOpenBrackets: ZoomStepped?.Invoke(this, -1); e.Handled = true; break;
             case Key.OemCloseBrackets: ZoomStepped?.Invoke(this, 1); e.Handled = true; break;
+            case Key.Up: PalRowStepped?.Invoke(this, -1); e.Handled = true; break;
+            case Key.Down: PalRowStepped?.Invoke(this, 1); e.Handled = true; break;
         }
     }
 

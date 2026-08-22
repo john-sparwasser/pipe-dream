@@ -259,7 +259,7 @@
         <ToggleButton x:Name="ModeGfx" Classes="mode" Click="OnMode">
           <StackPanel Orientation="Horizontal" Spacing="6">
             <Path Data="{StaticResource IconSquarePen}"/>
-            <TextBlock Text="GFX" VerticalAlignment="Center"/>
+            <TextBlock Text="Graphics" VerticalAlignment="Center"/>
           </StackPanel>
         </ToggleButton>
 
@@ -301,9 +301,10 @@
          it is a view setting, not an edit tool. Percent, in 10% steps — "2x" is a rendering
          detail, "120%" is what the user is choosing. -, = step it from anywhere. -->
     <Border DockPanel.Dock="Bottom" Classes="panel" BorderThickness="0,1,0,0" Padding="12,4">
-      <Grid ColumnDefinitions="*,Auto,Auto">
-        <TextBlock x:Name="Status" Classes="dim" Text="no ROM loaded — File ▸ Open ROM"
-                   VerticalAlignment="Center"/>
+      <Grid ColumnDefinitions="*,Auto">
+        <!-- What is under the cursor, in the current canvas's own terms. Blank when the cursor is
+             elsewhere. -->
+        <TextBlock x:Name="Readout" Classes="mono" VerticalAlignment="Center"/>
         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" Margin="12,0,16,0">
           <TextBlock Classes="dim" Text="zoom" VerticalAlignment="Center"/>
           <Slider x:Name="ZoomSlider" Width="130" Minimum="100" Maximum="800" Value="200"
@@ -311,7 +312,6 @@
                   ToolTip.Tip="Zoom for the canvas that is showing — or press - and = to step it"/>
           <TextBlock x:Name="ZoomLabel" Classes="mono" Width="40" VerticalAlignment="Center"/>
         </StackPanel>
-        <TextBlock x:Name="Hover" Grid.Column="2" Classes="mono" VerticalAlignment="Center"/>
       </Grid>
     </Border>
 
@@ -479,7 +479,7 @@
            them one row above the zoom gutter instead of across the window. -->
       <Border x:Name="GfxPaletteBar" DockPanel.Dock="Bottom" Classes="panel bar" IsVisible="False"
               BorderThickness="0,1,0,0" Padding="10,6">
-        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
           <TextBlock Classes="dim" Text="palette"/>
           <ComboBox x:Name="GfxPalRow" Width="82"/>
           <ui:PaletteGridView x:Name="GfxColors" VerticalAlignment="Center"/>

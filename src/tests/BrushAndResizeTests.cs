@@ -163,6 +163,23 @@ public class BrushAndResizeTests(ITestOutputHelper log)
         Assert.NotEqual(0x100, scene.Grid.Get(23, 12));      // the growth is gone
     }
 
+    /// <summary>The drag preview box must sit on the rendered footprint — where the selection
+    /// and handles are — not on the object's declared rect, which can differ in both anchor
+    /// and size. A zero-delta drag on any object must reproduce its BBox exactly.</summary>
+    [Fact]
+    public void the_resize_preview_box_hugs_the_footprint()
+    {
+        if (Edit() is not { } r) { log.WriteLine("SKIP: no ROM"); return; }
+        var (_, _, edit) = r;
+
+        for (int i = 0; i < edit.Objects.Count; i++)
+        {
+            var (wOk, hOk) = edit.CanResize(i);
+            if ((!wOk && !hOk) || edit.BBox(i) is not { } b) continue;
+            Assert.Equal((b.X, b.Y, b.W, b.H), edit.PreviewResizeBox(i, 2 | 8, 0, 0));
+        }
+    }
+
     /// <summary>Extended objects and screen exits have no size to drag, so they must report
     /// no resizable axis rather than offering handles that do nothing.</summary>
     [Fact]

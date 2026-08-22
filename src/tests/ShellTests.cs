@@ -45,9 +45,52 @@ public class ShellTests(ITestOutputHelper log)
         Assert.True(canvas.Source!.HasImages, "no composed level reached the canvas");
         Assert.True(canvas.Source.PxW > 0 && canvas.Source.PxH > 0);
 
-        var status = Find<TextBlock>(w, "Status").Text ?? "";
-        log.WriteLine("status: " + status);
-        Assert.Contains("level $", status);
+        // The gutter reads out what is UNDER THE CURSOR, so it is blank until the pointer is on
+        // the canvas — there is no status line to assert a level number against.
+        Assert.True(string.IsNullOrEmpty(Find<TextBlock>(w, "Readout").Text));
+    }
+
+    /// <summary>The gutter says what is under the cursor in the terms of the canvas showing it: a
+    /// level cell and its Map16 tile, a Map16 tile, a GFX tile and pixel. It blanks when the cursor
+    /// leaves — a value that sticks reads as the thing being pointed at now.</summary>
+    [AvaloniaFact]
+    public void the_gutter_reads_out_what_is_under_the_cursor_in_each_mode()
+    {
+        if (Open() is not { } w) { log.WriteLine("SKIP: no ROM"); return; }
+        var readout = Find<TextBlock>(w, "Readout");
+
+        string HoverOver(Control c)
+        {
+            w.MouseMove(c.TranslatePoint(new Point(20, 20), w)!.Value);
+            Dispatcher.UIThread.RunJobs();
+            log.WriteLine($"{c.Name}: {readout.Text}");
+            return readout.Text ?? "";
+        }
+        void Mode(string name) => Find<ToggleButton>(w, name)
+            .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+
+        Assert.Matches(@"^\(\s*\d+,\s*\d+\)\s+(tile 0x[0-9A-F]{3}|empty)", HoverOver(Find<LevelView>(w, "Canvas")));
+
+        // Off the canvas — the menu bar — and it clears rather than keeping the last cell.
+        w.MouseMove(new Point(4, 4));
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(string.IsNullOrEmpty(readout.Text), $"stale readout: {readout.Text}");
+
+        Mode("ModeMap16");
+        Dispatcher.UIThread.RunJobs();
+        Assert.Matches(@"^tile 0x[0-9A-F]{4}", HoverOver(Find<Map16CanvasView>(w, "Map16Canvas")));
+
+        Mode("ModeGfx");
+        Dispatcher.UIThread.RunJobs();
+        // A bin has to be selected for the Graphics canvas to be showing anything at all.
+        var bins = Find<StackPanel>(w, "GfxBins");
+        var card = (Border)bins.Children[0];
+        var at = card.TranslatePoint(new Point(4, 4), w)!.Value;
+        w.MouseDown(at, MouseButton.Left);
+        w.MouseUp(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Matches(@"^GFX[0-9A-F]{3}\s+tile 0x[0-9A-F]+\s+px \(\d,\d\)",
+                       HoverOver(Find<GfxCanvasView>(w, "GfxCanvas")));
     }
 
     [AvaloniaFact]
@@ -119,7 +162,9 @@ public class ShellTests(ITestOutputHelper log)
 
     /// <summary>Zoom is a PERCENT in 10% steps, stepped by - and =, and it lives in the status
     /// bar. Whole-number multipliers were the ImGui port's shortcut; Lunar Magic's zoom is a
-    /// percent and jumping 100% at a time is far too coarse on a level this wide.</summary>
+    /// percent and jumping 100% at a time is far too coarse on a level this wide. The fractional
+    /// steps are DRAWN filtered rather than nearest, which is what keeps them clean —
+    /// see <see cref="LevelView.Unsampled"/>.</summary>
     [AvaloniaFact]
     public void minus_and_equals_step_the_zoom_by_ten_percent()
     {

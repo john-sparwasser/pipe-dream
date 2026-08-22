@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 
 namespace PipeDream.Ui;
 
@@ -285,6 +286,11 @@ public class LevelView : Control
         InvalidateVisual();
     }
 
+    /// <summary>The hover ends with the pointer: a highlight left painted where the cursor no longer
+    /// is claims to be tracking something, and the gutter readout would go stale with it.</summary>
+    protected override void OnPointerExited(PointerEventArgs e)
+    { base.OnPointerExited(e); HoverCell = null; InvalidateVisual(); }
+
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
@@ -466,6 +472,21 @@ public class LevelView : Control
             yield return (a.X + (b.X - a.X) * i / steps, a.Y + (b.Y - a.Y) * i / steps);
     }
 
+    /// <summary>
+    /// Whether the level can be blitted UNSAMPLED at this zoom: one source pixel has to cover a
+    /// whole number of DEVICE pixels (so a 2x zoom on a 150% display counts — 3 device pixels —
+    /// but 3x does not, at 4.5).
+    ///
+    /// Pixel art only scales cleanly by whole numbers. Nearest-neighbour at a fractional zoom does
+    /// not blur, but it gives some source pixels one more screen pixel than their neighbours, and a
+    /// grid of same-size pixels drawn at different sizes is what makes zoomed art look like it is
+    /// crawling. A filtered stretch keeps every pixel the same size and pays for it with a pixel of
+    /// blend at the edges — which is what a fractional zoom looks like everywhere it is done well.
+    /// Whole zooms, which is what you use when you are actually looking at pixels, stay exact.
+    /// </summary>
+    internal static bool Unsampled(double zoom, double scaling)
+        => Math.Abs(zoom * scaling - Math.Round(zoom * scaling)) < 0.001;
+
     public override void Render(DrawingContext ctx)
     {
         var bounds = new Rect(Bounds.Size);
@@ -480,7 +501,12 @@ public class LevelView : Control
         var src = new Rect(Origin.X / z, Origin.Y / z, Math.Min(bounds.Width / z, bmp.PixelSize.Width),
                            Math.Min(bounds.Height / z, bmp.PixelSize.Height));
         var dst = new Rect(0, 0, src.Width * z, src.Height * z);
-        ctx.DrawImage(bmp, src, dst);
+        using (ctx.PushRenderOptions(new RenderOptions
+               {
+                   BitmapInterpolationMode = Unsampled(z, VisualRoot?.RenderScaling ?? 1)
+                       ? BitmapInterpolationMode.None : BitmapInterpolationMode.HighQuality,
+               }))
+            ctx.DrawImage(bmp, src, dst);
 
         if (ShowGrid) DrawScreenBoundaries(ctx, dst, z);
 
@@ -512,7 +538,7 @@ public class LevelView : Control
 
         // Resize preview while dragging an edge, then handles on a lone idle selection.
         if (resizeDrag is { } rd && bandEnd is { } rc && Edit is { } re
-            && re.PreviewResize(rd.Obj, rd.Edges, rc.X - rd.Cx, rc.Y - rd.Cy) is { } pv)
+            && re.PreviewResizeBox(rd.Obj, rd.Edges, rc.X - rd.Cx, rc.Y - rd.Cy) is { } pv)
             ctx.DrawRectangle(null, new Pen(UiColors.Selection, 1.5), CellRect(pv.X, pv.Y, pv.W, pv.H, z));
         else if (Edit is { Selection.Count: 1 } he && bandStart is null && moveStart is null)
             DrawHandles(ctx, he, z);
