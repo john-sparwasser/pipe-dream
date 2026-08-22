@@ -20,9 +20,9 @@ namespace PipeDream.Ui.Tests;
 /// free. Allocating a new id instead (what an *import* does) would leave the level still drawing
 /// the untouched original.
 ///
-/// The controls also differ from the level canvas on purpose: left paints here. There is nothing
-/// to select in a pixel sheet, so this mode uses ordinary paint-program bindings, and the ImGui
-/// version does the same.
+/// The controls also differ from the level canvas on purpose: left paints here. This mode uses
+/// ordinary paint-program bindings — selecting is a tool, not the default gesture — and the
+/// ImGui version does the same.
 /// </summary>
 public class GfxModeTests(ITestOutputHelper log) : IDisposable
 {
@@ -137,6 +137,70 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         g.EndStroke();                                // an empty stroke closes to nothing
         Assert.Equal(3, g.ColorAt(1, 1));
         Assert.Equal(history, g.UndoDepth);
+    }
+
+    /// <summary>The selection clipboard is colour indices, not plane bytes, so a copy taken in
+    /// one file pastes into another — that is what makes cross-bin copy work. Cut and paste are
+    /// each ONE undo entry, and a move commits as one entry too.</summary>
+    [Fact]
+    public void copy_cut_and_paste_cross_files_and_undo_as_single_strokes()
+    {
+        if (Open() is not { } s) { log.WriteLine("SKIP: no ROM"); return; }
+        var g = s.GfxPixels!;
+        g.Open(0x14);
+
+        // A known 2x2 block to carry around.
+        g.Color = 1;
+        foreach (var (x, y, c) in new[] { (0, 0, 1), (1, 0, 2), (0, 1, 3), (1, 1, 4) })
+        { g.Color = c; g.Paint(x, y, out _); }
+        g.EndStroke();
+
+        g.Copy(0, 0, 2, 2);
+        Assert.Equal((2, 2), (g.Clipboard!.Value.W, g.Clipboard!.Value.H));
+        Assert.Equal(new byte[] { 1, 2, 3, 4 }, g.Clipboard!.Value.Px);
+
+        // Cut clears the source to transparent, in one undo entry.
+        int depth = g.UndoDepth;
+        g.Cut(0, 0, 2, 2);
+        Assert.Equal(0, g.ColorAt(0, 0));
+        Assert.Equal(0, g.ColorAt(1, 1));
+        Assert.Equal(depth + 1, g.UndoDepth);
+
+        // Paste into ANOTHER file — the clipboard survived the switch.
+        g.Open(0x15);
+        Assert.True(g.Paste(8, 8, selBefore: (2, 2, 2, 2)));
+        Assert.Equal(1, g.ColorAt(8, 8));
+        Assert.Equal(4, g.ColorAt(9, 9));
+        Assert.True(g.Undo());
+        Assert.True(g.SelectionHint.Has);                      // the marquee walks back too
+        Assert.Equal((2, 2, 2, 2), g.SelectionHint.Rect!.Value);
+        Assert.True(g.Redo());
+        Assert.True(g.SelectionHint.Has);                      // ...and forward to the paste
+        Assert.Equal((8, 8, 2, 2), g.SelectionHint.Rect!.Value);
+        Assert.True(g.Undo());
+        Assert.True(g.Undo());                        // ...and back in the first file, the cut
+        Assert.False(g.SelectionHint.Has);            // another file's rect must not move it
+        g.Open(0x14);
+        Assert.Equal(new byte[] { 1, 2, 3, 4 }, new[]
+            { (byte)g.ColorAt(0, 0)!, (byte)g.ColorAt(1, 0)!, (byte)g.ColorAt(0, 1)!, (byte)g.ColorAt(1, 1)! });
+
+        // A move: grab, preview through several offsets, commit. One undo entry, source cleared.
+        depth = g.UndoDepth;
+        int was = g.ColorAt(4, 2)!.Value;             // whatever the stock sheet has there
+        g.BeginMove(0, 0, 2, 2);
+        g.MoveBy(1, 0);
+        g.MoveBy(4, 2);
+        g.EndMove();
+        Assert.Equal(0, g.ColorAt(0, 0));             // the intermediate offset left nothing behind
+        Assert.Equal(0, g.ColorAt(1, 0));
+        Assert.Equal(1, g.ColorAt(4, 2));
+        Assert.Equal(4, g.ColorAt(5, 3));
+        Assert.Equal(depth + 1, g.UndoDepth);
+        Assert.True(g.Undo());
+        Assert.Equal(1, g.ColorAt(0, 0));             // one undo restores the whole move
+        Assert.Equal(was, g.ColorAt(4, 2));
+        Assert.True(g.SelectionHint.Has);             // the marquee walks home with the pixels
+        Assert.Equal((0, 0, 2, 2), g.SelectionHint.Rect!.Value);
     }
 
     [Fact]
@@ -313,6 +377,77 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
 
         Assert.Equal(want, g.Color);
         Assert.Equal(want, w.GetControl<PaletteGridView>("GfxColors").Selected);
+    }
+
+    /// <summary>Paste does not touch the file: the pixels float at the top-left corner, drag into
+    /// place, and only the DROP writes bytes — one undo entry at the final position. Ctrl+Z on a
+    /// still-floating paste just takes the float down. This is what makes undo sane: there is no
+    /// intermediate paste-then-move history to walk back through.</summary>
+    [AvaloniaFact]
+    public void paste_floats_at_the_corner_and_drops_as_one_undo_entry()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeGfx").RaiseEvent(
+            new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var view = w.GetControl<GfxCanvasView>("GfxCanvas");
+        var g = SessionOf(w).GfxPixels!;
+
+        // Known pixels to carry, away from where the float will appear.
+        foreach (var (x, y, c) in new[] { (16, 0, 1), (17, 0, 2), (16, 1, 3), (17, 1, 4) })
+        { g.Color = c; g.Paint(x, y, out _); }
+        g.EndStroke();
+        g.Copy(16, 0, 2, 2);
+        int depth = g.UndoDepth;
+        int underFloat = g.ColorAt(0, 0)!.Value;
+        int atDrop = g.ColorAt(10, 4)!.Value;
+
+        w.KeyPressQwerty(PhysicalKey.V, RawInputModifiers.Control);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal((0, 0, 2, 2), view.Float);
+        Assert.Equal(depth, g.UndoDepth);             // nothing committed yet...
+        Assert.Equal(underFloat, g.ColorAt(0, 0));    // ...and the sheet under it is untouched
+
+        Point At(int x, int y) => view.TranslatePoint(
+            new Point(x * view.Zoom + view.Zoom / 2, y * view.Zoom + view.Zoom / 2), w)!.Value;
+
+        // Drag the float into place: still nothing in the bytes.
+        w.MouseDown(At(0, 0), MouseButton.Left);
+        w.MouseMove(At(10, 4));
+        w.MouseUp(At(10, 4), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal((10, 4, 2, 2), view.Float);
+        Assert.Equal(depth, g.UndoDepth);
+
+        // A click outside drops it where it rests — ONE undo entry.
+        w.MouseDown(At(30, 3), MouseButton.Left);
+        w.MouseUp(At(30, 3), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Null(view.Float);
+        Assert.Equal(depth + 1, g.UndoDepth);
+        Assert.Equal(1, g.ColorAt(10, 4));
+        Assert.Equal(4, g.ColorAt(11, 5));
+
+        // Ctrl+Z takes the whole paste back in one step.
+        w.KeyPressQwerty(PhysicalKey.Z, RawInputModifiers.Control);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(atDrop, g.ColorAt(10, 4));
+        Assert.Equal(depth, g.UndoDepth);
+
+        // A fresh paste that never lands: Esc discards it and the bytes never knew.
+        w.KeyPressQwerty(PhysicalKey.V, RawInputModifiers.Control);
+        Dispatcher.UIThread.RunJobs();
+        Assert.NotNull(view.Float);
+        w.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Null(view.Float);
+        Assert.Equal(depth, g.UndoDepth);
+        Assert.Equal(underFloat, g.ColorAt(0, 0));
     }
 
     /// Choosing a GFX file and editing its pixels are ONE screen, reached from the GFX header

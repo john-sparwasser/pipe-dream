@@ -1,3 +1,5 @@
+using SelRect = (int X, int Y, int W, int H);
+
 namespace PipeDream.Services;
 
 /// <summary>
@@ -19,8 +21,9 @@ public sealed class GfxEdit
     internal GfxEdit(Rom rom) => this.rom = rom;
 
     /// <summary>Eraser is the pencil writing colour 0 — in this format that IS transparent, so
-    /// "erase" needs no separate concept. Dropper writes nothing at all; it reads.</summary>
-    public enum Tool { Pencil, Fill, Eraser, Dropper }
+    /// "erase" needs no separate concept. Dropper writes nothing at all; it reads. Select paints
+    /// nothing either: it marks a rectangle for copy/cut/paste and moving.</summary>
+    public enum Tool { Pencil, Fill, Eraser, Dropper, Select }
 
     public int File { get; private set; } = 0x14;
     public int PalRow { get; set; } = 2;
@@ -44,8 +47,18 @@ public sealed class GfxEdit
 
     private readonly List<(int Off, byte Before, byte After)> stroke = [];
     private int strokeFile;
-    private readonly Stack<(int File, (int Off, byte Before, byte After)[] Edits)> undo = new();
-    private readonly Stack<(int File, (int Off, byte Before, byte After)[] Edits)> redo = new();
+    // Sel carries where the selection rectangle sat before/after a cut, paste or move, so undo
+    // can walk the marquee back with the pixels. Null on plain paint strokes: leave it alone.
+    private readonly Stack<(int File, (int Off, byte Before, byte After)[] Edits,
+                            (SelRect? Before, SelRect? After)? Sel)> undo = new();
+    private readonly Stack<(int File, (int Off, byte Before, byte After)[] Edits,
+                            (SelRect? Before, SelRect? After)? Sel)> redo = new();
+    private (SelRect? Before, SelRect? After)? strokeSel;
+
+    /// <summary>Where the selection belongs after the last Undo/Redo. Has only when the entry
+    /// was a selection operation on the OPEN file — a paint stroke, or an entry replayed into
+    /// some other file, must not move the marquee. Rect null means "no selection".</summary>
+    public (bool Has, SelRect? Rect) SelectionHint { get; private set; }
 
     /// <summary>Switch files. An uncommitted stroke is REVERTED rather than committed — a
     /// write-through stroke must not survive as bytes nobody can undo.</summary>
@@ -125,12 +138,104 @@ public sealed class GfxEdit
         return stroke.Count != before;
     }
 
+    // ---- selection: copy / cut / paste / move ----
+    // The clipboard is colour INDICES, not plane bytes, so it pastes into any file of this ROM —
+    // copy in one bin, paste in another. Everything writes through the same stroke machinery as
+    // painting, so each operation is one undo entry.
+
+    /// <summary>Copied pixels as colour indices, row-major. Survives switching files.</summary>
+    public (int W, int H, byte[] Px)? Clipboard { get; private set; }
+
+    private byte[] ReadRect(int x, int y, int w, int h)
+    {
+        var px = new byte[w * h];
+        for (int j = 0; j < h; j++)
+            for (int i = 0; i < w; i++)
+                px[j * w + i] = (byte)(ColorAt(x + i, y + j) ?? 0);
+        return px;
+    }
+
+    /// <summary>Write a w×h block of colour indices (null = clear to transparent) at (x,y) into
+    /// the open stroke, clipped to the tiles the file actually has.</summary>
+    private void WriteRect(int x, int y, int w, int h, byte[]? px)
+    {
+        if (Gfx.EditableBytes(rom, File, out _) is not { } g) return;
+        if (stroke.Count == 0) strokeFile = File;
+        var (tiles, sw, sh) = Layout;
+        int tb = Gfx.TileBytes(Bpp);
+        for (int j = 0; j < h; j++)
+            for (int i = 0; i < w; i++)
+            {
+                int dx = x + i, dy = y + j;
+                if (dx < 0 || dy < 0 || dx >= sw || dy >= sh || (dy / 8) * 16 + dx / 8 >= tiles)
+                    continue;
+                Gfx.WritePixel(g, ((dy / 8) * 16 + dx / 8) * tb, Bpp, dx & 7, dy & 7,
+                               px is null ? 0 : px[j * w + i], stroke);
+            }
+    }
+
+    public void Copy(int x, int y, int w, int h) => Clipboard = (w, h, ReadRect(x, y, w, h));
+
+    public void Cut(int x, int y, int w, int h)
+    {
+        Copy(x, y, w, h);
+        WriteRect(x, y, w, h, null);
+        strokeSel = ((x, y, w, h), (x, y, w, h));
+        EndStroke();
+    }
+
+    /// <summary>Stamp the clipboard at (x,y) as one undo entry; pixels past the sheet edge are
+    /// clipped away. False when there is nothing to paste (or nothing to paste onto).
+    /// <paramref name="selBefore"/> is where the marquee sat before the paste, so undoing it can
+    /// put the marquee back too — the paste itself becomes the selection.</summary>
+    public bool Paste(int x, int y, SelRect? selBefore = null)
+    {
+        if (Clipboard is not { } c || Layout.Tiles == 0) return false;
+        WriteRect(x, y, c.W, c.H, c.Px);
+        strokeSel = (selBefore, (x, y, c.W, c.H));
+        EndStroke();
+        return true;
+    }
+
+    // A move previews by write-through, like a paint stroke: each step reverts the open stroke
+    // and re-applies clear+stamp at the new offset, so release commits ONE undo entry.
+    private (int X, int Y, int W, int H, byte[] Px)? moving;
+    private (int Dx, int Dy) moved;
+
+    public void BeginMove(int x, int y, int w, int h)
+    {
+        moving = (x, y, w, h, ReadRect(x, y, w, h));
+        moved = (0, 0);
+    }
+
+    /// <summary>Preview the grabbed rectangle offset by (dx,dy) from where it started. Leaves the
+    /// stroke open — <see cref="EndMove"/> commits it.</summary>
+    public void MoveBy(int dx, int dy)
+    {
+        if (moving is not { } m) return;
+        moved = (dx, dy);
+        AbortStroke();
+        if (dx == 0 && dy == 0) return;      // back home: no bytes changed, no empty undo entry
+        WriteRect(m.X, m.Y, m.W, m.H, null);
+        WriteRect(m.X + dx, m.Y + dy, m.W, m.H, m.Px);
+    }
+
+    public void EndMove()
+    {
+        if (moving is { } m)
+            strokeSel = ((m.X, m.Y, m.W, m.H), (m.X + moved.Dx, m.Y + moved.Dy, m.W, m.H));
+        moving = null;
+        EndStroke();
+    }
+
     /// <summary>Close the stroke into one undo entry. The bytes are already in place (the paint
     /// wrote through), so this only records history and announces the change.</summary>
     public void EndStroke()
     {
+        var sel = strokeSel;
+        strokeSel = null;                    // a no-op commit must not tag the next paint stroke
         if (stroke.Count == 0) return;
-        undo.Push((strokeFile, [.. stroke]));
+        undo.Push((strokeFile, [.. stroke], sel));
         redo.Clear();
         stroke.Clear();
         Dirty = true;
@@ -157,6 +262,7 @@ public sealed class GfxEdit
         var e = undo.Pop();
         Gfx.ApplyStroke(rom, e.File, e.Edits, redo: false);
         redo.Push(e);
+        SelectionHint = e.Sel is { } s && e.File == File ? (true, s.Before) : (false, null);
         Announce();
         return true;
     }
@@ -170,12 +276,13 @@ public sealed class GfxEdit
         if (File == from) File = to;
         if (strokeFile == from) strokeFile = to;
 
-        void Remap(Stack<(int File, (int Off, byte Before, byte After)[] Edits)> s)
+        void Remap(Stack<(int File, (int Off, byte Before, byte After)[] Edits,
+                          (SelRect? Before, SelRect? After)? Sel)> s)
         {
             var items = s.ToArray();                        // top first
             s.Clear();
             for (int i = items.Length - 1; i >= 0; i--)
-                s.Push(items[i].File == from ? (to, items[i].Edits) : items[i]);
+                s.Push(items[i].File == from ? items[i] with { File = to } : items[i]);
         }
     }
 
@@ -185,6 +292,7 @@ public sealed class GfxEdit
         var e = redo.Pop();
         Gfx.ApplyStroke(rom, e.File, e.Edits, redo: true);
         undo.Push(e);
+        SelectionHint = e.Sel is { } s && e.File == File ? (true, s.After) : (false, null);
         Announce();
         return true;
     }

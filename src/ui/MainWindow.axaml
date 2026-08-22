@@ -19,6 +19,7 @@
     <StreamGeometry x:Key="IconPencil">M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z M15 5l4 4</StreamGeometry>
     <StreamGeometry x:Key="IconPaintBucket">M19 11l-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z M5 2l5 5 M2 13h15 M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z</StreamGeometry>
     <StreamGeometry x:Key="IconEraser">M7 21l-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21 M22 21H7 M5 11l9 9</StreamGeometry>
+    <StreamGeometry x:Key="IconMousePointer2">M4 4l7.07 17 2.51-7.39L21 11.07Z</StreamGeometry>
     <StreamGeometry x:Key="IconPipette">M2 22l1-1h3l9-9 M3 21v-3l9-9 M15 6l3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z</StreamGeometry>
     <StreamGeometry x:Key="IconSave">M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z M17 21v-8a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v8 M7 3v4a1 1 0 0 0 1 1h7</StreamGeometry>
     <StreamGeometry x:Key="IconCircleCheck">M22 12A10 10 0 1 1 2 12A10 10 0 1 1 22 12 M9 12l2 2 4-4</StreamGeometry>
@@ -567,6 +568,10 @@
               <ToggleButton x:Name="GfxDropper" Classes="mode" MinWidth="44" Click="OnGfxTool"
                             ToolTip.Tip="Eyedropper — takes the colour under the cursor. Right-click does it with any tool">
                 <Path Data="{StaticResource IconPipette}"/>
+              </ToggleButton>
+              <ToggleButton x:Name="GfxSelect" Classes="mode" MinWidth="44" Click="OnGfxTool"
+                            ToolTip.Tip="Select — drag a box, then drag it to move it. Ctrl+C/X copy or cut it, Ctrl+V pastes (into other bins too). F cycles tools">
+                <Path Data="{StaticResource IconMousePointer2}"/>
               </ToggleButton>
             </StackPanel>
           </Border>

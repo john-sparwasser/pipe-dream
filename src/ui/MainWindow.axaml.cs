@@ -51,7 +51,8 @@ public partial class MainWindow : Window
     private Avalonia.Controls.Shapes.Path gfxKind = null!;
     private Button gfxSave = null!, gfxEmptyLoad = null!;
     private TextBlock gfxFileName = null!, gfxFileNote = null!;
-    private ToggleButton gfxPencil = null!, gfxFill = null!, gfxErase = null!, gfxDropper = null!;
+    private ToggleButton gfxPencil = null!, gfxFill = null!, gfxErase = null!, gfxDropper = null!,
+                         gfxSelect = null!;
     private DockPanel gfxToolPanel = null!, gfxScroll = null!;
     private Border gfxPaletteBar = null!;
     private StackPanel gfxBins = null!;
@@ -318,6 +319,7 @@ public partial class MainWindow : Window
         gfxFill = this.GetControl<ToggleButton>("GfxFill");
         gfxErase = this.GetControl<ToggleButton>("GfxErase");
         gfxDropper = this.GetControl<ToggleButton>("GfxDropper");
+        gfxSelect = this.GetControl<ToggleButton>("GfxSelect");
         gfxToolPanel = this.GetControl<DockPanel>("GfxToolPanel");
         gfxPaletteBar = this.GetControl<Border>("GfxPaletteBar");
         gfxBins = this.GetControl<StackPanel>("GfxBins");
@@ -353,12 +355,26 @@ public partial class MainWindow : Window
             gfxSave.IsEnabled = session.GfxDirty;         // the stroke is what there is to save
         };
         gfxCanvas.ColorPicked += (_, p) => PickGfxColor(p.X, p.Y);
-        // F cycles the four tools in enum order rather than toggling two.
+        // F cycles the five tools in enum order rather than toggling two.
         gfxCanvas.ToolToggled += (_, _) =>
         {
             if (session.GfxPixels is { } g)
-                SetGfxTool((GfxEdit.Tool)(((int)g.Current + 1) % 4));
+                SetGfxTool((GfxEdit.Tool)(((int)g.Current + 1) % 5));
         };
+        // A move drags real bytes: the grab captures the pixels, each step previews through the
+        // open stroke, and release commits the whole drag as one undo entry.
+        gfxCanvas.SelectionMoveStarted += (_, r) => session.GfxPixels?.BeginMove(r.X, r.Y, r.W, r.H);
+        gfxCanvas.SelectionMoved += (_, d) =>
+        {
+            session.GfxPixels?.MoveBy(d.Dx, d.Dy);
+            RefreshGfxSheet();
+        };
+        gfxCanvas.SelectionMoveEnded += (_, _) =>
+        {
+            session.GfxPixels?.EndMove();
+            gfxSave.IsEnabled = session.GfxDirty;
+        };
+        gfxCanvas.FloatDropRequested += (_, _) => CommitGfxFloat();
         gfxCanvas.ZoomStepped += (_, d) => StepZoom(d);
         // Every canvas feeds the same gutter readout; exiting blanks it.
         foreach (var c in new Control[] { map16Canvas, gfxCanvas })
@@ -624,8 +640,17 @@ public partial class MainWindow : Window
             }
             else if (modeGfx.IsChecked == true)
             {
-                if (redo ? session.GfxPixels?.Redo() == true : session.GfxPixels?.Undo() == true)
+                // An un-dropped paste never reached the bytes, so undoing it is just taking the
+                // float down — the history stays for the next Ctrl+Z.
+                if (!redo && gfxCanvas.Float is not null)
+                    gfxCanvas.ClearFloat();
+                else if (redo ? session.GfxPixels?.Redo() == true : session.GfxPixels?.Undo() == true)
+                {
+                    // A cut/paste/move walks the marquee back (or forward) with its pixels.
+                    if (session.GfxPixels!.SelectionHint is (true, var rect))
+                        gfxCanvas.Selection = rect;
                     RefreshGfx();
+                }
             }
             else if (modeMap16.IsChecked == true)
             {
@@ -647,6 +672,34 @@ public partial class MainWindow : Window
             }
             e.Handled = true;
         }
+        // GFX selection clipboard. The clipboard lives in GfxEdit as colour indices, so a copy
+        // in one bin pastes into whichever bin is open when Ctrl+V lands. A focused TextBox (a
+        // bin's id field) keeps its own Ctrl+C/X/V.
+        else if (modeGfx.IsChecked == true && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+                 && e.Key is Key.C or Key.X or Key.V && session.GfxPixels is { } gp
+                 && FocusManager?.GetFocusedElement() is not TextBox)
+        {
+            if (e.Key == Key.V)
+            {
+                // Paste FLOATS: the pixels ride above the sheet at the corner until dragged
+                // into place; only the drop writes bytes, as ONE undo entry. A float already
+                // adrift drops where it lies first.
+                CommitGfxFloat();
+                if (gp.Clipboard is { } c && gp.Layout.Tiles > 0)
+                {
+                    SetGfxTool(GfxEdit.Tool.Select);   // the float is dragged, so arm the tool
+                    gfxCanvas.ShowFloat(GfxFloatPixels(gp, c), c.W, c.H);
+                }
+            }
+            else if (gfxCanvas.Selection is { } s)
+            {
+                if (e.Key == Key.C) gp.Copy(s.X, s.Y, s.W, s.H);
+                else gp.Cut(s.X, s.Y, s.W, s.H);
+                RefreshGfxSheet();
+                gfxSave.IsEnabled = session.GfxDirty;
+            }
+            e.Handled = true;
+        }
         // Browser bindings, and the same keys the GFX canvas's [ ] do for its own sheet: the
         // zoom keys always act on whatever canvas is showing.
         else if (e.Key is Key.OemMinus or Key.Subtract or Key.OemPlus or Key.Add)
@@ -657,7 +710,13 @@ public partial class MainWindow : Window
         }
         else if (e.Key == Key.Escape)
         {
-            if (modeLevel.IsChecked != true) OnMode(modeLevel, new RoutedEventArgs());
+            // First Esc in GFX mode throws away an un-dropped paste or drops the selection;
+            // the next one leaves the mode.
+            if (modeGfx.IsChecked == true && gfxCanvas.Float is not null)
+                gfxCanvas.ClearFloat();
+            else if (modeGfx.IsChecked == true && gfxCanvas.Selection is not null)
+                gfxCanvas.Selection = null;
+            else if (modeLevel.IsChecked != true) OnMode(modeLevel, new RoutedEventArgs());
             else if (brush is not null) SetBrush(null, 1, 1);
             else
             {
@@ -805,6 +864,7 @@ public partial class MainWindow : Window
     /// </summary>
     private async void OnBrowseGfx(object? sender, RoutedEventArgs e)
     {
+        CommitGfxFloat();                    // before the sheet under it can change
         var slot = session.GfxBins.Where(b => b.BypWord == gfxSlot)
                           .Select(b => ((string Name, int PalRow)?)(b.Name, b.PalRow))
                           .FirstOrDefault();
@@ -826,6 +886,7 @@ public partial class MainWindow : Window
     /// for the first time, so it needs a name — an existing custom file already has both.</summary>
     private async void OnSaveGfx(object? sender, RoutedEventArgs e)
     {
+        CommitGfxFloat();                    // a paste still adrift belongs in what gets saved
         string name = "";
         if (session.GfxIsStock)
         {
@@ -919,6 +980,7 @@ public partial class MainWindow : Window
 
     private void OnSave(object? sender, RoutedEventArgs e)
     {
+        CommitGfxFloat();                    // a paste still adrift belongs in what gets saved
         session.Save();
         gfxSave.IsEnabled = session.GfxDirty;    // Ctrl+S saved the pixels too
         UpdateTitle();
@@ -1316,19 +1378,49 @@ public partial class MainWindow : Window
 
     // ---- GFX canvas mode and the GFX tab ----
 
+    /// <summary>The clipboard's colour indices as RGBA in the current palette row, transparent
+    /// where the sheet should show through — what the floating paste is drawn with.</summary>
+    private uint[] GfxFloatPixels(GfxEdit g, (int W, int H, byte[] Px) c)
+    {
+        var pal = session.PaletteRgba;
+        var px = new uint[c.W * c.H];
+        for (int i = 0; i < px.Length; i++)
+            px[i] = c.Px[i] == 0 ? 0u : pal[g.PalRow * 16 + Math.Min(c.Px[i], (byte)g.MaxColor)];
+        return px;
+    }
+
+    /// <summary>Drop the floating paste into the file where it rests — one undo entry, and the
+    /// dropped block stays selected. The float never touched the bytes, so with none up there is
+    /// nothing to do; that is what makes this safe to call at every way out of positioning.</summary>
+    private void CommitGfxFloat()
+    {
+        if (gfxCanvas.Float is not { } f || session.GfxPixels is not { } g) return;
+        g.Paste(f.X, f.Y, (f.X, f.Y, f.W, f.H));
+        gfxCanvas.ClearFloat();
+        gfxCanvas.Selection = (f.X, f.Y, f.W, f.H);
+        RefreshGfxSheet();
+        gfxSave.IsEnabled = session.GfxDirty;
+    }
+
     private void SetGfxTool(GfxEdit.Tool tool)
     {
+        if (tool != GfxEdit.Tool.Select) CommitGfxFloat();   // leaving the tool drops the paste
         if (session.GfxPixels is { } g) g.Current = tool;
         gfxPencil.IsChecked = tool == GfxEdit.Tool.Pencil;
         gfxFill.IsChecked = tool == GfxEdit.Tool.Fill;
         gfxErase.IsChecked = tool == GfxEdit.Tool.Eraser;
         gfxDropper.IsChecked = tool == GfxEdit.Tool.Dropper;
+        gfxSelect.IsChecked = tool == GfxEdit.Tool.Select;
+        // The selection itself survives a tool change — copy still needs it — but only the
+        // select tool drags it.
+        gfxCanvas.Selecting = tool == GfxEdit.Tool.Select;
     }
 
     private void OnGfxTool(object? sender, RoutedEventArgs e)
         => SetGfxTool(ReferenceEquals(sender, gfxFill) ? GfxEdit.Tool.Fill
                     : ReferenceEquals(sender, gfxErase) ? GfxEdit.Tool.Eraser
                     : ReferenceEquals(sender, gfxDropper) ? GfxEdit.Tool.Dropper
+                    : ReferenceEquals(sender, gfxSelect) ? GfxEdit.Tool.Select
                     : GfxEdit.Tool.Pencil);
 
     /// <summary>Step the paint palette row within what the selected bin is allowed. The combo box
@@ -1399,9 +1491,21 @@ public partial class MainWindow : Window
 
     /// <summary>Everything the GFX mode shows for the current file: the sheet, the badge, the
     /// paint colours and the bin jump list.</summary>
+    /// <summary>The file the selection rectangle was made on: its coordinates mean nothing in
+    /// another sheet, so switching files drops it. The CLIPBOARD survives — that is the point.</summary>
+    private int gfxSelectionFile = -1;
+
     private void RefreshGfx()
     {
         if (session.GfxPixels is not { } g) return;
+        if (g.File != gfxSelectionFile)
+        {
+            // Backstop only: every deliberate file switch commits the float first. A file that
+            // changed some other way discards it — committing into the wrong sheet is worse.
+            gfxCanvas.ClearFloat();
+            gfxCanvas.Selection = null;
+            gfxSelectionFile = g.File;
+        }
         // No bin selected means nothing is being edited, so the view is EMPTY — showing whichever
         // file the editor happens to have open would read as some bin's contents.
         bool none = gfxSlot < 0;
@@ -1541,6 +1645,7 @@ public partial class MainWindow : Window
     private void EditGfxFile(int file, int palRow)
     {
         if (session.GfxPixels is not { } g) return;
+        CommitGfxFloat();                    // into the file it was floating over
         g.Open(file);
         g.PalRow = palRow;                 // the bin's own row; the picker follows in RefreshGfx
         OnMode(modeGfx, new RoutedEventArgs());
@@ -1642,8 +1747,9 @@ public partial class MainWindow : Window
         bool map16 = ReferenceEquals(sender, modeMap16);
         bool gfx = ReferenceEquals(sender, modeGfx);
         // Leaving the pixel editor with a stroke still open must not leave bytes behind that no
-        // undo entry covers, so it is reverted rather than committed.
-        if (!gfx) session.GfxPixels?.AbortStroke();
+        // undo entry covers, so it is reverted rather than committed. A floating paste is the
+        // opposite case — deliberate content not yet in any bytes — so it is dropped first.
+        if (!gfx) { CommitGfxFloat(); session.GfxPixels?.AbortStroke(); }
 
         this.GetControl<ScrollViewer>("CanvasScroll").IsVisible = !map16 && !gfx;
         this.GetControl<ScrollViewer>("Map16Scroll").IsVisible = map16;
