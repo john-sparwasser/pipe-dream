@@ -217,6 +217,8 @@ public class Map16CanvasView : Control
 
     // ---- rendering ----
 
+    private readonly PixelBlit blit = new();
+
     public override void Render(DrawingContext ctx)
     {
         double ts = TileSize;
@@ -228,8 +230,8 @@ public class Map16CanvasView : Control
         {
             var (v0, v1, rows, _) = Map16Layout.SheetWindow(Bank, sheetH, TileCount);
             if (rows > 0)
-                ctx.DrawImage(sheet, new Rect(0, v0 * sheetH, sheetW, (v1 - v0) * sheetH),
-                              new Rect(0, 0, Map16Layout.Cols * ts, rows * ts));
+                blit.Draw(this, ctx, sheet, new Rect(0, v0 * sheetH, sheetW, (v1 - v0) * sheetH),
+                          new Rect(0, 0, Map16Layout.Cols * ts, rows * ts), VisualRoot?.RenderScaling ?? 1);
         }
 
         // Page separators every 16 rows, LM-style.

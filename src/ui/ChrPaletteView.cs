@@ -99,12 +99,17 @@ public class ChrPaletteView : Control
     public int TileOfBrushCell(int i, int j)
         => Math.Clamp(Brush.Y + j, 0, Count / Cols - 1) * Cols + Math.Clamp(Brush.X + i, 0, Cols - 1);
 
+    private readonly PixelBlit blit = new();
+
     public override void Render(DrawingContext ctx)
     {
         double c = Cell;
         var full = new Rect(0, 0, Cols * c, Count / Cols * c);
         ctx.FillRectangle(Brushes.Black, full);
-        if (sheet is not null) ctx.DrawImage(sheet, new Rect(0, 0, sheetW, sheetH), full);
+        // Same pixel rule as every other surface — at 125% or 150% display scaling even this whole
+        // 2x grid is a fractional number of device pixels per source pixel.
+        if (sheet is not null)
+            blit.Draw(this, ctx, sheet, new Rect(0, 0, sheetW, sheetH), full, VisualRoot?.RenderScaling ?? 1);
 
         ctx.DrawRectangle(null, new Pen(UiColors.Accent, 2),
                           new Rect(Brush.X * c, Brush.Y * c, Brush.W * c, Brush.H * c));

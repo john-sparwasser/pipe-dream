@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.VisualTree;
 
 namespace PipeDream.Ui;
 
@@ -472,20 +473,14 @@ public class LevelView : Control
             yield return (a.X + (b.X - a.X) * i / steps, a.Y + (b.Y - a.Y) * i / steps);
     }
 
-    /// <summary>
-    /// Whether the level can be blitted UNSAMPLED at this zoom: one source pixel has to cover a
-    /// whole number of DEVICE pixels (so a 2x zoom on a 150% display counts — 3 device pixels —
-    /// but 3x does not, at 4.5).
-    ///
-    /// Pixel art only scales cleanly by whole numbers. Nearest-neighbour at a fractional zoom does
-    /// not blur, but it gives some source pixels one more screen pixel than their neighbours, and a
-    /// grid of same-size pixels drawn at different sizes is what makes zoomed art look like it is
-    /// crawling. A filtered stretch keeps every pixel the same size and pays for it with a pixel of
-    /// blend at the edges — which is what a fractional zoom looks like everywhere it is done well.
-    /// Whole zooms, which is what you use when you are actually looking at pixels, stay exact.
-    /// </summary>
-    internal static bool Unsampled(double zoom, double scaling)
-        => Math.Abs(zoom * scaling - Math.Round(zoom * scaling)) < 0.001;
+    /// <summary>Pixel-art drawing, the same rule every other pixel surface uses. Also the source of
+    /// the diagnostics below, which are what a test can pin when it cannot time a frame.</summary>
+    private readonly PixelBlit blit = new();
+
+    internal PixelSize ScalerSize => blit.MidSize;
+    internal int ScalerBuilds => blit.Builds;
+    internal string LastDraw => blit.LastDraw;
+
 
     public override void Render(DrawingContext ctx)
     {
@@ -501,12 +496,7 @@ public class LevelView : Control
         var src = new Rect(Origin.X / z, Origin.Y / z, Math.Min(bounds.Width / z, bmp.PixelSize.Width),
                            Math.Min(bounds.Height / z, bmp.PixelSize.Height));
         var dst = new Rect(0, 0, src.Width * z, src.Height * z);
-        using (ctx.PushRenderOptions(new RenderOptions
-               {
-                   BitmapInterpolationMode = Unsampled(z, VisualRoot?.RenderScaling ?? 1)
-                       ? BitmapInterpolationMode.None : BitmapInterpolationMode.HighQuality,
-               }))
-            ctx.DrawImage(bmp, src, dst);
+        blit.Draw(this, ctx, bmp, src, dst, VisualRoot?.RenderScaling ?? 1);
 
         if (ShowGrid) DrawScreenBoundaries(ctx, dst, z);
 

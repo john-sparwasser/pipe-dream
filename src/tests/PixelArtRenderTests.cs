@@ -14,7 +14,7 @@ namespace PipeDream.Ui.Tests;
 public class PixelArtRenderTests
 {
     /// <summary>
-    /// Unsampled is only right where it is EXACT. A whole number of device pixels per source pixel
+    /// The rule, in one place for every pixel surface: unsampled only where it is EXACT. A whole number of device pixels per source pixel
     /// draws nearest — the pixels are the pixels. A fractional one has to be filtered instead:
     /// nearest at 2.1x gives some source pixels two screen pixels and others three, and a grid of
     /// equal pixels drawn at unequal sizes is what makes zoomed art crawl.
@@ -23,21 +23,21 @@ public class PixelArtRenderTests
     /// is 4.5 (not), so the same zoom can want a different answer on a different monitor.
     /// </summary>
     [Fact]
-    public void OnlyWholeDevicePixelZoomsDrawUnsampled()
+    public void OnlyWholeDevicePixelScalesDrawUnsampled()
     {
-        Assert.True(LevelView.Unsampled(1, 1));
-        Assert.True(LevelView.Unsampled(8, 1));
-        Assert.False(LevelView.Unsampled(2.1, 1));
-        Assert.False(LevelView.Unsampled(1.9, 1));
+        Assert.True(PixelBlit.Whole(1, 1));
+        Assert.True(PixelBlit.Whole(8, 1));
+        Assert.False(PixelBlit.Whole(2.1, 1));
+        Assert.False(PixelBlit.Whole(1.9, 1));
 
         // 150%: 2x lands on 3 device pixels, 3x on 4.5, and 0.666… back on 1.
-        Assert.True(LevelView.Unsampled(2, 1.5));
-        Assert.False(LevelView.Unsampled(3, 1.5));
-        Assert.True(LevelView.Unsampled(2.0 / 3, 1.5));
+        Assert.True(PixelBlit.Whole(2, 1.5));
+        Assert.False(PixelBlit.Whole(3, 1.5));
+        Assert.True(PixelBlit.Whole(2.0 / 3, 1.5));
 
         // 125%: only every fourth whole zoom is exact.
-        Assert.True(LevelView.Unsampled(4, 1.25));
-        Assert.False(LevelView.Unsampled(3, 1.25));
+        Assert.True(PixelBlit.Whole(4, 1.25));
+        Assert.False(PixelBlit.Whole(3, 1.25));
     }
 
     [AvaloniaFact]

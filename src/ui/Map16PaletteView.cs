@@ -76,6 +76,8 @@ public class Map16PaletteView : Control
         }
     }
 
+    private readonly PixelBlit blit = new();
+
     public override void Render(DrawingContext ctx)
     {
         double z = Zoom, cell = 16 * z;
@@ -90,7 +92,8 @@ public class Map16PaletteView : Control
             if (rows > 0)
             {
                 var src = new Rect(0, v0 * sheetH, sheetW, (v1 - v0) * sheetH);
-                ctx.DrawImage(sheet, src, new Rect(0, 0, 16 * cell, rows * cell));
+                blit.Draw(this, ctx, sheet, src, new Rect(0, 0, 16 * cell, rows * cell),
+                          VisualRoot?.RenderScaling ?? 1);
             }
         }
 

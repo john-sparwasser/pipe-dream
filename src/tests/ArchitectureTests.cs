@@ -174,4 +174,31 @@ public class ArchitectureTests(ITestOutputHelper log)
         foreach (string layer in new[] { "ui", "services", "rom", "data", "tests" })
             Assert.True(Directory.Exists(Layer(layer)), $"src/{layer} is missing");
     }
+
+    /// <summary>
+    /// SNES art is pixel art, and how it is SCALED is one decision, not one per control: exact when
+    /// a source pixel lands on a whole number of device pixels, sharp-bilinear when it does not.
+    /// PixelBlit is that decision. A control drawing a bitmap itself gets whatever interpolation is
+    /// inherited, which is right at some zooms and on some displays and wrong on the rest — and the
+    /// wrongness looks like the artwork, not like a bug.
+    ///
+    /// ColorPickerView is exempt: its square is a smooth colour gradient, not pixel art, and it
+    /// already says so at its own draw call.
+    /// </summary>
+    [Fact]
+    public void every_pixel_surface_scales_through_the_shared_rule()
+    {
+        var offenders = new List<string>();
+        foreach (string path in Sources("ui"))
+        {
+            string name = Path.GetFileName(path);
+            if (name is "PixelBlit.cs" or "ColorPickerView.cs") continue;
+            foreach (string line in File.ReadLines(path))
+                if (CodeOf(line).Contains("ctx.DrawImage(") || CodeOf(line).Contains("dc.DrawImage("))
+                    offenders.Add($"{name}: {line.Trim()}");
+        }
+        log.WriteLine(offenders.Count == 0 ? "every surface goes through PixelBlit"
+                                           : string.Join("\n", offenders));
+        Assert.Empty(offenders);
+    }
 }

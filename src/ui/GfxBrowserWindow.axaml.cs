@@ -24,10 +24,14 @@ public partial class GfxBrowserWindow : Window
         public bool HasName => info.Name is { Length: > 0 };
         public string Description => info.Description;
 
-        // Scaled to fit 128 across, aspect kept: a short partial file stays short rather than
-        // being stretched to look like a full sheet.
-        public double ThumbW { get; } = info.Sheet.W > 0 ? info.Sheet.W * Math.Min(2.0, 128.0 / info.Sheet.W) : 16;
-        public double ThumbH { get; } = info.Sheet.W > 0 ? info.Sheet.H * Math.Min(2.0, 128.0 / info.Sheet.W) : 16;
+        // Scaled to fit 128 across, aspect kept: a short partial file stays short rather than being
+        // stretched to look like a full sheet. A WHOLE multiple, because an Image scales itself and
+        // does not go through PixelBlit — 1.33x of pixel art is the wobble this editor is trying to
+        // be rid of, and one of these is on every row.
+        private static double Fit(int w) => w > 0 ? Math.Max(1, Math.Floor(Math.Min(2.0, 128.0 / w))) : 1;
+
+        public double ThumbW { get; } = info.Sheet.W > 0 ? info.Sheet.W * Fit(info.Sheet.W) : 16;
+        public double ThumbH { get; } = info.Sheet.W > 0 ? info.Sheet.H * Fit(info.Sheet.W) : 16;
 
         public Bitmap? Thumb { get; } = info.Sheet.Px.Length > 0
             ? LevelBitmap.FromPixels(info.Sheet.Px, info.Sheet.W, info.Sheet.H) : null;

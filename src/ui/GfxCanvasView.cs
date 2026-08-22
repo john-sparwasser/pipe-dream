@@ -46,6 +46,7 @@ public class GfxCanvasView : Control
 
     private WriteableBitmap? sheet;
     private int sheetW, sheetH;
+    private readonly PixelBlit blit = new();
 
     public (int X, int Y)? Hover { get; private set; }
 
@@ -144,7 +145,7 @@ public class GfxCanvasView : Control
         var full = new Rect(0, 0, sheetW * z, sheetH * z);
         ctx.FillRectangle(Brushes.Black, full);
         if (sheet is null) return;
-        ctx.DrawImage(sheet, new Rect(0, 0, sheetW, sheetH), full);
+        blit.Draw(this, ctx, sheet, new Rect(0, 0, sheetW, sheetH), full, VisualRoot?.RenderScaling ?? 1);
 
         // The 8x8 tile grid always; the per-pixel grid only once a pixel is big enough to see
         // it round, otherwise the lines are the picture.

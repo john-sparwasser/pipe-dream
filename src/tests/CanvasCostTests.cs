@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using Avalonia.Headless.XUnit;
+using Avalonia;
+using Avalonia.Controls;
 using PipeDream.Ui;
 using Xunit;
 using Xunit.Abstractions;
@@ -102,5 +104,90 @@ public class CanvasCostTests(ITestOutputHelper log)
         log.WriteLine($"widest sampled level ${widest:X3}: {wpx}x{hpx}px " +
                       $"({wpx * (double)hpx * 4 / (1024 * 1024):F1}MB) repaint {median:F2}ms");
         Assert.True(median < 8.0, $"repaint {median:F2}ms is too slow for 60fps");
+    }
+
+    /// <summary>
+    /// What sharp-bilinear is allowed to cost. A fractional zoom draws twice — nearest into an
+    /// intermediate, then one filtered step down — and two viewport-sized blits are nothing. The
+    /// two ways that stops being true are the ones pinned here:
+    ///
+    ///   * a LEVEL-sized intermediate. This level is 4096px wide; at 210% the whole thing tripled
+    ///     would be 12288x1296 = 63MB and a new surface every repaint.
+    ///   * REALLOCATING it per frame. A GPU surface per repaint is a stall no matter its size.
+    ///
+    /// Frame TIME cannot be measured here: the headless renderer records draw calls and never
+    /// rasterizes (its render target refuses CopyPixels), so a stopwatch around Render reads 0.01ms
+    /// whatever it draws. The shape is what is checkable, and the shape is what decides the cost.
+    /// </summary>
+    [AvaloniaFact]
+    public void a_fractional_zoom_scales_only_the_viewport_and_reuses_the_surface()
+    {
+        if (!HaveRom) { log.WriteLine($"SKIP: no ROM at {RomPath}"); return; }
+
+        var scene = LevelScene.Build(Rom.Load(RomPath), 0x105);
+        var bmp = new LevelBitmap();
+        bmp.SetImages(scene.Phases, scene.Width, scene.Height, 0);
+
+        const int vw = 1280, vh = 720;
+        var view = new LevelView { Source = bmp, Zoom = 2.1 };
+        var w = new Window { Width = vw, Height = vh, Content = view };
+        w.Show();
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+
+        using var surface = new Avalonia.Media.Imaging.RenderTargetBitmap(
+            new PixelSize(vw, vh), new Avalonia.Vector(96, 96));
+        for (int i = 0; i < 12; i++)
+            using (var dc = surface.CreateDrawingContext())
+                view.Render(dc);
+
+        var size = view.ScalerSize;
+        log.WriteLine($"level {scene.Width}x{scene.Height}px at 210% in a {vw}x{vh} viewport: " +
+                      $"intermediate {size.Width}x{size.Height} " +
+                      $"({size.Width * (long)size.Height * 4 / (1024 * 1024)}MB), " +
+                      $"{view.ScalerBuilds} allocation(s) over 12 repaints");
+
+        // The intermediate covers the VIEWPORT (rounded out to whole source pixels at the next
+        // whole multiple), never the level. Three source pixels per screen pixel is the ceiling at
+        // this zoom, so twice the viewport plus a pixel of slop is the honest bound.
+        Assert.True(size.Width > 0, "the sharp-bilinear path never ran");
+        Assert.True(size.Width <= vw * 2 + 8 && size.Height <= vh * 2 + 8,
+                    $"intermediate {size.Width}x{size.Height} is not viewport-sized");
+        Assert.True(size.Width < scene.Width, "the whole level went through the scaler");
+        // Two surfaces — the oversampled one and the device-sized one the filtered step lands
+        // in — each built once and reused for every repaint.
+        Assert.Equal(2, view.ScalerBuilds);
+        Assert.Equal("sharp", view.LastDraw);
+    }
+
+    /// <summary>
+    /// A repaint with no usable viewport still draws SHARP. Coming back from another canvas mode,
+    /// the first repaint can land while the level canvas is still marked invisible, and the layout
+    /// then cannot say which part of it is on screen. Treating that as "all of it" sized the
+    /// intermediate off the whole 8192px level, blew the cap, and silently dropped the draw to the
+    /// blurry one-step filter — where it stayed until something else forced another repaint. That is
+    /// what "it goes back to the old rendering when I tab away and back" was.
+    /// </summary>
+    [AvaloniaFact]
+    public void a_repaint_with_no_viewport_still_draws_sharp()
+    {
+        if (!HaveRom) { log.WriteLine($"SKIP: no ROM at {RomPath}"); return; }
+
+        var scene = LevelScene.Build(Rom.Load(RomPath), 0x105);
+        var bmp = new LevelBitmap();
+        bmp.SetImages(scene.Phases, scene.Width, scene.Height, 0);
+
+        // No ScrollViewer at all: the worst case of "the layout cannot tell me where I am".
+        var view = new LevelView { Source = bmp, Zoom = 2.1 };
+        var w = new Window { Width = 1280, Height = 720, Content = view };
+        w.Show();
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+
+        using var surface = new Avalonia.Media.Imaging.RenderTargetBitmap(
+            new PixelSize(1280, 720), new Avalonia.Vector(96, 96));
+        using (var dc = surface.CreateDrawingContext()) view.Render(dc);
+
+        log.WriteLine($"no viewport: draw={view.LastDraw} intermediate {view.ScalerSize}");
+        Assert.Equal("sharp", view.LastDraw);
+        Assert.True(view.ScalerSize.Width < scene.Width, "it sized the intermediate off the level");
     }
 }
