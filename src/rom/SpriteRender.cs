@@ -12,8 +12,13 @@ public static class SpriteRender
     /// <summary>Tweaker $1662 (clipping) of the last Capture — generator side channel.</summary>
     public static byte LastClip1662 { get; private set; }
 
-    /// <summary>Debug: set true to record BankTrace/OAM-write counts of the next Capture.</summary>
+    /// <summary>Debug: set true to record BankTrace/OAM-write counts of the next Capture.
+    /// Trace and the Last* fields are process-wide, so a tracer must hold <see cref="TraceGate"/>
+    /// from setting Trace through reading the results — Capture itself serializes on it, which
+    /// keeps a concurrent capture (parallel tests) from adopting the flag and replacing the sets
+    /// mid-read.</summary>
     public static bool Trace;
+    public static readonly object TraceGate = new();
     public static HashSet<int>? LastBanks;
     public static SortedSet<int>? LastPcHot;
     public static int LastOamWrites, LastStatus;
@@ -28,6 +33,9 @@ public static class SpriteRender
         // DE/E0-E6 multi-sprite specials, E7+ scroll commands — none spawn a regular slot.
         // DA-DD/DF (stationary koopa shells) DO: the loader remaps them itself ($02A97E).
         if (s.Number >= 0xC9 && !(s.Number is (>= 0xDA and <= 0xDD) or 0xDF)) return null;
+        // ponytail: one capture at a time process-wide — the trace channel is global statics,
+        // and serializing captures is far cheaper than plumbing per-call trace results.
+        lock (TraceGate)
         try
         {
             var cpu = new Cpu65816(rom);

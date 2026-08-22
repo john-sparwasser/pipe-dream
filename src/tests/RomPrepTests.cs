@@ -580,13 +580,19 @@ public class RomPrepTests
         foreach (int num in new[] { 0x06, 0x0F })          // walkers: probe ground each frame
         {
             var a = SpriteRender.Capture(clean, new Sprite(1, 4, 10, 0, num));
-            SpriteRender.Trace = true;
-            var b = SpriteRender.Capture(prep, new Sprite(1, 4, 10, 0, num));
-            SpriteRender.Trace = false;
+            List<SpriteRender.Oam>? b;
+            // The trace channel is global statics — hold the gate from setting the flag
+            // through reading the results, or a parallel test's capture replaces them mid-read.
+            lock (SpriteRender.TraceGate)
+            {
+                SpriteRender.Trace = true;
+                b = SpriteRender.Capture(prep, new Sprite(1, 4, 10, 0, num));
+                SpriteRender.Trace = false;
+                remapRan |= SpriteRender.LastPcHot?.Any(pc =>
+                    pc >= RomPrep.ActsRemapEntry && pc < RomPrep.ActsRemapEntry + 0x30) == true;
+            }
             Assert.NotNull(a);
             Assert.Equal(a, b);
-            remapRan |= SpriteRender.LastPcHot?.Any(pc =>
-                pc >= RomPrep.ActsRemapEntry && pc < RomPrep.ActsRemapEntry + 0x30) == true;
         }
         Assert.True(remapRan, "acts-like remap never executed — test is vacuous");
     }
