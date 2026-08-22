@@ -67,6 +67,33 @@ public class SessionTests(ITestOutputHelper log) : IDisposable
         Assert.Contains(parsed.Objects, o => o.IsDm16 && o.Dm16Tile == 0x100);
     }
 
+    /// <summary>Debug ▸ Clear project edits: everything editable goes, the base-ROM pin stays,
+    /// and the reopened session shows the base ROM's level — not the live pre-clear state
+    /// synced back in by autosave.</summary>
+    [Fact]
+    public void clearing_project_edits_resets_to_the_base_rom()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+
+        var session = new EditorSession();
+        Assert.True(session.NewProject(Path.Combine(dir, "proj"), Vanilla), session.Status);
+        var pinned = session.Project!.Data.BaseRom.Sha256;
+        int baseCount = session.Edit!.Objects.Count;
+
+        session.Edit.Paint(4, 6, 0x100);
+        session.Edit.EndStroke();
+        session.Save();
+        Assert.NotEmpty(session.Project!.Data.Levels);
+
+        Assert.True(session.ClearProjectEdits(), session.Status);
+        Assert.Empty(session.Project!.Data.Levels);
+        Assert.Equal(pinned, session.Project.Data.BaseRom.Sha256);
+        Assert.Equal(baseCount, session.Edit!.Objects.Count);
+
+        // The file on disk is clear too — not just the in-memory copy.
+        Assert.Empty(Project.Open(session.Project.FilePath).Data.Levels);
+    }
+
     [Fact]
     public void reopening_a_saved_project_restores_the_edits()
     {

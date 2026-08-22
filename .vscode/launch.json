@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // F5: local dev build. --dev shows the Debug menu; the dev project under dev/ is
+      // created from the vanilla ROM automatically on the first launch.
+      "name": "pipe-dream (dev)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/src/bin/Debug/net10.0/PipeDream.exe",
+      "args": [
+        "--dev",
+        "--vanilla", "C:\\SMW\\Projects\\.resources\\SMW.smc",
+        "${workspaceFolder}\\dev\\project.pdp"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "internalConsole"
+    }
+  ]
+}

@@ -30,3 +30,6 @@ imgui.ini
 # Avalonia UI project build output
 ui/**/bin/
 ui/**/obj/
+
+# Local dev project (created by the --dev F5 launch; never shared)
+/dev/

@@ -234,6 +234,10 @@
         <MenuItem x:Name="SpriteOverlayItem" Header="_Sprite overlay" Click="OnToggleSprites"/>
         <MenuItem x:Name="AnimateItem" Header="_Animate tiles" Click="OnToggleAnimate"/>
       </MenuItem>
+      <!-- Only in a - -dev launch (the F5 profile): shortcuts for testing, never shipped UI. -->
+      <MenuItem x:Name="DebugMenu" Header="De_bug" IsVisible="False">
+        <MenuItem Header="_Clear project edits…" Click="OnClearProject"/>
+      </MenuItem>
       <MenuItem Header="_Help">
         <MenuItem Header="Check for _updates…" Click="OnCheckUpdates"/>
       </MenuItem>

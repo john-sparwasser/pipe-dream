@@ -830,6 +830,16 @@ public sealed class EditorSession
         catch (Exception ex) { Report("could not open project: " + ex.Message); return false; }
     }
 
+    /// <summary>Debug ▸ Clear project edits: wipe the .pdp back to its base-ROM pin and reopen
+    /// it, so every level, Map16, GFX, palette and entrance edit is gone in one step. Returns
+    /// false when no project is open.</summary>
+    public bool ClearProjectEdits()
+    {
+        if (Project is not { } p) return false;
+        p.ClearEdits();
+        return OpenProject(p.FilePath);
+    }
+
     public bool NewProject(string folder, string baseRomSource)
     {
         try

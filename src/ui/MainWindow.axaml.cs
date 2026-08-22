@@ -418,10 +418,14 @@ public partial class MainWindow : Window
         // object list: the delete happened, nothing on screen changed, and the edit was lost.
         session.SceneRebuilt += (_, _) => AdoptSession();
 
+        this.GetControl<MenuItem>("DebugMenu").IsVisible = Program.DevMode;
+
         // An explicit ROM argument opens projectless — that is the test suite's and the
-        // command line's hatch, not a user path. A normal launch starts empty and the
-        // startup chooser asks for a project.
-        if (Program.RomPath is { } romArg && EditorSession.FileExists(romArg)) LoadRom(romArg);
+        // command line's hatch, not a user path. A .pdp argument is a PROJECT and waits for
+        // OnFirstOpened: opening one can need recovery dialogs, which need the window up.
+        // A normal launch starts empty and the startup chooser asks for a project.
+        if (Program.RomPath is { } romArg && !IsProjectPath(romArg)
+            && EditorSession.FileExists(romArg)) LoadRom(romArg);
 
         // Startup dialogs wait for the window to actually be up — a modal owned by an unshown
         // window has nothing to centre on. Only on a real desktop: a headless test run has no
@@ -439,9 +443,14 @@ public partial class MainWindow : Window
     /// says "you are up to date" every morning is noise, and one that reports a failed check is
     /// reporting something the user cannot act on.
     /// </summary>
+    private static bool IsProjectPath(string p) => p.EndsWith(".pdp", StringComparison.OrdinalIgnoreCase);
+
     private async void OnFirstOpened(object? sender, EventArgs e)
     {
         Opened -= OnFirstOpened;
+        // --vanilla configures the base ROM before anything can ask for it — the dev launch's
+        // way of never seeing the first-run prompt, even on a config the test suite reset.
+        if (Program.VanillaPath is { } van && EditorSession.FileExists(van)) session.SetVanillaRom(van);
         if (session.NeedsVanillaRom)
         {
             var dlg = new FirstRunWindow();
@@ -452,14 +461,33 @@ public partial class MainWindow : Window
             }
         }
 
+        // A .pdp argument opens that project — and in dev mode one that does not exist yet is
+        // created from the vanilla ROM, so the F5 profile works before any project was made.
+        if (!session.HasRom && Program.RomPath is { } arg && IsProjectPath(arg))
+        {
+            if (!EditorSession.FileExists(arg) && Program.DevMode
+                && EditorSession.FileExists(session.VanillaRomPath))
+            {
+                session.NewProject(Path.GetDirectoryName(Path.GetFullPath(arg))!, session.VanillaRomPath!);
+                AdoptSession();
+                levelBox.SelectedIndex = session.LevelNum;
+            }
+            else await OpenProjectPath(arg);
+        }
+
         // Pick up where the last session left off. The recent list is pruned of anything that has
         // moved or been deleted, so its head is the last project that can actually be opened —
         // and a base-ROM problem still routes through the recovery flow rather than being
-        // swallowed. Anything that leaves nothing open falls through to the chooser.
-        if (!session.HasRom && session.RecentProjects.FirstOrDefault() is { } last)
+        // swallowed. Anything that leaves nothing open falls through to the chooser. An explicit
+        // argument that failed to open must NOT silently fall back to some other project.
+        if (!session.HasRom && Program.RomPath is null && session.RecentProjects.FirstOrDefault() is { } last)
             await OpenProjectPath(last);
 
         if (!session.HasRom) await PromptForProject();
+
+        // A dev launch runs source newer than any release — an update prompt is only noise.
+        // Help ▸ Check for updates still works; that is an explicit ask.
+        if (Program.DevMode) return;
 
         try
         {
@@ -547,10 +575,10 @@ public partial class MainWindow : Window
     }
 
     private void UpdateTitle()
-        => Title = session.ProjectName is { } name
+        => Title = (session.ProjectName is { } name
             ? $"pipe-dream — {name}{(session.HasUnsavedWork ? " *" : "")}"
             : session.RomFileName is { } file ? $"pipe-dream — {file} (no project)"
-            : "pipe-dream";
+            : "pipe-dream") + (Program.DevMode ? "  [dev]" : "");
 
     private double composeMs;
 
@@ -871,6 +899,20 @@ public partial class MainWindow : Window
         if (baseRom is null) return;
 
         session.NewProject(EditorSession.ProjectFolderFor(folder, baseRom), baseRom);
+        AdoptSession();
+        levelBox.SelectedIndex = session.LevelNum;
+    }
+
+    /// <summary>Debug ▸ Clear project edits: wipe the .pdp back to its base-ROM pin, behind a
+    /// confirm — the fast path to retesting a flow from a clean project.</summary>
+    private async void OnClearProject(object? sender, RoutedEventArgs e)
+    {
+        if (session.ProjectName is not { } name) return;
+        var dlg = new ConfirmWindow("Clear project edits",
+            $"Discard every edit in '{name}'? Levels, Map16, GFX, palettes and entrances all "
+            + "reset to the base ROM. This cannot be undone.", "Clear");
+        await dlg.ShowDialog(this);
+        if (!dlg.Confirmed || !session.ClearProjectEdits()) return;
         AdoptSession();
         levelBox.SelectedIndex = session.LevelNum;
     }
@@ -1631,6 +1673,10 @@ public partial class MainWindow : Window
         }
 
         canvas.InvalidateVisual();
+        // ...and again once layout has caught up: the repaint above can land while the canvas is
+        // still marked invisible from the mode it is leaving, and that frame draws with whatever
+        // the layout could tell it then.
+        Dispatcher.UIThread.Post(canvas.InvalidateVisual);
     }
 
     // ---- Map16 properties inspector ----

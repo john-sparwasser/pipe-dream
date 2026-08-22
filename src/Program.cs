@@ -6,9 +6,14 @@ namespace PipeDream.Ui;
 /// <summary>
 /// The process entry point, for both halves of pipe-dream.
 ///
-///   PipeDream.exe [rom-or-project] [levelHex]   opens the editor
-///   PipeDream.exe --headless                    lists the ROM commands
-///   PipeDream.exe --selfcheck                   runs one (headless is implied)
+///   PipeDream.exe [rom-or-project.pdp] [levelHex]   opens the editor
+///   PipeDream.exe --headless                        lists the ROM commands
+///   PipeDream.exe --selfcheck                       runs one (headless is implied)
+///
+/// Local-development flags (what the repo's .vscode F5 profile passes):
+///   --dev             dev mode: the Debug menu appears, and a .pdp argument that does not
+///                     exist yet is created from the vanilla ROM instead of failing
+///   --vanilla <smc>   configure the vanilla base ROM before the first-run prompt can ask
 ///
 /// One executable rather than two. The commands themselves are storage-layer work reached
 /// through <see cref="EditorSession.RunCommandLine"/>, so this stays a composition root: it
@@ -18,6 +23,8 @@ public static partial class Program
 {
     public static string? RomPath;
     public static int LevelNum = 0x105;
+    public static bool DevMode;
+    public static string? VanillaPath;
 
     [STAThread]
     public static int Main(string[] args)
@@ -28,9 +35,16 @@ public static partial class Program
             return EditorSession.RunCommandLine(args);
         }
 
-        RomPath = args.FirstOrDefault(a => !a.StartsWith('-'));
-        if (args.Length > 1 && int.TryParse(args[1], System.Globalization.NumberStyles.HexNumber,
-                                            null, out int lv)) LevelNum = lv;
+        var positional = new List<string>();
+        for (int i = 0; i < args.Length; i++)
+        {
+            if (args[i] == "--dev") DevMode = true;
+            else if (args[i] == "--vanilla" && i + 1 < args.Length) VanillaPath = args[++i];
+            else if (!args[i].StartsWith('-')) positional.Add(args[i]);
+        }
+        RomPath = positional.FirstOrDefault();
+        if (positional.Count > 1 && int.TryParse(positional[1], System.Globalization.NumberStyles.HexNumber,
+                                                 null, out int lv)) LevelNum = lv;
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         return 0;
     }

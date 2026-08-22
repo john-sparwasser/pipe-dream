@@ -16,7 +16,7 @@ internal sealed class Project
     internal string BaseRomPath => Path.Combine(Folder, RomName);
     internal string FilePath => Path.Combine(Folder, FileName);
     internal string Name => Path.GetFileName(Folder.TrimEnd(Path.DirectorySeparatorChar));
-    internal ProjectFile Data { get; }
+    internal ProjectFile Data { get; private set; }
 
     /// <summary>Set when an edit made the in-memory state newer than project.pdp;
     /// the sync callback (set by the session layer) flushes editor state into Data
@@ -161,6 +161,16 @@ internal sealed class Project
         Data.BaseRom.PrepVersion = RomPrep.Version;
         Save();
         return null;
+    }
+
+    /// <summary>Debug helper: drop every edit, keeping only the base-ROM pin. Sync is unhooked
+    /// first — the whole point is NOT to flush the live editor state back into the file — so the
+    /// caller must reopen the project to get a session that matches what is now on disk.</summary>
+    internal void ClearEdits()
+    {
+        SyncBeforeSave = null;
+        Data = new ProjectFile { BaseRom = Data.BaseRom };
+        Save();
     }
 
     internal void MarkDirty()
