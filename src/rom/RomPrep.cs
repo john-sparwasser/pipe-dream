@@ -6,6 +6,12 @@ namespace PipeDream;
 /// per-level custom palettes, sprite bank relocation) lights up through the existing
 /// LunarMagic.cs detectors with NO Lunar Magic round-trip.
 ///
+/// "LM-equivalent" is doing real work in that sentence: the stamps satisfy OUR detectors at
+/// LM's addresses, which is not the same as satisfying LM's. Opening a prepped base in Lunar
+/// Magic is a stated REQUIREMENT that does not hold yet — CONTRACT §0 lists the known
+/// divergences (v4's upload mechanism, the 4bpp buffer address, the missing VRAM patch).
+/// Anything added here should shrink that list, not grow it.
+///
 /// All inserted 65816 is clean-room authored (Asm.cs) from the documented semantics:
 /// CONTRACT §7/§7a-rev/§7b/§7e/§9d/§11 and LEVEL_PIPELINE_NOTES §E/§F. The handler ADDRESSES
 /// match the ones the repo already dispatches on (PortedObjectEngine / CONTRACT §9d), so no

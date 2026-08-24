@@ -14,6 +14,46 @@ Test ROMs: clean `C:\SMW\Projects\.resources\SMW.smc` (512KB headered); LM-edite
 
 ---
 
+## 0. Round-trip with Lunar Magic  [REQUIREMENT — currently ONE-WAY]
+
+**A ROM must survive being edited in either tool and reopened in the other.** Edit in
+pipe-dream, open in LM, edit there, come back — seamless, both directions. This is a
+product requirement, not an aspiration: LM is the incumbent and nobody adopts an editor
+that strands their hack. It holds until pipe-dream grows features LM has no representation
+for, which is far enough off that nothing should be traded away for it now. When that day
+comes the break must be a deliberate, announced, opt-in divergence — never a silent one.
+
+Where it stands today, **LM → pipe-dream works and pipe-dream → LM does not**. Reading an
+LM-saved ROM is exercised constantly (the detectors in `LunarMagic.cs`, the ShaoBase
+oracles, `--selfcheck`). The other direction has never been tested, and `RomPrep`'s premise
+is explicitly "LM-*equivalent* structures … with NO Lunar Magic round-trip" — it stamps at
+LM's addresses so *our* detectors fire, which is not the same as satisfying LM's.
+
+Known divergences, in the order they'd need settling:
+
+- **The v4 4bpp GFX upload is not LM's mechanism.** Byte evidence from the reference ROMs:
+  on an LM 4bpp hack (ShaoBase) `$00AA50` is `22 80 F7 0F` (JSL $0FF780 — LM's loader, the
+  same address our prep uses since v2) and `$00AAE1` is `60`, i.e. LM **stubs vanilla's
+  expand-upload with an RTS** and uploads from its own routine. Prep v4 instead *rewrites*
+  vanilla's inner loops in place, because our loader delegates to that routine rather than
+  replacing it. Both work; they are not the same ROM. A plain LM save (`after.smc`) has
+  neither — vanilla loops intact, no loader at `$00AA50`, but the VRAM patch at `$0081E2`.
+- **The decompression buffer address is ours alone.** V4 moves it to `$7F:A000`, chosen from
+  a free-space audit of *vanilla*. Where LM puts its own 4bpp buffer is unknown; if a ROM
+  ever carried both they would have to agree, or one would corrupt the other.
+- **`HasLmVramPatch` (`$0081E2` = JML) is present on LM saves and absent on ours.** LM's
+  BG2/BG3 bypass slots depend on it, which is why those stay editor-only here.
+- **`IsPrepped` must stay true for LM-saved ROMs** or `Apply` will stamp over foreign
+  structures — its stated contract. V4's `HasGfx4bppUpload` check breaks that (it tests for
+  our instruction at `$00AAE5`, which is `29` on ShaoBase). Fix by testing the *property*
+  — the ROM stores 4bpp — rather than our particular encoding of it.
+
+Before claiming the round-trip works, the gate is empirical, not analytical: prep a base
+here, open it in real LM, save, reopen here, and diff. `reference/lm-help/html/` is the
+unread source on what LM requires of a ROM it did not create.
+
+---
+
 ## 1. ROM container
 
 - **Copier header** [CONFIRMED]: file size mod `0x8000` == `0x200` → a 512-byte header is
@@ -159,7 +199,8 @@ tile number (10 bits, `cc…`), palette (3 bits, `ppp`), priority (1 bit `o`), H
 ## 6. Graphics (GFX)  [LM-DOC]
 
 - Files `GFX00.bin`–`GFX33.bin`. Original game 3bpp for most (4KB); LM installs an optional
-  4bpp expansion. 2bpp for `28-2B`,`2F`; Mode7 for `27`; `32` is 4bpp 23.2KB.
+  4bpp expansion — ours is prep v4 and reaches the same result by a different mechanism, see
+  §0. 2bpp for `28-2B`,`2F`; Mode7 for `27`; `32` is 4bpp 23.2KB.
 - ExGFX `80`–`FFF` (user-supplied), ExGFX `60-63` stored uncompressed (≤32KB, ExAnimation).
 - In-ROM GFX is **compressed with LC_LZ2** (LM default) or **LC_LZ3** — this is the
   "Lunar Compress" format. LM exposes a decompressor at **`JSL $0FF900`** (A=file#,
