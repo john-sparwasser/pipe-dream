@@ -12,6 +12,24 @@ public static class Gfx
     public const int ExGfx80Table = 0x0FF600;
 
     /// <summary>
+    /// Vanilla files that are NOT 3bpp tile-planar, and so must never be converted to 4bpp —
+    /// a blanket "convert every file" would silently corrupt each of these, because the game
+    /// reads them with a routine that is not the tile uploader:
+    ///   0x27        Mode 7 (boss rooms). $00AB42 expands 3-bits-per-pixel to 8bpp indices
+    ///               through the shifter at $00ABC4; consumes 0xC00 but is not tile-packed.
+    ///   0x28-0x2B   layer-3 tiles, 2bpp (16 B/tile). $00A993 streams 0x800/file straight out.
+    ///   0x2F        2bpp. $00955E streams 0x400.
+    ///   0x32-0x33   the animation blobs. 0x33 (ROM $088000) is ALREADY raw 4bpp; 0x32 is 3bpp
+    ///               but is expanded by its own reader at $00B8AD into $7E7D00, not uploaded,
+    ///               and neither is reachable through the pointer tables at all (their
+    ///               addresses are the fixed operands at $00B88B/$00B8D8/$00B890).
+    /// Everything else below <see cref="Count"/> is FG/BG/sprite tile data that goes through
+    /// the expand-upload, which prep v4 teaches to read four planes.
+    /// </summary>
+    public static bool IsTilePlanar3Bpp(int file)
+        => file is not (0x27 or 0x2F or (>= 0x28 and <= 0x2B) or 0x32 or 0x33);
+
+    /// <summary>
     /// 24-bit SNES source address of a compressed GFX/ExGFX file, or -1 (0x7F = skip slot,
     /// or ExGFX file not inserted). 0x00-0x33 vanilla tables; 0x80-0xFF LM table at $0FF600
     /// (only meaningful when LM's loader is installed — on vanilla/prepped ROMs those bytes
@@ -468,11 +486,13 @@ public static class Gfx
         id.ToString("X").StartsWith(filter, StringComparison.OrdinalIgnoreCase) ||
         id.ToString("X3").StartsWith(filter, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>One line describing what a file holds, for a picker row. Spelled out rather than
-    /// "3bpp": the depth is the one fact that decides whether a file fits this ROM at all, and the
-    /// thumbnail beside it already says how much of a sheet there is.</summary>
+    /// <summary>One line describing what a file holds, for a picker row. The EFFECTIVE depth,
+    /// not storage: the loader expands 3bpp storage to 4bpp planes on VRAM upload, so on the
+    /// SNES display every FG/BG/SP file here is 4bpp — a 3bpp ROM just leaves colours 8-15 of
+    /// the row unreachable, which is the half of the fact worth a note.</summary>
     public static string Describe(Rom rom, int id)
-        => Cached(rom, id) is null ? "(empty)" : $"{RomBpp(rom)} bits per pixel";
+        => Cached(rom, id) is null ? "(empty)"
+         : RomBpp(rom) == 3 ? "4 bits per pixel (colours 0-7)" : "4 bits per pixel";
 
     /// <summary>
     /// The level's 10 VRAM GFX bins (FG/BG/SP), resolved through the tileset lists and the Super

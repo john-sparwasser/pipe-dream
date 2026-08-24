@@ -33,10 +33,12 @@ public static class RomPrep
 {
     /// <summary>Current prep version. V1 = editing unlocks (DM16/Map16/acts/palette/sprite
     /// banks); V2 adds the in-game GFX stage (Super-GFX-Bypass loader + ExGFX resolver);
-    /// V3 widens the Map16 def lookup from one range to four (tiles 0x200-0x3FFF).
+    /// V3 widens the Map16 def lookup from one range to four (tiles 0x200-0x3FFF);
+    /// V4 makes the GFX upload read four bit planes, so colours 8-15 of a palette row become
+    /// paintable (LM's 4bpp mode).
     /// Version-keyed stamp lists keep every released version BYTE-FROZEN: a v1 project's
     /// pinned image must reproduce forever (golden-hash tested).</summary>
-    public const int Version = 3;
+    public const int Version = 4;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -73,7 +75,8 @@ public static class RomPrep
         => rom.HasDm16Hijack && rom.LmMap16Defs.Bank != 0
            && rom.HasLmPaletteHook && rom.LmSpriteBankTable >= 0
            && (version < 2 || rom.HasLmGfxLoader)
-           && (version < 3 || rom.HasMap16Range(1));   // the widened lookup ladder
+           && (version < 3 || rom.HasMap16Range(1))    // the widened lookup ladder
+           && (version < 4 || rom.HasGfx4bppUpload);
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying
@@ -121,7 +124,130 @@ public static class RomPrep
         // V3 restamps the whole Map16-lookup block over V1's — later stamps win, so the
         // single-range lookup is replaced wholesale rather than V1's frozen list being edited.
         if (version >= 3) s.Add((Pc(0x06F538), Map16Lookup(3)));
+        if (version >= 4) AppendV4Stamps(s);
         return s;
+    }
+
+    /// <summary>
+    /// V4: make the GFX upload read FOUR bit planes, so a palette row's colours 8-15 are
+    /// reachable — the whole point of 4bpp storage.
+    ///
+    /// Vanilla's expand-upload ($00AA80) sends 32 bytes per tile to VRAM but reads only 24: the
+    /// first inner loop copies planes 0/1 verbatim (16 bytes) AND leaves a per-row mask of
+    /// (plane0 | plane1) in $1BB2,X; the second reads ONE plane-2 byte per row and synthesizes
+    /// the plane-3 byte as (plane2 | plane0 | plane1) ANDed with the $0A filter word — $FF00 for
+    /// the handful of vanilla files that want the swap (files $01/$17 on tiles $6E/$6F/$7E/$7F,
+    /// file $08 on tileset >= $11, file $1E), $0000 for everything else, which is what makes
+    /// plane 3 zero and colours 8-15 unreachable on a vanilla ROM.
+    ///
+    /// Note WHERE the plane-2 term in that synthesis comes from: the loop's `LDA [$00]` is
+    /// 16-bit, so it picks up the next row's byte too, and the `XBA` that follows is what moves
+    /// this row's plane 2 into the high half before the mask is OR'd in. Miss that and the
+    /// filtered files upload a subtly wrong plane 3 (caught by
+    /// v4_uploads_a_converted_file_byte_identically_to_v3).
+    ///
+    /// So only that SECOND loop is wrong for 4bpp, and the fix keeps its shape exactly — the
+    /// plane-2/3 word is read straight from the file, which is already the word VRAM wants
+    /// (a 4bpp tile stores planes 2/3 row-interleaved right after planes 0/1), and the two
+    /// halves of vanilla's `STA $0C` / `ORA $0C` dance collapse into one `ORA [$00]`:
+    ///     LDA [$00] : XBA : ORA $1BB2,X : AND $0A : ORA [$00] : STA $2118 : INC $00 : INC $00
+    /// The mask and the filter word still do precisely what they did before: with $0A = 0 the
+    /// synthesis drops out and plane 3 is whatever the file says (0 for a converted vanilla
+    /// file — byte-identical output), and with $0A = $FF00 it is OR'd on top, so every vanilla
+    /// filter case survives untouched. That is what makes this a 22-byte edit instead of a new
+    /// upload routine, and why no call site moves.
+    ///
+    /// 22 bytes replace 27 ($00AAE1-$00AAFB), so the tail is NOPped out to land execution on
+    /// the `DEY` at $00AAFC that closes the per-tile loop.
+    /// </summary>
+    private static void AppendV4Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        // There are TWO copies of that loop, byte-for-byte identical, one per upload
+        // implementation: $00AAE1 in the main path, $00AB21 in the FilterSomeRAM path (which is
+        // where file $1E and file $08-on-tileset-$11 actually go, so patching only the first
+        // leaves exactly the filtered files broken). Both get the same replacement.
+        s.Add((Pc(0x00AAE1), Gfx4bppLoop(0x00AAE1, 0x00AAFC)));
+        s.Add((Pc(0x00AB21), Gfx4bppLoop(0x00AB21, 0x00AB3C)));
+
+        // The decompression buffer MOVES. A 4bpp file is 0x1000 and the vanilla buffer at
+        // $7EAD00 has exactly 0xC00 before it hits the layer-2 Map16 tile buffer at $7EB900 —
+        // and that buffer is built one game mode EARLIER (mode $11, $009716 JSL $05801E) than
+        // the upload that would trample it (mode $12, $00A5B9), is never rebuilt, and is read
+        // every time the camera crosses a 16-pixel boundary. So overrunning it corrupts layer 2
+        // for the whole level; there is no ordering that makes 0x1000 fit there.
+        //
+        // $7FA000 instead: 0x1000 inside the free $7F9CFB-$7FC7FF run (above the Wiggler
+        // segment tables, below the layer-1 page buffer at $7FC800), page-aligned, and no bank
+        // crossing for the decompressor's [$00],Y writes. Only the pointer SEED moves — every
+        // consumer walks $00-$02 and inherits the new base.
+        s.Add((Pc(0x00BA40), [BufHi]));                 // CODE_00BA28: LDA #$A0 -> $01
+        s.Add((Pc(0x00BA44), [BufBank]));               //             LDA #$7F -> $02
+
+        // The two OTHER 3bpp readers: the GFX0F and GFX00 expanders, which unpack a file into a
+        // RAM buffer rather than VRAM ($7F977B for the status-bar sheet, $0BF6 for GFX00). Each
+        // has the same shape as the upload — a 2-byte-per-row loop for planes 0/1 then a
+        // 1-byte-per-row loop that zero-extends plane 2 — so for 4bpp the second loop becomes a
+        // copy of the first, and the whole expansion is a straight 2-bytes-per-row copy.
+        s.Add((Pc(0x00A857), Gfx4bppExpand(0x00A857, 0x00A86A, a => a.StaLongX(0x7F977B))));
+        s.Add((Pc(0x00A897), Gfx4bppExpand(0x00A897, 0x00A8A9, a => a.StaAbsX(0x0BF6))));
+
+        // Three hardcoded pointers INTO the buffer, in the GFX00 expander: they both move with
+        // the buffer and rescale, because they are tile offsets ($6F0 = tile $4A at 24 B/tile
+        // becomes $940 at 32; $870 = tile $5A becomes $B40).
+        s.Add((Pc(0x00A879), Word(0xA9, BufBase + 0x940)));    // LDA #$A940 : STA $00
+        s.Add((Pc(0x00A87E), Word(0xA9, (BufBase + 0x940) >> 8 | BufBank << 8)));  // -> $01/$02
+        s.Add((Pc(0x00A8AE), Word(0xA9, BufBase + 0xB40)));    // LDA #$AB40 : STA $00
+        // ...and one pure rescale: a conditional 2-tile skip inside GFX0F, $30 at 24 B/tile.
+        s.Add((Pc(0x00A83D), Word(0x69, 0x0040)));             // ADC #$0040
+
+        // The prep's own loader seeds the same pointer, so it is restamped over V2's copy the
+        // way V3 restamps the Map16 lookup — same length, so every label still resolves.
+        s.Add((Pc(GfxArmStub), GfxCode(4)));
+    }
+
+    /// <summary>Where a decompressed GFX file lands from V4 on. 0x1000 of the free
+    /// $7F9CFB-$7FC7FF run; see AppendV4Stamps for why it cannot stay at $7EAD00.</summary>
+    public const int Gfx4bppBuffer = 0x7FA000;
+    private const int BufBase = Gfx4bppBuffer & 0xFFFF;
+    private const byte BufHi = (BufBase >> 8) & 0xFF, BufBank = (Gfx4bppBuffer >> 16) & 0xFF;
+
+    /// <summary>An opcode plus a 16-bit immediate, for patching one instruction in place.</summary>
+    private static byte[] Word(byte op, int v) => [op, (byte)v, (byte)(v >> 8)];
+
+    /// <summary>A 3bpp RAM expander's plane-2 loop rewritten as a 4bpp copy: two bytes a row
+    /// instead of one zero-extended byte, which makes it identical to the planes-0/1 loop above
+    /// it. <paramref name="store"/> is the only difference between the two sites.</summary>
+    private static byte[] Gfx4bppExpand(int at, int fallThrough, Func<Asm, Asm> store)
+    {
+        var a = new Asm(at);
+        a.LdyImm16(0x0008).Label("row").LdaIndLong(0x00);
+        store(a).Inx().Inx()
+         .IncDp(0x00).IncDp(0x00)      // two bytes consumed per row, not one
+         .Dey()
+         .Bne("row")
+         .PadTo(fallThrough, 0xEA);
+        return a.Bytes();
+    }
+
+    /// <summary>The 4bpp plane-2/3 inner loop, assembled at its vanilla address so the branch
+    /// resolves to the real target, and padded with NOPs out to <paramref name="fallThrough"/> —
+    /// the `DEY` that closes the per-tile loop, which must stay put.</summary>
+    private static byte[] Gfx4bppLoop(int at, int fallThrough)
+    {
+        var a = new Asm(at);
+        a.LdxImm8(0x07)
+         .Label("row")
+         .LdaIndLong(0x00)         // authored word: low = plane 2, high = plane 3
+         .Xba()                    // plane 2 into the high half, as vanilla does
+         .OraAbsX(0x1BB2)          // high |= (plane0|plane1) mask for this row
+         .AndDp(0x0A)              // filter word: $FF00 keeps the synthesis, $0000 drops it
+         .OraIndLong(0x00)         // put the authored planes back underneath it
+         .StaAbs(0x2118)
+         .IncDp(0x00).IncDp(0x00)  // two bytes consumed per row, not one
+         .Dex()
+         .Bpl("row")
+         .PadTo(fallThrough, 0xEA);   // fall through to the vanilla DEY
+        return a.Bytes();
     }
 
     // V1 list — BYTE-FROZEN (GoldenPrepV1 test): never edit, only append via versions.
@@ -215,7 +341,7 @@ public static class RomPrep
         // routines; JSLable wrappers live in the verified-FF tail after V1's PalThunk.
         s.Add((Pc(GfxThunks), [0x20, 0xDE, 0xB8, 0x6B, 0x20, 0x80, 0xAA, 0x6B]));
         s.Add((Pc(Gfx.ExGfx80Table), new byte[0x180]));      // ExGFX 0x80-0xFF pointers: none
-        s.Add((Pc(GfxArmStub), GfxCode()));
+        s.Add((Pc(GfxArmStub), GfxCode(2)));
         s.Add((GfxRecordsPc - 8, Rats(new byte[0x200 * 0x20])));   // bypass records, all disabled
         s.Add((ExGfxPtrPc - 8, Rats(new byte[0xF00 * 3])));        // ExGFX 0x100+ pointers: none
     }
@@ -640,7 +766,7 @@ public static class RomPrep
     /// write (decompressor: $8A-$8F; expander: $0A/$0C + INC $00), and with 16-bit dp
     /// operands owning BOTH their bytes (a 16-bit ADC $03 reads $03-$04).
     /// </summary>
-    private static byte[] GfxCode()
+    private static byte[] GfxCode(int version)
     {
         var a = new Asm(GfxArmStub);
         a.Rep(0x20)
@@ -685,9 +811,9 @@ public static class RomPrep
          .JsrL("resolve")                    // base word the 16-bit ADC $03 reads)
          .Bcs("skip")                        // not inserted / invalid id
          .Sep(0x20)
-         .StzDp(0x00)                        // decompress dest = $7E:AD00
-         .LdaImm8(0xAD).StaDp(0x01)
-         .LdaImm8(0x7E).StaDp(0x02)
+         .StzDp(0x00)                        // decompress dest: $7E:AD00, or V4's $7F:A000
+         .LdaImm8(version >= 4 ? BufHi : 0xAD).StaDp(0x01)
+         .LdaImm8(version >= 4 ? BufBank : 0x7E).StaDp(0x02)
          .Jsl(GfxThunks)                     // LC_LZ2 core ($8A-$8C → [$00])
          .LdaImm8(0x80).StaAbs(0x2115)       // defensive: word-increment VRAM mode
          .StzAbs(0x2116)

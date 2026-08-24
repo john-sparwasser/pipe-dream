@@ -30,6 +30,10 @@ public class RomPrepTests
     /// four-range Map16 lookup ladder, 2026-08-18).</summary>
     private const string GoldenPrepV3Sha256 = "aa39003b7d17d49bd083fa118e76ba11d5191dcf63769d811b2b44ff29afed11";
 
+    /// <summary>Golden SHA-256 (headerless) of the V4-prepped vanilla US ROM (V3 stamps + the
+    /// four-bit-plane GFX upload, 2026-08-24).</summary>
+    private const string GoldenPrepV4Sha256 = "758f64eb509f5d67de1b41077adb93156b33b588e795899ba4306fa2f23bc94d";
+
     private static Rom Prepped()
     {
         var rom = TestRom.Create();
@@ -433,8 +437,15 @@ public class RomPrepTests
             Assert.Equal(GoldenPrepV2Sha256, RomHash.HeaderlessSha256File(tmp));
 
             File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
-            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V3)
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 3));      // frozen V3 stamp list
             Assert.Equal(GoldenPrepV3Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V4)
+            string v4 = RomHash.HeaderlessSha256File(tmp);
+            // Spelled out rather than left to the assertion message: xunit truncates a mismatch,
+            // and this hash is what the NEXT version bump has to be told.
+            Assert.True(GoldenPrepV4Sha256 == v4, $"V4 golden hash is now {v4}");
         }
         finally { File.Delete(tmp); }
     }
@@ -498,7 +509,9 @@ public class RomPrepTests
     public void gfx_loader_uploads_an_armed_override_end_to_end()
     {
         var rom = PreppedReal();
-        int full = 128 * Gfx.TileBytes(Gfx.RomBpp(rom));           // 0xC00 (3bpp vanilla)
+        // V4 reads FOUR bit planes, so a full file — and what the uploader consumes — is
+        // 128 tiles x 32 bytes. (Through v3 this was 0xC00: RomBpp 3 x 8 x 128.)
+        int full = 128 * Gfx.TileBytes(4);
         var import = new byte[0x400];                              // partial file: zero-padded
         for (int i = 0; i < import.Length; i++) import[i] = (byte)(i * 7 + 3);
         var padded = new byte[full];
@@ -521,29 +534,34 @@ public class RomPrepTests
             return cpu;
         }
 
+        // V4 decompresses to $7F:A000, not $7E:AD00 — a 4bpp file does not fit under the
+        // layer-2 tile buffer. Addressed off the constant so a future move cannot rot this.
+        int bufAddr = RomPrep.Gfx4bppBuffer & 0xFFFF;
+        static byte[] Buf(Cpu65816 c) => (RomPrep.Gfx4bppBuffer >> 16) == 0x7F ? c.Ram7F : c.Ram7E;
+
         var c = Armed();
         c.CallLong(RomPrep.GfxLoaderEntry, 20_000_000);
         for (int i = 0; i < full; i++)
-            if (c.Ram7E[0xAD00 + i] != padded[i])
-                Assert.Fail($"upload buffer diverges at +{i:X}: {c.Ram7E[0xAD00 + i]:X2} != {padded[i]:X2}");
+            if (Buf(c)[bufAddr + i] != padded[i])
+                Assert.Fail($"upload buffer diverges at +{i:X}: {Buf(c)[bufAddr + i]:X2} != {padded[i]:X2}");
         Assert.Equal(6, c.Ram7E[0xFE] | (c.Ram7E[0xFF] << 8));     // arm persists
-        Assert.Equal(0xAD00 + full, c.Ram7E[0x00] | (c.Ram7E[0x01] << 8));   // expander consumed all
+        Assert.Equal(bufAddr + full, c.Ram7E[0x00] | (c.Ram7E[0x01] << 8));  // expander consumed all
 
         // second call re-applies (the fade-in step's re-upload needs this)
-        c.Ram7E[0xAD00] ^= 0xFF;
+        Buf(c)[bufAddr] ^= 0xFF;
         c.CallLong(RomPrep.GfxLoaderEntry, 20_000_000);
-        Assert.Equal(padded[0], c.Ram7E[0xAD00]);
+        Assert.Equal(padded[0], Buf(c)[bufAddr]);
 
         // unarmed: nothing happens
-        var u = Armed(); u.Ram7E[0xFE] = 0; u.Ram7E[0xAD00] = 0xEE;
+        var u = Armed(); u.Ram7E[0xFE] = 0; Buf(u)[bufAddr] = 0xEE;
         u.CallLong(RomPrep.GfxLoaderEntry, 20_000_000);
-        Assert.Equal(0xEE, u.Ram7E[0xAD00]);
+        Assert.Equal(0xEE, Buf(u)[bufAddr]);
 
         // disabled record (w0 bit15 clear): nothing happens
         rom.Data[rfo + 1] = 0x00;
-        var dis = Armed(); dis.Ram7E[0xAD00] = 0xEE;
+        var dis = Armed(); Buf(dis)[bufAddr] = 0xEE;
         dis.CallLong(RomPrep.GfxLoaderEntry, 20_000_000);
-        Assert.Equal(0xEE, dis.Ram7E[0xAD00]);
+        Assert.Equal(0xEE, Buf(dis)[bufAddr]);
         rom.Data[rfo + 1] = 0x80;
 
         // vanilla-file override resolves through the vanilla tables (filters keep working)
@@ -552,8 +570,122 @@ public class RomPrepTests
         v.CallLong(RomPrep.GfxLoaderEntry, 20_000_000);
         byte[] gfx2 = Gfx.DecompressFile(rom, 2);
         for (int i = 0; i < gfx2.Length; i++)
-            if (v.Ram7E[0xAD00 + i] != gfx2[i])
+            if (Buf(v)[bufAddr + i] != gfx2[i])
                 Assert.Fail($"vanilla-file upload diverges at +{i:X}");
+    }
+
+    /// <summary>
+    /// V4's 4bpp upload is PARITY, not new behaviour: uploading a converted (3bpp→4bpp,
+    /// plane 3 zero-filled) file through v4 must put byte-identical data in VRAM to uploading
+    /// the original 3bpp file through v3 — for a plain file AND for every vanilla filter case,
+    /// where v3 synthesizes plane 3 from (plane0|plane1) and v4 has to keep doing so.
+    ///
+    /// This is the test that says the swapped inner loop is right. It compares the bytes the
+    /// routine SENT to the VRAM data port, not the buffer it read — the buffer is identical by
+    /// construction and would prove nothing.
+    /// </summary>
+    [RealRomFact]
+    public void v4_uploads_a_converted_file_byte_identically_to_v3()
+    {
+        // Files 0x01 and 0x17 filter tiles 0x6E/0x6F/0x7E/0x7F; 0x1E filters every tile;
+        // 0x08 filters only on tileset >= 0x11 — so it is run at both tilesets.
+        foreach (var (file, tileset) in new[] { (0x02, 0x00), (0x01, 0x00), (0x17, 0x00),
+                                               (0x1E, 0x00), (0x08, 0x00), (0x08, 0x11) })
+        {
+            var v3 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v3, 3);
+            var v4 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v4, 4);
+            Assert.False(v3.HasGfx4bppUpload);
+            Assert.True(v4.HasGfx4bppUpload);
+
+            // v4's ROM carries the SAME file converted to 4bpp, as a project import would.
+            byte[] src3 = Gfx.DecompressFile(v3, file);
+            v4.ImportedGfx[file] = Gfx.NormalizeBpp(src3, 3, 4, out bool dropped);
+            Assert.False(dropped);
+            Gfx.InvalidateCache(v4);
+
+            var a = UploadVram(v3, file, tileset, src3);
+            var b = UploadVram(v4, file, tileset, v4.ImportedGfx[file]);
+            Assert.Equal(0x1000, a.Count);                  // 128 tiles × 32 VRAM bytes
+            if (!a.SequenceEqual(b))
+            {
+                int at = a.Zip(b).ToList().FindIndex(p => p.First != p.Second);
+                Assert.Fail($"file {file:X2} tileset {tileset:X2}: VRAM diverges at +{at:X} "
+                          + $"(tile {at / 32:X2} byte {at % 32:X2}): v3 {a[at]:X2} != v4 {b[at]:X2}");
+            }
+        }
+    }
+
+    /// <summary>Run one GFX file through a prepped ROM's upload and return the bytes it sent to
+    /// the VRAM data port. The file is placed in the decompress buffer by hand and the upload
+    /// entered directly, so the comparison isolates the upload from the resolver around it.</summary>
+    private static List<byte> UploadVram(Rom rom, int file, int tileset, byte[] data)
+    {
+        var cpu = new Cpu65816(rom) { VramLog = [] };
+        for (int i = 0; i < data.Length; i++) cpu.Ram7E[0xAD00 + i] = data[i];
+        cpu.Ram7E[0x00] = 0x00; cpu.Ram7E[0x01] = 0xAD; cpu.Ram7E[0x02] = 0x7E;   // [$00] = src
+        cpu.Ram7E[0x1931] = (byte)tileset;
+        cpu.PresetWidths(m8: true, x8: true);      // entry state: 8-bit M and X/Y
+        cpu.PresetY(file);                         // Y = file#, for the filter cases
+        cpu.CallNear(0x00AA80, 20_000_000);
+        return cpu.VramLog!;
+    }
+
+    /// <summary>
+    /// The upload is not the only 3bpp reader: GFX0F and GFX00 are also expanded into RAM
+    /// buffers ($7F977B for the status-bar sheet, $0BF6) by their own loops, and V4 has to
+    /// rewrite those too — plus the three hardcoded pointers INTO the decompression buffer that
+    /// the GFX00 half carries, which both move with the buffer and rescale with the depth.
+    /// Same parity bar as the upload: converted file through v4 == original through v3.
+    /// </summary>
+    [RealRomFact]
+    public void v4_expands_gfx00_and_gfx0f_into_ram_byte_identically_to_v3()
+    {
+        // $1425 gates a 2-tile skip inside GFX0F whose stride is depth-scaled ($30 -> $40), so
+        // both sides of that branch have to be walked.
+        foreach (int flag in new[] { 0x00, 0x01 })
+        {
+            var v3 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v3, 3);
+            var v4 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v4, 4);
+            Convert4bpp(v4, 0x0F);
+            Convert4bpp(v4, 0x00);
+
+            var (sheet3, low3) = ExpandRam(v3, flag);
+            var (sheet4, low4) = ExpandRam(v4, flag);
+            AssertBytesEqual(sheet3, sheet4, $"$7F977B sheet (flag {flag})");
+            AssertBytesEqual(low3, low4, $"$0BF6 buffer (flag {flag})");
+        }
+    }
+
+    /// <summary>Put a 4bpp conversion of a vanilla file into the ROM and repoint its pointer
+    /// table entry — what a converted project's build does, in miniature.</summary>
+    private static void Convert4bpp(Rom rom, int file)
+    {
+        byte[] four = Gfx.NormalizeBpp(Gfx.DecompressFile(rom, file), 3, 4, out bool dropped);
+        Assert.False(dropped);
+        Assert.Equal(0x1000, four.Length);
+        int snes = RatsWriter.Allocate(rom, Gfx.Lz2Compress(four));
+        rom.Data[rom.FileOffset(Gfx.PtrLow + file)] = (byte)snes;
+        rom.Data[rom.FileOffset(Gfx.PtrHigh + file)] = (byte)(snes >> 8);
+        rom.Data[rom.FileOffset(Gfx.PtrBank + file)] = (byte)(snes >> 16);
+        Gfx.InvalidateCache(rom);
+    }
+
+    /// <summary>Run the GFX0F+GFX00 expander ($00A82D, RTS at $00A8C2) and return both RAM
+    /// buffers it fills.</summary>
+    private static (byte[] Sheet, byte[] Low) ExpandRam(Rom rom, int flag)
+    {
+        var cpu = new Cpu65816(rom);
+        cpu.Ram7E[0x1425] = (byte)flag;
+        cpu.PresetWidths(m8: true, x8: true);
+        cpu.CallNear(0x00A82D, 30_000_000);
+        return (cpu.Ram7F[0x977B..(0x977B + 0x300)], cpu.Ram7E[0x0BF6..(0x0BF6 + 0x180)]);
+    }
+
+    private static void AssertBytesEqual(byte[] a, byte[] b, string what)
+    {
+        for (int i = 0; i < a.Length; i++)
+            if (a[i] != b[i])
+                Assert.Fail($"{what} diverges at +{i:X}: v3 {a[i]:X2} != v4 {b[i]:X2}");
     }
 
     [RealRomFact]

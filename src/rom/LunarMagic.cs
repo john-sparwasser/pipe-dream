@@ -337,6 +337,14 @@ public static class LunarMagic
         /// 0x80-0xFF table at $0FF600 — on vanilla/prepped ROMs those bytes are arbitrary data.</summary>
         public bool HasLmGfxLoader => rom.ReadValue(0x00AA50, 4) == 0x0FF78022;
 
+        /// <summary>True when the GFX upload reads FOUR bit planes from the file instead of
+        /// synthesizing plane 3 (prep v4 / LM's 4bpp mode). The tell is the instruction after
+        /// the plane-2/3 loop's `LDA [$00]`: vanilla masks the byte off (`AND #$00FF`, 29) where
+        /// ours goes straight to `XBA` (EB), because it already has both planes. Gates whether
+        /// colours 8-15 of a palette row can be painted at all — a 3bpp file has no plane to
+        /// hold them.</summary>
+        public bool HasGfx4bppUpload => rom.ReadByte(0x00AAE5) == 0xEB;
+
         /// <summary>True if LM's VRAM reorganization patch is installed ($0081E2 = JML).
         /// Without it the BG2/BG3 bypass slots are never uploaded (option_vram.htm) —
         /// vanilla and prepped bases lack it, so those slots stay editor-only.</summary>

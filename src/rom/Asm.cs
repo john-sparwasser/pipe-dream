@@ -44,10 +44,14 @@ public sealed class Asm(int orgSnes)
         => Pc == snes ? this : throw new InvalidOperationException($"expected ${snes:X6}, at ${Pc:X6}");
 
     /// <summary>Pad with 0xFF (blends with the surrounding vanilla freespace) up to a fixed entry point.</summary>
-    public Asm PadTo(int snes)
+    public Asm PadTo(int snes) => PadTo(snes, 0xFF);
+
+    /// <summary>Pad with an explicit filler. 0xEA (NOP) is the one to use when the padding sits
+    /// INSIDE a routine and execution falls through it, where 0xFF would execute as garbage.</summary>
+    public Asm PadTo(int snes, byte fill)
     {
         if (Pc > snes) throw new InvalidOperationException($"overran ${snes:X6}, at ${Pc:X6}");
-        while (Pc < snes) code.Add(0xFF);
+        while (Pc < snes) code.Add(fill);
         return this;
     }
 
@@ -60,10 +64,13 @@ public sealed class Asm(int orgSnes)
     public Asm StaDp(int d) => E(0x85, (byte)d);
     public Asm LdaAbs(int a) => Imm16(0xAD, a);
     public Asm StaAbs(int a) => Imm16(0x8D, a);
+    public Asm LdaAbsX(int a) => Imm16(0xBD, a);
+    public Asm LdaIndLong(int d) => E(0xA7, (byte)d);     // LDA [dp]
     public Asm LdaAbsY(int a) => Imm16(0xB9, a);
     public Asm StaAbsX(int a) => Imm16(0x9D, a);
     public Asm StaAbsY(int a) => Imm16(0x99, a);
     public Asm LdaLongX(int a) => E(0xBF, (byte)a, (byte)(a >> 8), (byte)(a >> 16));
+    public Asm StaLongX(int a) => E(0x9F, (byte)a, (byte)(a >> 8), (byte)(a >> 16));
     public Asm LdaIndLongY(int d) => E(0xB7, (byte)d);   // LDA [dp],Y
     public Asm StaIndLongY(int d) => E(0x97, (byte)d);   // STA [dp],Y
     public Asm LdyImm8(int v) => E(0xA0, (byte)v);
@@ -87,6 +94,8 @@ public sealed class Asm(int orgSnes)
     public Asm AndImm16(int v) => Imm16(0x29, v);
     public Asm AndDp(int d) => E(0x25, (byte)d);
     public Asm OraDp(int d) => E(0x05, (byte)d);
+    public Asm OraIndLong(int d) => E(0x07, (byte)d);    // ORA [dp]
+    public Asm OraAbsX(int a) => Imm16(0x1D, a);
     public Asm CmpImm8(int v) => E(0xC9, (byte)v);
     public Asm CmpImm16(int v) => Imm16(0xC9, v);
     public Asm CpyImm16(int v) => Imm16(0xC0, v);
@@ -103,6 +112,7 @@ public sealed class Asm(int orgSnes)
     public Asm IncDp(int d) => E(0xE6, (byte)d);
     public Asm Iny() => E(0xC8);
     public Asm Inx() => E(0xE8);
+    public Asm Dey() => E(0x88);
     public Asm Dex() => E(0xCA);
 
     // ---- transfers/stack/flags ----

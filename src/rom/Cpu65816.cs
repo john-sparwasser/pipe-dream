@@ -38,6 +38,12 @@ public sealed class Cpu65816(Rom rom)
     /// capped at 400 entries — ordered, unlike PcHot.</summary>
     public List<(int Pc, int X, int Y)>? StepLog;
 
+    /// <summary>Debug: when set, every byte written to the VRAM data port ($2118/$2119), in
+    /// order. PPU writes are otherwise dropped, which leaves an upload routine testable only
+    /// by its source buffer — this is what lets a test check the bytes it PRODUCED. A 16-bit
+    /// store lands here as low byte then high byte, i.e. VRAM word order.</summary>
+    public List<byte>? VramLog;
+
     /// <summary>
     /// Object attribution (set all three to enable): every RAM write also records which
     /// level-data record the loader is processing. The loader advances the stream pointer
@@ -60,6 +66,11 @@ public sealed class Cpu65816(Rom rom)
         if (StatusLog is not null && addr is >= 0x14C8 and < 0x15C8 &&
             (bank == 0x7E || bank < 0x40 || (bank >= 0x80 && bank < 0xC0)))
             StatusLog.Add(((PBR << 16) | PC, addr, v));
+        // Hardware registers live in banks $00-$3F/$80-$BF only — NOT $7E/$7F, where $2118 is
+        // ordinary work RAM and logging it would invent uploads that never happened.
+        if (VramLog is not null && addr is 0x2118 or 0x2119
+            && (bank < 0x40 || (bank >= 0x80 && bank < 0xC0)))
+            VramLog.Add(v);
         if (StreamOwner is not null && Ram7E[0x67] == 0x7F)
         {
             int p = ((Ram7E[0x66] << 8) | Ram7E[0x65]) - 3;
