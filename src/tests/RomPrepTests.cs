@@ -34,6 +34,10 @@ public class RomPrepTests
     /// four-bit-plane GFX upload, 2026-08-24).</summary>
     private const string GoldenPrepV4Sha256 = "758f64eb509f5d67de1b41077adb93156b33b588e795899ba4306fa2f23bc94d";
 
+    /// <summary>Golden SHA-256 (headerless) of the V5-prepped vanilla US ROM (V4 stamps + the
+    /// Direct-Map16 handlers restamped clear of LM's access flag, 2026-08-24).</summary>
+    private const string GoldenPrepV5Sha256 = "12380ddd0bfff9d32150206c4dd9e6ed9fa80f7d03a78058f15be4e7ae7046b3";
+
     private static Rom Prepped()
     {
         var rom = TestRom.Create();
@@ -441,11 +445,15 @@ public class RomPrepTests
             Assert.Equal(GoldenPrepV3Sha256, RomHash.HeaderlessSha256File(tmp));
 
             File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
-            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V4)
-            string v4 = RomHash.HeaderlessSha256File(tmp);
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 4));      // frozen V4 stamp list
+            Assert.Equal(GoldenPrepV4Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V5)
+            string v5 = RomHash.HeaderlessSha256File(tmp);
             // Spelled out rather than left to the assertion message: xunit truncates a mismatch,
             // and this hash is what the NEXT version bump has to be told.
-            Assert.True(GoldenPrepV4Sha256 == v4, $"V4 golden hash is now {v4}");
+            Assert.True(GoldenPrepV5Sha256 == v5, $"V5 golden hash is now {v5}");
         }
         finally { File.Delete(tmp); }
     }
@@ -686,6 +694,30 @@ public class RomPrepTests
         for (int i = 0; i < a.Length; i++)
             if (a[i] != b[i])
                 Assert.Fail($"{what} diverges at +{i:X}: v3 {a[i]:X2} != v4 {b[i]:X2}");
+    }
+
+    /// <summary>
+    /// $0DF100 is the byte Lunar Magic reads as "the author restricted level access" — an
+    /// undocumented flag sitting inside the vanilla $FF gap our Direct-Map16 handlers occupy.
+    /// V1-V4 wrote code straight over it, which made every prepped base refuse to open in LM
+    /// with "Access Denied"; V5 branches around it. Verified against the real Lunar Magic
+    /// binary, but pinned here so the property cannot regress without a ROM in the loop.
+    /// </summary>
+    [RealRomFact]
+    public void v5_leaves_lunar_magics_level_access_flag_alone()
+    {
+        var v5 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v5, 5);
+        Assert.Equal(0xFF, v5.ReadByte(RomPrep.LmAccessFlag));
+
+        // The handler block still has to work: its entry points are pinned, and the branch that
+        // hops the flag must not have pushed the block into GFX handler 0x26's slot.
+        foreach (int entry in new[] { RomPrep.Handler22, RomPrep.Handler23, RomPrep.Handler26,
+                                      RomPrep.Handler27, RomPrep.Handler28 })
+            Assert.NotEqual(0xFF, v5.ReadByte(entry));
+
+        // ...and the flag really is the difference: v4 is the same ROM with that byte clobbered.
+        var v4 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v4, 4);
+        Assert.NotEqual(0xFF, v4.ReadByte(RomPrep.LmAccessFlag));
     }
 
     [RealRomFact]

@@ -41,10 +41,12 @@ public static class RomPrep
     /// banks); V2 adds the in-game GFX stage (Super-GFX-Bypass loader + ExGFX resolver);
     /// V3 widens the Map16 def lookup from one range to four (tiles 0x200-0x3FFF);
     /// V4 makes the GFX upload read four bit planes, so colours 8-15 of a palette row become
-    /// paintable (LM's 4bpp mode).
+    /// paintable (LM's 4bpp mode); V5 stops the Direct-Map16 handlers from walking over the byte
+    /// Lunar Magic reads as its level-access flag, which made every prepped base unopenable in
+    /// LM (see <see cref="LmAccessFlag"/> and CONTRACT §0).
     /// Version-keyed stamp lists keep every released version BYTE-FROZEN: a v1 project's
     /// pinned image must reproduce forever (golden-hash tested).</summary>
-    public const int Version = 4;
+    public const int Version = 5;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -56,6 +58,19 @@ public static class RomPrep
     public const int Handler27 = 0x0DF150, Handler28 = 0x0DF160, Handler29 = 0x0DFF50;
     public const int ExtHandler02 = 0x0DE1B0, ExtHandler03 = 0x0DE1E0;
     public const int B27Body = 0x0DF170;           // shared 0x27/0x29 parse+fill body
+
+    /// <summary>
+    /// The byte Lunar Magic reads as "the author restricted level access". It is NOT documented
+    /// anywhere in LM's help — this was found by bisecting a prepped ROM against LM itself: any
+    /// value but $FF and every LM operation dies with "Lunar Magic : Access Denied! The author
+    /// of this hack has chosen to restrict level access."
+    ///
+    /// It sits in the middle of the vanilla $FF gap in bank $0D that our Direct-Map16 handlers
+    /// live in, so v1-v4 walked straight over it and were unopenable in LM. LM's own code
+    /// generation respects it: in a real LM hack (ShaoBase) the block ends at $0DF0F8 and
+    /// leaves this byte $FF. V5 does the same, by branching over it — see CONTRACT §0.
+    /// </summary>
+    public const int LmAccessFlag = 0x0DF100;
     public const int SpriteStub = 0x0EF300, SpriteBankTable = 0x0EF100;
     public const int PalTrampoline = 0x0EFC50, PalApply = 0x0EFC90, PalThunk = 0x00FF93;
     public const int PalHook2Stub = 0x0EFC60;      // second hook: re-apply after $00A5BC
@@ -82,7 +97,8 @@ public static class RomPrep
            && rom.HasLmPaletteHook && rom.LmSpriteBankTable >= 0
            && (version < 2 || rom.HasLmGfxLoader)
            && (version < 3 || rom.HasMap16Range(1))    // the widened lookup ladder
-           && (version < 4 || rom.HasGfx4bppUpload);
+           && (version < 4 || rom.HasGfx4bppUpload)
+           && (version < 5 || rom.ReadByte(LmAccessFlag) == 0xFF);
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying
@@ -131,6 +147,9 @@ public static class RomPrep
         // single-range lookup is replaced wholesale rather than V1's frozen list being edited.
         if (version >= 3) s.Add((Pc(0x06F538), Map16Lookup(3)));
         if (version >= 4) AppendV4Stamps(s);
+        // V5 restamps the Direct-Map16 handler block over V1's, the way V3 restamps the Map16
+        // lookup — V1's list stays byte-frozen and a v1 project's pinned image still reproduces.
+        if (version >= 5) s.Add((Pc(Handler22), Dm16Handlers(5)));
         return s;
     }
 
@@ -294,7 +313,7 @@ public static class RomPrep
 
         s.Add((Pc(0x06F54F), Map16Lookup(1)));
         s.Add((Pc(0x0DE1B0), ExtHandlers()));
-        s.Add((Pc(Handler22), Dm16Handlers()));
+        s.Add((Pc(Handler22), Dm16Handlers(1)));
         s.Add((Pc(Handler29), Handler29Code()));
         s.Add((Pc(SpriteStub), SpriteStubCode()));
         s.Add((Pc(PalThunk), [0x20, 0xDA, 0xA9, 0x20, 0xED, 0xAB, 0x6B]));  // JSR UploadSpriteGFX : JSR LoadPalette : RTL
@@ -561,7 +580,7 @@ public static class RomPrep
     /// $08 page OR (0x27=0 / 0x29=0x40), $09 row add, $0C tile low, $0D row wrap ctr,
     /// $0E raw page then row base, $0F run byte.
     /// </summary>
-    private static byte[] Dm16Handlers()
+    private static byte[] Dm16Handlers(int version)
     {
         var a = new Asm(Handler22);
         a.LdaImm8(0x00).Bra("nib");          // 0x22: page 0
@@ -598,7 +617,12 @@ public static class RomPrep
          .DecDp(0x02).Bpl("col")
          .Jsr(0x0DA6BA)                      // reload pointer (+ $1BA1 = $1928)
          .Jsr(0x0DA97D)                      // down one row
-         .LdaDp(0x00).StaDp(0x02)
+         .LdaDp(0x00);
+        if (version >= 5)
+            // Hop the byte LM reads as its access flag; the FF it leaves behind is never
+            // executed. PadTo throws if the code ever grows past it, which is the point.
+            a.Bra("lmflag").PadTo(LmAccessFlag + 1).Label("lmflag");
+        a.StaDp(0x02)
          .DecDp(0x0D).Bpl("radv")
          .LdaImm8(0x00).StaDp(0x09)          // stamp row wrap
          .LdaDp(0x0F).Lsr().Lsr().Lsr().Lsr().StaDp(0x0D)

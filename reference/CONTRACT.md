@@ -23,13 +23,35 @@ that strands their hack. It holds until pipe-dream grows features LM has no repr
 for, which is far enough off that nothing should be traded away for it now. When that day
 comes the break must be a deliberate, announced, opt-in divergence — never a silent one.
 
-Where it stands today, **LM → pipe-dream works and pipe-dream → LM does not**. Reading an
-LM-saved ROM is exercised constantly (the detectors in `LunarMagic.cs`, the ShaoBase
-oracles, `--selfcheck`). The other direction has never been tested, and `RomPrep`'s premise
-is explicitly "LM-*equivalent* structures … with NO Lunar Magic round-trip" — it stamps at
-LM's addresses so *our* detectors fire, which is not the same as satisfying LM's.
+Where it stands today: **LM can now READ a prepped base (v5+); it still cannot WRITE to one.**
+Tested against the real `Lunar Magic.exe` via its command line (`info_command_line.htm`),
+which is scriptable — that is the harness for all of this.
 
-Known divergences, in the order they'd need settling:
+**`$0DF100` is LM's level-access flag. [SOLVED in prep v5]** Undocumented anywhere in LM's
+help; found by bisecting a prepped ROM against LM itself, one byte at a time. Any value but
+`$FF` and every LM operation dies with *"Lunar Magic : Access Denied! The author of this hack
+has chosen to restrict level access."* It sits inside the vanilla `$FF` gap in bank `$0D`
+that our Direct-Map16 handlers occupy, and v1–v4 wrote code straight over it — so **every
+base this editor ever produced was unopenable in LM, from v1 onward.** LM's own codegen
+respects it: in ShaoBase the surrounding block ends at `$0DF0F8` and leaves the byte `$FF`.
+V5 branches around it; `-ExportAllMap16` then succeeds (exit 0) where v4 fails (exit 1).
+
+**The write path still blocks. [OPEN — next step]** `-ImportLevel` succeeds on a vanilla copy
+(exit 0) but on a v5 base it hangs on a message box and prints nothing at all, so the dialog
+comes up before any output. Reading is unaffected. Prime suspects, none confirmed: a
+conflicted/nested-RATS warning on save (`option_restore.htm` says LM warns about these, and
+saving is when it would look), or LM refusing to write hijacks around structures it did not
+install. Diagnose by capturing the dialog's window text — LM has no documented way to
+suppress message boxes, so the harness has to read them.
+
+**The checksum warning is benign.** LM warns *"The ROM's checksum has been tampered with"* on
+our bases and proceeds. It is not the internal checksum being wrong — ours computes correctly,
+and restoring vanilla's `$A0DA`/`5F25` bytes does **not** silence it. LM expands ROMs without
+updating the checksum at all (after.smc is 1MB and still carries vanilla's), so LM is
+detecting third-party modification some other way. Non-blocking; ignore unless it turns out
+to gate something.
+
+Remaining divergences, in the order they'd need settling:
 
 - **The v4 4bpp GFX upload is not LM's mechanism.** Byte evidence from the reference ROMs:
   on an LM 4bpp hack (ShaoBase) `$00AA50` is `22 80 F7 0F` (JSL $0FF780 — LM's loader, the
@@ -48,9 +70,24 @@ Known divergences, in the order they'd need settling:
   our instruction at `$00AAE5`, which is `29` on ShaoBase). Fix by testing the *property*
   — the ROM stores 4bpp — rather than our particular encoding of it.
 
-Before claiming the round-trip works, the gate is empirical, not analytical: prep a base
-here, open it in real LM, save, reopen here, and diff. `reference/lm-help/html/` is the
-unread source on what LM requires of a ROM it did not create.
+The gate stays empirical, not analytical: prep a base here, drive real LM over it, and diff.
+`--prep <rom> [version]` exists for exactly that — it takes a version so a failure can be
+bisected to the stamp list that introduced it, which is how `$0DF100` was found.
+
+Two things LM's help establishes that constrain us (agent sweep of `lm-help/html/`):
+
+- **Hijacks install on save, and some on merely opening a dialog** — the Super GFX Bypass,
+  Layer 3 bypass and ExAnimation hacks install "immediately" when their dialog opens
+  (`level_super_bypass.htm`, `level_layer3_gfx.htm`, `level_extend_ani.htm`); the VRAM patch
+  and FastROM install on the next level save (`option_vram.htm`). So an LM user touching a
+  prepped base WILL have LM write its own versions of things we already stamped.
+- **LM honours any valid RATS tag it finds, including ones it did not write**
+  (`info_rats_format.htm`), and warns on nested ones (`option_restore.htm`). Our expansion
+  blocks are RATS-tagged, which is why LM tolerates them — but "Nested RATs are not allowed!!"
+  is a hard rule we must not break.
+- **`option_vram.htm`**: "If Lunar Magic does not recognize the version of the patch currently
+  installed, all options may be disabled." A stamped-but-unrecognized hack does not fail
+  loudly; it silently greys out LM's UI. Expect that class of failure, not exceptions.
 
 ---
 

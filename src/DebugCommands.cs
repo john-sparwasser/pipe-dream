@@ -10,6 +10,7 @@ static class DebugCommands
     {
         ("--selfcheck",         (_, _) => SelfCheck()),
         ("--newproject",        NewProject),
+        ("--prep",              (a, i) => PrepRom(a[i + 1], a.Length > i + 2 ? int.Parse(a[i + 2]) : RomPrep.Version)),
         ("--buildproject",      BuildProject),
         ("--render",            RenderLevel),
         ("--writedm16",         WriteDm16),
@@ -49,6 +50,16 @@ static class DebugCommands
 
     // --selfcheck : run the ROM self-check suite (exit code = failures).
     public static int SelfCheck() => RomSelfCheck.Run();
+
+    // --prep <rom.smc> [version] : stamp a vanilla ROM in place at a chosen prep version.
+    // Bisecting which version's stamps break something is the whole reason it takes a version —
+    // the Lunar Magic round-trip work (CONTRACT §0) lives on exactly that question.
+    public static int PrepRom(string path, int version)
+    {
+        if (RomPrep.PrepInPlace(path, version) is { } err) { Console.WriteLine(err); return 1; }
+        Console.WriteLine($"prepped {path} at v{version}, sha256 {RomHash.HeaderlessSha256File(path)}");
+        return 0;
+    }
 
     // --newproject <folder> <baseRom> : headless project creation (scripting/tests) —
     // same pipeline as the New Project wizard, including automatic vanilla-base prep.
