@@ -32,17 +32,20 @@ public class ChrPaletteView : Control
 
     public event EventHandler? BrushChanged;
 
-    private WriteableBitmap? sheet;
+    private readonly LevelBitmap sheet = new();
+
+    /// <summary>Which animation phase to draw — the same phase the level and the Map16 sheet
+    /// are showing, so an animated 8x8 tile animates in the picker it is taken from.</summary>
+    public int Phase { get; set; }
 
     public ChrPaletteView() => Focusable = true;
 
     /// <summary>Take a composed sheet (see <see cref="GfxSheets.Chr"/>). The view never loads
     /// graphics itself — it is handed pixels.</summary>
-    public void SetSheet(uint[] px, int w, int h)
+    public void SetSheet(uint[]?[] px, int w, int h)
     {
         sheetW = w; sheetH = h;
-        sheet?.Dispose();
-        sheet = LevelBitmap.FromPixels(px, w, h);
+        sheet.SetImages(px, w, h, Phase);
         InvalidateVisual();
         InvalidateMeasure();
     }
@@ -108,8 +111,8 @@ public class ChrPaletteView : Control
         ctx.FillRectangle(Brushes.Black, full);
         // Same pixel rule as every other surface — at 125% or 150% display scaling even this whole
         // 2x grid is a fractional number of device pixels per source pixel.
-        if (sheet is not null)
-            blit.Draw(this, ctx, sheet, new Rect(0, 0, sheetW, sheetH), full, VisualRoot?.RenderScaling ?? 1);
+        if (sheet.For(Phase) is { } bmp)
+            blit.Draw(this, ctx, bmp, new Rect(0, 0, sheetW, sheetH), full, VisualRoot?.RenderScaling ?? 1);
 
         ctx.DrawRectangle(null, new Pen(UiColors.Accent, 2),
                           new Rect(Brush.X * c, Brush.Y * c, Brush.W * c, Brush.H * c));

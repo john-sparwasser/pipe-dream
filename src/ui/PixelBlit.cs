@@ -56,6 +56,10 @@ public sealed class PixelBlit
     internal PixelSize MidSize => mid is null ? default : midSize;
     internal int Builds { get; private set; }
 
+    /// <summary>Which of the two final targets the last sharp draw put on screen. It has to
+    /// alternate — see <see cref="Fin"/>.</summary>
+    internal int FinIndex => finIx;
+
     /// <summary>True when one source pixel covers a whole number of device pixels at this scale.</summary>
     internal static bool Whole(double zoom, double scaling)
         => Math.Abs(zoom * scaling - Math.Round(zoom * scaling)) < 0.001;
@@ -151,19 +155,35 @@ public sealed class PixelBlit
         return mid;
     }
 
-    private RenderTargetBitmap? fin;
+    private readonly RenderTargetBitmap?[] fin = new RenderTargetBitmap?[2];
     private PixelSize finSize;
+    private int finIx;
 
-    /// <summary>The second intermediate: the visible part at DEVICE size, cached like the first.</summary>
+    /// <summary>
+    /// The second intermediate: the visible part at DEVICE size, cached like the first — but kept
+    /// as a PAIR that alternates per draw.
+    ///
+    /// The on-screen call is <c>DrawImage(fin, sameSrc, sameDst)</c> every repaint, and the
+    /// compositor drops a recorded draw that is identical to the one already on screen. It cannot
+    /// know this target's pixels were redrawn behind its back — unlike a WriteableBitmap, whose
+    /// lock bumps a version — so a repaint whose ONLY change is inside the target (tile animation
+    /// stepping a phase, an edit at a fractional zoom) never reached the screen. Alternating two
+    /// targets makes each repaint a genuinely different draw. The cost is one extra
+    /// viewport-sized surface.
+    /// </summary>
     private RenderTargetBitmap? Fin(PixelSize size)
     {
         if (size.Width < 1 || size.Height < 1) return null;
-        if (fin is not null && finSize == size) return fin;
-        fin?.Dispose();
-        fin = null;
-        try { fin = new RenderTargetBitmap(size, new Vector(96, 96)); finSize = size; Builds++; }
-        catch { fin = null; }
-        return fin;
+        if (finSize != size)
+        {
+            for (int i = 0; i < fin.Length; i++) { fin[i]?.Dispose(); fin[i] = null; }
+            finSize = size;
+        }
+        finIx ^= 1;
+        if (fin[finIx] is { } cached) return cached;
+        try { fin[finIx] = new RenderTargetBitmap(size, new Vector(96, 96)); Builds++; }
+        catch { fin[finIx] = null; }
+        return fin[finIx];
     }
 
     /// <summary>

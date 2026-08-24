@@ -26,8 +26,12 @@ public class Map16CanvasView : Control
     public int TileCount { get; private set; }
     public Point Origin { get; set; }
 
-    private WriteableBitmap? sheet;
+    private readonly LevelBitmap sheet = new();
     private int sheetW, sheetH;
+
+    /// <summary>Which animation phase to draw — stepped with every other surface, so a tile
+    /// built from animated graphics animates while it is being edited.</summary>
+    public int Phase { get; set; }
 
     /// <summary>Tile the level brush is armed with, highlighted when it is in this bank.</summary>
     public int SelectedTile { get; set; } = 0x100;
@@ -64,11 +68,10 @@ public class Map16CanvasView : Control
 
     public Map16CanvasView() => Focusable = true;
 
-    public void SetSheet(uint[] px, int w, int h, int tileCount)
+    public void SetSheet(uint[]?[] px, int w, int h, int tileCount)
     {
         sheetW = w; sheetH = h; TileCount = tileCount;
-        sheet?.Dispose();
-        sheet = LevelBitmap.FromPixels(px, w, h);
+        sheet.SetImages(px, w, h, Phase);
         InvalidateVisual();
         InvalidateMeasure();
     }
@@ -226,11 +229,11 @@ public class Map16CanvasView : Control
         // Empty pages are ordinary black tiles, not a roped-off region.
         ctx.FillRectangle(Brushes.Black, full);
 
-        if (sheet is not null && sheetH > 0)
+        if (sheet.For(Phase) is { } bmp && sheetH > 0)
         {
             var (v0, v1, rows, _) = Map16Layout.SheetWindow(Bank, sheetH, TileCount);
             if (rows > 0)
-                blit.Draw(this, ctx, sheet, new Rect(0, v0 * sheetH, sheetW, (v1 - v0) * sheetH),
+                blit.Draw(this, ctx, bmp, new Rect(0, v0 * sheetH, sheetW, (v1 - v0) * sheetH),
                           new Rect(0, 0, Map16Layout.Cols * ts, rows * ts), VisualRoot?.RenderScaling ?? 1);
         }
 

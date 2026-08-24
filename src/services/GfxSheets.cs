@@ -19,8 +19,12 @@ public static class GfxSheets
     /// </summary>
     public static (uint[] Px, int W, int H) Chr(Rom rom, LevelHeader header, int level, int phase,
                                                Palette palette, int palRow)
+        => Chr(Gfx.FgTiles.Load(rom, header.Tileset, level, phase), palette, palRow);
+
+    /// <summary>The same, from graphics already loaded — the scene keeps one set per animation
+    /// phase, and the picker animates with the level off exactly those.</summary>
+    public static (uint[] Px, int W, int H) Chr(Gfx.FgTiles fg, Palette palette, int palRow)
     {
-        var fg = Gfx.FgTiles.Load(rom, header.Tileset, level, phase);
         int w = ChrCols * 8, h = ChrCount / ChrCols * 8;
         var px = new uint[w * h];
         for (int t = 0; t < ChrCount; t++)

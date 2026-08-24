@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Avalonia;
+using Avalonia.Logging;
 
 namespace PipeDream.Ui;
 
@@ -50,7 +51,12 @@ public static partial class Program
     }
 
     public static AppBuilder BuildAvaloniaApp()
-        => AppBuilder.Configure<App>().UsePlatformDetect().LogToTrace();
+        // Areas listed = areas kept. LogArea.Control is dropped: its only regular output is
+        // "PlatformImpl is null, couldn't handle input" for a dialog closed from inside the very
+        // input event that closed it, which is noise. Binding/Property stay — those catch real
+        // XAML mistakes that are otherwise silent.
+        => AppBuilder.Configure<App>().UsePlatformDetect()
+                     .LogToTrace(LogEventLevel.Warning, LogArea.Binding, LogArea.Property);
 
     /// <summary>
     /// Windows only, and the price of one executable: this is a GUI-subsystem binary, so Windows

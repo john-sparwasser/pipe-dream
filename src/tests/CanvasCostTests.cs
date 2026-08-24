@@ -136,9 +136,13 @@ public class CanvasCostTests(ITestOutputHelper log)
 
         using var surface = new Avalonia.Media.Imaging.RenderTargetBitmap(
             new PixelSize(vw, vh), new Avalonia.Vector(96, 96));
+        var targets = new List<int>();
         for (int i = 0; i < 12; i++)
+        {
             using (var dc = surface.CreateDrawingContext())
                 view.Render(dc);
+            targets.Add(view.ScalerTarget);
+        }
 
         var size = view.ScalerSize;
         log.WriteLine($"level {scene.Width}x{scene.Height}px at 210% in a {vw}x{vh} viewport: " +
@@ -153,10 +157,17 @@ public class CanvasCostTests(ITestOutputHelper log)
         Assert.True(size.Width <= vw * 2 + 8 && size.Height <= vh * 2 + 8,
                     $"intermediate {size.Width}x{size.Height} is not viewport-sized");
         Assert.True(size.Width < scene.Width, "the whole level went through the scaler");
-        // Two surfaces — the oversampled one and the device-sized one the filtered step lands
-        // in — each built once and reused for every repaint.
-        Assert.Equal(2, view.ScalerBuilds);
+        // Three surfaces — the oversampled one, and the PAIR of device-sized ones the filtered
+        // step alternates between — each built once and reused for every repaint.
+        Assert.Equal(3, view.ScalerBuilds);
         Assert.Equal("sharp", view.LastDraw);
+
+        // The pair has to alternate. Drawing into the same target every repaint records an
+        // identical draw, which the compositor drops — so a repaint whose only change is INSIDE
+        // the bitmap (a phase of tile animation, an edit at a fractional zoom) never appears.
+        Assert.Equal(12, targets.Count);
+        for (int i = 1; i < targets.Count; i++)
+            Assert.NotEqual(targets[i - 1], targets[i]);
     }
 
     /// <summary>

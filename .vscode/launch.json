@@ -15,7 +15,8 @@
         "${workspaceFolder}\\dev\\project.pdp"
       ],
       "cwd": "${workspaceFolder}",
-      "console": "internalConsole"
+      "console": "internalConsole",
+      "logging": { "moduleLoad": false }
     }
   ]
 }

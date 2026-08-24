@@ -479,6 +479,7 @@ public class LevelView : Control
 
     internal PixelSize ScalerSize => blit.MidSize;
     internal int ScalerBuilds => blit.Builds;
+    internal int ScalerTarget => blit.FinIndex;
     internal string LastDraw => blit.LastDraw;
 
 

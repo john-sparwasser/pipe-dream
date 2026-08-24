@@ -18,8 +18,12 @@ namespace PipeDream.Ui;
 /// </summary>
 public class Map16PaletteView : Control
 {
-    private WriteableBitmap? sheet;
+    private readonly LevelBitmap sheet = new();
     private int sheetW, sheetH;
+
+    /// <summary>Which animation phase to draw. The window steps it for every surface at once,
+    /// so a tile animates the same here as it does in the level.</summary>
+    public int Phase { get; set; }
 
     public double Zoom { get; set; } = 2.0;
     public int Bank { get; set; }
@@ -32,11 +36,10 @@ public class Map16PaletteView : Control
 
     public Map16PaletteView() => Focusable = true;
 
-    public void SetSheet(uint[] px, int w, int h, int tileCount)
+    public void SetSheet(uint[]?[] px, int w, int h, int tileCount)
     {
         sheetW = w; sheetH = h; TileCount = tileCount;
-        sheet?.Dispose();
-        sheet = LevelBitmap.FromPixels(px, w, h);
+        sheet.SetImages(px, w, h, Phase);
         InvalidateVisual();
         InvalidateMeasure();
     }
@@ -86,13 +89,13 @@ public class Map16PaletteView : Control
         // brings it into existence, so the drawer must not make it look unavailable.
         ctx.FillRectangle(Brushes.Black, full);
 
-        if (sheet is not null && sheetH > 0)
+        if (sheet.For(Phase) is { } bmp && sheetH > 0)
         {
             var (v0, v1, rows, _) = Map16Layout.SheetWindow(Bank, sheetH, TileCount);
             if (rows > 0)
             {
                 var src = new Rect(0, v0 * sheetH, sheetW, (v1 - v0) * sheetH);
-                blit.Draw(this, ctx, sheet, src, new Rect(0, 0, 16 * cell, rows * cell),
+                blit.Draw(this, ctx, bmp, src, new Rect(0, 0, 16 * cell, rows * cell),
                           VisualRoot?.RenderScaling ?? 1);
             }
         }

@@ -178,7 +178,10 @@ public sealed class LevelScene
         return pal;
     }
 
-    private Gfx.FgTiles Fg(Rom rom, int levelNum, int p)
+    /// <summary>This level's 8x8 graphics for one animation phase, cached. Public because the
+    /// 8x8 picker draws the same tiles the level does — loading its own copy per phase would
+    /// re-decode every GFX slot four times for a sheet that is already sitting here.</summary>
+    public Gfx.FgTiles Fg(Rom rom, int levelNum, int p)
         => fg[p] ??= Gfx.FgTiles.Load(rom, Level.Header.Tileset, levelNum, p);
 
     /// <summary>Drop the cached GFX, for the one thing a colour or a definition cannot change:
