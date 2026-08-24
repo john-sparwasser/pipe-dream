@@ -160,6 +160,21 @@ public class ShellTests(ITestOutputHelper log)
                     $"canvas did not reclaim the drawer's width ({withDrawer} -> {scroll.Bounds.Width})");
     }
 
+    /// <summary>The seam between drawer and canvas is the drawer's own 1px border and nothing
+    /// else: the splitter is a wide TRANSPARENT grab handle whose negative margin cancels the
+    /// theme's MinWidth, so its column measures a hairline instead of a visible gutter.</summary>
+    [AvaloniaFact]
+    public void the_splitter_takes_no_visible_room_between_drawer_and_canvas()
+    {
+        if (Open() is not { } w) { log.WriteLine("SKIP: no ROM"); return; }
+        Dispatcher.UIThread.RunJobs();
+        var splitter = Find<GridSplitter>(w, "Splitter");
+        double seam = Find<Grid>(w, "Split").ColumnDefinitions[1].ActualWidth;
+        log.WriteLine($"seam {seam}px, grab handle {splitter.Bounds.Width}px");
+        Assert.True(seam <= 2, $"the splitter column is {seam}px of gutter, not a hairline");
+        Assert.True(splitter.Bounds.Width >= 5, "the grab handle shrank with the gutter");
+    }
+
     /// <summary>Zoom is a PERCENT in 10% steps, stepped by - and =, and it lives in the status
     /// bar. Whole-number multipliers were the ImGui port's shortcut; Lunar Magic's zoom is a
     /// percent and jumping 100% at a time is far too coarse on a level this wide. The fractional

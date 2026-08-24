@@ -1,9 +1,17 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="clr-namespace:PipeDream.Ui"
         x:Class="PipeDream.Ui.GfxBrowserWindow"
         Title="Select GFX" Width="640" Height="620"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+
+  <Window.Resources>
+    <!-- Lucide: list, layout-list, layout-grid -->
+    <StreamGeometry x:Key="IconList">M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01</StreamGeometry>
+    <StreamGeometry x:Key="IconLayoutList">M3 3h7v7H3z M3 14h7v7H3z M14 4h7 M14 9h7 M14 15h7 M14 20h7</StreamGeometry>
+    <StreamGeometry x:Key="IconLayoutGrid">M3 3h7v7H3z M14 3h7v7h-7z M14 14h7v7h-7z M3 14h7v7H3z</StreamGeometry>
+  </Window.Resources>
 
   <Window.Styles>
     <Style Selector="TextBlock.dim">
@@ -29,6 +37,16 @@
                      VerticalAlignment="Center"/>
         <RadioButton x:Name="ShowCustom" GroupName="Source" Content="custom"
                      VerticalAlignment="Center"/>
+        <Rectangle Width="1" Height="18" Fill="{DynamicResource TextDimBrush}" Margin="4,0"/>
+        <ToggleButton x:Name="ViewNames" Classes="mode" MinWidth="40" ToolTip.Tip="names only">
+          <Path Data="{StaticResource IconList}"/>
+        </ToggleButton>
+        <ToggleButton x:Name="ViewList" Classes="mode" MinWidth="40" ToolTip.Tip="list with previews">
+          <Path Data="{StaticResource IconLayoutList}"/>
+        </ToggleButton>
+        <ToggleButton x:Name="ViewCards" Classes="mode" MinWidth="40" ToolTip.Tip="cards">
+          <Path Data="{StaticResource IconLayoutGrid}"/>
+        </ToggleButton>
       </StackPanel>
     </StackPanel>
 
@@ -43,18 +61,41 @@
 
     <ListBox x:Name="Files" Margin="0,10" Background="Transparent" BorderThickness="0"
              DoubleTapped="OnSelect">
-      <ListBox.ItemTemplate>
-        <DataTemplate>
+      <ListBox.Resources>
+        <!-- The three views. Code-behind picks one by the remembered config value. -->
+        <DataTemplate x:Key="NamesRow">
+          <TextBlock Text="{Binding Label}"/>
+        </DataTemplate>
+        <DataTemplate x:Key="ListRow">
           <StackPanel Orientation="Horizontal" Spacing="10">
             <Image Source="{Binding Thumb}" Width="{Binding ThumbW}" Height="{Binding ThumbH}"/>
             <StackPanel VerticalAlignment="Center">
               <TextBlock Text="{Binding Label}"/>
-              <TextBlock Text="{Binding Name}" Classes="mono" IsVisible="{Binding HasName}"/>
               <TextBlock Text="{Binding Description}" Classes="mono"/>
             </StackPanel>
           </StackPanel>
         </DataTemplate>
-      </ListBox.ItemTemplate>
+        <!-- The drawer's bin-card look: darker header band on top, the sheet filling the rest
+             through PixelBlit, bottom corners closing the card. -->
+        <DataTemplate x:Key="CardRow">
+          <Border Width="140" CornerRadius="5" BorderThickness="2"
+                  BorderBrush="{DynamicResource BorderBrush}">
+            <StackPanel>
+              <Border Background="{DynamicResource SurfaceBrush}" Padding="8,6"
+                      CornerRadius="4,4,0,0">
+                <TextBlock Text="{Binding Label}" TextWrapping="Wrap"/>
+              </Border>
+              <ui:PixelImage Source="{Binding Thumb}" Stretch="True" BottomCornerRadius="4"/>
+            </StackPanel>
+          </Border>
+        </DataTemplate>
+        <ItemsPanelTemplate x:Key="RowsPanel">
+          <StackPanel/>
+        </ItemsPanelTemplate>
+        <ItemsPanelTemplate x:Key="CardsPanel">
+          <WrapPanel/>
+        </ItemsPanelTemplate>
+      </ListBox.Resources>
     </ListBox>
   </DockPanel>
 </Window>

@@ -28,11 +28,13 @@ public sealed class GfxEdit
     public int File { get; private set; } = 0x14;
     public int PalRow { get; set; } = 2;
 
-    /// <summary>Paint colour index, clamped to what the ROM's depth can hold. 0 = transparent.</summary>
+    /// <summary>Paint colour index, clamped to what the ROM's depth can hold. Never 0: index 0
+    /// is transparent, and painting transparent is the Eraser — a paint colour that erases would
+    /// be a second way to do one thing, and it makes "the pencil did nothing" a real state.</summary>
     public int Color
     {
         get => color;
-        set => color = Math.Clamp(value, 0, MaxColor);
+        set => color = Math.Clamp(value, 1, MaxColor);
     }
     private int color = 1;
     public Tool Current { get; set; } = Tool.Pencil;

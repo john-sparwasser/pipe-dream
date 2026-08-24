@@ -23,48 +23,15 @@
     <StreamGeometry x:Key="IconPipette">M2 22l1-1h3l9-9 M3 21v-3l9-9 M15 6l3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z</StreamGeometry>
     <StreamGeometry x:Key="IconSave">M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z M17 21v-8a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v8 M7 3v4a1 1 0 0 0 1 1h7</StreamGeometry>
     <StreamGeometry x:Key="IconCircleCheck">M22 12A10 10 0 1 1 2 12A10 10 0 1 1 22 12 M9 12l2 2 4-4</StreamGeometry>
+    <StreamGeometry x:Key="IconCircle">M22 12A10 10 0 1 1 2 12A10 10 0 1 1 22 12</StreamGeometry>
     <StreamGeometry x:Key="IconStar">M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z</StreamGeometry>
     <StreamGeometry x:Key="IconBot">M12 8V4H8 M6 8H18A2 2 0 0 1 20 10V18A2 2 0 0 1 18 20H6A2 2 0 0 1 4 18V10A2 2 0 0 1 6 8 M2 14h2 M20 14h2 M15 13v2 M9 13v2</StreamGeometry>
     <StreamGeometry x:Key="IconPalette">M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z M13.5 6.5h.01 M17.5 10.5h.01 M6.5 12.5h.01 M8.5 7.5h.01</StreamGeometry>
   </Window.Resources>
 
   <Window.Styles>
-    <!-- Header mode toggle: the canvas IS the editor, so switching editors is a canvas mode
-         rather than another panel competing for the drawer. -->
-    <Style Selector="ToggleButton.mode">
-      <Setter Property="Padding" Value="16,6"/>
-      <Setter Property="MinWidth" Value="82"/>
-      <Setter Property="Background" Value="Transparent"/>
-      <Setter Property="BorderThickness" Value="0"/>
-      <Setter Property="CornerRadius" Value="5"/>
-      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
-      <Setter Property="FontSize" Value="13"/>
-    </Style>
-    <Style Selector="ToggleButton.mode:pointerover /template/ ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
-    </Style>
-    <Style Selector="ToggleButton.mode:checked /template/ ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
-      <Setter Property="TextBlock.Foreground" Value="White"/>
-    </Style>
-    <Style Selector="ToggleButton.mode:checked:pointerover /template/ ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
-    </Style>
-    <!-- Mode icons follow the label's colour states; stroked because Lucide is stroked. The
-         Button half covers header buttons that carry an icon without being a mode (Course Bot). -->
-    <Style Selector="ToggleButton.mode Path, Button.mode Path">
-      <Setter Property="Stroke" Value="{DynamicResource TextDimBrush}"/>
-      <Setter Property="StrokeThickness" Value="1.5"/>
-      <Setter Property="StrokeLineCap" Value="Round"/>
-      <Setter Property="StrokeJoin" Value="Round"/>
-      <Setter Property="Width" Value="15"/>
-      <Setter Property="Height" Value="15"/>
-      <Setter Property="Stretch" Value="Uniform"/>
-      <Setter Property="VerticalAlignment" Value="Center"/>
-    </Style>
-    <Style Selector="ToggleButton.mode:checked Path">
-      <Setter Property="Stroke" Value="White"/>
-    </Style>
+    <!-- The header mode toggle's ToggleButton.mode styles live in App.axaml: the GFX browser's
+         view switch draws the same control, and two copies of a style drift. -->
     <!-- Drawer tabs match the mode toggles: same text size, same icon treatment. Their stroke
          binds to the item's Foreground so it tracks Fluent's selected/hover states for free. -->
     <Style Selector="TabStrip#PaletteTabs TabStripItem">
@@ -187,9 +154,17 @@
     <Style Selector="Menu">
       <Setter Property="Background" Value="{DynamicResource SurfaceBrush}"/>
     </Style>
+    <!-- Invisible, straddles the seam: the drawer's own 1px border is the only line between
+         drawer and canvas, and the grab handle overhangs it on both sides.
+         MinWidth 0 is the load-bearing part — Fluent floors a GridSplitter several pixels wide,
+         which is what the negative margin has to cancel to leave the Auto column at 1px. The
+         column stays Auto rather than absolute: an absolute width makes the splitter pin the
+         canvas column, and then hiding the drawer cannot give the canvas the room back. -->
     <Style Selector="GridSplitter">
-      <Setter Property="Background" Value="{DynamicResource BorderBrush}"/>
-      <Setter Property="Width" Value="4"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="MinWidth" Value="0"/>
+      <Setter Property="Width" Value="7"/>
+      <Setter Property="Margin" Value="-3,0"/>
     </Style>
     <!-- Catalog rows are their own height (a 48px thumbnail), so the default item padding
          would waste half the drawer. -->
@@ -332,7 +307,7 @@
             <TabStripItem IsSelected="True">
               <StackPanel Orientation="Horizontal" Spacing="6">
                 <Path Data="{StaticResource IconGrid3x3}"/>
-                <TextBlock Text="Map16" VerticalAlignment="Center"/>
+                <TextBlock Text="Tiles" VerticalAlignment="Center"/>
               </StackPanel>
             </TabStripItem>
             <TabStripItem>
@@ -463,9 +438,15 @@
                  Clicking a bin opens it in the editor beside it, so there is no separate tab to
                  go to and come back from. -->
             <DockPanel x:Name="GfxToolPanel" IsVisible="False">
-              <Border DockPanel.Dock="Top" Padding="10,6,10,4"
-                      Background="{DynamicResource SurfaceBrush}">
-                <TextBlock Classes="dim" Text="level bins — click one to edit it"/>
+              <!-- The open file's identity lives here, not in the editor bar: over there its
+                   varying width nudged the tool buttons. Height tracks the editor bar so the
+                   two headers read as one strip. -->
+              <Border DockPanel.Dock="Top" Classes="panel bar" BorderThickness="0,0,0,1"
+                      Padding="10,0" Height="{Binding #GfxEditorBar.Bounds.Height}">
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                  <Path x:Name="GfxKind" Classes="kind"/>
+                  <TextBlock x:Name="GfxFileName" Classes="subject"/>
+                </StackPanel>
               </Border>
               <ScrollViewer>
                 <StackPanel x:Name="GfxBins" Margin="10,6" Spacing="10"/>
@@ -475,7 +456,7 @@
         </DockPanel>
       </Border>
 
-      <GridSplitter Grid.Column="1" ResizeDirection="Columns"/>
+      <GridSplitter x:Name="Splitter" Grid.Column="1" ResizeDirection="Columns"/>
 
       <DockPanel Grid.Column="2">
 
@@ -533,11 +514,9 @@
           <ui:Map16CanvasView x:Name="Map16Canvas" Margin="8"/>
         </ScrollViewer>
         <DockPanel x:Name="GfxScroll" IsVisible="False" Background="{DynamicResource VoidBrush}">
-          <Border DockPanel.Dock="Top" Classes="panel bar" BorderThickness="0,0,0,1" Padding="10,6">
+          <Border x:Name="GfxEditorBar" DockPanel.Dock="Top" Classes="panel bar"
+                  BorderThickness="0,0,0,1" Padding="10,6">
             <StackPanel Orientation="Horizontal" Spacing="6">
-              <Path x:Name="GfxKind" Classes="kind"/>
-              <TextBlock x:Name="GfxFileName" Classes="subject"/>
-              <TextBlock x:Name="GfxFileNote" Classes="mono"/>
               <Button MinWidth="80" Click="OnBrowseGfx"
                       ToolTip.Tip="Load another graphics file into the editor">
                 <StackPanel Orientation="Horizontal" Spacing="6">
@@ -550,6 +529,13 @@
                 <StackPanel Orientation="Horizontal" Spacing="6">
                   <Path Data="{StaticResource IconSave}"/>
                   <TextBlock Text="Save" VerticalAlignment="Center"/>
+                </StackPanel>
+              </Button>
+              <Button x:Name="GfxSaveAs" MinWidth="80" Click="OnSaveGfxAs"
+                      ToolTip.Tip="Save a copy as a new custom ExGFX file">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <Path Data="{StaticResource IconSave}"/>
+                  <TextBlock Text="Save As" VerticalAlignment="Center"/>
                 </StackPanel>
               </Button>
               <Rectangle Classes="sep"/>

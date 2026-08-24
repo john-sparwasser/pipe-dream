@@ -25,6 +25,9 @@ internal sealed class Config
     /// launch.</summary>
     public DateTime? LastUpdateCheckUtc { get; set; }
 
+    /// <summary>How the GFX browser lists files: "names", "list" or "cards".</summary>
+    public string GfxBrowserView { get; set; } = "list";
+
     /// <summary>Config directory for a platform. Split out from <see cref="Dir"/> so the
     /// per-OS choice can be tested from any host. .NET maps ApplicationData to %APPDATA% on
     /// Windows and $XDG_CONFIG_HOME (or ~/.config) on Linux — both already conventional —

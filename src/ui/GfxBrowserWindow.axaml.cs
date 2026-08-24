@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
@@ -62,9 +63,34 @@ public partial class GfxBrowserWindow : Window
         // One subscription covers the pair: switching to base unchecks this one, which is also a
         // change of its own.
         showCustom.IsCheckedChanged += (_, _) => Refresh();
+
+        // The view toggle, remembered across sessions: ToggleButtons acting as radio buttons,
+        // like the main toolbar's canvas modes. SetView keeps the trio mutually exclusive.
+        var toggles = new[] { ("ViewNames", "names"), ("ViewList", "list"), ("ViewCards", "cards") }
+            .Select(t => (Button: this.GetControl<ToggleButton>(t.Item1), View: t.Item2)).ToArray();
+        foreach (var (button, view) in toggles)
+            button.Click += (_, _) => SetView(view);
+        SetView(session.GfxBrowserView switch { "names" => "names", "cards" => "cards", _ => "list" });
+
+        void SetView(string view)
+        {
+            foreach (var (button, v) in toggles) button.IsChecked = v == view;
+            if (session.GfxBrowserView != view) session.GfxBrowserView = view;  // saves config
+            ApplyView(view);
+        }
         files.SelectionChanged += (_, _) => renameHint.Text =
             files.SelectedItem is Row { Custom: true, HasName: false } ? "unnamed" : "";
         Refresh();
+    }
+
+    /// <summary>Swap the list's item template (and, for cards, its panel) to one of the three
+    /// views. Templates live in the ListBox's resources, so this is a lookup, not construction.</summary>
+    private void ApplyView(string view)
+    {
+        files.ItemTemplate = (Avalonia.Controls.Templates.IDataTemplate?)files.Resources[
+            view switch { "names" => "NamesRow", "cards" => "CardRow", _ => "ListRow" }];
+        files.ItemsPanel = (Avalonia.Markup.Xaml.Templates.ItemsPanelTemplate)files.Resources[
+            view == "cards" ? "CardsPanel" : "RowsPanel"]!;
     }
 
     /// <summary>Refill the list from the switcher and the filter. <paramref name="want"/> is the id

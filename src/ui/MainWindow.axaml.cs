@@ -49,8 +49,8 @@ public partial class MainWindow : Window
     private DockPanel spritePanel = null!, objectPanel = null!, palettePanel = null!;
     private GfxCanvasView gfxCanvas = null!;
     private Avalonia.Controls.Shapes.Path gfxKind = null!;
-    private Button gfxSave = null!, gfxEmptyLoad = null!;
-    private TextBlock gfxFileName = null!, gfxFileNote = null!;
+    private Button gfxSave = null!, gfxSaveAs = null!, gfxEmptyLoad = null!;
+    private TextBlock gfxFileName = null!;
     private ToggleButton gfxPencil = null!, gfxFill = null!, gfxErase = null!, gfxDropper = null!,
                          gfxSelect = null!;
     private DockPanel gfxToolPanel = null!, gfxScroll = null!;
@@ -300,7 +300,11 @@ public partial class MainWindow : Window
         pickerFlyout.Content = picker;
         // The open picker IS the undo boundary, as it was in the ImGui editor: everything done
         // between opening and dismissing it is one entry, however many colours the drag crossed.
-        pickerFlyout.Opened += (_, _) => session.BeginPaletteStroke();
+        // Park the animation on phase 0 for the stroke: a live recolour only recomposes the phase
+        // ON SCREEN, and phase 0 is the one the session reads a colour back from — animating
+        // through the drag would recolour a phase and then show three that still hold the old
+        // colour. The timer holds still until the picker closes (see SetAnimating).
+        pickerFlyout.Opened += (_, _) => { SetPhase(0); session.BeginPaletteStroke(); };
         pickerFlyout.Closed += (_, _) =>
         {
             session.EndPaletteStroke();
@@ -312,8 +316,8 @@ public partial class MainWindow : Window
         gfxCanvas = this.GetControl<GfxCanvasView>("GfxCanvas");
         gfxKind = this.GetControl<Avalonia.Controls.Shapes.Path>("GfxKind");
         gfxFileName = this.GetControl<TextBlock>("GfxFileName");
-        gfxFileNote = this.GetControl<TextBlock>("GfxFileNote");
         gfxSave = this.GetControl<Button>("GfxSave");
+        gfxSaveAs = this.GetControl<Button>("GfxSaveAs");
         gfxEmptyLoad = this.GetControl<Button>("GfxEmptyLoad");
         gfxPencil = this.GetControl<ToggleButton>("GfxPencil");
         gfxFill = this.GetControl<ToggleButton>("GfxFill");
@@ -335,8 +339,19 @@ public partial class MainWindow : Window
             g.PalRow = row;
             RefreshGfx();
         };
+        gfxColors.ShowHoverIndex = true;
+        // The back half of the row exists on the SNES (tiles display 4bpp) but a 3bpp-stored
+        // file has no plane to hold colours 8-15, so they show greyed rather than absent.
+        gfxColors.IsDisabled = i => i > (session.GfxPixels?.MaxColor ?? 15);
+        gfxColors.Describe = i => i == 0 ? "transparent — the eraser paints this"
+            : i > (session.GfxPixels?.MaxColor ?? 15)
+                ? $"colour {i} — needs a 4bpp ROM; this one stores {session.GfxPixels?.Bpp ?? 3}bpp"
+                : $"colour {i}";
         gfxColors.SelectionChanged += (_, i) =>
         {
+            // Index 0 IS the eraser: it is the transparent slot, so choosing it means "paint
+            // transparent" and the tool that does that is the one to switch to.
+            if (i == 0) { SetGfxTool(GfxEdit.Tool.Eraser); return; }
             if (session.GfxPixels is { } g) g.Color = i;
         };
 
@@ -414,6 +429,7 @@ public partial class MainWindow : Window
         upgradePrepItem = this.GetControl<MenuItem>("UpgradePrepItem");
         spriteOverlayItem = this.GetControl<MenuItem>("SpriteOverlayItem");
         animateItem = this.GetControl<MenuItem>("AnimateItem");
+        SetAnimating(true);             // tiles animate as the game does; View ▸ Animate tiles stops it
         // Rebuilt when the menu opens rather than kept in sync: the recent list changes behind
         // this window's back (a project opened elsewhere in the session reorders it), and pruning
         // entries whose files have gone needs a disk check that has no business running per frame.
@@ -571,7 +587,7 @@ public partial class MainWindow : Window
         canvas.InvalidateMeasure();
         canvas.InvalidateVisual();
 
-        var (px, w, h) = session.Sheet();
+        var (px, w, h) = session.SheetPhases();
         palette.SetSheet(px, w, h, session.Map16TileCount);
 
         // Catalogs are rendered with the level's own GFX and palette, so the session has
@@ -821,7 +837,7 @@ public partial class MainWindow : Window
     private string GfxReadout()
     {
         if (gfxSlot < 0 || gfxCanvas.Hover is not { } p || session.GfxPixels is not { } g) return "";
-        return $"GFX{g.File:X3}  tile 0x{(p.Y / 8) * 16 + p.X / 8:X2}  px ({p.X & 7},{p.Y & 7})";
+        return $"{g.Name ?? $"GFX{g.File:X3}"}  tile 0x{(p.Y / 8) * 16 + p.X / 8:X2}  px ({p.X & 7},{p.Y & 7})";
     }
 
     /// <summary>Push what an edit changed into the bitmap. The composition already happened in
@@ -890,12 +906,26 @@ public partial class MainWindow : Window
         string name = "";
         if (session.GfxIsStock)
         {
-            var dlg = new TextPromptWindow("Name for the new ExGFX file", "");
+            var dlg = new TextPromptWindow("Name for the new ExGFX file",
+                session.GfxPixels is { } gp ? session.DefaultGfxName(gp.File) : "");
             await dlg.ShowDialog(this);
             if (dlg.Result is not { } picked) return;          // cancelled: nothing saved
             name = picked;
         }
         session.SaveGfx(name);
+        RefreshGfx();
+    }
+
+    /// <summary>Save As: fork the open sheet into a NEW custom ExGFX under a typed name. The
+    /// source file keeps its bytes; the editor and this level's bins follow the copy.</summary>
+    private async void OnSaveGfxAs(object? sender, RoutedEventArgs e)
+    {
+        if (session.GfxPixels is not { } g) return;
+        CommitGfxFloat();                    // a paste still adrift belongs in what gets saved
+        var dlg = new TextPromptWindow("Name for the new ExGFX file", session.DefaultGfxName(g.File));
+        await dlg.ShowDialog(this);
+        if (dlg.Result is not { } name) return;          // cancelled: nothing saved
+        session.SaveGfxAs(name);
         RefreshGfx();
     }
 
@@ -1159,16 +1189,24 @@ public partial class MainWindow : Window
     /// only changes which one the bitmap shows, so it costs one image swap rather than a
     /// recompose, which is why it can run at a game-ish rate at all.
     /// </summary>
-    private void OnToggleAnimate(object? sender, RoutedEventArgs e)
+    private void OnToggleAnimate(object? sender, RoutedEventArgs e) => SetAnimating(animate is null);
+
+    /// <summary>Run or stop the phase cycle, and keep the menu's checkbox saying which it is.
+    /// Stopping parks on phase 0, the state the level composes to.</summary>
+    private void SetAnimating(bool on)
     {
-        if (animate is not null) { animate.Stop(); animate = null; SetPhase(0); }
+        if (on == (animate is not null)) return;
+        if (!on) { animate!.Stop(); animate = null; SetPhase(0); }
         else
         {
             animate = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(140) };
-            animate.Tick += (_, _) => SetPhase((canvas.Phase + 1) & 3);
+            // A palette stroke only keeps the phase ON SCREEN in step with the colour being
+            // dragged (the other three are recomposed when the stroke ends), so stepping mid
+            // drag would flick between the new colour and the old one.
+            animate.Tick += (_, _) => { if (!session.InPaletteStroke) SetPhase((canvas.Phase + 1) & 3); };
             animate.Start();
         }
-        animateItem.Icon = animate is null ? null : new TextBlock { Text = "✓" };
+        animateItem.Icon = on ? new TextBlock { Text = "✓" } : null;
     }
 
     private DispatcherTimer? animate;
@@ -1180,6 +1218,14 @@ public partial class MainWindow : Window
         canvas.Phase = phase;
         session.LivePhase = phase;      // the phase a live recolour has to keep current
         canvas.InvalidateVisual();
+
+        // Every surface that draws composed tiles steps together — the drawer's Map16 sheet, the
+        // Map16 editor's own sheet, and the 8x8 picker it builds tiles from. A tile that animates
+        // in the level and sits still in the picker is the same tile drawn two ways.
+        palette.Phase = map16Canvas.Phase = chr.Phase = phase;
+        palette.InvalidateVisual();
+        map16Canvas.InvalidateVisual();
+        chr.InvalidateVisual();
     }
 
     private void OnUndo(object? sender, RoutedEventArgs e)
@@ -1204,7 +1250,7 @@ public partial class MainWindow : Window
         if (drawer.IsVisible)
         {
             cols[0].Width = new GridLength(WantedDrawerWidth(drawerPane));
-            cols[1].Width = GridLength.Auto;
+            cols[1].Width = GridLength.Auto;   // 1px: see the GridSplitter style
         }
         else
         {
@@ -1414,6 +1460,9 @@ public partial class MainWindow : Window
         // The selection itself survives a tool change — copy still needs it — but only the
         // select tool drags it.
         gfxCanvas.Selecting = tool == GfxEdit.Tool.Select;
+        // The ring follows the tool: the eraser paints index 0, so that is the swatch in use.
+        if (session.GfxPixels is { } sel)
+            gfxColors.Select(tool == GfxEdit.Tool.Eraser ? 0 : sel.Color);
     }
 
     private void OnGfxTool(object? sender, RoutedEventArgs e)
@@ -1470,10 +1519,12 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Take the colour under a sheet pixel as the paint colour — the eyedropper tool and
-    /// the right-click shortcut are the same act.</summary>
+    /// the right-click shortcut are the same act. A TRANSPARENT pixel names no colour, so picking
+    /// one switches to the eraser: that is the tool that puts transparency back.</summary>
     private void PickGfxColor(int px, int py)
     {
         if (session.GfxPixels?.ColorAt(px, py) is not { } c) return;
+        if (c == 0) { SetGfxTool(GfxEdit.Tool.Eraser); return; }
         session.GfxPixels.Color = c;
         gfxColors.Select(c);
     }
@@ -1512,58 +1563,66 @@ public partial class MainWindow : Window
         // The file, by name where it has one. The badge says which kind it is, so the note is
         // only the id — and only when the name is not already showing it.
         bool stock = session.GfxIsStock;
+        bool empty = !none && g.File == 0x7F;      // 0x7F = "unused": neither stock nor custom
         gfxKind.IsVisible = !none;
-        gfxFileName.Text = none ? "no bin selected" : g.Name ?? $"GFX{g.File:X3}";
-        gfxFileNote.Text = none ? "pick one in the drawer" : g.Name is null ? "" : $"GFX{g.File:X3}";
-        gfxKind.Data = (StreamGeometry)this.FindResource(stock ? "IconCircleCheck" : "IconStar")!;
-        gfxKind.Classes.Set("custom", !stock);
-        ToolTip.SetTip(gfxKind, stock ? "a base ROM graphics file" : "a custom ExGFX file");
+        // ExGFX ids are primary keys, not labels: a named custom file shows only its name, and
+        // the id is what unnamed files (stock or fresh imports) fall back to.
+        gfxFileName.Text = none ? "no bin selected — pick one in the drawer"
+            : empty ? "Empty" : g.Name ?? $"GFX{g.File:X3}";
+        gfxKind.Data = (StreamGeometry)this.FindResource(
+            empty ? "IconCircle" : stock ? "IconCircleCheck" : "IconStar")!;
+        gfxKind.Classes.Set("custom", !stock && !empty);
+        ToolTip.SetTip(gfxKind, empty ? "an empty slot"
+            : stock ? "a base ROM graphics file" : "a custom ExGFX file");
         gfxSave.IsEnabled = !none && session.GfxDirty;
+        // Not gated on dirty: forking a clean file under a new name is a legit use.
+        gfxSaveAs.IsEnabled = !none && g.Layout.Tiles > 0;
         // Nothing to paint on: an empty BIN offers Load, no bin at all offers nothing.
         gfxEmptyLoad.IsVisible = !none && g.Layout.Tiles == 0;
         SetGfxTool(g.Current);
         RefreshGfxPalRows(g.PalRow);      // the rows this bin allows, before anything reads one
         RefreshGfxSheet(none);
 
-        // The row's colours as paint swatches — only as many as the ROM's depth can hold, since
-        // a 3bpp file has no colour 8. Index 0 keeps the sheet's grey convention: in a tile it
-        // means transparent, and a black swatch would read as the colour black.
-        int count = g.MaxColor + 1;
-        var row = new uint[count];
+        // The WHOLE 16-colour row as paint swatches: a tile displays 4bpp on the SNES, so the
+        // back half is part of the palette even where a 3bpp-stored file cannot reach it —
+        // IsDisabled greys those rather than hiding them. Index 0 keeps the sheet's grey
+        // convention: in a tile it means transparent, and a black swatch would read as black.
+        var row = new uint[16];
         var pal = session.PaletteRgba;
-        for (int i = 0; i < count; i++)
+        for (int i = 0; i < 16; i++)
             row[i] = i == 0 ? 0xFF303030u : pal[g.PalRow * 16 + i];
-        gfxColors.Cols = count;
+        gfxColors.Cols = 16;
         gfxColors.Colors = row;
         gfxColors.InvalidateMeasure();
-        gfxColors.Select(g.Color);
+        gfxColors.Select(g.Current == GfxEdit.Tool.Eraser ? 0 : g.Color);
 
         RefreshGfxBins();          // the bins list IS the file picker now
     }
 
     /// <summary>
-    /// The GFX drawer: one block per VRAM bin — what it holds, how it got there, and the three ways
-    /// to change it (type an id, pick a file, import a raw .bin). Built in code rather than
-    /// bound, because it is ten near-identical composites and a template plus a view model for
-    /// each would be more machinery than the thing it builds.
+    /// The GFX drawer: one block per VRAM bin — what it holds and what kind of file that is.
+    /// Repointing a bin happens through the editor bar's Load, not here, so the head is a label:
+    /// [bin] [kind badge] [file name]. Built in code rather than bound, because it is ten
+    /// near-identical composites and a template plus a view model for each would be more
+    /// machinery than the thing it builds.
     /// </summary>
     private void RefreshGfxBins()
     {
         gfxBins.Children.Clear();
         foreach (var bin in session.GfxBins)
         {
-            var idBox = new TextBox { Text = $"{bin.File:X3}", Width = 60 };
             int bypWord = bin.BypWord, palRow = bin.PalRow, file = bin.File;
-            void Commit()
+            bool empty = file == 0x7F;
+            bool custom = session.GfxBinNote(bypWord, file, bin.Def) == "custom";
+            var kind = new Avalonia.Controls.Shapes.Path
             {
-                if (!int.TryParse(idBox.Text, System.Globalization.NumberStyles.HexNumber,
-                                  null, out int id)) { idBox.Text = $"{file:X3}"; return; }
-                if (id == file) return;
-                session.SetGfxSlot(bypWord, id);
-                AdoptSession();
-            }
-            idBox.KeyDown += (_, e) => { if (e.Key == Key.Enter) { Commit(); e.Handled = true; } };
-            idBox.LostFocus += (_, _) => Commit();
+                Classes = { "kind" },
+                Data = (StreamGeometry)this.FindResource(
+                    empty ? "IconCircle" : custom ? "IconStar" : "IconCircleCheck")!,
+            };
+            kind.Classes.Set("custom", custom);
+            ToolTip.SetTip(kind, empty ? "an empty slot"
+                : custom ? "a custom ExGFX file" : "a base ROM graphics file");
 
             var head = new StackPanel
             {
@@ -1572,21 +1631,25 @@ public partial class MainWindow : Window
                 Children =
                 {
                     new TextBlock { Text = $"[{bin.Name}]", VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-                                    Width = 40, Classes = { "dim" } },
-                    idBox,
+                                    Width = 40, FontWeight = FontWeight.Bold,
+                                    Foreground = (IBrush)this.FindResource("TextDimBrush")! },
+                    kind,
+                    new TextBlock { Text = empty ? "Empty" : session.GfxName(file) ?? $"GFX{file:X3}",
+                                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center },
                 },
             };
 
-            string note = session.GfxBinNote(bypWord, bin.File, bin.Def);
-            if (note.Length > 0)
-                head.Children.Add(new TextBlock { Text = $"({note})", Classes = { "mono" } });
-            if (session.GfxName(bin.File) is { } gname)
-                head.Children.Add(new TextBlock { Text = $"\"{gname}\"", Classes = { "mono" } });
-
             // No per-bin Import/Browse buttons: the header's Load covers both, and ten cards each
             // carrying two buttons buried the thing the card is actually for — its sheet.
-            var block = new StackPanel { Spacing = 4 };
-            block.Children.Add(head);
+            // The head sits in its own darker band spanning the card; the preview fills the rest.
+            var block = new StackPanel();
+            block.Children.Add(new Border
+            {
+                Child = head,
+                Padding = new Thickness(8, 6),
+                Background = (IBrush)this.FindResource("SurfaceBrush")!,
+                CornerRadius = new CornerRadius(4, 4, 0, 0),   // inside the card's 5
+            });
 
             // The SELECTED bin previews in the row being painted with, so the drawer and the editor
             // show the same colours; the others keep the row the level actually loads them under.
@@ -1594,14 +1657,17 @@ public partial class MainWindow : Window
                 ? sel.PalRow : bin.PalRow;
             var (px, w, h) = session.GfxFileSheet(bin.File, previewRow);
             if (px.Length > 0)
-                block.Children.Add(new Image
+                block.Children.Add(new PixelImage
                 {
+                    // Not an Image: it scales the bitmap itself, outside the one shared pixel
+                    // rule, and any fractional zoom the stretch lands on is PixelBlit's job.
                     Source = LevelBitmap.FromPixels(px, w, h),
-                    Width = w * 2, Height = h * 2,
-                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left,
+                    Stretch = true,
+                    BottomCornerRadius = 4,
                 });
             else
-                block.Children.Add(new TextBlock { Text = "(empty)", Classes = { "mono" } });
+                block.Children.Add(new TextBlock { Text = "(empty)", Classes = { "mono" },
+                                                   Margin = new Thickness(8, 6) });
 
             // The whole block IS the "select this bin" target — selecting a bin and editing its
             // file are the same gesture, so a separate Edit button would be a second way to do one
@@ -1611,11 +1677,10 @@ public partial class MainWindow : Window
             var card = new Border
             {
                 Child = block,
-                Padding = new Thickness(8, 6),
                 CornerRadius = new CornerRadius(5),
                 // Same thickness selected or not: a thicker border relays the card and the whole
                 // list jiggles as the selection moves. Colour and fill carry the state instead.
-                BorderThickness = new Thickness(1),
+                BorderThickness = new Thickness(2),
                 BorderBrush = open ? UiColors.Accent : this.FindResource("BorderBrush") as IBrush,
                 // Transparent, never null: a null background is not hit-testable, so the card
                 // would take no clicks except on the controls inside it.
@@ -1623,11 +1688,8 @@ public partial class MainWindow : Window
                 Cursor = new Cursor(StandardCursorType.Hand),
             };
             // An UNUSED bin (0x7F) is clickable too: selecting it is how it gets given something.
-            card.PointerPressed += (_, e) =>
+            card.PointerPressed += (_, _) =>
             {
-                // Not when the click landed on the id box or a button inside the card.
-                if (e.Source is Visual v && v.FindAncestorOfType<Button>() is not null) return;
-                if (e.Source is Visual t && t.FindAncestorOfType<TextBox>() is not null) return;
                 gfxSlot = bypWord;
                 EditGfxFile(file, palRow);
             };
@@ -1841,7 +1903,7 @@ public partial class MainWindow : Window
     private void RefreshMap16Sheet()
     {
         if (!session.HasLevel) return;
-        var (px, w, h) = session.Sheet();
+        var (px, w, h) = session.SheetPhases();
         map16Canvas.SetSheet(px, w, h, session.Map16TileCount);
         map16Canvas.Bank = Math.Max(0, bankBox.SelectedIndex);
         map16Canvas.SelectedTile = palette.Selected;
@@ -1850,8 +1912,8 @@ public partial class MainWindow : Window
 
     private void RebuildChrSheet()
     {
-        var (px, w, h) = session.ChrSheet(Math.Max(0, palRowBox.SelectedIndex));
-        if (px.Length > 0) chr.SetSheet(px, w, h);
+        var (px, w, h) = session.ChrPhases(Math.Max(0, palRowBox.SelectedIndex));
+        if (px[0] is not null) chr.SetSheet(px, w, h);
     }
 
     /// <summary>

@@ -13,5 +13,42 @@
   </Application.Resources>
   <Application.Styles>
     <FluentTheme />
+    <!-- Mode toggles: a row of ToggleButtons acting as radio buttons (the main toolbar's
+         level/map16/gfx switch, the GFX browser's view switch). App-wide because more than
+         one window draws them, and two copies of a style drift. -->
+    <Style Selector="ToggleButton.mode">
+      <Setter Property="Padding" Value="16,6"/>
+      <Setter Property="MinWidth" Value="82"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="CornerRadius" Value="5"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="FontSize" Value="13"/>
+    </Style>
+    <Style Selector="ToggleButton.mode:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
+    </Style>
+    <Style Selector="ToggleButton.mode:checked /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="TextBlock.Foreground" Value="White"/>
+    </Style>
+    <Style Selector="ToggleButton.mode:checked:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
+    </Style>
+    <!-- Mode icons follow the label's colour states; stroked because Lucide is stroked. The
+         Button half covers header buttons that carry an icon without being a mode (Course Bot). -->
+    <Style Selector="ToggleButton.mode Path, Button.mode Path">
+      <Setter Property="Stroke" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="StrokeThickness" Value="1.5"/>
+      <Setter Property="StrokeLineCap" Value="Round"/>
+      <Setter Property="StrokeJoin" Value="Round"/>
+      <Setter Property="Width" Value="15"/>
+      <Setter Property="Height" Value="15"/>
+      <Setter Property="Stretch" Value="Uniform"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="ToggleButton.mode:checked Path">
+      <Setter Property="Stroke" Value="White"/>
+    </Style>
   </Application.Styles>
 </Application>

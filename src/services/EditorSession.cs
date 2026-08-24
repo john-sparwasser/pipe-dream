@@ -142,14 +142,32 @@ public sealed class EditorSession
         return t == Map16Grid.Empty ? null : t;
     }
 
-    /// <summary>The Map16 tile sheet the drawer picks from.</summary>
-    public (uint[] Px, int W, int H) Sheet() => Scene?.Sheet() ?? ([], 0, 0);
+    /// <summary>The Map16 tile sheet the drawer picks from, one image per animation phase — a
+    /// tile made of animated graphics has to animate wherever it is DRAWN, not only in the
+    /// level.</summary>
+    public (uint[]?[] Px, int W, int H) SheetPhases()
+    {
+        if (Scene is not { } s) return (new uint[4][], 0, 0);
+        var px = new uint[4][];
+        int w = 0, h = 0;
+        for (int p = 0; p < 4; p++) (px[p], w, h) = s.Sheet(p);
+        return (px, w, h);
+    }
 
-    /// <summary>The level's 8x8 GFX sheet in one palette row, for the Map16 editor's picker.</summary>
-    public (uint[] Px, int W, int H) ChrSheet(int palRow)
-        => Rom is { } r && Scene is { } s && s.Palettes[0] is { } pal
-            ? GfxSheets.Chr(r, s.Level.Header, LevelNum, 0, pal, palRow)
-            : ([], 0, 0);
+    /// <summary>The level's 8x8 GFX sheet in one palette row, for the Map16 editor's picker —
+    /// again one per phase, off the scene's own per-phase graphics.</summary>
+    public (uint[]?[] Px, int W, int H) ChrPhases(int palRow)
+    {
+        if (Rom is not { } r || Scene is not { } s) return (new uint[4][], 0, 0);
+        var px = new uint[4][];
+        int w = 0, h = 0;
+        for (int p = 0; p < 4; p++)
+        {
+            if (s.Palettes[p] is not { } pal) continue;
+            (px[p], w, h) = GfxSheets.Chr(s.Fg(r, LevelNum, p), pal, palRow);
+        }
+        return (px, w, h);
+    }
 
     public MainEntrance? MainEntrance => Rom?.ReadMainEntrance(LevelNum);
 
@@ -230,6 +248,14 @@ public sealed class EditorSession
 
     /// <summary>True on the very first run, before the config knows where a vanilla ROM lives.</summary>
     public bool NeedsVanillaRom => Config.VanillaRomPath is null;
+
+    /// <summary>How the GFX browser lists files ("names", "list" or "cards"), remembered
+    /// per user like the update-check switch above.</summary>
+    public string GfxBrowserView
+    {
+        get => Config.GfxBrowserView;
+        set { Config.GfxBrowserView = value; Config.Save(); }
+    }
 
     // ---- opening a project whose base ROM is missing ----
     // A .pdp is shareable on its own; the base ROM copy beside it deliberately is not. So opening
@@ -461,14 +487,22 @@ public sealed class EditorSession
         int romBpp = Gfx.RomBpp(Rom);
         bytes = Gfx.NormalizeBpp(bytes, bpp, romBpp, out bool plane3Dropped);
 
-        int id = 0x100;
+        // A file named by the ExGFX### convention carries its own id — honour it when it is a
+        // usable custom id (0x100+) that nothing here resolves yet. Anything else auto-assigns.
+        string stem = Path.GetFileNameWithoutExtension(path);
+        var m = System.Text.RegularExpressions.Regex.Match(stem, "^ExGFX([0-9A-Fa-f]{3})$",
+                                                           System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        int id = m.Success
+              && int.Parse(m.Groups[1].Value, System.Globalization.NumberStyles.HexNumber) is >= 0x100 and <= 0xFFF and var wanted
+              && !Rom.ImportedGfx.ContainsKey(wanted) && Gfx.SourceSnes(Rom, wanted) < 0
+            ? wanted : 0x100;
         while (id <= 0xFFF && (Rom.ImportedGfx.ContainsKey(id) || Gfx.SourceSnes(Rom, id) >= 0)) id++;
         if (id > 0xFFF) return (-1, "import failed: no free ExGFX id (0x100-0xFFF all in use)");
 
         Rom.ImportedGfx[id] = bytes;
         // The filename is the only human-meaningful label an import has; keeping it beats
         // leaving the user with a bare hex id.
-        Rom.ImportedGfxNames[id] = Path.GetFileNameWithoutExtension(path);
+        Rom.ImportedGfxNames[id] = stem;
         Gfx.InvalidateCache(Rom);
         Project?.MarkDirty();
 
@@ -509,6 +543,12 @@ public sealed class EditorSession
     /// <summary>Committed GFX pixel edits that are not in project.pdp yet.</summary>
     public bool GfxDirty => GfxPixels?.Dirty == true;
 
+    /// <summary>The name a new custom file derived from <paramref name="from"/> gets when the
+    /// user offers none: the source's own label plus "copy". Custom files go by name in the UI,
+    /// so leaving one nameless would strand it behind a bare hex id.</summary>
+    public string DefaultGfxName(int from)
+        => (GfxName(from) is { Length: > 0 } n ? n : $"GFX{from:X3}") + " copy";
+
     /// <summary>
     /// Save the open GFX file into the project as a custom ExGFX.
     ///
@@ -533,7 +573,7 @@ public sealed class EditorSession
             int from = g.File;
             Rom.ImportedGfx[id] = bytes;
             Rom.ImportedGfx.Remove(from);        // the stock file comes back for every other user
-            Rom.ImportedGfxNames[id] = name.Trim();
+            Rom.ImportedGfxNames[id] = name.Trim().Length > 0 ? name.Trim() : DefaultGfxName(from);
             Gfx.InvalidateCache(Rom);
             g.Retarget(from, id);
             foreach (var bin in GfxBins)
@@ -542,7 +582,38 @@ public sealed class EditorSession
         else if (name.Trim().Length > 0) Rom.ImportedGfxNames[g.File] = name.Trim();
 
         Save();
-        return $"saved GFX{g.File:X3}" + (GfxName(g.File) is { } n ? $" \"{n}\"" : "");
+        return GfxName(g.File) is { Length: > 0 } n ? $"saved \"{n}\"" : $"saved GFX{g.File:X3}";
+    }
+
+    /// <summary>
+    /// Save a COPY of the open GFX file as a new custom ExGFX under <paramref name="name"/>.
+    ///
+    /// The source keeps its bytes: a custom source stays as it is, and a stock source drops its
+    /// copy-on-write fork so the stock file is restored for everyone else. The editor and this
+    /// level's bins that pointed at the source move to the copy.
+    /// </summary>
+    public string SaveGfxAs(string name)
+    {
+        if (Rom is null || GfxPixels is not { } g) return "no GFX open";
+        if (Project is null) return "no project open — File ▸ New Project first";
+        g.EndStroke();
+        if (Gfx.EditableBytes(Rom, g.File, out _) is not { } bytes) return $"GFX{g.File:X3} is empty";
+
+        int id = 0x100;
+        while (id <= 0xFFF && (Rom.ImportedGfx.ContainsKey(id) || Gfx.SourceSnes(Rom, id) >= 0)) id++;
+        if (id > 0xFFF) return "save failed: no free ExGFX id (0x100-0xFFF all in use)";
+        int from = g.File;
+        Rom.ImportedGfx[id] = (byte[])bytes.Clone();   // its own array: edits must not alias the source
+        if (Gfx.SourceSnes(Rom, from) >= 0)
+            Rom.ImportedGfx.Remove(from);              // the stock file comes back for every other user
+        Rom.ImportedGfxNames[id] = name.Trim().Length > 0 ? name.Trim() : DefaultGfxName(from);
+        Gfx.InvalidateCache(Rom);
+        g.Retarget(from, id);
+        foreach (var bin in GfxBins)
+            if (bin.File == from) SetGfxSlot(bin.BypWord, id);
+
+        Save();
+        return GfxName(id) is { Length: > 0 } n ? $"saved \"{n}\"" : $"saved GFX{id:X3}";
     }
 
     /// <summary>Rename an imported file. Stock files have no name to change — vanilla ships no

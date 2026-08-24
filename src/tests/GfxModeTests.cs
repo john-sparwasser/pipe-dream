@@ -272,6 +272,30 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         Assert.Equal("custom", s.GfxBinNote(bypWord, id, def: 0));
     }
 
+    /// <summary>A file named by the ExGFX### convention carries its own id: the number is used
+    /// when free, and a second import of the same number falls back to auto-assignment.</summary>
+    [Fact]
+    public void import_named_by_the_exgfx_convention_keeps_its_number()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), Vanilla), s.Status);
+        s.ShowLevel(0x105);
+
+        Directory.CreateDirectory(dir);
+        string bin = Path.Combine(dir, "ExGFX140.bin");
+        File.WriteAllBytes(bin, new byte[0x40 * 32]);
+
+        var (id, note) = s.ImportGfx(bin);
+        log.WriteLine(note);
+        Assert.Equal(0x140, id);
+        Assert.Equal("ExGFX140", s.GfxName(id));
+
+        var (again, note2) = s.ImportGfx(bin);       // 0x140 is taken now
+        log.WriteLine(note2);
+        Assert.True(again >= 0x100 && again != 0x140, $"expected a fallback id, got {again:X3}");
+    }
+
     [Fact]
     public void a_rejected_import_says_why_and_changes_nothing()
     {
@@ -361,11 +385,12 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
 
         var view = w.GetControl<GfxCanvasView>("GfxCanvas");
         var g = SessionOf(w).GfxPixels!;
-        // Find a pixel whose colour is not the armed one, so the pick is observable.
+        // Find a pixel whose colour is not the armed one, so the pick is observable. Never a
+        // TRANSPARENT one: colour 0 arms the eraser instead, which the next test covers.
         int? target = null;
         for (int x = 0; x < 32 && target is null; x++)
             for (int y = 0; y < 8; y++)
-                if (g.ColorAt(x, y) is { } c && c != g.Color) { target = x * 100 + y; break; }
+                if (g.ColorAt(x, y) is { } c && c != g.Color && c != 0) { target = x * 100 + y; break; }
         if (target is null) { log.WriteLine("SKIP: sheet is a single colour"); return; }
         int tx = target.Value / 100, ty = target.Value % 100;
         int want = g.ColorAt(tx, ty)!.Value;
@@ -377,6 +402,51 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
 
         Assert.Equal(want, g.Color);
         Assert.Equal(want, w.GetControl<PaletteGridView>("GfxColors").Selected);
+    }
+
+    /// <summary>Colour 0 is transparent, which is the ERASER's job and not a paint colour: an
+    /// eyedrop that lands on it arms the eraser and leaves the paint colour alone, the swatch row
+    /// offers the whole 16-colour palette row, and nothing can arm 0 as a colour.</summary>
+    [AvaloniaFact]
+    public void eyedropping_a_transparent_pixel_arms_the_eraser()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeGfx").RaiseEvent(
+            new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var view = w.GetControl<GfxCanvasView>("GfxCanvas");
+        var swatches = w.GetControl<PaletteGridView>("GfxColors");
+        var g = SessionOf(w).GfxPixels!;
+
+        // The back half of the row is offered too — greyed where the ROM's depth cannot reach it.
+        Assert.Equal(16, swatches.Cols);
+        Assert.True(swatches.IsDisabled!(g.MaxColor + 1), "a colour past the ROM's depth was selectable");
+        Assert.False(swatches.IsDisabled!(g.MaxColor), "the ROM's own top colour was disabled");
+
+        g.Color = 0;                                  // refused: 0 is the eraser, not a colour
+        Assert.NotEqual(0, g.Color);
+
+        int? target = null;
+        for (int x = 0; x < 128 && target is null; x++)
+            for (int y = 0; y < 8; y++)
+                if (g.ColorAt(x, y) == 0) { target = x * 100 + y; break; }
+        if (target is null) { log.WriteLine("SKIP: no transparent pixel in this sheet"); return; }
+        int before = g.Color;
+
+        var at = view.TranslatePoint(new Point(target.Value / 100 * view.Zoom + 1,
+                                              target.Value % 100 * view.Zoom + 1), w)!.Value;
+        w.MouseDown(at, MouseButton.Right);
+        w.MouseUp(at, MouseButton.Right);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(GfxEdit.Tool.Eraser, g.Current);
+        Assert.Equal(before, g.Color);                 // the armed colour survived the pick
+        Assert.Equal(0, swatches.Selected);            // ...and the ring moved to the eraser slot
     }
 
     /// <summary>Paste does not touch the file: the pixels float at the top-left corner, drag into
@@ -636,7 +706,7 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(0, canvas.Tiles);
         Assert.False(w.GetControl<Button>("GfxEmptyLoad").IsVisible);   // no bin to load INTO
         Assert.False(w.GetControl<Button>("GfxSave").IsEnabled);
-        Assert.Equal("no bin selected", w.GetControl<TextBlock>("GfxFileName").Text);
+        Assert.Equal("no bin selected — pick one in the drawer", w.GetControl<TextBlock>("GfxFileName").Text);
 
         // Clicking a bin fills it in.
         var bins = w.GetControl<StackPanel>("GfxBins");
@@ -810,6 +880,38 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
 
         Assert.True(g.Undo());                          // history followed the id
         Assert.Equal(before, g.ColorAt(0, 0));
+    }
+
+    /// <summary>Save As from an already-CUSTOM file: a second id appears under the typed name,
+    /// the source file keeps its own bytes and name, and the bin follows the copy.</summary>
+    [Fact]
+    public void save_as_copies_a_custom_file_to_a_new_id_and_leaves_the_source_alone()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), Vanilla), s.Status);
+
+        var g = s.GfxPixels!;
+        g.Open(s.GfxBins[0].File);
+        g.Color = g.ColorAt(0, 0) == 3 ? 1 : 3;
+        Assert.True(g.Paint(0, 0, out _));
+        g.EndStroke();
+        log.WriteLine(s.SaveGfx("original"));           // fork out: now a custom file
+        int source = g.File;
+
+        log.WriteLine(s.SaveGfxAs("the-copy"));
+
+        Assert.NotEqual(source, g.File);                // the editor follows the copy
+        Assert.Equal("the-copy", s.GfxName(g.File));
+        Assert.Equal("original", s.GfxName(source));    // the source kept its name...
+        Assert.Equal(g.ColorAt(0, 0), StockPixel(s, source));  // ...and its bytes
+        Assert.Equal(g.File, s.GfxBins[0].File);        // the bin repointed to the copy
+
+        int copyBefore = g.ColorAt(0, 0)!.Value;
+        g.Color = copyBefore == 3 ? 1 : 3;
+        Assert.True(g.Paint(0, 0, out _));              // editing the copy...
+        g.EndStroke();
+        Assert.Equal(copyBefore, StockPixel(s, source)); // ...must not bleed into the source
     }
 
     /// <summary>Pixel (0,0) of a file as the ROM resolves it right now.</summary>

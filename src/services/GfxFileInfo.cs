@@ -18,7 +18,9 @@ public sealed class GfxFileInfo
     public required string Description { get; init; }
     public (uint[] Px, int W, int H) Sheet { get; init; }
 
-    /// <summary>Only the custom side is called out — the list is one kind or the other, so saying
-    /// "base" on every base row is noise.</summary>
-    public string Label => $"GFX{Id:X3}" + (Custom ? "  custom" : "");
+    /// <summary>What a picker calls the file. ExGFX ids are primary keys, not labels: a named
+    /// custom file goes by its name, and only stock files and unnamed imports show the id.</summary>
+    public string Label => Custom
+        ? Name is { Length: > 0 } n ? n : $"GFX{Id:X3}  (unnamed)"
+        : $"GFX{Id:X3}";
 }

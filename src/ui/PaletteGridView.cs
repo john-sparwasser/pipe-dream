@@ -31,6 +31,16 @@ public class PaletteGridView : Control
     /// <summary>Hover text for one swatch, as the ImGui grid showed it. Null = no tooltip.</summary>
     public Func<int, string>? Describe { get; set; }
 
+    /// <summary>Swatches that cannot be chosen — a colour index this ROM's bit depth cannot
+    /// store. Drawn under a veil and inert to clicks, rather than hidden: the colour is really
+    /// there in CGRAM, and a row that stops at 8 reads as if the palette were 8 colours long.
+    /// Null = everything is selectable.</summary>
+    public Func<int, bool>? IsDisabled { get; set; }
+
+    /// <summary>Print the index inside the swatch the pointer is over. For the paint row, where
+    /// "which colour number is this" is the question asked constantly.</summary>
+    public bool ShowHoverIndex { get; set; }
+
     public int Selected { get; private set; } = -1;
 
     public event EventHandler<int>? SelectionChanged;
@@ -57,6 +67,9 @@ public class PaletteGridView : Control
         base.OnPointerPressed(e);
         Focus();
         if (IndexAt(e.GetPosition(this)) is not { } i) return;
+        // A disabled swatch takes the click and does nothing with it — moving the ring there
+        // would claim a paint colour that cannot be painted.
+        if (IsDisabled?.Invoke(i) == true) return;
         Select(i);
         SelectionChanged?.Invoke(this, i);
     }
@@ -68,34 +81,47 @@ public class PaletteGridView : Control
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
-        if (Describe is null) return;
         int i = IndexAt(e.GetPosition(this)) ?? -1;
         if (i == hoverIndex) return;
         hoverIndex = i;
-        ToolTip.SetTip(this, i >= 0 ? Describe(i) : null);
+        if (Describe is not null) ToolTip.SetTip(this, i >= 0 ? Describe(i) : null);
+        if (ShowHoverIndex) InvalidateVisual();
     }
 
     protected override void OnPointerExited(PointerEventArgs e)
     {
         base.OnPointerExited(e);
+        if (hoverIndex < 0) return;
         hoverIndex = -1;
+        if (ShowHoverIndex) InvalidateVisual();
     }
 
     public override void Render(DrawingContext ctx)
     {
         double c = Cell;
         var grid = new Pen(new SolidColorBrush(Color.FromArgb(0x30, 0, 0, 0)));
+        var veil = new SolidColorBrush(Color.FromArgb(0xA8, 0x10, 0x12, 0x16));
         for (int i = 0; i < Count; i++)
         {
             var r = new Rect(i % Cols * c, i / Cols * c, c, c);
             uint v = i < Colors.Length ? Colors[i] : 0xFF000000u;
             // Colours arrive as 0xAABBGGRR from the composer; Avalonia wants them named.
-            ctx.FillRectangle(new SolidColorBrush(Color.FromRgb((byte)(v & 0xFF),
-                                                               (byte)((v >> 8) & 0xFF),
-                                                               (byte)((v >> 16) & 0xFF))), r);
+            var swatch = Color.FromRgb((byte)(v & 0xFF), (byte)((v >> 8) & 0xFF), (byte)((v >> 16) & 0xFF));
+            ctx.FillRectangle(new SolidColorBrush(swatch), r);
+            bool off = IsDisabled?.Invoke(i) == true;
+            if (off) ctx.FillRectangle(veil, r);
             ctx.DrawRectangle(null, grid, r);
             if (IsEdited?.Invoke(i) == true)
                 ctx.FillRectangle(UiColors.Selection, new Rect(r.Right - 5, r.Top + 2, 3, 3));
+            // The index, inside the swatch it names, in whichever of black/white the swatch
+            // itself does not drown — a fixed ink colour vanishes on half a palette.
+            if (ShowHoverIndex && i == hoverIndex)
+            {
+                var ink = off || Luminance(swatch) < 0.55 ? Brushes.White : Brushes.Black;
+                var text = new FormattedText($"{i}", System.Globalization.CultureInfo.InvariantCulture,
+                                             FlowDirection.LeftToRight, Typeface.Default, c * 0.55, ink);
+                ctx.DrawText(text, new Point(r.Center.X - text.Width / 2, r.Center.Y - text.Height / 2));
+            }
         }
         if (Selected >= 0 && Selected < Count)
         {
@@ -105,4 +131,9 @@ public class PaletteGridView : Control
             ctx.DrawRectangle(null, new Pen(Brushes.White, 1.5), sel);
         }
     }
+
+    /// <summary>Perceived brightness, 0-1. Rec.601 weights: cheap, and the question is only
+    /// "does black or white read on this", which it answers as well as anything costlier.</summary>
+    internal static double Luminance(Color c)
+        => (0.299 * c.R + 0.587 * c.G + 0.114 * c.B) / 255.0;
 }
