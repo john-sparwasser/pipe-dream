@@ -23,7 +23,12 @@ public sealed class GfxEdit
     /// <summary>Eraser is the pencil writing colour 0 — in this format that IS transparent, so
     /// "erase" needs no separate concept. Dropper writes nothing at all; it reads. Select paints
     /// nothing either: it marks a rectangle for copy/cut/paste and moving.</summary>
-    public enum Tool { Pencil, Fill, Eraser, Dropper, Select }
+    public enum Tool { Pencil, Fill, Eraser, Dropper, Select, Rect }
+
+    /// <summary>Whether <see cref="Tool.Rect"/> fills its rectangle or draws the outline only.
+    /// A variant of ONE tool rather than two tools: it is one button on the bar with a
+    /// dropdown, and F should step past the pair once, not twice.</summary>
+    public bool RectFilled { get; set; }
 
     public int File { get; private set; } = 0x14;
     public int PalRow { get; set; } = 2;
@@ -137,6 +142,39 @@ public sealed class GfxEdit
         else
             Gfx.WritePixel(g, ((py / 8) * 16 + px / 8) * Gfx.TileBytes(Bpp), Bpp, px & 7, py & 7,
                            Current == Tool.Eraser ? 0 : Color, stroke);
+        return stroke.Count != before;
+    }
+
+    /// <summary>
+    /// Paint a rectangle between two corners (inclusive, either order) with the current colour,
+    /// outline or filled per <see cref="RectFilled"/>. Every pixel goes into the SAME open
+    /// stroke, so the whole rectangle is one undo entry — which is the point of a shape tool
+    /// over dragging the pencil around four edges.
+    ///
+    /// Off-sheet corners are clamped rather than refused: a drag that leaves the sheet should
+    /// land on the border, the same rule the canvas uses for a selection drag.
+    /// </summary>
+    public bool PaintRect(int x0, int y0, int x1, int y1, out bool forked)
+    {
+        forked = false;
+        var (tiles, w, h) = Layout;
+        if (tiles == 0) return false;
+        int lx = Math.Clamp(Math.Min(x0, x1), 0, w - 1), rx = Math.Clamp(Math.Max(x0, x1), 0, w - 1);
+        int ty = Math.Clamp(Math.Min(y0, y1), 0, h - 1), by = Math.Clamp(Math.Max(y0, y1), 0, h - 1);
+        if (Gfx.EditableBytes(rom, File, out forked) is not { } g) return false;
+
+        if (stroke.Count == 0) strokeFile = File;
+        int before = stroke.Count;
+        for (int py = ty; py <= by; py++)
+            for (int px = lx; px <= rx; px++)
+            {
+                // The outline is the two full rows and the two full columns; everything else in
+                // between is skipped unless the rectangle is filled.
+                if (!RectFilled && py != ty && py != by && px != lx && px != rx) continue;
+                if ((py / 8) * 16 + px / 8 >= tiles) continue;          // past the file's last tile
+                Gfx.WritePixel(g, ((py / 8) * 16 + px / 8) * Gfx.TileBytes(Bpp), Bpp,
+                               px & 7, py & 7, Color, stroke);
+            }
         return stroke.Count != before;
     }
 

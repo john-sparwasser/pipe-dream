@@ -26,6 +26,10 @@
     <StreamGeometry x:Key="IconCircle">M22 12A10 10 0 1 1 2 12A10 10 0 1 1 22 12</StreamGeometry>
     <StreamGeometry x:Key="IconStar">M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z</StreamGeometry>
     <StreamGeometry x:Key="IconBot">M12 8V4H8 M6 8H18A2 2 0 0 1 20 10V18A2 2 0 0 1 18 20H6A2 2 0 0 1 4 18V10A2 2 0 0 1 6 8 M2 14h2 M20 14h2 M15 13v2 M9 13v2</StreamGeometry>
+    <!-- Lucide `square`. Closed with Z so the same geometry can also be FILLED — Lucide ships
+         no filled variant, but a stroked path that closes fills correctly, which is how the
+         Rect tool shows its outline/filled state with one icon. -->
+    <StreamGeometry x:Key="IconSquare">M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z</StreamGeometry>
     <StreamGeometry x:Key="IconPalette">M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z M13.5 6.5h.01 M17.5 10.5h.01 M6.5 12.5h.01 M8.5 7.5h.01</StreamGeometry>
   </Window.Resources>
 
@@ -247,8 +251,8 @@
         <Button Classes="mode" Click="OnCourseBot"
                 ToolTip.Tip="Organize entry levels by name — create, open and delete named courses">
           <StackPanel Orientation="Horizontal" Spacing="6">
-            <TextBlock Text="Course Bot" VerticalAlignment="Center"/>
             <Path Data="{StaticResource IconBot}"/>
+            <TextBlock Text="Courses" VerticalAlignment="Center"/>
           </StackPanel>
         </Button>
 
@@ -554,6 +558,23 @@
               <ToggleButton x:Name="GfxDropper" Classes="mode" MinWidth="44" Click="OnGfxTool"
                             ToolTip.Tip="Eyedropper — takes the colour under the cursor. Right-click does it with any tool">
                 <Path Data="{StaticResource IconPipette}"/>
+              </ToggleButton>
+              <!-- A combo tool: one slot on the bar, two shapes. Clicking it arms the tool AND
+                   opens the variant list, so the second click of a switch is the pick rather
+                   than a hunt for a caret. The icon carries the current variant. -->
+              <ToggleButton x:Name="GfxRect" Classes="mode" MinWidth="44" Click="OnGfxRect"
+                            ToolTip.Tip="Rectangle — drag to draw one. Click the button for outline or filled. F cycles tools">
+                <Path x:Name="GfxRectIcon" Data="{StaticResource IconSquare}"/>
+                <FlyoutBase.AttachedFlyout>
+                  <MenuFlyout Placement="BottomEdgeAlignedLeft">
+                    <MenuItem Header="Outline" Click="OnGfxRectOutline">
+                      <MenuItem.Icon><Path Data="{StaticResource IconSquare}"/></MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem Header="Filled" Click="OnGfxRectFilled">
+                      <MenuItem.Icon><Path Data="{StaticResource IconSquare}" Classes="filled"/></MenuItem.Icon>
+                    </MenuItem>
+                  </MenuFlyout>
+                </FlyoutBase.AttachedFlyout>
               </ToggleButton>
               <ToggleButton x:Name="GfxSelect" Classes="mode" MinWidth="44" Click="OnGfxTool"
                             ToolTip.Tip="Select — drag a box, then drag it to move it. Ctrl+C/X copy or cut it, Ctrl+V pastes (into other bins too). F cycles tools">

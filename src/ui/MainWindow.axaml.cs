@@ -52,7 +52,8 @@ public partial class MainWindow : Window
     private Button gfxSave = null!, gfxSaveAs = null!, gfxEmptyLoad = null!;
     private TextBlock gfxFileName = null!;
     private ToggleButton gfxPencil = null!, gfxFill = null!, gfxErase = null!, gfxDropper = null!,
-                         gfxSelect = null!;
+                         gfxSelect = null!, gfxRect = null!;
+    private Avalonia.Controls.Shapes.Path gfxRectIcon = null!;
     private DockPanel gfxToolPanel = null!, gfxScroll = null!;
     private Border gfxPaletteBar = null!;
     private StackPanel gfxBins = null!;
@@ -324,6 +325,8 @@ public partial class MainWindow : Window
         gfxErase = this.GetControl<ToggleButton>("GfxErase");
         gfxDropper = this.GetControl<ToggleButton>("GfxDropper");
         gfxSelect = this.GetControl<ToggleButton>("GfxSelect");
+        gfxRect = this.GetControl<ToggleButton>("GfxRect");
+        gfxRectIcon = this.GetControl<Avalonia.Controls.Shapes.Path>("GfxRectIcon");
         gfxToolPanel = this.GetControl<DockPanel>("GfxToolPanel");
         gfxPaletteBar = this.GetControl<Border>("GfxPaletteBar");
         gfxBins = this.GetControl<StackPanel>("GfxBins");
@@ -369,12 +372,24 @@ public partial class MainWindow : Window
             session.GfxPixels?.EndStroke();
             gfxSave.IsEnabled = session.GfxDirty;         // the stroke is what there is to save
         };
+        // A rectangle is one gesture and one undo entry: the canvas reports the shape, the
+        // editor writes every pixel into a single stroke and closes it.
+        gfxCanvas.RectDrawn += (_, r) =>
+        {
+            if (session.GfxPixels is not { } g) return;
+            if (!g.PaintRect(r.X, r.Y, r.X + r.W - 1, r.Y + r.H - 1, out bool _)) return;
+            g.EndStroke();
+            RefreshGfxSheet();
+            AdoptSession();                      // the level's tiles change with the pixels
+            gfxSave.IsEnabled = session.GfxDirty;
+        };
         gfxCanvas.ColorPicked += (_, p) => PickGfxColor(p.X, p.Y);
-        // F cycles the five tools in enum order rather than toggling two.
+        // F cycles the tools in enum order rather than toggling two. Counted off the enum so
+        // adding a tool cannot leave the last one unreachable.
         gfxCanvas.ToolToggled += (_, _) =>
         {
             if (session.GfxPixels is { } g)
-                SetGfxTool((GfxEdit.Tool)(((int)g.Current + 1) % 5));
+                SetGfxTool((GfxEdit.Tool)(((int)g.Current + 1) % Enum.GetValues<GfxEdit.Tool>().Length));
         };
         // A move drags real bytes: the grab captures the pixels, each step previews through the
         // open stroke, and release commits the whole drag as one undo entry.
@@ -1457,12 +1472,34 @@ public partial class MainWindow : Window
         gfxErase.IsChecked = tool == GfxEdit.Tool.Eraser;
         gfxDropper.IsChecked = tool == GfxEdit.Tool.Dropper;
         gfxSelect.IsChecked = tool == GfxEdit.Tool.Select;
+        gfxRect.IsChecked = tool == GfxEdit.Tool.Rect;
         // The selection itself survives a tool change — copy still needs it — but only the
-        // select tool drags it.
+        // select tool drags it. Rect owns the drag instead, so the two are never both on.
         gfxCanvas.Selecting = tool == GfxEdit.Tool.Select;
+        gfxCanvas.Ranging = tool == GfxEdit.Tool.Rect;
+        gfxRectIcon.Classes.Set("filled", session.GfxPixels?.RectFilled == true);
         // The ring follows the tool: the eraser paints index 0, so that is the swatch in use.
         if (session.GfxPixels is { } sel)
             gfxColors.Select(tool == GfxEdit.Tool.Eraser ? 0 : sel.Color);
+    }
+
+    /// <summary>The Rect button both arms the tool and offers its two shapes — one click gets
+    /// you drawing, and the same click shows the alternative rather than hiding it behind a
+    /// caret nobody finds.</summary>
+    private void OnGfxRect(object? sender, RoutedEventArgs e)
+    {
+        SetGfxTool(GfxEdit.Tool.Rect);
+        if (sender is Control c) FlyoutBase.ShowAttachedFlyout(c);
+    }
+
+    private void OnGfxRectOutline(object? sender, RoutedEventArgs e) => SetRectFilled(false);
+    private void OnGfxRectFilled(object? sender, RoutedEventArgs e) => SetRectFilled(true);
+
+    private void SetRectFilled(bool filled)
+    {
+        if (session.GfxPixels is { } g) g.RectFilled = filled;
+        gfxRectIcon.Classes.Set("filled", filled);
+        SetGfxTool(GfxEdit.Tool.Rect);
     }
 
     private void OnGfxTool(object? sender, RoutedEventArgs e)

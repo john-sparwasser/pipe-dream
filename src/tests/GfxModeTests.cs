@@ -914,6 +914,57 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(copyBefore, StockPixel(s, source)); // ...must not bleed into the source
     }
 
+    /// <summary>The Rect tool: outline touches only the border, filled touches every cell, and
+    /// either way the whole shape is ONE undo entry — which is the reason it exists rather than
+    /// dragging the pencil around four edges. Corners are accepted in any order.</summary>
+    [Fact]
+    public void rect_draws_an_outline_or_a_fill_as_a_single_undo_entry()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), Vanilla), s.Status);
+        var g = s.GfxPixels!;
+        g.Open(s.GfxBins[0].File);
+
+        // A colour that is not already everywhere in the box, so every write is observable.
+        g.Color = g.ColorAt(2, 2) == 3 ? 1 : 3;
+        int want = g.Color;
+        var before = Snapshot(g, 1, 1, 6, 6);
+        int depth = g.UndoDepth;
+
+        // Dragged bottom-right to top-left: the corners are a box, not an order.
+        g.RectFilled = false;
+        Assert.True(g.PaintRect(5, 5, 2, 2, out _));
+        g.EndStroke();
+        Assert.Equal(depth + 1, g.UndoDepth);                  // one entry for the whole shape
+
+        for (int y = 2; y <= 5; y++)
+            for (int x = 2; x <= 5; x++)
+            {
+                bool edge = x == 2 || x == 5 || y == 2 || y == 5;
+                if (edge) Assert.Equal(want, g.ColorAt(x, y));
+                else Assert.Equal(before[(y - 1) * 6 + (x - 1)], g.ColorAt(x, y));  // interior untouched
+            }
+        Assert.True(g.Undo());
+        Assert.Equal(before[(2 - 1) * 6 + (2 - 1)], g.ColorAt(2, 2));
+
+        g.RectFilled = true;
+        Assert.True(g.PaintRect(2, 2, 5, 5, out _));
+        g.EndStroke();
+        for (int y = 2; y <= 5; y++)
+            for (int x = 2; x <= 5; x++)
+                Assert.Equal(want, g.ColorAt(x, y));           // interior too, this time
+    }
+
+    /// <summary>The colour indices of a w×h box, row-major from (x,y).</summary>
+    private static int[] Snapshot(GfxEdit g, int x, int y, int w, int h)
+    {
+        var px = new int[w * h];
+        for (int j = 0; j < h; j++)
+            for (int i = 0; i < w; i++) px[j * w + i] = g.ColorAt(x + i, y + j) ?? -1;
+        return px;
+    }
+
     /// <summary>Pixel (0,0) of a file as the ROM resolves it right now.</summary>
     private static int StockPixel(EditorSession s, int file)
     {

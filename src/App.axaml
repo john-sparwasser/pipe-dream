@@ -50,5 +50,28 @@
     <Style Selector="ToggleButton.mode:checked Path">
       <Setter Property="Stroke" Value="White"/>
     </Style>
+    <!-- A stroked icon that is also filled, for tools whose variant IS "filled" (the Rect
+         tool). Lucide has no filled set; a closed path plus this class is the whole trick. -->
+    <Style Selector="ToggleButton.mode Path.filled">
+      <Setter Property="Fill" Value="{DynamicResource TextDimBrush}"/>
+    </Style>
+    <Style Selector="ToggleButton.mode:checked Path.filled">
+      <Setter Property="Fill" Value="White"/>
+    </Style>
+    <!-- Menu icons must be styled HERE, not in a window: a flyout is its own top level, so
+         window styles never reach it and an unstyled Path has neither stroke nor fill — i.e.
+         it draws nothing at all. -->
+    <Style Selector="MenuItem Path">
+      <Setter Property="Stroke" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="StrokeThickness" Value="1.5"/>
+      <Setter Property="StrokeLineCap" Value="Round"/>
+      <Setter Property="StrokeJoin" Value="Round"/>
+      <Setter Property="Width" Value="14"/>
+      <Setter Property="Height" Value="14"/>
+      <Setter Property="Stretch" Value="Uniform"/>
+    </Style>
+    <Style Selector="MenuItem Path.filled">
+      <Setter Property="Fill" Value="{DynamicResource TextBrush}"/>
+    </Style>
   </Application.Styles>
 </Application>
