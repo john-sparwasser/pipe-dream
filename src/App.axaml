@@ -58,7 +58,7 @@
     <Style Selector="ToggleButton.mode:checked Path.filled">
       <Setter Property="Fill" Value="White"/>
     </Style>
-    <!-- Menu icons must be styled HERE, not in a window: a flyout is its own top level, so
+    <!-- Popup content must be styled HERE, not in a window: a flyout is its own top level, so
          window styles never reach it and an unstyled Path has neither stroke nor fill — i.e.
          it draws nothing at all. -->
     <Style Selector="MenuItem Path">
@@ -70,8 +70,22 @@
       <Setter Property="Height" Value="14"/>
       <Setter Property="Stretch" Value="Uniform"/>
     </Style>
-    <Style Selector="MenuItem Path.filled">
-      <Setter Property="Fill" Value="{DynamicResource TextBrush}"/>
+    <!-- A flyout holding nothing but a row of icon buttons: the theme's presenter is sized for
+         menus, so strip its minimum and padding down to the buttons themselves. -->
+    <Style Selector="FlyoutPresenter.picker">
+      <Setter Property="MinWidth" Value="0"/>
+      <Setter Property="MaxWidth" Value="240"/>
+      <Setter Property="Padding" Value="4"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+    <!-- Narrower than the bar's toggles: these are two icons side by side, not labelled modes,
+         so the 16px side padding that suits the bar just pads dead space here. -->
+    <Style Selector="FlyoutPresenter.picker ToggleButton.mode">
+      <Setter Property="Padding" Value="8,5"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
     </Style>
   </Application.Styles>
 </Application>

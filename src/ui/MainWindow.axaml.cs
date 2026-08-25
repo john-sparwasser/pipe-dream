@@ -53,6 +53,8 @@ public partial class MainWindow : Window
     private TextBlock gfxFileName = null!;
     private ToggleButton gfxPencil = null!, gfxFill = null!, gfxErase = null!, gfxDropper = null!,
                          gfxSelect = null!, gfxRect = null!, gfxEllipse = null!;
+    private ToggleButton gfxRectOutlineBtn = null!, gfxRectFilledBtn = null!,
+                         gfxEllipseOutlineBtn = null!, gfxEllipseFilledBtn = null!;
     private Avalonia.Controls.Shapes.Path gfxRectIcon = null!, gfxEllipseIcon = null!;
     private DockPanel gfxToolPanel = null!, gfxScroll = null!;
     private Border gfxPaletteBar = null!;
@@ -329,6 +331,10 @@ public partial class MainWindow : Window
         gfxRectIcon = this.GetControl<Avalonia.Controls.Shapes.Path>("GfxRectIcon");
         gfxEllipse = this.GetControl<ToggleButton>("GfxEllipse");
         gfxEllipseIcon = this.GetControl<Avalonia.Controls.Shapes.Path>("GfxEllipseIcon");
+        gfxRectOutlineBtn = this.GetControl<ToggleButton>("GfxRectOutlineBtn");
+        gfxRectFilledBtn = this.GetControl<ToggleButton>("GfxRectFilledBtn");
+        gfxEllipseOutlineBtn = this.GetControl<ToggleButton>("GfxEllipseOutlineBtn");
+        gfxEllipseFilledBtn = this.GetControl<ToggleButton>("GfxEllipseFilledBtn");
         gfxToolPanel = this.GetControl<DockPanel>("GfxToolPanel");
         gfxPaletteBar = this.GetControl<Border>("GfxPaletteBar");
         gfxBins = this.GetControl<StackPanel>("GfxBins");
@@ -1480,8 +1486,15 @@ public partial class MainWindow : Window
         // select tool drags it. The shape tools own the drag instead, so never both.
         gfxCanvas.Selecting = tool == GfxEdit.Tool.Select;
         gfxCanvas.Ranging = GfxEdit.IsShape(tool);
-        gfxRectIcon.Classes.Set("filled", session.GfxPixels?.RectFilled == true);
-        gfxEllipseIcon.Classes.Set("filled", session.GfxPixels?.EllipseFilled == true);
+        // Both the bar icon and the picker show which variant is armed, so opening the dropdown
+        // tells you where you are rather than only offering a choice.
+        bool rf = session.GfxPixels?.RectFilled == true, ef = session.GfxPixels?.EllipseFilled == true;
+        gfxRectIcon.Classes.Set("filled", rf);
+        gfxEllipseIcon.Classes.Set("filled", ef);
+        gfxRectOutlineBtn.IsChecked = !rf;
+        gfxRectFilledBtn.IsChecked = rf;
+        gfxEllipseOutlineBtn.IsChecked = !ef;
+        gfxEllipseFilledBtn.IsChecked = ef;
         // The ring follows the tool: the eraser paints index 0, so that is the swatch in use.
         if (session.GfxPixels is { } sel)
             gfxColors.Select(tool == GfxEdit.Tool.Eraser ? 0 : sel.Color);
@@ -1516,7 +1529,11 @@ public partial class MainWindow : Window
             if (tool == GfxEdit.Tool.Rect) g.RectFilled = filled;
             else g.EllipseFilled = filled;
         }
-        SetGfxTool(tool);        // re-reads both flags onto the icons
+        SetGfxTool(tool);        // re-reads both flags onto the icons and the picker
+        // A plain Flyout has no notion of "an item was chosen", unlike a MenuFlyout, so the
+        // pick has to close it or it sits there over the canvas.
+        var owner = tool == GfxEdit.Tool.Rect ? gfxRect : gfxEllipse;
+        FlyoutBase.GetAttachedFlyout(owner)?.Hide();
     }
 
     private void OnGfxTool(object? sender, RoutedEventArgs e)

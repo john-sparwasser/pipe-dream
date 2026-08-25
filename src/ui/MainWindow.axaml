@@ -565,18 +565,23 @@
               <ToggleButton x:Name="GfxRect" Classes="mode" MinWidth="44" Click="OnGfxRect"
                             ToolTip.Tip="Rectangle — drag to draw one. Click the button for outline or filled. F cycles tools">
                 <Path x:Name="GfxRectIcon" Data="{StaticResource IconSquare}"/>
+                <!-- A plain Flyout of the SAME toggles the bar uses, not a MenuFlyout: a
+                     MenuItem reserves an icon column and a submenu chevron, so an icon-only
+                     item comes out wide and left-shifted. These size to the icons and show
+                     which variant is armed. -->
                 <FlyoutBase.AttachedFlyout>
-                  <MenuFlyout Placement="BottomEdgeAlignedLeft">
-                    <!-- Icon-only: an outlined square next to a filled one says which is which
-                         better than the words do. The tooltip carries the name, because an
-                         icon with no label still needs to be nameable. -->
-                    <MenuItem Click="OnGfxRectOutline" ToolTip.Tip="Outline">
-                      <MenuItem.Header><Path Data="{StaticResource IconSquare}"/></MenuItem.Header>
-                    </MenuItem>
-                    <MenuItem Click="OnGfxRectFilled" ToolTip.Tip="Filled">
-                      <MenuItem.Header><Path Data="{StaticResource IconSquare}" Classes="filled"/></MenuItem.Header>
-                    </MenuItem>
-                  </MenuFlyout>
+                  <Flyout Placement="BottomEdgeAlignedLeft" FlyoutPresenterClasses="picker">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                      <ToggleButton x:Name="GfxRectOutlineBtn" Classes="mode" MinWidth="40"
+                                    Click="OnGfxRectOutline" ToolTip.Tip="Outline">
+                        <Path Data="{StaticResource IconSquare}"/>
+                      </ToggleButton>
+                      <ToggleButton x:Name="GfxRectFilledBtn" Classes="mode" MinWidth="40"
+                                    Click="OnGfxRectFilled" ToolTip.Tip="Filled">
+                        <Path Data="{StaticResource IconSquare}" Classes="filled"/>
+                      </ToggleButton>
+                    </StackPanel>
+                  </Flyout>
                 </FlyoutBase.AttachedFlyout>
               </ToggleButton>
               <!-- Same combo shape as Rect: one slot, outline or filled, icon carries which. -->
@@ -584,14 +589,18 @@
                             ToolTip.Tip="Ellipse — drag to draw one. Click the button for outline or filled. F cycles tools">
                 <Path x:Name="GfxEllipseIcon" Data="{StaticResource IconCircle}"/>
                 <FlyoutBase.AttachedFlyout>
-                  <MenuFlyout Placement="BottomEdgeAlignedLeft">
-                    <MenuItem Click="OnGfxEllipseOutline" ToolTip.Tip="Outline">
-                      <MenuItem.Header><Path Data="{StaticResource IconCircle}"/></MenuItem.Header>
-                    </MenuItem>
-                    <MenuItem Click="OnGfxEllipseFilled" ToolTip.Tip="Filled">
-                      <MenuItem.Header><Path Data="{StaticResource IconCircle}" Classes="filled"/></MenuItem.Header>
-                    </MenuItem>
-                  </MenuFlyout>
+                  <Flyout Placement="BottomEdgeAlignedLeft" FlyoutPresenterClasses="picker">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                      <ToggleButton x:Name="GfxEllipseOutlineBtn" Classes="mode" MinWidth="40"
+                                    Click="OnGfxEllipseOutline" ToolTip.Tip="Outline">
+                        <Path Data="{StaticResource IconCircle}"/>
+                      </ToggleButton>
+                      <ToggleButton x:Name="GfxEllipseFilledBtn" Classes="mode" MinWidth="40"
+                                    Click="OnGfxEllipseFilled" ToolTip.Tip="Filled">
+                        <Path Data="{StaticResource IconCircle}" Classes="filled"/>
+                      </ToggleButton>
+                    </StackPanel>
+                  </Flyout>
                 </FlyoutBase.AttachedFlyout>
               </ToggleButton>
               <ToggleButton x:Name="GfxSelect" Classes="mode" MinWidth="44" Click="OnGfxTool"
