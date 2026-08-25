@@ -52,7 +52,7 @@ public partial class MainWindow : Window
     private Button gfxSave = null!, gfxSaveAs = null!, gfxEmptyLoad = null!;
     private TextBlock gfxFileName = null!;
     private ToggleButton gfxPencil = null!, gfxFill = null!, gfxErase = null!, gfxDropper = null!,
-                         gfxSelect = null!, gfxRect = null!, gfxEllipse = null!;
+                         gfxSelect = null!, gfxRect = null!, gfxEllipse = null!, gfxLine = null!;
     private ToggleButton gfxRectOutlineBtn = null!, gfxRectFilledBtn = null!,
                          gfxEllipseOutlineBtn = null!, gfxEllipseFilledBtn = null!;
     private Avalonia.Controls.Shapes.Path gfxRectIcon = null!, gfxEllipseIcon = null!;
@@ -330,6 +330,7 @@ public partial class MainWindow : Window
         gfxRect = this.GetControl<ToggleButton>("GfxRect");
         gfxRectIcon = this.GetControl<Avalonia.Controls.Shapes.Path>("GfxRectIcon");
         gfxEllipse = this.GetControl<ToggleButton>("GfxEllipse");
+        gfxLine = this.GetControl<ToggleButton>("GfxLine");
         gfxEllipseIcon = this.GetControl<Avalonia.Controls.Shapes.Path>("GfxEllipseIcon");
         gfxRectOutlineBtn = this.GetControl<ToggleButton>("GfxRectOutlineBtn");
         gfxRectFilledBtn = this.GetControl<ToggleButton>("GfxRectFilledBtn");
@@ -385,7 +386,7 @@ public partial class MainWindow : Window
         gfxCanvas.ShapeDragged += (_, r) =>
         {
             if (session.GfxPixels is not { } g) return;
-            if (!g.PaintShape(r.X, r.Y, r.X + r.W - 1, r.Y + r.H - 1, out bool _)) return;
+            if (!g.PaintShape(r.X0, r.Y0, r.X1, r.Y1, out bool _)) return;
             g.EndStroke();
             RefreshGfxSheet();
             AdoptSession();                      // the level's tiles change with the pixels
@@ -393,8 +394,8 @@ public partial class MainWindow : Window
         };
         // The live preview asks the SAME routine the drag will paint with, so what is on the
         // glass while dragging is exactly what lands on release.
-        gfxCanvas.ShapeInk = box => session.GfxPixels is not { } g ? null
-            : (g.ShapePixels(box.X, box.Y, box.X + box.W - 1, box.Y + box.H - 1),
+        gfxCanvas.ShapeInk = d => session.GfxPixels is not { } g ? null
+            : (g.ShapePixels(d.X0, d.Y0, d.X1, d.Y1),
                session.PaletteRgba[g.PalRow * 16 + g.Color]);
         gfxCanvas.ColorPicked += (_, p) => PickGfxColor(p.X, p.Y);
         // F cycles the tools in enum order rather than toggling two. Counted off the enum so
@@ -1487,6 +1488,7 @@ public partial class MainWindow : Window
         gfxSelect.IsChecked = tool == GfxEdit.Tool.Select;
         gfxRect.IsChecked = tool == GfxEdit.Tool.Rect;
         gfxEllipse.IsChecked = tool == GfxEdit.Tool.Ellipse;
+        gfxLine.IsChecked = tool == GfxEdit.Tool.Line;
         // The selection itself survives a tool change — copy still needs it — but only the
         // select tool drags it. The shape tools own the drag instead, so never both.
         gfxCanvas.Selecting = tool == GfxEdit.Tool.Select;
@@ -1546,6 +1548,7 @@ public partial class MainWindow : Window
                     : ReferenceEquals(sender, gfxErase) ? GfxEdit.Tool.Eraser
                     : ReferenceEquals(sender, gfxDropper) ? GfxEdit.Tool.Dropper
                     : ReferenceEquals(sender, gfxSelect) ? GfxEdit.Tool.Select
+                    : ReferenceEquals(sender, gfxLine) ? GfxEdit.Tool.Line
                     : GfxEdit.Tool.Pencil);
 
     /// <summary>Step the paint palette row within what the selected bin is allowed. The combo box

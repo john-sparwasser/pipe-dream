@@ -23,7 +23,7 @@ public sealed class GfxEdit
     /// <summary>Eraser is the pencil writing colour 0 — in this format that IS transparent, so
     /// "erase" needs no separate concept. Dropper writes nothing at all; it reads. Select paints
     /// nothing either: it marks a rectangle for copy/cut/paste and moving.</summary>
-    public enum Tool { Pencil, Fill, Eraser, Dropper, Select, Rect, Ellipse }
+    public enum Tool { Pencil, Fill, Eraser, Dropper, Select, Rect, Ellipse, Line }
 
     /// <summary>Whether <see cref="Tool.Rect"/> fills its rectangle or draws the outline only.
     /// A variant of ONE tool rather than two tools: it is one button on the bar with a
@@ -35,8 +35,8 @@ public sealed class GfxEdit
     /// would make picking a filled circle silently change what the square tool does.</summary>
     public bool EllipseFilled { get; set; }
 
-    /// <summary>True while a tool draws by dragging a bounding box rather than per pixel.</summary>
-    public static bool IsShape(Tool t) => t is Tool.Rect or Tool.Ellipse;
+    /// <summary>True while a tool draws by dragging out a shape rather than per pixel.</summary>
+    public static bool IsShape(Tool t) => t is Tool.Rect or Tool.Ellipse or Tool.Line;
 
     public int File { get; private set; } = 0x14;
     public int PalRow { get; set; } = 2;
@@ -223,6 +223,32 @@ public sealed class GfxEdit
     public bool PaintShape(int x0, int y0, int x1, int y1, out bool forked)
         => PaintPixels(ShapePixels(x0, y0, x1, y1), out forked);
 
+    /// <summary>
+    /// A straight line between the two ends, one pixel thick. Note this is the only shape that
+    /// reads its arguments as ENDS rather than as a box: \ and / have the same bounding box, so
+    /// normalizing the corners here would lose which way the drag went.
+    /// </summary>
+    public bool PaintLine(int x0, int y0, int x1, int y1, out bool forked)
+        => PaintPixels(LinePixels(x0, y0, x1, y1), out forked);
+
+    private IEnumerable<(int X, int Y)> LinePixels(int x0, int y0, int x1, int y1)
+    {
+        var (tiles, w, h) = Layout;
+        if (tiles == 0) yield break;
+        x0 = Math.Clamp(x0, 0, w - 1); x1 = Math.Clamp(x1, 0, w - 1);
+        y0 = Math.Clamp(y0, 0, h - 1); y1 = Math.Clamp(y1, 0, h - 1);
+        // One step per pixel of the LONGER axis, so the line is connected whatever its slope;
+        // rounding rather than truncating keeps it symmetric end to end.
+        int steps = Math.Max(Math.Abs(x1 - x0), Math.Abs(y1 - y0));
+        for (int i = 0; i <= steps; i++)
+        {
+            int x = steps == 0 ? x0 : x0 + (int)Math.Round((double)(x1 - x0) * i / steps);
+            int y = steps == 0 ? y0 : y0 + (int)Math.Round((double)(y1 - y0) * i / steps);
+            if ((y / 8) * 16 + x / 8 >= tiles) continue;
+            yield return (x, y);
+        }
+    }
+
     /// <summary>The sheet pixels the current shape tool WOULD paint between two corners. The one
     /// definition of the geometry — painting writes exactly these, so a live preview drawn from
     /// them cannot disagree with what lands.</summary>
@@ -231,6 +257,7 @@ public sealed class GfxEdit
         {
             Tool.Rect => RectPixels(x0, y0, x1, y1),
             Tool.Ellipse => EllipsePixels(x0, y0, x1, y1),
+            Tool.Line => LinePixels(x0, y0, x1, y1),
             _ => [],
         };
 

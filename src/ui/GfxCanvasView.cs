@@ -151,19 +151,21 @@ public class GfxCanvasView : Control
 
     private (int X, int Y)? shapeAnchor;
 
-    /// <summary>The bounding box being dragged right now, for the preview. Null between drags.</summary>
-    public (int X, int Y, int W, int H)? ShapePreview { get; private set; }
+    /// <summary>The drag being made right now, as WHERE IT STARTED and where it is — not a
+    /// normalized box. A line needs its direction (\ and / share one box) and a shape that does
+    /// not care can normalize for itself. Null between drags.</summary>
+    public (int X0, int Y0, int X1, int Y1)? ShapePreview { get; private set; }
 
-    /// <summary>A finished shape drag, as a bounding box in sheet pixels. The canvas neither
-    /// draws the shape nor knows WHICH shape it is — it reports the box and the editor writes
+    /// <summary>A finished shape drag, as its two corners in sheet pixels. The canvas neither
+    /// draws the shape nor knows WHICH shape it is — it reports the drag and the editor writes
     /// the bytes, the same split as PixelPainted.</summary>
-    public event EventHandler<(int X, int Y, int W, int H)>? ShapeDragged;
+    public event EventHandler<(int X0, int Y0, int X1, int Y1)>? ShapeDragged;
 
-    /// <summary>What the box being dragged would actually paint: its pixels and their colour
-    /// (0xAABBGGRR). Asked at every frame rather than pushed, so the preview follows the tool,
-    /// the palette row and the colour without anyone remembering to refresh it. Null — no
-    /// supplier, or nothing to draw — falls back to a marquee of the bounding box.</summary>
-    public Func<(int X, int Y, int W, int H), (IEnumerable<(int X, int Y)> Px, uint Rgba)?>? ShapeInk;
+    /// <summary>What the drag would actually paint: its pixels and their colour (0xAABBGGRR).
+    /// Asked at every frame rather than pushed, so the preview follows the tool, the palette row
+    /// and the colour without anyone remembering to refresh it. Null — no supplier, or nothing
+    /// to draw — falls back to a marquee of the bounding box.</summary>
+    public Func<(int X0, int Y0, int X1, int Y1), (IEnumerable<(int X, int Y)> Px, uint Rgba)?>? ShapeInk;
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
@@ -203,7 +205,7 @@ public class GfxCanvasView : Control
         if (Ranging)
         {
             shapeAnchor = px;
-            ShapePreview = (px.X, px.Y, 1, 1);
+            ShapePreview = (px.X, px.Y, px.X, px.Y);
             e.Pointer.Capture(this);
             InvalidateVisual();
             return;
@@ -253,12 +255,11 @@ public class GfxCanvasView : Control
             }
             return;
         }
-        // The rectangle drag clamps to the sheet like a selection drag, so a fast drag past an
+        // The shape drag clamps to the sheet like a selection drag, so a fast drag past an
         // edge lands ON the edge rather than stopping short.
         if (shapeAnchor is { } ra && ClampedPixelAt(e.GetPosition(this)) is { } rp)
         {
-            ShapePreview = (Math.Min(ra.X, rp.X), Math.Min(ra.Y, rp.Y),
-                           Math.Abs(rp.X - ra.X) + 1, Math.Abs(rp.Y - ra.Y) + 1);
+            ShapePreview = (ra.X, ra.Y, rp.X, rp.Y);
             InvalidateVisual();
             return;
         }
@@ -368,7 +369,8 @@ public class GfxCanvasView : Control
                 foreach (var (x, y) in ink.Px)
                     ctx.FillRectangle(brush, new Rect(x * z, y * z, z, z));
             }
-            else Marquee(ctx, rp2, z);
+            else Marquee(ctx, (Math.Min(rp2.X0, rp2.X1), Math.Min(rp2.Y0, rp2.Y1),
+                               Math.Abs(rp2.X1 - rp2.X0) + 1, Math.Abs(rp2.Y1 - rp2.Y0) + 1), z);
         }
 
         // The floating paste rides above the sheet, marquee'd like a selection.

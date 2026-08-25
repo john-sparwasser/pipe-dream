@@ -1010,6 +1010,54 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(want, g.ColorAt(20, 20));
     }
 
+    /// <summary>A line is the one shape whose two ends are not a box: \ and / have the same
+    /// bounding box, so a drag reported as a box could only ever draw one of them.</summary>
+    [Fact]
+    public void line_runs_between_its_two_ends_whichever_way_it_was_dragged()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), Vanilla), s.Status);
+        var g = s.GfxPixels!;
+        g.Open(s.GfxBins[0].File);
+        g.Current = GfxEdit.Tool.Line;
+
+        var before = Snapshot(g, 2, 2, 8, 8);
+        g.Color = Enumerable.Range(1, g.MaxColor).First(c => !before.Contains(c));
+        int want = g.Color;
+        int depth = g.UndoDepth;
+
+        // Down-right: the leading diagonal, so the anti-diagonal's corners stay untouched.
+        Assert.True(g.PaintLine(2, 2, 9, 9, out _));
+        g.EndStroke();
+        Assert.Equal(depth + 1, g.UndoDepth);              // one entry for the whole line
+        for (int i = 0; i < 8; i++) Assert.Equal(want, g.ColorAt(2 + i, 2 + i));
+        Assert.Equal(before[7], g.ColorAt(9, 2));          // the other diagonal is not drawn
+        Assert.True(g.Undo());
+
+        // Up-right: same bounding box, the other diagonal — and dragged end-first at that.
+        Assert.True(g.PaintLine(2, 9, 9, 2, out _));
+        g.EndStroke();
+        for (int i = 0; i < 8; i++) Assert.Equal(want, g.ColorAt(2 + i, 9 - i));
+        Assert.Equal(before[0], g.ColorAt(2, 2));
+        Assert.True(g.Undo());
+
+        // Connected at a shallow slope: every pixel touches the next one.
+        Assert.True(g.PaintLine(0, 0, 30, 6, out _));
+        g.EndStroke();
+        var px = g.ShapePixels(0, 0, 30, 6).ToList();
+        for (int i = 1; i < px.Count; i++)
+            Assert.True(Math.Abs(px[i].X - px[i - 1].X) <= 1 && Math.Abs(px[i].Y - px[i - 1].Y) <= 1,
+                        $"the line jumps from {px[i - 1]} to {px[i]}");
+        Assert.Equal((0, 0), px[0]);
+        Assert.Equal((30, 6), px[^1]);                     // both ends are ON the line
+
+        // A click that never moves is a dot, not nothing.
+        Assert.True(g.PaintLine(20, 20, 20, 20, out _));
+        g.EndStroke();
+        Assert.Equal(want, g.ColorAt(20, 20));
+    }
+
     /// <summary>The whole point of the live preview: it is drawn from ShapePixels, so if that
     /// ever drifts from what the paint writes, the preview starts lying about where the drag
     /// will land.</summary>
@@ -1024,7 +1072,8 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
 
         foreach (var (tool, filled) in new[]
                  { (GfxEdit.Tool.Rect, false), (GfxEdit.Tool.Rect, true),
-                   (GfxEdit.Tool.Ellipse, false), (GfxEdit.Tool.Ellipse, true) })
+                   (GfxEdit.Tool.Ellipse, false), (GfxEdit.Tool.Ellipse, true),
+                   (GfxEdit.Tool.Line, false) })
         {
             g.Current = tool;
             g.RectFilled = g.EllipseFilled = filled;
@@ -1034,7 +1083,9 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
             Assert.True(free > 0, "the box uses every colour — pick another box");
             g.Color = free;
 
-            var preview = g.ShapePixels(9, 9, 2, 2).ToHashSet();
+            // The same drag the paint gets: a line's ends are not interchangeable, so the
+            // preview has to be asked exactly what the release will be asked.
+            var preview = g.ShapePixels(2, 2, 9, 9).ToHashSet();
             Assert.True(g.PaintShape(2, 2, 9, 9, out _), $"{tool} filled={filled} painted nothing");
             g.EndStroke();
 

@@ -30,6 +30,7 @@
          no filled variant, but a stroked path that closes fills correctly, which is how the
          Rect tool shows its outline/filled state with one icon. -->
     <StreamGeometry x:Key="IconSquare">M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z</StreamGeometry>
+    <StreamGeometry x:Key="IconLine">M4 20 19 5</StreamGeometry>
     <StreamGeometry x:Key="IconPalette">M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z M13.5 6.5h.01 M17.5 10.5h.01 M6.5 12.5h.01 M8.5 7.5h.01</StreamGeometry>
   </Window.Resources>
 
@@ -602,6 +603,11 @@
                     </StackPanel>
                   </Flyout>
                 </FlyoutBase.AttachedFlyout>
+              </ToggleButton>
+              <!-- No variants: a line is a line. Plain OnGfxTool, like the pencil. -->
+              <ToggleButton x:Name="GfxLine" Classes="mode" MinWidth="44" Click="OnGfxTool"
+                            ToolTip.Tip="Line — drag from one end to the other. F cycles tools">
+                <Path Data="{StaticResource IconLine}"/>
               </ToggleButton>
               <ToggleButton x:Name="GfxSelect" Classes="mode" MinWidth="44" Click="OnGfxTool"
                             ToolTip.Tip="Select — drag a box, then drag it to move it. Ctrl+C/X copy or cut it, Ctrl+V pastes (into other bins too). F cycles tools">
