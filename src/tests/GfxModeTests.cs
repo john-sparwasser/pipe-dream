@@ -1010,6 +1010,44 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(want, g.ColorAt(20, 20));
     }
 
+    /// <summary>The whole point of the live preview: it is drawn from ShapePixels, so if that
+    /// ever drifts from what the paint writes, the preview starts lying about where the drag
+    /// will land.</summary>
+    [Fact]
+    public void the_shape_preview_lists_exactly_the_pixels_the_paint_writes()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), Vanilla), s.Status);
+        var g = s.GfxPixels!;
+        g.Open(s.GfxBins[0].File);
+
+        foreach (var (tool, filled) in new[]
+                 { (GfxEdit.Tool.Rect, false), (GfxEdit.Tool.Rect, true),
+                   (GfxEdit.Tool.Ellipse, false), (GfxEdit.Tool.Ellipse, true) })
+        {
+            g.Current = tool;
+            g.RectFilled = g.EllipseFilled = filled;
+            // A colour nothing in the box already is, so every write shows up as a change.
+            var before = Snapshot(g, 2, 2, 8, 8);
+            int free = Enumerable.Range(1, g.MaxColor).FirstOrDefault(c => !before.Contains(c));
+            Assert.True(free > 0, "the box uses every colour — pick another box");
+            g.Color = free;
+
+            var preview = g.ShapePixels(9, 9, 2, 2).ToHashSet();
+            Assert.True(g.PaintShape(2, 2, 9, 9, out _), $"{tool} filled={filled} painted nothing");
+            g.EndStroke();
+
+            var changed = new HashSet<(int, int)>();
+            for (int y = 2; y <= 9; y++)
+                for (int x = 2; x <= 9; x++)
+                    if (g.ColorAt(x, y) != before[(y - 2) * 8 + (x - 2)]) changed.Add((x, y));
+
+            Assert.Equal(preview.OrderBy(p => p).ToArray(), changed.OrderBy(p => p).ToArray());
+            Assert.True(g.Undo());
+        }
+    }
+
     /// <summary>The colour indices of a w×h box, row-major from (x,y).</summary>
     private static int[] Snapshot(GfxEdit g, int x, int y, int w, int h)
     {

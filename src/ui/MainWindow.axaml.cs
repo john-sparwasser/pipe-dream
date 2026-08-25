@@ -391,6 +391,11 @@ public partial class MainWindow : Window
             AdoptSession();                      // the level's tiles change with the pixels
             gfxSave.IsEnabled = session.GfxDirty;
         };
+        // The live preview asks the SAME routine the drag will paint with, so what is on the
+        // glass while dragging is exactly what lands on release.
+        gfxCanvas.ShapeInk = box => session.GfxPixels is not { } g ? null
+            : (g.ShapePixels(box.X, box.Y, box.X + box.W - 1, box.Y + box.H - 1),
+               session.PaletteRgba[g.PalRow * 16 + g.Color]);
         gfxCanvas.ColorPicked += (_, p) => PickGfxColor(p.X, p.Y);
         // F cycles the tools in enum order rather than toggling two. Counted off the enum so
         // adding a tool cannot leave the last one unreachable.

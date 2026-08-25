@@ -163,16 +163,11 @@ public sealed class GfxEdit
     /// land on the border, the same rule the canvas uses for a selection drag.
     /// </summary>
     public bool PaintRect(int x0, int y0, int x1, int y1, out bool forked)
-    {
-        forked = false;
-        var (tiles, w, h) = Layout;
-        if (tiles == 0) return false;
-        int lx = Math.Clamp(Math.Min(x0, x1), 0, w - 1), rx = Math.Clamp(Math.Max(x0, x1), 0, w - 1);
-        int ty = Math.Clamp(Math.Min(y0, y1), 0, h - 1), by = Math.Clamp(Math.Max(y0, y1), 0, h - 1);
-        if (Gfx.EditableBytes(rom, File, out forked) is not { } g) return false;
+        => PaintPixels(RectPixels(x0, y0, x1, y1), out forked);
 
-        if (stroke.Count == 0) strokeFile = File;
-        int before = stroke.Count;
+    private IEnumerable<(int X, int Y)> RectPixels(int x0, int y0, int x1, int y1)
+    {
+        var (tiles, lx, ty, rx, by) = Box(x0, y0, x1, y1);
         for (int py = ty; py <= by; py++)
             for (int px = lx; px <= rx; px++)
             {
@@ -180,10 +175,8 @@ public sealed class GfxEdit
                 // between is skipped unless the rectangle is filled.
                 if (!RectFilled && py != ty && py != by && px != lx && px != rx) continue;
                 if ((py / 8) * 16 + px / 8 >= tiles) continue;          // past the file's last tile
-                Gfx.WritePixel(g, ((py / 8) * 16 + px / 8) * Gfx.TileBytes(Bpp), Bpp,
-                               px & 7, py & 7, Color, stroke);
+                yield return (px, py);
             }
-        return stroke.Count != before;
     }
 
     /// <summary>
@@ -197,14 +190,11 @@ public sealed class GfxEdit
     /// and a 1x1 box is a dot, which is what dragging a tiny circle should give you.
     /// </summary>
     public bool PaintEllipse(int x0, int y0, int x1, int y1, out bool forked)
-    {
-        forked = false;
-        var (tiles, w, h) = Layout;
-        if (tiles == 0) return false;
-        int lx = Math.Clamp(Math.Min(x0, x1), 0, w - 1), rx = Math.Clamp(Math.Max(x0, x1), 0, w - 1);
-        int ty = Math.Clamp(Math.Min(y0, y1), 0, h - 1), by = Math.Clamp(Math.Max(y0, y1), 0, h - 1);
-        if (Gfx.EditableBytes(rom, File, out forked) is not { } g) return false;
+        => PaintPixels(EllipsePixels(x0, y0, x1, y1), out forked);
 
+    private IEnumerable<(int X, int Y)> EllipsePixels(int x0, int y0, int x1, int y1)
+    {
+        var (tiles, lx, ty, rx, by) = Box(x0, y0, x1, y1);
         // Semi-axes and centre in pixel-centre coordinates: a pixel is at x + 0.5.
         double ra = (rx - lx + 1) / 2.0, rb = (by - ty + 1) / 2.0;
         double cx = lx + ra, cy = ty + rb;
@@ -215,8 +205,6 @@ public sealed class GfxEdit
             return dx * dx + dy * dy <= 1.0;
         }
 
-        if (stroke.Count == 0) strokeFile = File;
-        int before = stroke.Count;
         for (int py = ty; py <= by; py++)
             for (int px = lx; px <= rx; px++)
             {
@@ -226,23 +214,53 @@ public sealed class GfxEdit
                 if (!EllipseFilled && In(px - 1, py) && In(px + 1, py) && In(px, py - 1) && In(px, py + 1))
                     continue;
                 if ((py / 8) * 16 + px / 8 >= tiles) continue;
-                Gfx.WritePixel(g, ((py / 8) * 16 + px / 8) * Gfx.TileBytes(Bpp), Bpp,
-                               px & 7, py & 7, Color, stroke);
+                yield return (px, py);
             }
-        return stroke.Count != before;
     }
 
     /// <summary>Draw whichever shape the current tool is, into one stroke. The canvas reports a
     /// bounding box and does not care which shape it becomes; this is where that is decided.</summary>
     public bool PaintShape(int x0, int y0, int x1, int y1, out bool forked)
+        => PaintPixels(ShapePixels(x0, y0, x1, y1), out forked);
+
+    /// <summary>The sheet pixels the current shape tool WOULD paint between two corners. The one
+    /// definition of the geometry — painting writes exactly these, so a live preview drawn from
+    /// them cannot disagree with what lands.</summary>
+    public IEnumerable<(int X, int Y)> ShapePixels(int x0, int y0, int x1, int y1)
+        => Current switch
+        {
+            Tool.Rect => RectPixels(x0, y0, x1, y1),
+            Tool.Ellipse => EllipsePixels(x0, y0, x1, y1),
+            _ => [],
+        };
+
+    /// <summary>The drag box clamped to the sheet. Off-sheet corners clamp rather than being
+    /// refused: a drag that leaves the sheet should land on the border, the same rule the canvas
+    /// uses for a selection drag.</summary>
+    private (int Tiles, int L, int T, int R, int B) Box(int x0, int y0, int x1, int y1)
+    {
+        var (tiles, w, h) = Layout;
+        if (tiles == 0) return (0, 0, 0, -1, -1);            // empty box: every loop below skips
+        return (tiles,
+                Math.Clamp(Math.Min(x0, x1), 0, w - 1), Math.Clamp(Math.Min(y0, y1), 0, h - 1),
+                Math.Clamp(Math.Max(x0, x1), 0, w - 1), Math.Clamp(Math.Max(y0, y1), 0, h - 1));
+    }
+
+    /// <summary>Write a shape's pixels in the current colour, all into the SAME open stroke, so
+    /// the whole shape is one undo entry — which is the point of a shape tool over dragging the
+    /// pencil around four edges.</summary>
+    private bool PaintPixels(IEnumerable<(int X, int Y)> px, out bool forked)
     {
         forked = false;
-        return Current switch
-        {
-            Tool.Rect => PaintRect(x0, y0, x1, y1, out forked),
-            Tool.Ellipse => PaintEllipse(x0, y0, x1, y1, out forked),
-            _ => false,
-        };
+        if (Layout.Tiles == 0) return false;
+        if (Gfx.EditableBytes(rom, File, out forked) is not { } g) return false;
+
+        if (stroke.Count == 0) strokeFile = File;
+        int before = stroke.Count;
+        foreach (var (x, y) in px)
+            Gfx.WritePixel(g, ((y / 8) * 16 + x / 8) * Gfx.TileBytes(Bpp), Bpp,
+                           x & 7, y & 7, Color, stroke);
+        return stroke.Count != before;
     }
 
     // ---- selection: copy / cut / paste / move ----

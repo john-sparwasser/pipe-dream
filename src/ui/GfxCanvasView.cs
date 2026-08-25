@@ -159,6 +159,12 @@ public class GfxCanvasView : Control
     /// the bytes, the same split as PixelPainted.</summary>
     public event EventHandler<(int X, int Y, int W, int H)>? ShapeDragged;
 
+    /// <summary>What the box being dragged would actually paint: its pixels and their colour
+    /// (0xAABBGGRR). Asked at every frame rather than pushed, so the preview follows the tool,
+    /// the palette row and the colour without anyone remembering to refresh it. Null — no
+    /// supplier, or nothing to draw — falls back to a marquee of the bounding box.</summary>
+    public Func<(int X, int Y, int W, int H), (IEnumerable<(int X, int Y)> Px, uint Rgba)?>? ShapeInk;
+
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
@@ -351,10 +357,19 @@ public class GfxCanvasView : Control
         // Marching-ants marquee: solid dark under dashed white stays visible on any pixels.
         if (Selection is { } sel) Marquee(ctx, sel, z);
 
-        // The shape being dragged, in the same marquee. Its BOUNDING BOX, not its outline: the
-        // pixels are not written until the drag ends, and a box reads as "about to happen"
-        // where a preview of the shape itself would read as already drawn.
-        if (ShapePreview is { } rp2) Marquee(ctx, rp2, z);
+        // The shape being dragged, drawn as the pixels it would land, in the colour it would
+        // land them: sizing a circle by its bounding box means guessing at the rasterization.
+        // Nothing is written to the file until the drag ends — this is paint on the glass.
+        if (ShapePreview is { } rp2)
+        {
+            if (ShapeInk?.Invoke(rp2) is { } ink)
+            {
+                var brush = new SolidColorBrush(UiColors.FromRgba(ink.Rgba));
+                foreach (var (x, y) in ink.Px)
+                    ctx.FillRectangle(brush, new Rect(x * z, y * z, z, z));
+            }
+            else Marquee(ctx, rp2, z);
+        }
 
         // The floating paste rides above the sheet, marquee'd like a selection.
         if (Float is { } fl && floatBmp is not null)

@@ -106,7 +106,7 @@ public class PaletteGridView : Control
             var r = new Rect(i % Cols * c, i / Cols * c, c, c);
             uint v = i < Colors.Length ? Colors[i] : 0xFF000000u;
             // Colours arrive as 0xAABBGGRR from the composer; Avalonia wants them named.
-            var swatch = Color.FromRgb((byte)(v & 0xFF), (byte)((v >> 8) & 0xFF), (byte)((v >> 16) & 0xFF));
+            var swatch = UiColors.FromRgba(v);
             ctx.FillRectangle(new SolidColorBrush(swatch), r);
             bool off = IsDisabled?.Invoke(i) == true;
             if (off) ctx.FillRectangle(veil, r);

@@ -12,6 +12,12 @@ namespace PipeDream.Ui;
 /// </summary>
 internal static class UiColors
 {
+    /// <summary>A composed pixel (0xAABBGGRR, little-endian RGBA) as a named Avalonia colour.
+    /// Opaque: every path that hands us one is drawing a palette entry, where alpha means
+    /// "index 0" rather than a blend.</summary>
+    public static Color FromRgba(uint v)
+        => Color.FromRgb((byte)(v & 0xFF), (byte)((v >> 8) & 0xFF), (byte)((v >> 16) & 0xFF));
+
     /// <summary>"What is active" — matches AccentColor in Theme.axaml.</summary>
     public static readonly IBrush Accent = new SolidColorBrush(Color.Parse("#2E7FD4"));
 
