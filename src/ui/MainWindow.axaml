@@ -544,6 +544,12 @@
                 </StackPanel>
               </Button>
               <Rectangle Classes="sep"/>
+              <!-- The pointer leads the bar: it is the tool that touches nothing, so it is the
+                   safe place to leave the mouse between edits. -->
+              <ToggleButton x:Name="GfxSelect" Classes="mode" MinWidth="44" Click="OnGfxTool"
+                            ToolTip.Tip="Select — drag a box, then drag it to move it. Ctrl+C/X copy or cut it, Ctrl+V pastes (into other bins too). F cycles tools">
+                <Path Data="{StaticResource IconMousePointer2}"/>
+              </ToggleButton>
               <ToggleButton x:Name="GfxErase" Classes="mode" MinWidth="44" Click="OnGfxTool"
                             ToolTip.Tip="Eraser — clears a pixel to transparent. F cycles tools">
                 <Path Data="{StaticResource IconEraser}"/>
@@ -608,10 +614,6 @@
               <ToggleButton x:Name="GfxLine" Classes="mode" MinWidth="44" Click="OnGfxTool"
                             ToolTip.Tip="Line — drag from one end to the other. F cycles tools">
                 <Path Data="{StaticResource IconLine}"/>
-              </ToggleButton>
-              <ToggleButton x:Name="GfxSelect" Classes="mode" MinWidth="44" Click="OnGfxTool"
-                            ToolTip.Tip="Select — drag a box, then drag it to move it. Ctrl+C/X copy or cut it, Ctrl+V pastes (into other bins too). F cycles tools">
-                <Path Data="{StaticResource IconMousePointer2}"/>
               </ToggleButton>
             </StackPanel>
           </Border>
