@@ -201,8 +201,13 @@ level loader decode at `$058601`, RATS validation (`(word4 XOR word6) == 0xFFFF`
 random ROM data really does contain the bytes `53 54 41 52`), LoROM mapping, copier-header
 detection by `size mod 0x8000 == 0x200`.
 
-Other docs in [`reference/`](reference/): `ROM_TOOLING.md`, `PORTABILITY.md`, `AVALONIA.md`,
-`SPRITE_DISPLAY.md`, `MESEN.md`, `REFACTORING.md`.
+**Round-trip compatibility with Lunar Magic is a requirement**, not a nice-to-have: a ROM must
+survive being edited in either tool and reopened in the other. `CONTRACT.md` §0 states it,
+tracks where it currently fails, and lists the known divergences; `LUNAR_MAGIC.md` is how to
+check it, by driving the real Lunar Magic binary over a prepped ROM.
+
+Other docs in [`reference/`](reference/): `ROM_TOOLING.md`, `LUNAR_MAGIC.md`, `PORTABILITY.md`,
+`AVALONIA.md`, `SPRITE_DISPLAY.md`, `MESEN.md`, `REFACTORING.md`.
 
 Bulk third-party material is deliberately not committed — the split SMW disassembly and the
 decompiled Lunar Magic help are regenerable locally and not redistributed. `*.smc`/`*.sfc` are
