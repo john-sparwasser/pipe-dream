@@ -145,18 +145,19 @@ public class GfxCanvasView : Control
     private bool painting;
     private (int X, int Y)? lastPainted;
 
-    /// <summary>Drag out a rectangle instead of painting pixel by pixel (the Rect tool). Set
-    /// alongside <see cref="Selecting"/> by whoever owns the tool; the two are never both on.</summary>
+    /// <summary>Drag out a SHAPE instead of painting pixel by pixel (the Rect and Ellipse
+    /// tools). Set alongside <see cref="Selecting"/> by whoever owns the tool; never both.</summary>
     public bool Ranging { get; set; }
 
-    private (int X, int Y)? rectAnchor;
+    private (int X, int Y)? shapeAnchor;
 
-    /// <summary>The rectangle being dragged right now, for the preview. Null between drags.</summary>
-    public (int X, int Y, int W, int H)? RectPreview { get; private set; }
+    /// <summary>The bounding box being dragged right now, for the preview. Null between drags.</summary>
+    public (int X, int Y, int W, int H)? ShapePreview { get; private set; }
 
-    /// <summary>A finished rectangle drag, in sheet pixels. The canvas draws nothing itself —
-    /// it reports the shape and the editor writes the bytes, same split as PixelPainted.</summary>
-    public event EventHandler<(int X, int Y, int W, int H)>? RectDrawn;
+    /// <summary>A finished shape drag, as a bounding box in sheet pixels. The canvas neither
+    /// draws the shape nor knows WHICH shape it is — it reports the box and the editor writes
+    /// the bytes, the same split as PixelPainted.</summary>
+    public event EventHandler<(int X, int Y, int W, int H)>? ShapeDragged;
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
@@ -195,8 +196,8 @@ public class GfxCanvasView : Control
 
         if (Ranging)
         {
-            rectAnchor = px;
-            RectPreview = (px.X, px.Y, 1, 1);
+            shapeAnchor = px;
+            ShapePreview = (px.X, px.Y, 1, 1);
             e.Pointer.Capture(this);
             InvalidateVisual();
             return;
@@ -248,9 +249,9 @@ public class GfxCanvasView : Control
         }
         // The rectangle drag clamps to the sheet like a selection drag, so a fast drag past an
         // edge lands ON the edge rather than stopping short.
-        if (rectAnchor is { } ra && ClampedPixelAt(e.GetPosition(this)) is { } rp)
+        if (shapeAnchor is { } ra && ClampedPixelAt(e.GetPosition(this)) is { } rp)
         {
-            RectPreview = (Math.Min(ra.X, rp.X), Math.Min(ra.Y, rp.Y),
+            ShapePreview = (Math.Min(ra.X, rp.X), Math.Min(ra.Y, rp.Y),
                            Math.Abs(rp.X - ra.X) + 1, Math.Abs(rp.Y - ra.Y) + 1);
             InvalidateVisual();
             return;
@@ -284,14 +285,14 @@ public class GfxCanvasView : Control
             if (moved) SelectionMoveEnded?.Invoke(this, EventArgs.Empty);
             return;
         }
-        if (rectAnchor is not null)
+        if (shapeAnchor is not null)
         {
-            var done = RectPreview;
-            rectAnchor = null;
-            RectPreview = null;
+            var done = ShapePreview;
+            shapeAnchor = null;
+            ShapePreview = null;
             e.Pointer.Capture(null);
             InvalidateVisual();
-            if (done is { } r) RectDrawn?.Invoke(this, r);
+            if (done is { } r) ShapeDragged?.Invoke(this, r);
             return;
         }
         if (!painting) return;
@@ -350,9 +351,10 @@ public class GfxCanvasView : Control
         // Marching-ants marquee: solid dark under dashed white stays visible on any pixels.
         if (Selection is { } sel) Marquee(ctx, sel, z);
 
-        // The rectangle being dragged, in the same marquee: the pixels are not written until
-        // the drag ends, so this is the only thing telling you what you are about to get.
-        if (RectPreview is { } rp2) Marquee(ctx, rp2, z);
+        // The shape being dragged, in the same marquee. Its BOUNDING BOX, not its outline: the
+        // pixels are not written until the drag ends, and a box reads as "about to happen"
+        // where a preview of the shape itself would read as already drawn.
+        if (ShapePreview is { } rp2) Marquee(ctx, rp2, z);
 
         // The floating paste rides above the sheet, marquee'd like a selection.
         if (Float is { } fl && floatBmp is not null)

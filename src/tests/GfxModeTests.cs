@@ -956,6 +956,60 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
                 Assert.Equal(want, g.ColorAt(x, y));           // interior too, this time
     }
 
+    /// <summary>The Ellipse tool: round rather than square (the box corners stay untouched), the
+    /// outline is a CLOSED ring, filled covers the middle, and either way it is one undo entry.
+    /// Degenerate boxes degrade sensibly instead of drawing nothing.</summary>
+    [Fact]
+    public void ellipse_draws_a_closed_ring_or_a_disc_as_a_single_undo_entry()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), Vanilla), s.Status);
+        var g = s.GfxPixels!;
+        g.Open(s.GfxBins[0].File);
+        g.Color = g.ColorAt(4, 4) == 3 ? 1 : 3;
+        int want = g.Color;
+
+        // An 8x8 circle in a box at (2,2)-(9,9).
+        var before = Snapshot(g, 2, 2, 8, 8);
+        int depth = g.UndoDepth;
+        g.EllipseFilled = false;
+        Assert.True(g.PaintEllipse(9, 9, 2, 2, out _));      // corners in either order
+        g.EndStroke();
+        Assert.Equal(depth + 1, g.UndoDepth);
+
+        // Round, not square: the box's corner pixels are outside the ellipse.
+        foreach (var (cx, cy) in new[] { (2, 2), (9, 2), (2, 9), (9, 9) })
+            Assert.Equal(before[(cy - 2) * 8 + (cx - 2)], g.ColorAt(cx, cy));
+        // A ring: the middle is untouched, and the top/bottom/left/right extremes are on it.
+        Assert.Equal(before[(5 - 2) * 8 + (5 - 2)], g.ColorAt(5, 5));
+        foreach (var (ex, ey) in new[] { (5, 2), (5, 9), (2, 5), (9, 5) })
+            Assert.Equal(want, g.ColorAt(ex, ey));
+        // Closed: every painted pixel has a painted 8-neighbour, so the ring has no gaps.
+        for (int y = 2; y <= 9; y++)
+            for (int x = 2; x <= 9; x++)
+            {
+                if (g.ColorAt(x, y) != want) continue;
+                int n = 0;
+                for (int dy = -1; dy <= 1; dy++)
+                    for (int dx = -1; dx <= 1; dx++)
+                        if ((dx != 0 || dy != 0) && g.ColorAt(x + dx, y + dy) == want) n++;
+                Assert.True(n >= 2, $"ring pixel ({x},{y}) has {n} neighbours — the outline is broken");
+            }
+
+        Assert.True(g.Undo());
+        g.EllipseFilled = true;
+        Assert.True(g.PaintEllipse(2, 2, 9, 9, out _));
+        g.EndStroke();
+        Assert.Equal(want, g.ColorAt(5, 5));                 // the middle is covered now
+        Assert.Equal(before[0], g.ColorAt(2, 2));            // ...and the corners still are not
+
+        // Degenerate boxes: a 1x1 drag is a dot rather than nothing at all.
+        Assert.True(g.PaintEllipse(20, 20, 20, 20, out _));
+        g.EndStroke();
+        Assert.Equal(want, g.ColorAt(20, 20));
+    }
+
     /// <summary>The colour indices of a w×h box, row-major from (x,y).</summary>
     private static int[] Snapshot(GfxEdit g, int x, int y, int w, int h)
     {

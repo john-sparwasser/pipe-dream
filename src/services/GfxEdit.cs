@@ -23,12 +23,20 @@ public sealed class GfxEdit
     /// <summary>Eraser is the pencil writing colour 0 — in this format that IS transparent, so
     /// "erase" needs no separate concept. Dropper writes nothing at all; it reads. Select paints
     /// nothing either: it marks a rectangle for copy/cut/paste and moving.</summary>
-    public enum Tool { Pencil, Fill, Eraser, Dropper, Select, Rect }
+    public enum Tool { Pencil, Fill, Eraser, Dropper, Select, Rect, Ellipse }
 
     /// <summary>Whether <see cref="Tool.Rect"/> fills its rectangle or draws the outline only.
     /// A variant of ONE tool rather than two tools: it is one button on the bar with a
     /// dropdown, and F should step past the pair once, not twice.</summary>
     public bool RectFilled { get; set; }
+
+    /// <summary>The same, for <see cref="Tool.Ellipse"/>. Kept SEPARATE from
+    /// <see cref="RectFilled"/> so each shape remembers how you last drew it — sharing one flag
+    /// would make picking a filled circle silently change what the square tool does.</summary>
+    public bool EllipseFilled { get; set; }
+
+    /// <summary>True while a tool draws by dragging a bounding box rather than per pixel.</summary>
+    public static bool IsShape(Tool t) => t is Tool.Rect or Tool.Ellipse;
 
     public int File { get; private set; } = 0x14;
     public int PalRow { get; set; } = 2;
@@ -176,6 +184,65 @@ public sealed class GfxEdit
                                px & 7, py & 7, Color, stroke);
             }
         return stroke.Count != before;
+    }
+
+    /// <summary>
+    /// Paint an ellipse inscribed in the box between two corners, outline or filled per
+    /// <see cref="EllipseFilled"/>. One stroke, so one undo entry, exactly like PaintRect.
+    ///
+    /// Rasterized by testing pixel CENTRES against the ellipse rather than by a Bresenham arc.
+    /// It costs a pass over the box — nothing at sheet sizes — and buys two things a stepped
+    /// arc makes fiddly: the outline is closed by construction (it is the inside edge of the
+    /// filled region, so it cannot leak), and degenerate boxes behave. A 1-wide box is a line
+    /// and a 1x1 box is a dot, which is what dragging a tiny circle should give you.
+    /// </summary>
+    public bool PaintEllipse(int x0, int y0, int x1, int y1, out bool forked)
+    {
+        forked = false;
+        var (tiles, w, h) = Layout;
+        if (tiles == 0) return false;
+        int lx = Math.Clamp(Math.Min(x0, x1), 0, w - 1), rx = Math.Clamp(Math.Max(x0, x1), 0, w - 1);
+        int ty = Math.Clamp(Math.Min(y0, y1), 0, h - 1), by = Math.Clamp(Math.Max(y0, y1), 0, h - 1);
+        if (Gfx.EditableBytes(rom, File, out forked) is not { } g) return false;
+
+        // Semi-axes and centre in pixel-centre coordinates: a pixel is at x + 0.5.
+        double ra = (rx - lx + 1) / 2.0, rb = (by - ty + 1) / 2.0;
+        double cx = lx + ra, cy = ty + rb;
+        bool In(int x, int y)
+        {
+            if (x < lx || x > rx || y < ty || y > by) return false;
+            double dx = (x + 0.5 - cx) / ra, dy = (y + 0.5 - cy) / rb;
+            return dx * dx + dy * dy <= 1.0;
+        }
+
+        if (stroke.Count == 0) strokeFile = File;
+        int before = stroke.Count;
+        for (int py = ty; py <= by; py++)
+            for (int px = lx; px <= rx; px++)
+            {
+                if (!In(px, py)) continue;
+                // The outline is the inside pixels that touch the outside — a closed ring for
+                // free, at any size, without a special case for the poles.
+                if (!EllipseFilled && In(px - 1, py) && In(px + 1, py) && In(px, py - 1) && In(px, py + 1))
+                    continue;
+                if ((py / 8) * 16 + px / 8 >= tiles) continue;
+                Gfx.WritePixel(g, ((py / 8) * 16 + px / 8) * Gfx.TileBytes(Bpp), Bpp,
+                               px & 7, py & 7, Color, stroke);
+            }
+        return stroke.Count != before;
+    }
+
+    /// <summary>Draw whichever shape the current tool is, into one stroke. The canvas reports a
+    /// bounding box and does not care which shape it becomes; this is where that is decided.</summary>
+    public bool PaintShape(int x0, int y0, int x1, int y1, out bool forked)
+    {
+        forked = false;
+        return Current switch
+        {
+            Tool.Rect => PaintRect(x0, y0, x1, y1, out forked),
+            Tool.Ellipse => PaintEllipse(x0, y0, x1, y1, out forked),
+            _ => false,
+        };
     }
 
     // ---- selection: copy / cut / paste / move ----

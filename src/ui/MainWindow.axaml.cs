@@ -52,8 +52,8 @@ public partial class MainWindow : Window
     private Button gfxSave = null!, gfxSaveAs = null!, gfxEmptyLoad = null!;
     private TextBlock gfxFileName = null!;
     private ToggleButton gfxPencil = null!, gfxFill = null!, gfxErase = null!, gfxDropper = null!,
-                         gfxSelect = null!, gfxRect = null!;
-    private Avalonia.Controls.Shapes.Path gfxRectIcon = null!;
+                         gfxSelect = null!, gfxRect = null!, gfxEllipse = null!;
+    private Avalonia.Controls.Shapes.Path gfxRectIcon = null!, gfxEllipseIcon = null!;
     private DockPanel gfxToolPanel = null!, gfxScroll = null!;
     private Border gfxPaletteBar = null!;
     private StackPanel gfxBins = null!;
@@ -327,6 +327,8 @@ public partial class MainWindow : Window
         gfxSelect = this.GetControl<ToggleButton>("GfxSelect");
         gfxRect = this.GetControl<ToggleButton>("GfxRect");
         gfxRectIcon = this.GetControl<Avalonia.Controls.Shapes.Path>("GfxRectIcon");
+        gfxEllipse = this.GetControl<ToggleButton>("GfxEllipse");
+        gfxEllipseIcon = this.GetControl<Avalonia.Controls.Shapes.Path>("GfxEllipseIcon");
         gfxToolPanel = this.GetControl<DockPanel>("GfxToolPanel");
         gfxPaletteBar = this.GetControl<Border>("GfxPaletteBar");
         gfxBins = this.GetControl<StackPanel>("GfxBins");
@@ -374,10 +376,10 @@ public partial class MainWindow : Window
         };
         // A rectangle is one gesture and one undo entry: the canvas reports the shape, the
         // editor writes every pixel into a single stroke and closes it.
-        gfxCanvas.RectDrawn += (_, r) =>
+        gfxCanvas.ShapeDragged += (_, r) =>
         {
             if (session.GfxPixels is not { } g) return;
-            if (!g.PaintRect(r.X, r.Y, r.X + r.W - 1, r.Y + r.H - 1, out bool _)) return;
+            if (!g.PaintShape(r.X, r.Y, r.X + r.W - 1, r.Y + r.H - 1, out bool _)) return;
             g.EndStroke();
             RefreshGfxSheet();
             AdoptSession();                      // the level's tiles change with the pixels
@@ -1473,11 +1475,13 @@ public partial class MainWindow : Window
         gfxDropper.IsChecked = tool == GfxEdit.Tool.Dropper;
         gfxSelect.IsChecked = tool == GfxEdit.Tool.Select;
         gfxRect.IsChecked = tool == GfxEdit.Tool.Rect;
+        gfxEllipse.IsChecked = tool == GfxEdit.Tool.Ellipse;
         // The selection itself survives a tool change — copy still needs it — but only the
-        // select tool drags it. Rect owns the drag instead, so the two are never both on.
+        // select tool drags it. The shape tools own the drag instead, so never both.
         gfxCanvas.Selecting = tool == GfxEdit.Tool.Select;
-        gfxCanvas.Ranging = tool == GfxEdit.Tool.Rect;
+        gfxCanvas.Ranging = GfxEdit.IsShape(tool);
         gfxRectIcon.Classes.Set("filled", session.GfxPixels?.RectFilled == true);
+        gfxEllipseIcon.Classes.Set("filled", session.GfxPixels?.EllipseFilled == true);
         // The ring follows the tool: the eraser paints index 0, so that is the swatch in use.
         if (session.GfxPixels is { } sel)
             gfxColors.Select(tool == GfxEdit.Tool.Eraser ? 0 : sel.Color);
@@ -1492,14 +1496,27 @@ public partial class MainWindow : Window
         if (sender is Control c) FlyoutBase.ShowAttachedFlyout(c);
     }
 
-    private void OnGfxRectOutline(object? sender, RoutedEventArgs e) => SetRectFilled(false);
-    private void OnGfxRectFilled(object? sender, RoutedEventArgs e) => SetRectFilled(true);
+    private void OnGfxRectOutline(object? sender, RoutedEventArgs e) => SetShapeFilled(GfxEdit.Tool.Rect, false);
+    private void OnGfxRectFilled(object? sender, RoutedEventArgs e) => SetShapeFilled(GfxEdit.Tool.Rect, true);
 
-    private void SetRectFilled(bool filled)
+    /// <summary>The Ellipse button, same combo as Rect: arm the tool and show both shapes.</summary>
+    private void OnGfxEllipse(object? sender, RoutedEventArgs e)
     {
-        if (session.GfxPixels is { } g) g.RectFilled = filled;
-        gfxRectIcon.Classes.Set("filled", filled);
-        SetGfxTool(GfxEdit.Tool.Rect);
+        SetGfxTool(GfxEdit.Tool.Ellipse);
+        if (sender is Control c) FlyoutBase.ShowAttachedFlyout(c);
+    }
+
+    private void OnGfxEllipseOutline(object? sender, RoutedEventArgs e) => SetShapeFilled(GfxEdit.Tool.Ellipse, false);
+    private void OnGfxEllipseFilled(object? sender, RoutedEventArgs e) => SetShapeFilled(GfxEdit.Tool.Ellipse, true);
+
+    private void SetShapeFilled(GfxEdit.Tool tool, bool filled)
+    {
+        if (session.GfxPixels is { } g)
+        {
+            if (tool == GfxEdit.Tool.Rect) g.RectFilled = filled;
+            else g.EllipseFilled = filled;
+        }
+        SetGfxTool(tool);        // re-reads both flags onto the icons
     }
 
     private void OnGfxTool(object? sender, RoutedEventArgs e)
