@@ -179,8 +179,8 @@ public class ProjectPrepTests : IDisposable
     public void build_writes_gfx_blobs_and_bypass_records_round_trip()
     {
         var p = Project.Create(Path.Combine(dir, "proj"), TestRom.RealRomPath);
-        // an imported ExGFX file (raw planar at the base's bpp = 3bpp) + a slot override
-        var import = new byte[0x300];                              // 32 tiles of 3bpp
+        // an imported ExGFX file (raw planar, short) + a slot override
+        var import = new byte[0x300];
         for (int i = 0; i < import.Length; i++) import[i] = (byte)(i * 5 + 1);
         p.Data.Gfx["100"] = Convert.ToBase64String(import);
         p.Data.Level(0x105).GfxOverrides[7] = 0x100;               // FG1 ← ExGFX 0x100
@@ -200,7 +200,8 @@ public class ProjectPrepTests : IDisposable
 
         byte[]? decoded = Gfx.Cached(built, 0x100);                // through SourceSnes + LZ2
         Assert.NotNull(decoded);
-        Assert.Equal(0xC00, decoded!.Length);                      // zero-padded full file
+        // Zero-padded to a full 128-tile file at the BASE's depth — 4bpp since prep v6.
+        Assert.Equal(128 * Gfx.TileBytes(Gfx.RomBpp(built)), decoded!.Length);
         Assert.Equal(import, decoded.Take(import.Length).ToArray());
         Assert.All(decoded.Skip(import.Length), b => Assert.Equal(0, b));
 

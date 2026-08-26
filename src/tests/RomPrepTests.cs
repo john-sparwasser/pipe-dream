@@ -38,6 +38,10 @@ public class RomPrepTests
     /// Direct-Map16 handlers restamped clear of LM's access flag, 2026-08-24).</summary>
     private const string GoldenPrepV5Sha256 = "12380ddd0bfff9d32150206c4dd9e6ed9fa80f7d03a78058f15be4e7ae7046b3";
 
+    /// <summary>Golden SHA-256 (headerless) of the V6-prepped vanilla US ROM (V5 stamps + every
+    /// tile-planar GFX file stored 4bpp, 2026-08-25).</summary>
+    private const string GoldenPrepV6Sha256 = "be34b9ef972baf618ae45c272ecdad27309f1c365fb5bb695d90e67349cbfefa";
+
     private static Rom Prepped()
     {
         var rom = TestRom.Create();
@@ -449,11 +453,15 @@ public class RomPrepTests
             Assert.Equal(GoldenPrepV4Sha256, RomHash.HeaderlessSha256File(tmp));
 
             File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
-            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V5)
-            string v5 = RomHash.HeaderlessSha256File(tmp);
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 5));      // frozen V5 stamp list
+            Assert.Equal(GoldenPrepV5Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V6)
+            string v6 = RomHash.HeaderlessSha256File(tmp);
             // Spelled out rather than left to the assertion message: xunit truncates a mismatch,
             // and this hash is what the NEXT version bump has to be told.
-            Assert.True(GoldenPrepV5Sha256 == v5, $"V5 golden hash is now {v5}");
+            Assert.True(GoldenPrepV6Sha256 == v6, $"V6 golden hash is now {v6}");
         }
         finally { File.Delete(tmp); }
     }
@@ -619,6 +627,108 @@ public class RomPrepTests
                 int at = a.Zip(b).ToList().FindIndex(p => p.First != p.Second);
                 Assert.Fail($"file {file:X2} tileset {tileset:X2}: VRAM diverges at +{at:X} "
                           + $"(tile {at / 32:X2} byte {at % 32:X2}): v3 {a[at]:X2} != v4 {b[at]:X2}");
+            }
+        }
+    }
+
+
+    /// <summary>
+    /// V6 converts the FILES to 4bpp — the half of v4 that was missing, and without which a
+    /// prepped base uploads 32-byte tiles read out of 24-byte storage.
+    ///
+    /// Per file: every tile-planar id decompresses from the converted base to exactly
+    /// NormalizeBpp(original), and every id the list excludes is left completely alone —
+    /// same pointer, same bytes. Those exclusions are not fussiness: layer 3 (0x28-0x2B) and
+    /// 0x2F are 2bpp, 0x27 is Mode 7, and 0x32/0x33 are the animation blobs, each read by a
+    /// routine that is not the tile uploader.
+    /// </summary>
+    [RealRomFact]
+    public void v6_converts_every_tile_planar_file_and_leaves_the_rest_alone()
+    {
+        var v5 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v5, 5);
+        var v6 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v6, 6);
+
+        Assert.Equal(3, Gfx.RomBpp(v5));
+        Assert.Equal(4, Gfx.RomBpp(v6));               // ...which is what opens colours 8-15
+        Assert.True(RomPrep.IsPrepped(v6, 6));
+        Assert.False(RomPrep.IsPrepped(v5, 6));
+
+        int converted = 0;
+        for (int id = 0; id < Gfx.Count; id++)
+        {
+            if (Gfx.SourceSnes(v5, id) <= 0) continue;
+            byte[] before = Gfx.DecompressFile(v5, id);
+            if (!Gfx.IsTilePlanar3Bpp(id))
+            {
+                Assert.Equal(Gfx.SourceSnes(v5, id), Gfx.SourceSnes(v6, id));    // never moved
+                Assert.Equal(before, Gfx.DecompressFile(v6, id));
+                continue;
+            }
+            byte[] want = Gfx.NormalizeBpp(before, 3, 4, out bool dropped);
+            Assert.False(dropped);
+            Assert.Equal(want, Gfx.DecompressFile(v6, id));
+            Assert.NotEqual(Gfx.SourceSnes(v5, id), Gfx.SourceSnes(v6, id));     // repointed
+            converted++;
+        }
+        Assert.True(converted > 40, $"only {converted} files converted");
+
+        // The converted data parks past the prep's tables, so RomBuilder's first-fit run at
+        // 0x80000 is still free for the levels and palettes it allocates there.
+        Assert.True(RatsWriter.FindFreeSpace(v6, 0x1000) < RomPrep.GfxConvertBase);
+    }
+
+    /// <summary>
+
+    /// <summary>
+    /// The conversion is LOSSLESS at the pixel level, so a v6 base must draw exactly what a v5
+    /// base drew — including the animated tiles, which is where this first went wrong: the
+    /// animation source is one of the files v6 skips (its reader at $00B8AD does its own
+    /// 3bpp-to-4bpp step and prep never patched it), so once RomBpp read 4 the overlay decoded
+    /// a 24-byte-per-tile blob at 32 and garbled every muncher, lava tile and question block in
+    /// the level view.
+    /// </summary>
+    [RealRomFact]
+    public void v6_draws_every_tile_including_the_animated_ones_exactly_as_v5_did()
+    {
+        var v5 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v5, 5);
+        var v6 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v6, 6);
+        Assert.Equal(3, Gfx.FileBpp(v6, 0x32));         // the blob stayed three planes deep
+        Assert.Equal(4, Gfx.RomBpp(v6));                // ...even though the tile files did not
+
+        foreach (int tileset in new[] { 0x00, 0x01, 0x05 })
+            foreach (int phase in new[] { 0, 1, 2, 3 })
+            {
+                var a = Gfx.FgTiles.Load(v5, tileset, level: 0x105, animPhase: phase);
+                var b = Gfx.FgTiles.Load(v6, tileset, level: 0x105, animPhase: phase);
+                for (int tile = 0; tile < 0x400; tile++)
+                    if (!a.Fetch(tile).SequenceEqual(b.Fetch(tile)))
+                        Assert.Fail($"tileset {tileset:X2} phase {phase}: tile {tile:X3} differs "
+                                  + "between a v5 and a v6 base");
+            }
+    }
+
+    /// <summary>
+    /// The point of the conversion, end to end: the v4 upload reads four planes out of a v6
+    /// base's own files and sends VRAM exactly what a v3 base sent from the 3bpp originals.
+    /// Same bar as v4_uploads_a_converted_file_byte_identically_to_v3, but with the base
+    /// supplying the converted file rather than the test doing it by hand.
+    /// </summary>
+    [RealRomFact]
+    public void v6_uploads_its_own_converted_files_byte_identically_to_v3()
+    {
+        var v3 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v3, 3);
+        var v6 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v6, 6);
+        foreach (var (file, tileset) in new[] { (0x02, 0x00), (0x01, 0x00), (0x17, 0x00),
+                                               (0x1E, 0x00), (0x08, 0x00), (0x08, 0x11) })
+        {
+            var a = UploadVram(v3, file, tileset, Gfx.DecompressFile(v3, file));
+            var b = UploadVram(v6, file, tileset, Gfx.DecompressFile(v6, file));
+            Assert.Equal(0x1000, a.Count);
+            if (!a.SequenceEqual(b))
+            {
+                int at = a.Zip(b).ToList().FindIndex(p => p.First != p.Second);
+                Assert.Fail($"file {file:X2} tileset {tileset:X2}: VRAM diverges at +{at:X} "
+                          + $"(tile {at / 32:X2} byte {at % 32:X2}): v3 {a[at]:X2} != v6 {b[at]:X2}");
             }
         }
     }

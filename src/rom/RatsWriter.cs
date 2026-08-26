@@ -53,11 +53,13 @@ public static class RatsWriter
     /// <summary>First free run of <paramref name="need"/> bytes in expanded space (PC ≥ 0x80000), skipping valid RATs.
     /// <paramref name="avoidBankCross"/>: keep the DATA span (after the 8-byte tag) inside one
     /// 0x8000 bank — level/sprite streams are addressed by a 16-bit runtime pointer with a
-    /// fixed bank byte, so a stream straddling a bank boundary breaks in-game.</summary>
-    public static int FindFreeSpace(Rom rom, int need, bool avoidBankCross = false)
+    /// fixed bank byte, so a stream straddling a bank boundary breaks in-game.
+    /// <paramref name="from"/>: start the search past a region someone else owns — prep's GFX
+    /// conversion parks in the tail so it does not eat the run RomBuilder allocates from.</summary>
+    public static int FindFreeSpace(Rom rom, int need, bool avoidBankCross = false, int from = 0x80000)
     {
         int end = rom.Data.Length - rom.HeaderOffset;
-        for (int p = 0x80000; p + need <= end;)
+        for (int p = from; p + need <= end;)
         {
             int fo = p + rom.HeaderOffset;
             if (rom.Data[fo] == 0x53 && rom.Data[fo + 1] == 0x54 && rom.Data[fo + 2] == 0x41 && rom.Data[fo + 3] == 0x52)
@@ -83,9 +85,9 @@ public static class RatsWriter
     }
 
     /// <summary>Write a RATS-protected block and return the SNES address of the data (after the tag).</summary>
-    public static int Allocate(Rom rom, byte[] data, bool avoidBankCross = false)
+    public static int Allocate(Rom rom, byte[] data, bool avoidBankCross = false, int from = 0x80000)
     {
-        int pc = FindFreeSpace(rom, 8 + data.Length, avoidBankCross), fo = pc + rom.HeaderOffset;
+        int pc = FindFreeSpace(rom, 8 + data.Length, avoidBankCross, from), fo = pc + rom.HeaderOffset;
         rom.Data[fo] = 0x53; rom.Data[fo + 1] = 0x54; rom.Data[fo + 2] = 0x41; rom.Data[fo + 3] = 0x52;   // "STAR"
         int sm1 = data.Length - 1;
         rom.Data[fo + 4] = (byte)sm1; rom.Data[fo + 5] = (byte)(sm1 >> 8);

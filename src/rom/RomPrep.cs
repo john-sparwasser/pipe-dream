@@ -43,10 +43,11 @@ public static class RomPrep
     /// V4 makes the GFX upload read four bit planes, so colours 8-15 of a palette row become
     /// paintable (LM's 4bpp mode); V5 stops the Direct-Map16 handlers from walking over the byte
     /// Lunar Magic reads as its level-access flag, which made every prepped base unopenable in
-    /// LM (see <see cref="LmAccessFlag"/> and CONTRACT §0).
+    /// LM (see <see cref="LmAccessFlag"/> and CONTRACT §0); V6 converts the FILES to 4bpp, which
+    /// is what v4's reader has been waiting for — a v4/v5 base uploads garbage until it lands.
     /// Version-keyed stamp lists keep every released version BYTE-FROZEN: a v1 project's
     /// pinned image must reproduce forever (golden-hash tested).</summary>
-    public const int Version = 5;
+    public const int Version = 6;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -98,7 +99,11 @@ public static class RomPrep
            && (version < 2 || rom.HasLmGfxLoader)
            && (version < 3 || rom.HasMap16Range(1))    // the widened lookup ladder
            && (version < 4 || rom.HasGfx4bppUpload)
-           && (version < 5 || rom.ReadByte(LmAccessFlag) == 0xFF);
+           && (version < 5 || rom.ReadByte(LmAccessFlag) == 0xFF)
+           // V6 leaves no stamp to look for — its evidence is the DATA, so the check is the
+           // depth itself. An image whose GFX00 does not resolve (a synthetic test ROM) has
+           // nothing to convert and nothing to claim, so it does not fail the test either.
+           && (version < 6 || Gfx.RomBpp(rom) == 4 || Gfx.Cached(rom, 0) is null);
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying
@@ -110,6 +115,7 @@ public static class RomPrep
         rom.ExpandTo(0x100000);                        // also writes size code at $FFD7
         foreach (var (pc, bytes) in BuildStamps(version))
             Array.Copy(bytes, 0, rom.Data, pc + rom.HeaderOffset, bytes.Length);
+        if (version >= 6) ConvertGfxTo4bpp(rom);       // data, not a stamp: it allocates
         RatsWriter.FixChecksum(rom);
         ResetScanCaches(rom);
     }
@@ -121,9 +127,53 @@ public static class RomPrep
         if (RomHash.HeaderlessSha256File(path) != RomHash.VanillaUsSha256)
             return "base is not a verified vanilla SMW (US) ROM — prep refused.";
         var rom = Rom.Load(path);
-        Apply(rom, version);
+        // The v6 conversion allocates, and this prep does not auto-expand past 1MB. A ROM with
+        // no room left is a thing to TELL the user about, not a stack trace out of a save path.
+        try { Apply(rom, version); }
+        catch (InvalidOperationException e) { return $"prep failed: {e.Message}"; }
         RatsWriter.SaveAs(rom, path);
         return null;
+    }
+
+    /// <summary>Where v6 parks the converted graphics: past the prep's own tables (the ExGFX
+    /// pointer table ends around pc 0x9AD08) rather than at 0x80000, which is first-fit
+    /// territory for RomBuilder's level/palette allocations — converted files would eat it.</summary>
+    public const int GfxConvertBase = 0xA0000;
+
+    /// <summary>
+    /// V6: store every tile-planar GFX file as 4bpp, which is what v4's four-plane reader has
+    /// been waiting for. Until this runs, a v4/v5 base reads 32 bytes per tile out of 24-byte
+    /// tiles and uploads garbage — the editor looks fine because it decodes files directly, so
+    /// only a built ROM shows it.
+    ///
+    /// Converting the BASE (rather than the build, or the project's imports) is what makes the
+    /// rest follow for free: <see cref="Gfx.RomBpp"/> then reads 4 off the ROM itself, imports
+    /// normalise to it, copy-on-write forks come out 4bpp, and the editor's palette row opens up
+    /// to colours 8-15. No project-file change, and nothing has to track a per-file depth.
+    ///
+    /// Only <see cref="Gfx.IsTilePlanar3Bpp"/> ids are touched: the layer-3 2bpp files, the
+    /// Mode 7 file and the animation blobs are read by routines that are NOT the tile uploader,
+    /// and converting them would corrupt each one. Ascending ids into first-fit space keeps the
+    /// result byte-reproducible, so the golden-hash discipline still holds.
+    /// </summary>
+    private static void ConvertGfxTo4bpp(Rom rom)
+    {
+        Gfx.InvalidateCache(rom);                       // the stamps above moved the loader
+        if (Gfx.RomBpp(rom) != 4)
+            for (int id = 0; id < Gfx.Count; id++)
+            {
+                if (!Gfx.IsTilePlanar3Bpp(id) || Gfx.SourceSnes(rom, id) <= 0) continue;
+                byte[] three;
+                try { three = Gfx.DecompressFile(rom, id); }
+                catch { continue; }                     // unreadable file: leave its pointer alone
+                if (three.Length == 0 || three.Length % Gfx.TileBytes(3) != 0) continue;
+                byte[] four = Gfx.NormalizeBpp(three, 3, 4, out _);
+                int snes = RatsWriter.Allocate(rom, Gfx.Lz2Compress(four), from: GfxConvertBase);
+                rom.Data[rom.FileOffset(Gfx.PtrLow) + id] = (byte)snes;
+                rom.Data[rom.FileOffset(Gfx.PtrHigh) + id] = (byte)(snes >> 8);
+                rom.Data[rom.FileOffset(Gfx.PtrBank) + id] = (byte)(snes >> 16);
+            }
+        Gfx.InvalidateCache(rom);                       // depth probe and file cache both stale
     }
 
     private static void ResetScanCaches(Rom rom)

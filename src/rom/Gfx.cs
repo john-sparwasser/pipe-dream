@@ -100,6 +100,44 @@ public static class Gfx
         catch { return 3; }
     }
 
+    /// <summary>
+    /// The depth ONE file is stored at. <see cref="RomBpp"/> is the rule — SMW stores its
+    /// graphics at a single depth and LM re-normalizes everything to 4bpp — but a handful of
+    /// vanilla ids are read by routines that are not the tile uploader, and what THEY expect is
+    /// fixed by the game's code rather than by the ROM's era. Those are exactly the ids
+    /// <see cref="IsTilePlanar3Bpp"/> excludes, and the depth is not guessable from the file's
+    /// size (0x800 bytes is 128 tiles of 2bpp, 85 of 3bpp or 64 of 4bpp — see
+    /// <see cref="DetectBpp"/>), so it is read off that list instead of sniffed:
+    ///   0x28-0x2B  layer-3 tiles, 2bpp — the status bar and the level's layer-3 scenery
+    ///   0x2F       2bpp
+    ///   0x33       already raw 4bpp on a vanilla ROM
+    ///   0x27, 0x32 whatever a conversion left them at — see <see cref="UnconvertedBpp"/>
+    /// Neither of those two is tile-packed at all, so the depth only says how wide their rows
+    /// are; the picker says what they actually hold.
+    /// ExGFX (0x80+) follow the ROM: a user file's depth is normalised on import.
+    /// </summary>
+    public static int FileBpp(Rom rom, int file) => file switch
+    {
+        (>= 0x28 and <= 0x2B) or 0x2F => 2,
+        0x33 => 4,
+        0x27 or 0x32 => UnconvertedBpp(rom),
+        _ => RomBpp(rom),
+    };
+
+    /// <summary>
+    /// The depth of the files a 4bpp conversion SKIPS — Mode 7 and the animation source. Their
+    /// readers are not the tile uploader (the animation blob has its own 3bpp-to-4bpp expander
+    /// at $00B8AD, which prep v4 does not patch), so prep v6 leaves them three planes deep even
+    /// though <see cref="RomBpp"/> now reads 4. Lunar Magic converts them along with everything
+    /// else, and its 4bpp ROMs are told apart by the upload: LM stubs vanilla's expand-upload
+    /// and runs its own, where our prep rewrites vanilla's loops in place (CONTRACT §0).
+    ///
+    /// Reading the animation source at the wrong depth garbles every animated tile in the level
+    /// view — the munchers, the lava, the question blocks — which is what "the ROM is 4bpp so
+    /// this must be too" cost the moment v6 landed.
+    /// </summary>
+    private static int UnconvertedBpp(Rom rom) => RomBpp(rom) == 4 && !rom.HasGfx4bppUpload ? 4 : 3;
+
     public static int TileBytes(int bpp) => bpp * 8;   // 2bpp=16, 3bpp=24, 4bpp=32
 
     /// <summary>
@@ -188,9 +226,12 @@ public static class Gfx
             }
             catch { return; }
 
-            // blob1 is packed at the ROM's FG depth (3bpp vanilla, 4bpp on LM 4bpp ROms). Decoding
-            // it as a fixed 3bpp garbles animated tiles on 4bpp hacks (e.g. ShaoBase munchers).
-            int a1bpp = RomBpp(rom), a1tb = TileBytes(a1bpp);
+            // blob1's depth is the blob's own, NOT the ROM's: 3bpp on vanilla and on our prepped
+            // bases (prep v6 converts the tile files and leaves this one alone, because its
+            // reader at $00B8AD is not the tile uploader), 4bpp on an LM 4bpp hack, which
+            // converts it too. Fixed 3bpp garbles ShaoBase's munchers; the ROM's depth garbles
+            // every animated tile on a v6 base.
+            int a1bpp = FileBpp(rom, 0x32), a1tb = TileBytes(a1bpp);
             void Overlay(int vramTile, int srcAddr)
             {
                 byte[]? px =
@@ -492,6 +533,9 @@ public static class Gfx
     /// the row unreachable, which is the half of the fact worth a note.</summary>
     public static string Describe(Rom rom, int id)
         => Cached(rom, id) is null ? "(empty)"
+         : id == 0x27 ? "Mode 7 tiles — not an 8x8 sheet"
+         : id == 0x32 ? "animation source — not an 8x8 sheet"
+         : FileBpp(rom, id) == 2 ? "2 bits per pixel (layer 3, colours 0-3)"
          : RomBpp(rom) == 3 ? "4 bits per pixel (colours 0-7)" : "4 bits per pixel";
 
     /// <summary>

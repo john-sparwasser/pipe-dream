@@ -68,7 +68,8 @@ Remaining divergences, in the order they'd need settling:
 - **`IsPrepped` must stay true for LM-saved ROMs** or `Apply` will stamp over foreign
   structures — its stated contract. V4's `HasGfx4bppUpload` check breaks that (it tests for
   our instruction at `$00AAE5`, which is `29` on ShaoBase). Fix by testing the *property*
-  — the ROM stores 4bpp — rather than our particular encoding of it.
+  — the ROM stores 4bpp — rather than our particular encoding of it. V6's own clause already
+  does that (`Gfx.RomBpp(rom) == 4`); it is v4's that still needs rewriting.
 
 The gate stays empirical, not analytical: prep a base here, drive real LM over it, and diff.
 **`reference/LUNAR_MAGIC.md` is the harness** — the invocation, the message-box hazard, the
@@ -241,41 +242,39 @@ tile number (10 bits, `cc…`), palette (3 bits, `ppp`), priority (1 bit `o`), H
   4bpp expansion — ours is prep v4 and reaches the same result by a different mechanism, see
   §0. 2bpp for `28-2B`,`2F`; Mode7 for `27`; `32` is 4bpp 23.2KB.
 
-**WARNING (prep v4 bases are half-converted)**: v4 teaches the in-game upload to read four bit
-planes, but nothing converts the FILES yet, so a v4 base uploads garbage — it reads 32 bytes
-per tile from 24-byte tiles and then runs 0x400 bytes off the end of the buffer. The editor
-looks fine, because it decodes files directly rather than through the loader; only an exported
-ROM or BPS is affected. v4 shipped as the default in v0.0.6, so **do not build a hack on a v4
-base** until the conversion below lands. v1–v3 bases are unaffected (3bpp loader, 3bpp files).
+**Prep v6 converts the files** (`RomPrep.ConvertGfxTo4bpp`), which is the half of v4 that was
+missing: v4 taught the upload to read four bit planes, but until v6 nothing converted the FILES,
+so a v4/v5 base read 32 bytes per tile out of 24-byte tiles and uploaded garbage. The editor
+looked fine either way — it decodes files directly rather than through the loader — so only an
+exported ROM or BPS showed it. **v4/v5 bases stay broken until they upgrade** (File → Upgrade
+base to prep v6, which re-preps from vanilla and re-pins the hash); v1–v3 are unaffected (3bpp
+loader, 3bpp files).
 
-**TODO (4bpp conversion — the build side of v4)**: the conversion belongs in PREP, not in the
-build. Converting the base means `Gfx.RomBpp` reads 4 from the ROM itself and everything
-downstream follows with no further change — imports normalise to 4, copy-on-write forks come
-out 4bpp, `MaxColor` becomes 15, the greyed top half of the palette row lights up. Put it in
-the build instead and the editor keeps showing a 3bpp row while only the output is 4bpp. That
-is also why no `.pdp` schema change is needed to remember the depth.
+The pass: for each vanilla id where `Gfx.IsTilePlanar3Bpp` holds and the file resolves,
+decompress → `NormalizeBpp(3→4)` → `Lz2Compress` → allocate → repoint the three vanilla pointer
+tables. Ascending ids into first-fit space from `RomPrep.GfxConvertBase` (pc `0xA0000`, past the
+prep's own tables) keeps it byte-reproducible AND keeps the run at `0x80000` free for
+`RomBuilder`'s allocations. `RatsWriter.Allocate` throws when the ROM is full and `PrepInPlace`
+turns that into a message — prep has no auto-expand. ~44 files convert; the tail has room to
+spare.
 
-The pass itself: for each vanilla id where `Gfx.IsTilePlanar3Bpp` holds and the file resolves,
-decompress → `NormalizeBpp(3→4)` → `Lz2Compress` → allocate → repoint the three vanilla
-pointer tables. Ascending ids plus first-fit allocation keep it byte-reproducible, so the
-golden-hash discipline still applies. Two decisions inside it: converted files will eat the
-32KB at pc `0x80000` that is reserved for `RomBuilder`/palette allocations unless steered to
-the tail, and `RomPrep` has no auto-expand, so a full ROM needs a real error rather than an
-exception. Space is not a blocker — ~46 convertible files at ≤0x1000 each, against ~414KB free
-in the tail.
+Converting the BASE rather than the build or the project's imports is what makes everything
+else follow for free: `Gfx.RomBpp` reads 4 off the ROM, imports normalise to it, copy-on-write
+forks come out 4bpp, `MaxColor` becomes 15, and the greyed top half of the palette row lights
+up — with no `.pdp` schema change and no per-file depth to track. `IsPrepped` tests the depth
+itself (v6 leaves no stamp to look for), which also satisfies §0's rule that it stay true for
+LM-saved 4bpp ROMs.
 
-Two `RomBuilder` defects to fix with it, one of which is live and unrelated to 4bpp:
-`WriteGfx` writes `PtrLow + id` unguarded, but `Gfx.Count` is `0x32` and the three pointer
-tables are 0x32 bytes and adjacent — so pixel-editing GFX32 or GFX33 silently corrupts the
-pointers for GFX00 and GFX01. Those two ids are the animation blobs, are not table-addressed
-at all (fixed operands at `$00B88B`), and should be rejected with a warning. Separately,
-`WriteGfx` computes the pad depth off the in-flight ROM; pin it from the base before any
-pointer is rewritten.
+`RomBuilder.WriteGfx` rejects ids `0x32`/`0x33` with a warning: `Gfx.Count` is `0x32` and the
+three pointer tables are 0x32 bytes and adjacent, so writing `PtrLow + id` for those landed on
+GFX00/GFX01's entries. They are the animation blobs, not table-addressed at all (fixed operands
+at `$00B88B`), so there was never anything to write.
 
-Proof obligations: per-file, every convertible file decompresses from the converted base to
-exactly `NormalizeBpp(original)` and every excluded file is untouched. End-to-end, extend the
-VRAM parity test to a whole level's eight slots — build from a converted base, run the loader,
-compare against the same level on a v3 base. Then Mesen, which nothing else substitutes for.
+Proof: `v6_converts_every_tile_planar_file_and_leaves_the_rest_alone` (per file: converted ==
+`NormalizeBpp(original)`, excluded ids byte-identical and never repointed) and
+`v6_uploads_its_own_converted_files_byte_identically_to_v3` (the v4 reader on a v6 base sends
+VRAM exactly what a v3 base sent). Still outstanding: a whole-level eight-slot parity run, and
+Mesen, which nothing else substitutes for.
 - ExGFX `80`–`FFF` (user-supplied), ExGFX `60-63` stored uncompressed (≤32KB, ExAnimation).
 - In-ROM GFX is **compressed with LC_LZ2** (LM default) or **LC_LZ3** — this is the
   "Lunar Compress" format. LM exposes a decompressor at **`JSL $0FF900`** (A=file#,

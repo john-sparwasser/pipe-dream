@@ -444,7 +444,7 @@ public sealed class EditorSession
     {
         if (Rom is null || file == 0x7F || Scene?.Palettes[0] is not { } pal) return ([], 0, 0);
         if (Gfx.Cached(Rom, file) is not { } data) return ([], 0, 0);
-        try { return Gfx.TileSheet(data, Gfx.RomBpp(Rom), pal, palRow); }
+        try { return Gfx.TileSheet(data, Gfx.FileBpp(Rom, file), pal, palRow); }
         catch { return ([], 0, 0); }
     }
 

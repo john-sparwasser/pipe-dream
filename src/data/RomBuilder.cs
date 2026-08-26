@@ -242,6 +242,16 @@ internal static class RomBuilder
                 warnings.Add($"GFX{id:X2} skipped (0x34-0x7F are not loadable ids)");
                 continue;
             }
+            // The three vanilla pointer tables are 0x32 bytes each and ADJACENT, so writing
+            // "entry 0x32" or "0x33" lands on the next table's entry for GFX00/GFX01 and
+            // silently repoints those instead. Those two ids are the animation blobs and are
+            // not table-addressed at all (fixed operands at $00B88B), so there is nothing to
+            // write even if the arithmetic were safe.
+            if (id is 0x32 or 0x33)
+            {
+                warnings.Add($"GFX{id:X2} skipped (animation source — not reachable through the GFX pointer tables)");
+                continue;
+            }
             if (id >= 0x100 && rom.LmExGfxBase <= 0)
             {
                 warnings.Add($"GFX{id:X3} skipped (base lacks the ExGFX 0x100+ pointer table)");
