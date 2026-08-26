@@ -187,21 +187,21 @@ public class ShellTests(ITestOutputHelper log)
         var canvas = Find<LevelView>(w, "Canvas");
         var slider = Find<Slider>(w, "ZoomSlider");
         var label = Find<TextBlock>(w, "ZoomLabel");
-        Assert.Equal(200, slider.Value);
-        Assert.Equal(2.0, canvas.Zoom);
-        Assert.Equal("200%", label.Text);
+        Assert.Equal(100, slider.Value);          // the level opens at 1:1
+        Assert.Equal(1.0, canvas.Zoom);
+        Assert.Equal("100%", label.Text);
 
         w.KeyPressQwerty(PhysicalKey.Equal, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
-        Assert.Equal(210, slider.Value);
-        Assert.Equal(2.1, canvas.Zoom);
-        Assert.Equal("210%", label.Text);
+        Assert.Equal(110, slider.Value);
+        Assert.Equal(1.1, canvas.Zoom);
+        Assert.Equal("110%", label.Text);
 
-        w.KeyPressQwerty(PhysicalKey.Minus, RawInputModifiers.None);
+        w.KeyPressQwerty(PhysicalKey.Equal, RawInputModifiers.None);
         w.KeyPressQwerty(PhysicalKey.Minus, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
-        Assert.Equal(190, slider.Value);
-        Assert.Equal(1.9, canvas.Zoom);
+        Assert.Equal(110, slider.Value);
+        Assert.Equal(1.1, canvas.Zoom);
 
         // The floor holds: - at 100% stays at 100% rather than inverting the level.
         slider.Value = slider.Minimum;
@@ -218,7 +218,8 @@ public class ShellTests(ITestOutputHelper log)
         var canvas = Find<LevelView>(w, "Canvas");
         Dispatcher.UIThread.RunJobs();
 
-        var pt = canvas.TranslatePoint(new Point(16 * 2 * 4 + 8, 16 * 2 * 3 + 8), w)!.Value;
+        double z = canvas.Zoom;
+        var pt = canvas.TranslatePoint(new Point(16 * z * 4 + 8, 16 * z * 3 + 8), w)!.Value;
         w.MouseDown(pt, MouseButton.Left);
         w.MouseUp(pt, MouseButton.Left);
 

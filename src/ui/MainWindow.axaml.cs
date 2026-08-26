@@ -34,8 +34,13 @@ public partial class MainWindow : Window
     private LevelView canvas = null!;
     private Map16CanvasView map16Canvas = null!;
     private ChrPaletteView chr = null!;
-    private ComboBox palRowBox = null!;
-    private CheckBox chrFlipX = null!, chrFlipY = null!, chrPrio = null!;
+    private ToggleButton grain16 = null!, grain8 = null!;
+
+    /// <summary>Which CGRAM row the 8x8 picker draws in and stamps with. ponytail: a constant
+    /// while the Map16 drawer has no controls — the row picker, and the flip/priority flags that
+    /// sat beside it, came off the drawer header pending a new home. The flags are still
+    /// reachable on the canvas itself, where X / Y / P toggle them per quadrant.</summary>
+    private const int ChrPalRow = 2;
     /// <summary>Map16 definition editing. Owned by the session, because it is rebuilt whenever
     /// the level's tileset changes and the window has no way to know when that happened.</summary>
     private Map16Edit? map16 => session.Map16;
@@ -56,10 +61,11 @@ public partial class MainWindow : Window
     private ToggleButton gfxRectOutlineBtn = null!, gfxRectFilledBtn = null!,
                          gfxEllipseOutlineBtn = null!, gfxEllipseFilledBtn = null!;
     private Avalonia.Controls.Shapes.Path gfxRectIcon = null!, gfxEllipseIcon = null!;
+    private Button gfxRotL = null!, gfxRotR = null!, gfxFlipH = null!, gfxFlipV = null!;
     private DockPanel gfxToolPanel = null!, gfxScroll = null!;
     private Border gfxPaletteBar = null!;
     private StackPanel gfxBins = null!;
-    private ComboBox gfxPalRow = null!;
+    private ComboBox gfxPalRow = null!, gfxBpp = null!;
     private PaletteGridView gfxColors = null!;
     private MenuItem recentMenu = null!, upgradePrepItem = null!, spriteOverlayItem = null!,
                      animateItem = null!;
@@ -79,11 +85,10 @@ public partial class MainWindow : Window
     private ToggleButton layerOne = null!, layerTwo = null!;
     private Button addLayer2 = null!, dropLayer2 = null!;
     private TextBlock layer2Note = null!;
-    private Border map16Props = null!;
     private TextBlock m16SelLabel = null!, m16ActsNote = null!, m16Unallocated = null!;
     private StackPanel m16Fields = null!;
     private TextBox m16Acts = null!;
-    private CheckBox m16Priority = null!;
+    private ToggleButton m16Priority = null!;
     private ComboBox m16Palette = null!;
 
     public MainWindow()
@@ -179,18 +184,15 @@ public partial class MainWindow : Window
         // ---- Map16 canvas mode ----
         map16Canvas = this.GetControl<Map16CanvasView>("Map16Canvas");
         chr = this.GetControl<ChrPaletteView>("Chr");
-        palRowBox = this.GetControl<ComboBox>("PalRowBox");
-        chrFlipX = this.GetControl<CheckBox>("ChrFlipX");
-        chrFlipY = this.GetControl<CheckBox>("ChrFlipY");
-        chrPrio = this.GetControl<CheckBox>("ChrPrio");
-        for (int i = 0; i < 8; i++) palRowBox.Items.Add($"{i}");
-        palRowBox.SelectedIndex = 2;
-        palRowBox.SelectionChanged += (_, _) => { RebuildChrSheet(); RefreshMap16Sheet(); };
+        grain16 = this.GetControl<ToggleButton>("Grain16");
+        grain8 = this.GetControl<ToggleButton>("Grain8");
         chr.BrushChanged += (_, _) =>
         {
             map16Canvas.BrushW = chr.Brush.W;
             map16Canvas.BrushH = chr.Brush.H;
-            map16Canvas.InvalidateVisual();
+            // Picking an 8x8 tile IS the 8x8 grain — the pick means nothing at the other one, so
+            // taking one switches rather than arming a brush that right-click will ignore.
+            SetGrain(quad8: true);
         };
         map16Canvas.QuadPainted += (_, q) =>
         {
@@ -212,28 +214,45 @@ public partial class MainWindow : Window
             selLabel.Text = $"0x{tile:X4}";
             SetBrush(null, 1, 1);
         };
+        // A refused move or copy wrote nothing, so there is no stroke to seal — and sealing is
+        // what repaints the sheet, so the success path must not skip it.
         map16Canvas.MoveRequested += (_, m) =>
         {
-            if (map16?.MoveTiles(map16Canvas.Bank, m.X, m.Y, m.W, m.H, m.Dx, m.Dy) is { } why)
+            if (map16?.MoveTiles(map16Canvas.Bank, m.X, m.Y, m.W, m.H, m.Dx, m.Dy) is not null) return;
+            map16?.EndStroke();
+        };
+        map16Canvas.DuplicateRequested += (_, m) =>
+        {
+            if (map16?.CopyQuads(map16Canvas.Bank, m.X, m.Y, m.W, m.H, m.Dx, m.Dy) is not null) return;
             map16?.EndStroke();
         };
         // Subscribed once, on the session: a committed definition change invalidates the tile
         // caches behind the level, the picker and the sheet alike.
         session.Map16Committed += (_, _) => OnMap16Committed();
 
-        // ---- Map16 properties inspector ----
-        map16Props = this.GetControl<Border>("Map16Props");
+        // ---- Map16 tile fields, in the canvas header ----
         m16SelLabel = this.GetControl<TextBlock>("M16SelLabel");
         m16Fields = this.GetControl<StackPanel>("M16Fields");
         m16Unallocated = this.GetControl<TextBlock>("M16Unallocated");
         m16Acts = this.GetControl<TextBox>("M16Acts");
         m16ActsNote = this.GetControl<TextBlock>("M16ActsNote");
-        m16Priority = this.GetControl<CheckBox>("M16Priority");
+        m16Priority = this.GetControl<ToggleButton>("M16Priority");
         m16Palette = this.GetControl<ComboBox>("M16Palette");
         for (int i = 0; i < 8; i++) m16Palette.Items.Add($"{i}");
 
         map16Canvas.SelectionChanged += (_, _) => RefreshMap16Props();
         map16Canvas.TilePicked += (_, _) => RefreshMap16Props();
+        // Clicking the desk beside the sheet drops the selection. The canvas is only as wide as
+        // the tile column, so a click that misses it never reaches it at all — the miss has to be
+        // caught out here. A scrollbar is not a miss.
+        this.GetControl<ScrollViewer>("Map16Scroll").PointerPressed += (_, e) =>
+        {
+            if (e.Source is not Control src || ReferenceEquals(src, map16Canvas)
+                || src.FindAncestorOfType<ScrollBar>() is not null) return;
+            map16Canvas.ClearSelection();
+            chr.ClearSelection();          // one deselect covers both surfaces, at either grain
+            RefreshMap16Props();
+        };
         // Committed on Enter or on leaving the field, not per keystroke: half a hex number is
         // still a number, and every commit rewrites the ROM.
         m16Acts.KeyDown += (_, e) => { if (e.Key == Key.Enter) { ApplyM16Acts(); e.Handled = true; } };
@@ -258,7 +277,7 @@ public partial class MainWindow : Window
         {
             if (e.Property == RangeBase.ValueProperty) ApplyZoom();
         };
-        ApplyZoomTarget(gfx: false);      // one source of truth for the range, step and value
+        ApplyZoomTarget();                // one source of truth for the range, step and value
 
         bankBox.SelectionChanged += (_, _) =>
         {
@@ -336,10 +355,15 @@ public partial class MainWindow : Window
         gfxRectFilledBtn = this.GetControl<ToggleButton>("GfxRectFilledBtn");
         gfxEllipseOutlineBtn = this.GetControl<ToggleButton>("GfxEllipseOutlineBtn");
         gfxEllipseFilledBtn = this.GetControl<ToggleButton>("GfxEllipseFilledBtn");
+        gfxRotL = this.GetControl<Button>("GfxRotL");
+        gfxRotR = this.GetControl<Button>("GfxRotR");
+        gfxFlipH = this.GetControl<Button>("GfxFlipH");
+        gfxFlipV = this.GetControl<Button>("GfxFlipV");
         gfxToolPanel = this.GetControl<DockPanel>("GfxToolPanel");
         gfxPaletteBar = this.GetControl<Border>("GfxPaletteBar");
         gfxBins = this.GetControl<StackPanel>("GfxBins");
         gfxPalRow = this.GetControl<ComboBox>("GfxPalRow");
+        gfxBpp = this.GetControl<ComboBox>("GfxBpp");
         gfxColors = this.GetControl<PaletteGridView>("GfxColors");
         gfxColors.Rows = 1;
         gfxColors.Cell = 20;
@@ -351,13 +375,29 @@ public partial class MainWindow : Window
             g.PalRow = row;
             RefreshGfx();
         };
+        // The two depths the SNES actually DISPLAYS: 4bpp for FG/BG and sprite tiles, 2bpp for
+        // layer 3. SMW storing most files as three planes is a storage fact, not a display one
+        // — the upload expands them to four, with plane 3 zero, which is exactly what leaves
+        // colours 8-15 unreachable until the base is converted. So "4 bpp" means "read this as
+        // tile data", at whatever stride this ROM stores tile data at.
+        gfxBpp.ItemsSource = new List<object> { "4 bpp", "2 bpp" };
+        gfxBpp.SelectionChanged += (_, _) =>
+        {
+            if (refillingGfxRows || session.GfxPixels is not { } g) return;
+            if (gfxBpp.SelectedIndex is not (0 or 1)) return;
+            g.ViewAs(gfxBpp.SelectedIndex == 1 ? 2 : 4);
+            RefreshGfx();
+        };
         gfxColors.ShowHoverIndex = true;
         // The back half of the row exists on the SNES (tiles display 4bpp) but a 3bpp-stored
         // file has no plane to hold colours 8-15, so they show greyed rather than absent.
         gfxColors.IsDisabled = i => i > (session.GfxPixels?.MaxColor ?? 15);
         gfxColors.Describe = i => i == 0 ? "transparent — the eraser paints this"
             : i > (session.GfxPixels?.MaxColor ?? 15)
-                ? $"colour {i} — needs a 4bpp ROM; this one stores {session.GfxPixels?.Bpp ?? 3}bpp"
+                ? session.GfxPixels?.Bpp == 2
+                    ? $"colour {i} — layer 3 is 2bpp, so this file holds colours 0-3"
+                    : $"colour {i} — this base still stores three bit planes, so the file has "
+                      + "nothing to hold colours 8-15 in"
                 : $"colour {i}";
         gfxColors.SelectionChanged += (_, i) =>
         {
@@ -405,20 +445,14 @@ public partial class MainWindow : Window
             if (session.GfxPixels is { } g)
                 SetGfxTool((GfxEdit.Tool)(((int)g.Current + 1) % Enum.GetValues<GfxEdit.Tool>().Length));
         };
-        // A move drags real bytes: the grab captures the pixels, each step previews through the
-        // open stroke, and release commits the whole drag as one undo entry.
-        gfxCanvas.SelectionMoveStarted += (_, r) => session.GfxPixels?.BeginMove(r.X, r.Y, r.W, r.H);
-        gfxCanvas.SelectionMoved += (_, d) =>
-        {
-            session.GfxPixels?.MoveBy(d.Dx, d.Dy);
-            RefreshGfxSheet();
-        };
-        gfxCanvas.SelectionMoveEnded += (_, _) =>
-        {
-            session.GfxPixels?.EndMove();
-            gfxSave.IsEnabled = session.GfxDirty;
-        };
+        // Grabbing a selection LIFTS it onto the floating layer, exactly as a paste arrives
+        // there: the block leaves a hole where it was and rides above everything else until it
+        // is dropped, so passing it over pixels does not eat them and letting go is not a
+        // commitment. The drop — a click elsewhere, or any way out of the mode — is the edit.
+        gfxCanvas.SelectionMoveStarted += (_, r) => LiftGfxSelection(r);
         gfxCanvas.FloatDropRequested += (_, _) => CommitGfxFloat();
+        // Rotate and flip act on the marquee, so they follow it wherever it changes.
+        gfxCanvas.SelectionChanged += (_, _) => RefreshGfxXform();
         gfxCanvas.ZoomStepped += (_, d) => StepZoom(d);
         // Every canvas feeds the same gutter readout; exiting blanks it.
         foreach (var c in new Control[] { map16Canvas, gfxCanvas })
@@ -688,7 +722,7 @@ public partial class MainWindow : Window
                 // An un-dropped paste never reached the bytes, so undoing it is just taking the
                 // float down — the history stays for the next Ctrl+Z.
                 if (!redo && gfxCanvas.Float is not null)
-                    gfxCanvas.ClearFloat();
+                    DiscardGfxFloat();
                 else if (redo ? session.GfxPixels?.Redo() == true : session.GfxPixels?.Undo() == true)
                 {
                     // A cut/paste/move walks the marquee back (or forward) with its pixels.
@@ -733,7 +767,8 @@ public partial class MainWindow : Window
                 if (gp.Clipboard is { } c && gp.Layout.Tiles > 0)
                 {
                     SetGfxTool(GfxEdit.Tool.Select);   // the float is dragged, so arm the tool
-                    gfxCanvas.ShowFloat(GfxFloatPixels(gp, c), c.W, c.H);
+                    gfxFloat = (null, c.Px);      // a paste has no home to go back to
+                    gfxCanvas.ShowFloat(GfxFloatPixels(gp, c.W, c.H, c.Px), c.W, c.H);
                 }
             }
             else if (gfxCanvas.Selection is { } s)
@@ -758,7 +793,7 @@ public partial class MainWindow : Window
             // First Esc in GFX mode throws away an un-dropped paste or drops the selection;
             // the next one leaves the mode.
             if (modeGfx.IsChecked == true && gfxCanvas.Float is not null)
-                gfxCanvas.ClearFloat();
+                DiscardGfxFloat();
             else if (modeGfx.IsChecked == true && gfxCanvas.Selection is not null)
                 gfxCanvas.Selection = null;
             else if (modeLevel.IsChecked != true) OnMode(modeLevel, new RoutedEventArgs());
@@ -789,18 +824,21 @@ public partial class MainWindow : Window
                                       zoomSlider.Minimum, zoomSlider.Maximum);
     }
 
-    // The gutter slider drives whichever canvas is showing, but 200% is a sane level zoom and a
-    // useless pixel zoom, so each mode keeps its own value and its own range. GFX starts at 8
-    // screen pixels per GFX pixel, which is what the ImGui editor opened at.
-    private double levelZoomPct = 200, gfxZoomPct = 800;
+    // The gutter slider drives whichever canvas is showing, but one percent cannot suit all
+    // three, so each mode keeps its own value and its own range. The level opens at 1:1 — the
+    // whole point of the level view is how much of the level you can see at once; the Map16
+    // sheet opens at 3x, since a 16-tile-wide column at 1:1 is a sliver; and GFX at 8 screen
+    // pixels per GFX pixel, which is what the ImGui editor opened at.
+    private double levelZoomPct = 100, gfxZoomPct = 800, map16ZoomPct = 300;
 
     /// <summary>Point the zoom control at a mode: its range, its step, and the value it was left
-    /// at. Call it AFTER the mode flags flip — <see cref="ApplyZoom"/> reads them.</summary>
-    private void ApplyZoomTarget(bool gfx)
+    /// at. Call it AFTER the mode flags flip — this and <see cref="ApplyZoom"/> read them.</summary>
+    private void ApplyZoomTarget()
     {
+        bool gfx = modeGfx?.IsChecked == true;
         // Read the wanted value first: narrowing the range coerces Value, which lands in the
         // remembered field on the way through.
-        double want = gfx ? gfxZoomPct : levelZoomPct;
+        double want = gfx ? gfxZoomPct : modeMap16?.IsChecked == true ? map16ZoomPct : levelZoomPct;
         // The level steps in 10%: a fractional zoom is drawn filtered rather than nearest, so it
         // stays clean (LevelView.Unsampled). The GFX sheet steps in whole multiples instead —
         // pixel editing wants the pixel you click to be exactly the pixel you paint.
@@ -825,6 +863,15 @@ public partial class MainWindow : Window
             gfxCanvas.Zoom = zoom;
             gfxCanvas.InvalidateMeasure();
             gfxCanvas.InvalidateVisual();
+        }
+        else if (modeMap16?.IsChecked == true)
+        {
+            // The Map16 sheet is 16x16 cells like the level, so it shares the level's range and
+            // 10% step — but not its remembered value: the two are browsed at different sizes.
+            map16ZoomPct = pct;
+            map16Canvas.Zoom = zoom;
+            map16Canvas.InvalidateMeasure();
+            map16Canvas.InvalidateVisual();
         }
         else
         {
@@ -1302,8 +1349,8 @@ public partial class MainWindow : Window
     /// padding and border and the list's margin.</summary>
     private const double GfxBinCardWidth = 128 * 2 + 8 * 2 + 1 * 2 + 10 * 2;
 
-    /// <summary>The Map16 drawer's CHR grid is NARROWER than the two control rows above it, so the
-    /// rows are what set the floor there.</summary>
+    /// <summary>The Map16 drawer's CHR grid sizes its tiles to whatever width it is given, so the
+    /// control row above it is the only thing with a width of its own — it sets the floor.</summary>
     private const double Map16BarWidth = 300;
 
     /// <summary>Which thing the drawer is holding. Not the same as the canvas mode by accident —
@@ -1316,12 +1363,14 @@ public partial class MainWindow : Window
     /// width; a splitter drag is remembered per pane rather than dragging all three.</summary>
     private readonly Dictionary<Pane, double> drawerWidths = [];
 
-    /// <summary>What a pane's content actually needs: a whole Map16 tile row, the 8x8 CHR grid and
-    /// its controls, or an uncut GFX bin card.</summary>
+    /// <summary>What a pane's content actually needs: a whole Map16 tile row, the CHR grid's
+    /// control row, or an uncut GFX bin card. The two CANVAS-mode panes open at the same width —
+    /// the bin card needs less than the Map16 row, and two modes opening at different widths make
+    /// the splitter jump as you switch between them.</summary>
     private double NaturalDrawerWidth(Pane pane) => DrawerChrome + pane switch
     {
-        Pane.Map16 => Math.Max(ChrPaletteView.ContentWidth(chr.Zoom), Map16BarWidth),
-        Pane.Graphics => GfxBinCardWidth,
+        Pane.Map16 => Map16BarWidth,
+        Pane.Graphics => Math.Max(GfxBinCardWidth, Map16BarWidth),
         _ => Map16PaletteView.ContentWidth(palette.Zoom),
     };
 
@@ -1401,9 +1450,10 @@ public partial class MainWindow : Window
         spritePanel.IsVisible = tab == 1;
         objectPanel.IsVisible = tab == 2;
         palettePanel.IsVisible = tab == 3;
-        // The bank/size row drives the Map16 sheet in both the picker and the Map16 canvas;
-        // it means nothing to a catalog or to the pixel editor.
-        paletteBar.IsVisible = map16Mode || tab == 0;
+        // The bank/size row belongs to the level's tile picker. It is off in every canvas mode:
+        // a catalog and the pixel editor never had a use for it, and the Map16 drawer is down to
+        // its header while those controls wait for a new home.
+        paletteBar.IsVisible = tab == 0;
 
         if (spritePanel.IsVisible) EnsureSpriteCatalog();
         if (objectPanel.IsVisible) EnsureObjectCatalog();
@@ -1453,28 +1503,63 @@ public partial class MainWindow : Window
 
     // ---- GFX canvas mode and the GFX tab ----
 
-    /// <summary>The clipboard's colour indices as RGBA in the current palette row, transparent
-    /// where the sheet should show through — what the floating paste is drawn with.</summary>
-    private uint[] GfxFloatPixels(GfxEdit g, (int W, int H, byte[] Px) c)
+    /// <summary>Colour indices as RGBA in the current palette row, transparent where the sheet
+    /// should show through — what a float (a paste, or a lifted selection) is drawn with.</summary>
+    private uint[] GfxFloatPixels(GfxEdit g, int w, int h, byte[] src)
     {
         var pal = session.PaletteRgba;
-        var px = new uint[c.W * c.H];
+        var px = new uint[w * h];
         for (int i = 0; i < px.Length; i++)
-            px[i] = c.Px[i] == 0 ? 0u : pal[g.PalRow * 16 + Math.Min(c.Px[i], (byte)g.MaxColor)];
+            px[i] = src[i] == 0 ? 0u : pal[g.PalRow * 16 + Math.Min(src[i], (byte)g.MaxColor)];
         return px;
     }
 
-    /// <summary>Drop the floating paste into the file where it rests — one undo entry, and the
-    /// dropped block stays selected. The float never touched the bytes, so with none up there is
-    /// nothing to do; that is what makes this safe to call at every way out of positioning.</summary>
+    /// <summary>What is riding on the floating layer: its colour indices, and — for a LIFTED
+    /// selection — where it was taken from, so its drop lands the right block and undoing that
+    /// drop (or Esc) puts the marquee back home. Home is null for a paste, which came from no
+    /// particular place and left no hole to fill back in.</summary>
+    private ((int X, int Y, int W, int H)? Home, byte[] Px)? gfxFloat;
+
+    /// <summary>Take the marquee's pixels off the sheet onto the floating layer. Every gesture
+    /// that reshapes a selection — moving it, turning it — starts here, so none of them writes
+    /// anything until the block is dropped.</summary>
+    private void LiftGfxSelection((int X, int Y, int W, int H) r)
+    {
+        if (session.GfxPixels is not { } g) return;
+        var px = g.Lift(r.X, r.Y, r.W, r.H);
+        gfxFloat = (r, px);
+        gfxCanvas.ShowFloat(GfxFloatPixels(g, r.W, r.H, px), r.W, r.H, r.X, r.Y);
+        RefreshGfxSheet();               // the hole it left
+    }
+
+    /// <summary>Drop the float into the file where it rests — one undo entry, and the dropped
+    /// block stays selected. A paste never touched the bytes and a lifted move wrote only the
+    /// hole it left, so with none up there is nothing to do; that is what makes this safe to
+    /// call at every way out of positioning.</summary>
     private void CommitGfxFloat()
     {
         if (gfxCanvas.Float is not { } f || session.GfxPixels is not { } g) return;
-        g.Paste(f.X, f.Y, (f.X, f.Y, f.W, f.H));
+        g.Paste(f.X, f.Y, gfxFloat?.Home ?? (f.X, f.Y, f.W, f.H),
+                gfxFloat is { } l ? (f.W, f.H, l.Px) : null);
+        gfxFloat = null;
         gfxCanvas.ClearFloat();
         gfxCanvas.Selection = (f.X, f.Y, f.W, f.H);
         RefreshGfxSheet();
         gfxSave.IsEnabled = session.GfxDirty;
+    }
+
+    /// <summary>Take the float down WITHOUT landing it — Esc, or Ctrl+Z on one still adrift. A
+    /// paste has nothing to undo; a lifted move has its hole open in the stroke, and aborting
+    /// that is what puts the block back where it was grabbed from.</summary>
+    private void DiscardGfxFloat()
+    {
+        var home = gfxFloat?.Home;
+        gfxFloat = null;
+        gfxCanvas.ClearFloat();
+        if (home is null) { RefreshGfxXform(); return; }
+        session.GfxPixels?.AbortStroke();
+        gfxCanvas.Selection = home;
+        RefreshGfxSheet();
     }
 
     private void SetGfxTool(GfxEdit.Tool tool)
@@ -1505,6 +1590,39 @@ public partial class MainWindow : Window
         // The ring follows the tool: the eraser paints index 0, so that is the swatch in use.
         if (session.GfxPixels is { } sel)
             gfxColors.Select(tool == GfxEdit.Tool.Eraser ? 0 : sel.Color);
+        RefreshGfxXform();      // the selection only counts while the select tool holds it
+    }
+
+    /// <summary>Rotate and flip need something to act on: the select tool armed with a marquee,
+    /// or a block already up on the floating layer. Greyed rather than hidden, so they read as
+    /// "not yet" rather than "not here".</summary>
+    private void RefreshGfxXform()
+        => gfxRotL.IsEnabled = gfxRotR.IsEnabled = gfxFlipH.IsEnabled = gfxFlipV.IsEnabled
+            = gfxCanvas.Selecting && (gfxCanvas.Selection is not null || gfxCanvas.Float is not null);
+
+    /// <summary>
+    /// Turn the selection. It happens ON THE FLOATING LAYER: the block is lifted first (as
+    /// grabbing it to move would), turns in the air, and only the drop writes — so turning it
+    /// twice, or turning it and then changing your mind, costs the sheet underneath nothing.
+    /// A quarter turn swaps the block's sides and pivots about its own centre, clamped to the
+    /// sheet edge, so it stays where it was instead of swinging off its top-left corner.
+    /// </summary>
+    private void OnGfxXform(object? sender, RoutedEventArgs e)
+    {
+        if (session.GfxPixels is not { } g) return;
+        if (gfxCanvas.Float is null && gfxCanvas.Selection is { } s) LiftGfxSelection(s);
+        if (gfxCanvas.Float is not { } f || gfxFloat is not { } fl) return;
+
+        var (nw, nh, px) = GfxEdit.Turn(f.W, f.H, fl.Px,
+                        ReferenceEquals(sender, gfxRotL) ? GfxEdit.Xform.RotateLeft
+                      : ReferenceEquals(sender, gfxRotR) ? GfxEdit.Xform.RotateRight
+                      : ReferenceEquals(sender, gfxFlipH) ? GfxEdit.Xform.FlipH
+                      : GfxEdit.Xform.FlipV);
+        var (_, sw, sh) = g.Layout;
+        gfxFloat = (fl.Home, px);
+        gfxCanvas.ShowFloat(GfxFloatPixels(g, nw, nh, px), nw, nh,
+                            Math.Clamp(f.X + (f.W - nw) / 2, 0, Math.Max(0, sw - nw)),
+                            Math.Clamp(f.Y + (f.H - nh) / 2, 0, Math.Max(0, sh - nh)));
     }
 
     /// <summary>The Rect button both arms the tool and offers its two shapes — one click gets
@@ -1633,6 +1751,7 @@ public partial class MainWindow : Window
             // Backstop only: every deliberate file switch commits the float first. A file that
             // changed some other way discards it — committing into the wrong sheet is worse.
             gfxCanvas.ClearFloat();
+            gfxFloat = null;             // its home was in the file we just left
             gfxCanvas.Selection = null;
             gfxSelectionFile = g.File;
         }
@@ -1660,6 +1779,12 @@ public partial class MainWindow : Window
         gfxEmptyLoad.IsVisible = !none && g.Layout.Tiles == 0;
         SetGfxTool(g.Current);
         RefreshGfxPalRows(g.PalRow);      // the rows this bin allows, before anything reads one
+        // The depth box shows what the sheet is being READ as, override or not — so switching
+        // files moves it back to whatever that file is, which is what dropping the override did.
+        // A 3bpp-stored file reads as tile data, and tile data displays 4bpp: same entry.
+        refillingGfxRows = true;
+        gfxBpp.SelectedIndex = g.Bpp == 2 ? 1 : 0;
+        refillingGfxRows = false;
         RefreshGfxSheet(none);
 
         // The WHOLE 16-colour row as paint swatches: a tile displays 4bpp on the SNES, so the
@@ -1893,17 +2018,21 @@ public partial class MainWindow : Window
         if (!gfx) { CommitGfxFloat(); session.GfxPixels?.AbortStroke(); }
 
         this.GetControl<ScrollViewer>("CanvasScroll").IsVisible = !map16 && !gfx;
-        this.GetControl<ScrollViewer>("Map16Scroll").IsVisible = map16;
+        this.GetControl<DockPanel>("Map16Pane").IsVisible = map16;
         gfxScroll.IsVisible = gfx;
         edit?.Selection.Clear();
         map16Canvas.ClearSelection();
-        ApplyZoomTarget(gfx);          // the gutter control follows the canvas it is driving
+        ApplyZoomTarget();             // the gutter control follows the canvas it is driving
         ApplyDrawerPane(gfx ? Pane.Graphics : map16 ? Pane.Map16 : Pane.Level);
 
         RefreshDrawer();
-        map16Props.IsVisible = map16;
         if (map16)
         {
+            // Entering the mode adopts whatever the level's picker is armed with — but only on
+            // the way IN. Re-adopting it on every sheet refresh moved the selection off the tile
+            // you had just edited, so a property change deselected its own tile and the next one
+            // went somewhere else entirely.
+            map16Canvas.SelectedTile = palette.Selected;
             RefreshMap16Sheet();
             RefreshMap16Props();
             FocusWhenLaidOut(map16Canvas);
@@ -1940,10 +2069,28 @@ public partial class MainWindow : Window
     {
         if (map16 is not { } m16) return;
         var tiles = map16Canvas.SelectedTiles().ToList();
+
+        // Nothing selected: the row stays put, greyed and blanked out. Hiding it would take the
+        // bar's height with it, and there is nothing to say about a tile that is not there.
+        m16SelLabel.IsEnabled = m16Fields.IsEnabled = tiles.Count > 0;
+        if (tiles.Count == 0)
+        {
+            loadingM16Props = true;
+            m16SelLabel.Text = "Tile ######";
+            m16Acts.Text = "-";
+            m16ActsNote.Text = "";
+            m16Priority.IsChecked = false;
+            m16Palette.SelectedIndex = -1;
+            m16Fields.IsVisible = true;
+            m16Unallocated.IsVisible = false;
+            loadingM16Props = false;
+            return;
+        }
+
         int first = tiles[0];
         m16SelLabel.Text = tiles.Count > 1
             ? $"{tiles.Count} tiles selected"
-            : $"tile 0x{first:X4}";
+            : $"Tile 0x{first:X4}";
 
         var def = m16.ReadDef(first);
         m16Fields.IsVisible = def is not null;
@@ -1970,6 +2117,18 @@ public partial class MainWindow : Window
         m16.SetActsAs(map16Canvas.SelectedTiles(), v);
     }
 
+    /// <summary>Radio behaviour without a group, as the canvas modes do it: exactly one grain.
+    /// The canvas is the one that acts on it — this pair is only how it gets said.</summary>
+    private void OnGrain(object? sender, RoutedEventArgs e) => SetGrain(ReferenceEquals(sender, grain8));
+
+    private void SetGrain(bool quad8)
+    {
+        grain8.IsChecked = quad8;
+        grain16.IsChecked = !quad8;
+        map16Canvas.Grain = quad8 ? Map16CanvasView.TileGrain.Quad8 : Map16CanvasView.TileGrain.Tile16;
+        map16Canvas.InvalidateVisual();
+    }
+
     private void OnFlipX(object? sender, RoutedEventArgs e) => FlipM16(vertical: false);
     private void OnFlipY(object? sender, RoutedEventArgs e) => FlipM16(vertical: true);
 
@@ -1985,28 +2144,23 @@ public partial class MainWindow : Window
         var (px, w, h) = session.SheetPhases();
         map16Canvas.SetSheet(px, w, h, session.Map16TileCount);
         map16Canvas.Bank = Math.Max(0, bankBox.SelectedIndex);
-        map16Canvas.SelectedTile = palette.Selected;
         RebuildChrSheet();
     }
 
     private void RebuildChrSheet()
     {
-        var (px, w, h) = session.ChrPhases(Math.Max(0, palRowBox.SelectedIndex));
+        var (px, w, h) = session.ChrPhases(ChrPalRow);
         if (px[0] is not null) chr.SetSheet(px, w, h);
     }
 
     /// <summary>
     /// The Map16 word a brush cell stamps: the 8x8 tile number in the low 10 bits, then the
-    /// palette row and the flip/priority flags from the drawer. This packing IS the Map16
-    /// format (CONTRACT §5), which is why the flags live with the brush rather than being
-    /// applied afterwards.
+    /// palette row. This packing IS the Map16 format (CONTRACT §5), which is why the row lives
+    /// with the brush rather than being applied afterwards — and why the flip and priority bits
+    /// belong here too, once <see cref="ChrPalRow"/>'s controls have somewhere to live again.
     /// </summary>
     private ushort GfxBrushWord(int bx, int by)
-        => (ushort)((chr.TileOfBrushCell(bx, by) & 0x3FF)
-                    | (Math.Max(0, palRowBox.SelectedIndex) << 10)
-                    | (chrPrio.IsChecked == true ? 0x2000 : 0)
-                    | (chrFlipX.IsChecked == true ? 0x4000 : 0)
-                    | (chrFlipY.IsChecked == true ? 0x8000 : 0));
+        => (ushort)((chr.TileOfBrushCell(bx, by) & 0x3FF) | (ChrPalRow << 10));
 
     /// <summary>Rebuild everything a committed Map16 edit invalidates: the tile caches feed
     /// both the level canvas and the picker, so a def change has to reach all three.</summary>

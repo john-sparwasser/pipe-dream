@@ -84,6 +84,39 @@ public class LevelViewTests
         Assert.Equal((5, 0), view.LastClickedCell);
     }
 
+    /// <summary>Zoomed out far enough to fit an axis, the level is centred on it: a horizontal
+    /// level sits in the middle vertically, a vertical one in the middle horizontally. The axis
+    /// that still overflows must stay at the origin, or its first screenful is unreachable.</summary>
+    [AvaloniaFact]
+    public void a_level_that_fits_an_axis_is_centred_on_it()
+    {
+        var (wide, wideView) = InScroller(pxW: 2048, pxH: 432);      // horizontal level
+        var at = wideView.TranslatePoint(default, wide)!.Value;
+        Assert.Equal(0, at.X, 1);
+        Assert.Equal((wide.Viewport.Height - 432) / 2, at.Y, 1);
+
+        var (tall, tallView) = InScroller(pxW: 256, pxH: 2048);      // vertical level
+        at = tallView.TranslatePoint(default, tall)!.Value;
+        Assert.Equal((tall.Viewport.Width - 256) / 2, at.X, 1);
+        Assert.Equal(0, at.Y, 1);
+    }
+
+    /// <summary>The canvas as the app hosts it — inside the scroll viewer, at zoom 1 so the
+    /// pixel sizes above are the layout sizes.</summary>
+    private static (ScrollViewer S, LevelView V) InScroller(int pxW, int pxH)
+    {
+        var view = new LevelView { Zoom = 1.0, Source = FakeLevel(pxW, pxH) };
+        var scroller = new ScrollViewer
+        {
+            Content = view,
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+        };
+        new Window { Width = 800, Height = 600, Content = scroller }.Show();
+        Dispatcher.UIThread.RunJobs();
+        return (scroller, view);
+    }
+
     [AvaloniaFact]
     public void clicking_past_the_end_of_the_level_selects_nothing()
     {

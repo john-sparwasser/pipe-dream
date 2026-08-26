@@ -18,17 +18,22 @@ public class ChrPaletteView : Control
 {
     public const int Cols = GfxSheets.ChrCols, Count = GfxSheets.ChrCount;
 
-    public double Zoom { get; set; } = 2.0;
-
-    /// <summary>Width the grid needs at a zoom, margin included — what the drawer sizes to so the
-    /// last tile column is not cut off. Mirrors <see cref="Map16PaletteView.ContentWidth"/>; Pad is
-    /// the view's margin in the window's XAML.</summary>
-    public const double Pad = 8;
-    public static double ContentWidth(double zoom) => Cols * 8 * zoom + Pad * 2;
+    /// <summary>Set by <see cref="MeasureOverride"/> from the width the drawer gives it — the grid
+    /// is always 16 tiles across, so the tile size is whatever divides the space, not a fixed 2x
+    /// with a dead gutter beside it. The initial value only stands until the first measure.</summary>
+    public double Zoom { get; private set; } = 2.0;
 
     /// <summary>Selected 8x8 tile, and the rectangle when several were lassoed.</summary>
     public int Selected { get; private set; }
     public (int X, int Y, int W, int H) Brush { get; private set; } = (0, 0, 1, 1);
+
+    /// <summary>Whether that pick is still standing. Deselecting in the Map16 canvas drops it
+    /// here too — one deselect, not one per surface — and only the outline depends on it: the
+    /// brush keeps its last rectangle, so a stamp with nothing picked still has something to
+    /// stamp.</summary>
+    public bool HasSelection { get; private set; }
+
+    public void ClearSelection() { HasSelection = false; InvalidateVisual(); }
 
     public event EventHandler? BrushChanged;
 
@@ -62,7 +67,17 @@ public class ChrPaletteView : Control
         return t < Count ? t : null;
     }
 
-    protected override Size MeasureOverride(Size available) => new(Cols * Cell, Count / Cols * Cell);
+    /// <summary>Fit the width. The host must not offer infinity here — the ScrollViewer around
+    /// this one scrolls vertically only, so it does not — but a stale zoom beats a NaN one.</summary>
+    protected override Size MeasureOverride(Size available)
+    {
+        if (available.Width > 0 && !double.IsInfinity(available.Width))
+        {
+            double want = available.Width / (Cols * 8);
+            if (Math.Abs(want - Zoom) > 0.0001) { Zoom = want; InvalidateVisual(); }
+        }
+        return new(Cols * Cell, Count / Cols * Cell);
+    }
 
     private (int X, int Y)? dragStart;
 
@@ -74,6 +89,7 @@ public class ChrPaletteView : Control
         dragStart = (t % Cols, t / Cols);
         Brush = (dragStart.Value.X, dragStart.Value.Y, 1, 1);
         Selected = t;
+        HasSelection = true;
         e.Pointer.Capture(this);
         BrushChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
@@ -114,7 +130,8 @@ public class ChrPaletteView : Control
         if (sheet.For(Phase) is { } bmp)
             blit.Draw(this, ctx, bmp, new Rect(0, 0, sheetW, sheetH), full, VisualRoot?.RenderScaling ?? 1);
 
-        ctx.DrawRectangle(null, new Pen(UiColors.Accent, 2),
-                          new Rect(Brush.X * c, Brush.Y * c, Brush.W * c, Brush.H * c));
+        if (HasSelection)
+            ctx.DrawRectangle(null, new Pen(UiColors.Accent, 2),
+                              new Rect(Brush.X * c, Brush.Y * c, Brush.W * c, Brush.H * c));
     }
 }

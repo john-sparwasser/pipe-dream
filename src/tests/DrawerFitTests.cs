@@ -97,6 +97,9 @@ public class DrawerFitTests(ITestOutputHelper log)
         double map16 = col.Width.Value;
         Assert.True(map16 < level, $"Map16 drawer {map16:F0} should be narrower than level's {level:F0}");
         log.WriteLine($"level {level:F0}px, Map16 {map16:F0}px, graphics {gfx:F0}px");
+        // The two canvas modes OPEN at the same width, so switching between them does not move
+        // the splitter. Only the level pane, whose tile row is genuinely wider, differs.
+        Assert.Equal(map16, gfx, 1);
 
         // Widen Map16's, then walk the modes: only Map16 remembers the drag.
         col.Width = new GridLength(map16 + 150);
@@ -109,6 +112,32 @@ public class DrawerFitTests(ITestOutputHelper log)
         Mode("ModeMap16");
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(map16 + 150, col.Width.Value);
+    }
+
+    /// <summary>The Map16 drawer's CHR grid goes the other way round from the level's tile row:
+    /// instead of the content setting the width, the width sets the tile size. A whole row of 16
+    /// spans the drawer at any width, and widening it with the splitter grows the tiles.</summary>
+    [AvaloniaFact]
+    public void the_chr_grid_fills_the_map16_drawer_at_any_width()
+    {
+        if (Open() is not { } w) { log.WriteLine("SKIP: no ROM"); return; }
+        w.GetControl<ToggleButton>("ModeMap16")
+         .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var chr = w.GetControl<ChrPaletteView>("Chr");
+        var col = w.GetControl<Grid>("Split").ColumnDefinitions[0];
+
+        double fitted = ChrPaletteView.Cols * 8 * chr.Zoom;
+        Assert.Equal(fitted, chr.Bounds.Width, 1);        // the row spans exactly what it was given
+        log.WriteLine($"drawer {col.Width.Value:F0}px: CHR grid {chr.Bounds.Width:F0}px at {chr.Zoom:F2}x");
+
+        double before = chr.Zoom;
+        col.Width = new GridLength(col.Width.Value + 160);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(chr.Zoom > before, $"tiles stayed at {before:F2}x in a drawer 160px wider");
+        Assert.Equal(ChrPaletteView.Cols * 8 * chr.Zoom, chr.Bounds.Width, 1);
     }
 
     /// <summary>Growing the tile size widens the drawer; the splitter can still make it wider

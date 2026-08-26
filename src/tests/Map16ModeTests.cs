@@ -160,6 +160,50 @@ public class Map16ModeTests(ITestOutputHelper log)
         Assert.Equal(0xAAAA, edit.ReadDef(0x210)![0].Raw);            // one step back
     }
 
+    /// <summary>The right-click copy works in QUADRANTS, which is what lets one operation serve
+    /// both grains — and unlike the drag-move it leaves the source where it is.</summary>
+    [Fact]
+    public void copying_quadrants_leaves_the_source_in_place()
+    {
+        if (Edit() is not { } e) { log.WriteLine("SKIP: no ROM"); return; }
+        var (_, edit) = e;
+        for (int t = 0x230; t < 0x234; t++) Assert.Null(edit.EnsurePage(t));
+
+        // Tile 0x230 sits at tile row 35, so quadrant row 70; stamp its visual TL and TR.
+        edit.StampQuad(0x230, 0, 0xAAAA);
+        edit.StampQuad(0x230, 1, 0xBBBB);
+        edit.EndStroke();
+
+        // Those two quadrants, two quadrant rows down — one whole tile: into 0x240's top row.
+        Assert.Null(edit.CopyQuads(0, 0, 70, 2, 1, 0, 2));
+        edit.EndStroke();
+
+        Assert.Equal(0xAAAA, edit.ReadDef(0x240)![0].Raw);
+        Assert.Equal(0xBBBB, edit.ReadDef(0x240)![1].Raw);
+        Assert.Equal(0xAAAA, edit.ReadDef(0x230)![0].Raw);               // source kept
+        Assert.Equal(0xBBBB, edit.ReadDef(0x230)![1].Raw);
+    }
+
+    /// <summary>Half a tile is a legal copy at the 8x8 grain: one quadrant across, which lands in
+    /// its neighbour's TR without touching anything else in either tile.</summary>
+    [Fact]
+    public void a_quadrant_copy_can_land_inside_another_tile()
+    {
+        if (Edit() is not { } e) { log.WriteLine("SKIP: no ROM"); return; }
+        var (_, edit) = e;
+        for (int t = 0x250; t < 0x252; t++) Assert.Null(edit.EnsurePage(t));
+        edit.StampQuad(0x250, 0, 0xCCCC);                                // tile 0x250, visual TL
+        edit.StampQuad(0x251, 1, 0x0000);
+        edit.EndStroke();
+
+        int qx = 0, qy = (0x250 / Map16Layout.Cols) * 2;                 // that quadrant, in quads
+        Assert.Null(edit.CopyQuads(0, qx, qy, 1, 1, 3, 0));              // three quadrants right
+        edit.EndStroke();
+
+        Assert.Equal(0xCCCC, edit.ReadDef(0x251)![1].Raw);               // next tile's visual TR
+        Assert.Equal(0xCCCC, edit.ReadDef(0x250)![0].Raw);               // source untouched
+    }
+
     [Fact]
     public void a_move_onto_unallocated_tiles_is_refused_rather_than_partial()
     {
@@ -186,7 +230,7 @@ public class Map16ModeTests(ITestOutputHelper log)
         Dispatcher.UIThread.RunJobs();
 
         Assert.True(w.GetControl<ScrollViewer>("CanvasScroll").IsVisible);
-        Assert.False(w.GetControl<ScrollViewer>("Map16Scroll").IsVisible);
+        Assert.False(w.GetControl<DockPanel>("Map16Pane").IsVisible);
 
         var mode = w.GetControl<Avalonia.Controls.Primitives.ToggleButton>("ModeMap16");
         mode.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
@@ -195,7 +239,7 @@ public class Map16ModeTests(ITestOutputHelper log)
         // The canvas IS the editor: the Map16 view takes the region, and the drawer follows
         // it to 8x8 GFX rather than opening a second panel.
         Assert.False(w.GetControl<ScrollViewer>("CanvasScroll").IsVisible);
-        Assert.True(w.GetControl<ScrollViewer>("Map16Scroll").IsVisible);
+        Assert.True(w.GetControl<DockPanel>("Map16Pane").IsVisible);
         Assert.False(w.GetControl<ScrollViewer>("PaletteScroll").IsVisible);
         Assert.True(w.GetControl<DockPanel>("ChrPanel").IsVisible);
         Assert.True(w.GetControl<Border>("Drawer").IsVisible);
@@ -207,6 +251,109 @@ public class Map16ModeTests(ITestOutputHelper log)
          .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
         Assert.True(w.GetControl<TabStrip>("PaletteTabs").IsVisible);
+    }
+
+    /// <summary>Map16 mode wears the same skeleton as GFX: a header over the canvas and one over
+    /// the drawer, both under the mode bar and both the same height, so the two read as one strip
+    /// and switching modes does not move the furniture. The drawer's height comes from a binding
+    /// to the canvas bar, and a binding that fails to resolve gives it zero rather than an error.
+    /// </summary>
+    [AvaloniaFact]
+    public void the_map16_headers_line_up_with_each_other()
+    {
+        if (Prepped is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
+        w.GetControl<ToggleButton>("ModeMap16")
+         .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        double canvasBar = w.GetControl<Border>("Map16EditorBar").Bounds.Height;
+        double drawerBar = w.GetControl<Border>("Map16DrawerBar").Bounds.Height;
+        log.WriteLine($"canvas bar {canvasBar:F0}px, drawer bar {drawerBar:F0}px");
+
+        Assert.True(canvasBar > 0, "the Map16 canvas has no header");
+        Assert.Equal(canvasBar, drawerBar, 1);
+
+        // The controls that used to sit in the drawer are gone with them — the bank/size row is
+        // the level picker's, and it does not follow the drawer into this mode.
+        Assert.False(w.GetControl<Border>("PaletteBar").IsVisible);
+    }
+
+    /// <summary>The sheet is centred, so there is desk either side of it. Clicking that desk is a
+    /// click on nothing, and a click on nothing drops the selection — the canvas never sees it,
+    /// since it is only as wide as the tile column.</summary>
+    [AvaloniaFact]
+    public void clicking_the_desk_beside_the_sheet_clears_the_selection()
+    {
+        if (Prepped is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
+        w.GetControl<ToggleButton>("ModeMap16")
+         .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var sheet = w.GetControl<Map16CanvasView>("Map16Canvas");
+        var scroll = w.GetControl<ScrollViewer>("Map16Scroll");
+        Point OnSheet(double x, double y) => sheet.TranslatePoint(new Point(x, y), w)!.Value;
+
+        // Lasso two tiles — one alone is a PICK, not a selection.
+        w.MouseDown(OnSheet(8, 8), MouseButton.Left);
+        w.MouseMove(OnSheet(8 + 16 * sheet.Zoom, 8));
+        w.MouseUp(OnSheet(8 + 16 * sheet.Zoom, 8), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.NotNull(sheet.Selection);
+
+        var desk = scroll.TranslatePoint(new Point(4, 40), w)!.Value;
+        Assert.True(sheet.TranslatePoint(default, w)!.Value.X > desk.X, "no desk left of the sheet");
+        w.MouseDown(desk, MouseButton.Left);
+        w.MouseUp(desk, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Null(sheet.Selection);
+    }
+
+    /// <summary>The gutter zoom drives whichever canvas is showing. In Map16 mode that is the
+    /// Map16 sheet — it used to drive the level canvas from behind the hidden scroll viewer, so
+    /// the slider looked dead — and each mode keeps its own remembered percent.</summary>
+    [AvaloniaFact]
+    public void the_zoom_slider_drives_the_map16_sheet_in_map16_mode()
+    {
+        if (Prepped is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var slider = w.GetControl<Slider>("ZoomSlider");
+        var sheet = w.GetControl<Map16CanvasView>("Map16Canvas");
+        var level = w.GetControl<LevelView>("Canvas");
+
+        Assert.Equal(100, slider.Value);           // the level opens at 1:1
+        Assert.Equal(1.0, level.Zoom);
+
+        slider.Value = 500;                        // level mode: the level moves, the sheet does not
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(5.0, level.Zoom);
+
+        w.GetControl<ToggleButton>("ModeMap16")
+         .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(300, slider.Value);           // the sheet's own percent, not the level's 500%
+        Assert.Equal(3.0, sheet.Zoom);
+
+        slider.Value = 400;
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(4.0, sheet.Zoom);
+        Assert.Equal(5.0, level.Zoom);             // and the level is left where it was
+
+        w.GetControl<ToggleButton>("ModeLevel")
+         .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(500, slider.Value);
+        Assert.Equal(5.0, level.Zoom);
     }
 
     /// <summary>
@@ -269,6 +416,241 @@ public class Map16ModeTests(ITestOutputHelper log)
         Assert.True(edit.SetActsAs([0x100], 0x130));
         Assert.NotNull(edit.CommittedTiles);
         Assert.Empty(edit.CommittedTiles!);
+    }
+
+    /// <summary>A 16x16 lasso covers whole tiles however it was dragged, and right-click there —
+    /// where the 8x8 brush is not in play — puts a copy of them under the cursor. The selection
+    /// is kept in quadrants, so a tile-grain lasso is always an even rect on even boundaries.
+    /// </summary>
+    [AvaloniaFact]
+    public void a_16x16_lasso_snaps_to_whole_tiles_and_right_click_copies_them()
+    {
+        var (w, v) = Bare(Map16CanvasView.TileGrain.Tile16);
+
+        int painted = 0;
+        (int X, int Y, int W, int H, int Dx, int Dy)? dup = null;
+        v.QuadPainted += (_, _) => painted++;
+        v.DuplicateRequested += (_, d) => dup = d;
+        Point Quad(int col, int row) => v.TranslatePoint(new Point(col * 16 + 4, row * 16 + 4), w)!.Value;
+
+        // Drag from the middle of tile (0,1) to the middle of tile (1,1) — quadrants 1,3 to 2,3.
+        w.MouseDown(Quad(1, 3), MouseButton.Left);
+        w.MouseMove(Quad(2, 3));
+        w.MouseUp(Quad(2, 3), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal((0, 2, 4, 2), v.Selection);         // grown out to both whole tiles
+
+        w.MouseDown(Quad(8, 12), MouseButton.Right);     // tile (4,6)
+        w.MouseUp(Quad(8, 12), MouseButton.Right);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(0, painted);                        // the 8x8 brush is not in play here
+        Assert.Equal((0, 2, 4, 2, 8, 10), dup);          // in QUADRANTS, top-left under the cursor
+        Assert.Equal((0, 2, 4, 2), v.Selection);         // and stays selected for the next copy
+    }
+
+    /// <summary>8x8 is a different mode, not a finer cursor: the lasso selects QUADRANTS and a
+    /// click selects one quadrant rather than arming a level brush. The right button goes to the
+    /// 8x8 brush only while nothing is selected — a Map16 selection outranks it at either grain.
+    /// </summary>
+    [AvaloniaFact]
+    public void an_8x8_lasso_selects_quadrants_and_outranks_the_brush()
+    {
+        var (w, v) = Bare(Map16CanvasView.TileGrain.Quad8);
+        int painted = 0, picks = 0;
+        (int X, int Y, int W, int H, int Dx, int Dy)? dup = null;
+        v.QuadPainted += (_, _) => painted++;
+        v.TilePicked += (_, _) => picks++;
+        v.DuplicateRequested += (_, d) => dup = d;
+        Point Quad(int col, int row) => v.TranslatePoint(new Point(col * 16 + 4, row * 16 + 4), w)!.Value;
+
+        // Nothing selected yet: the brush has the right button.
+        w.MouseDown(Quad(4, 4), MouseButton.Right);
+        w.MouseUp(Quad(4, 4), MouseButton.Right);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(painted > 0, "the 8x8 brush did not stamp with nothing selected");
+        Assert.Null(dup);
+
+        w.MouseDown(Quad(1, 3), MouseButton.Left);       // the same drag as the 16x16 case
+        w.MouseMove(Quad(2, 3));
+        w.MouseUp(Quad(2, 3), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal((1, 3, 2, 1), v.Selection);         // exactly the two quadrants dragged
+        // Two quadrants straddling the tile boundary: the header acts on both tiles they touch.
+        Assert.Equal([0x10, 0x11], v.SelectedTiles().ToArray());
+
+        w.MouseDown(Quad(0, 0), MouseButton.Left);       // one quadrant is a selection, not a pick
+        w.MouseUp(Quad(0, 0), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal((0, 0, 1, 1), v.Selection);
+        Assert.Equal(0, picks);                          // a quadrant is not a level brush
+
+        // ...and now the selection takes the button: a copy, unsnapped, at quadrant precision.
+        painted = 0;
+        w.MouseDown(Quad(5, 7), MouseButton.Right);
+        w.MouseUp(Quad(5, 7), MouseButton.Right);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(0, painted);
+        Assert.Equal((0, 0, 1, 1, 5, 7), dup);
+    }
+
+    /// <summary>A bare canvas in a window — geometry and input, no ROM. Zoom 2: a tile is 32px,
+    /// a quadrant 16.</summary>
+    private static (Window W, Map16CanvasView V) Bare(Map16CanvasView.TileGrain grain)
+    {
+        var v = new Map16CanvasView { Zoom = 2, Grain = grain };
+        var w = new Window { Width = 400, Height = 400, Content = v };
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        return (w, v);
+    }
+
+    /// <summary>Clicking off the sheet deselects everything, and the header says so: placeholder
+    /// text, and the whole field row disabled so it greys. Leaving live-looking values there
+    /// invites an edit that has nothing to land on.</summary>
+    [AvaloniaFact]
+    public void nothing_selected_greys_and_blanks_the_header_fields()
+    {
+        if (Prepped is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
+        w.GetControl<ToggleButton>("ModeMap16")
+         .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var sheet = w.GetControl<Map16CanvasView>("Map16Canvas");
+        var chr = w.GetControl<ChrPaletteView>("Chr");
+        var label = w.GetControl<TextBlock>("M16SelLabel");
+        var fields = w.GetControl<StackPanel>("M16Fields");
+        Assert.True(fields.IsEnabled);                     // a tile is armed on the way in
+        Assert.NotNull(sheet.SelectedTile);
+
+        // Pick an 8x8 tile in the drawer as well, so there is one of each to drop.
+        var pick = chr.TranslatePoint(new Point(4, 4), w)!.Value;
+        w.MouseDown(pick, MouseButton.Left);
+        w.MouseUp(pick, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(chr.HasSelection);
+        Assert.Equal(Map16CanvasView.TileGrain.Quad8, sheet.Grain);
+
+        var desk = w.GetControl<ScrollViewer>("Map16Scroll").TranslatePoint(new Point(4, 40), w)!.Value;
+        w.MouseDown(desk, MouseButton.Left);
+        w.MouseUp(desk, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Null(sheet.SelectedTile);
+        Assert.Empty(sheet.SelectedTiles());
+        Assert.False(w.GetControl<ChrPaletteView>("Chr").HasSelection);   // the 8x8 pick too
+        Assert.Equal("Tile ######", label.Text);
+        Assert.Equal("-", w.GetControl<TextBox>("M16Acts").Text);
+        Assert.False(label.IsEnabled);
+        Assert.False(fields.IsEnabled);                    // greys the box, toggles and flips
+        Assert.True(fields.IsVisible, "the row must stay put, not vanish and shrink the bar");
+    }
+
+    /// <summary>Editing a property must not move the selection off the tile being edited. The
+    /// commit refreshes the sheet, and the refresh used to re-adopt the LEVEL picker's tile — so
+    /// a priority toggle deselected its own tile, and the next toggle landed somewhere else.
+    /// </summary>
+    [AvaloniaFact]
+    public void a_property_change_keeps_the_tile_selected()
+    {
+        if (Prepped is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
+        w.GetControl<ToggleButton>("ModeMap16")
+         .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var sheet = w.GetControl<Map16CanvasView>("Map16Canvas");
+        double ts = 16 * sheet.Zoom;
+        var at = sheet.TranslatePoint(new Point(3 * ts + 8, 2 * ts + 8), w)!.Value;
+        w.MouseDown(at, MouseButton.Left);
+        w.MouseUp(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(0x23, sheet.SelectedTile);            // row 2, column 3
+
+        var prio = w.GetControl<ToggleButton>("M16Priority");
+        prio.IsChecked = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(0x23, sheet.SelectedTile);
+        Assert.Contains("0023", w.GetControl<TextBlock>("M16SelLabel").Text);
+        Assert.True(prio.IsChecked, "the toggle was reset by the refresh it triggered");
+    }
+
+    /// <summary>Every canvas mode's header is the same strip: switching modes must not move the
+    /// canvas below it. The heights come from the controls inside, so this is really a check that
+    /// no mode's bar has a control taller than the 28px toolbar row.</summary>
+    [AvaloniaFact]
+    public void every_mode_header_is_the_same_height()
+    {
+        if (Prepped is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
+        void Mode(string name) => w.GetControl<ToggleButton>(name)
+            .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+
+        Mode("ModeMap16");
+        Dispatcher.UIThread.RunJobs();
+        double map16 = w.GetControl<Border>("Map16EditorBar").Bounds.Height;
+
+        Mode("ModeGfx");
+        Dispatcher.UIThread.RunJobs();
+        double gfx = w.GetControl<Border>("GfxEditorBar").Bounds.Height;
+
+        // When this fails, the tallest control in the offending bar is the answer:
+        //   bar.GetVisualDescendants().OfType<Control>().Max(c => c.Bounds.Height)
+        // Caveat: with UseHeadlessDrawing the text metrics are synthetic and SHORTER than the
+        // real ones, so a bar made tall by a text control can read level here and not on screen.
+        // Measuring that needs .UseSkia() in HeadlessSetup — worth doing by hand, once, when the
+        // eye says one bar is taller and this says otherwise.
+        log.WriteLine($"map16 bar {map16:F1}px, gfx bar {gfx:F1}px");
+        Assert.Equal(gfx, map16, 1);
+    }
+
+    /// <summary>The two grains. At 16x16 the 8x8 brush is not in play at all — right-click stamps
+    /// nothing — and picking in the 8x8 drawer is itself the switch to 8x8, since that pick has no
+    /// meaning at the other grain.</summary>
+    [AvaloniaFact]
+    public void the_grain_decides_whether_the_8x8_brush_is_in_play()
+    {
+        if (Prepped is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
+        w.GetControl<ToggleButton>("ModeMap16")
+         .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var sheet = w.GetControl<Map16CanvasView>("Map16Canvas");
+        var chr = w.GetControl<ChrPaletteView>("Chr");
+        Assert.Equal(Map16CanvasView.TileGrain.Tile16, sheet.Grain);     // opens on whole tiles
+
+        int painted = 0;
+        sheet.QuadPainted += (_, _) => painted++;
+        var at = sheet.TranslatePoint(new Point(8, 8), w)!.Value;
+        w.MouseDown(at, MouseButton.Right);
+        w.MouseUp(at, MouseButton.Right);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(0, painted);
+
+        // Picking an 8x8 tile in the drawer switches the canvas over on its own.
+        var pick = chr.TranslatePoint(new Point(4, 4), w)!.Value;
+        w.MouseDown(pick, MouseButton.Left);
+        w.MouseUp(pick, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(Map16CanvasView.TileGrain.Quad8, sheet.Grain);
+        Assert.True(w.GetControl<ToggleButton>("Grain8").IsChecked);
+        Assert.False(w.GetControl<ToggleButton>("Grain16").IsChecked);
+
+        w.MouseDown(at, MouseButton.Right);
+        w.MouseUp(at, MouseButton.Right);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(painted > 0, "the 8x8 brush still did not stamp at the 8x8 grain");
     }
 
     [AvaloniaFact]

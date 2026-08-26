@@ -244,9 +244,9 @@ public sealed class Map16Edit
 
     /// <summary>
     /// Move a rectangle of tiles by a tile delta. Sources are read out first, cleared, then
-    /// rewritten at the destination — overlap-safe, and one undo step because every write
-    /// joins the same stroke. Refuses a partial move rather than dropping the tiles that
-    /// would land on unallocated pages.
+    /// rewritten at the destination — overlap-safe, and one undo step because every write joins
+    /// the same stroke. Refuses a partial move rather than dropping the tiles that would land on
+    /// unallocated pages.
     /// </summary>
     public string? MoveTiles(int bank, int x, int y, int w, int h, int dx, int dy)
     {
@@ -266,6 +266,47 @@ public sealed class Map16Edit
         for (int j = 0; j < h; j++)
             for (int i = 0; i < w; i++)
                 for (int q = 0; q < 4; q++) StampQuad(TileAt(x + i + dx, y + j + dy), q, src[j * w + i][q].Raw);
+        return null;
+    }
+
+    /// <summary>
+    /// Copy a rectangle of 8x8 QUADRANTS by a quadrant delta, sources left where they are. Read
+    /// out first so an overlapping copy does not eat its own tail, and one undo step because
+    /// every write joins the same stroke. Refuses outright rather than dropping the quadrants
+    /// that would land on unallocated pages.
+    ///
+    /// One operation for both editing grains: a 16x16 selection is an even quadrant rect moved by
+    /// an even delta, so copying it quadrant by quadrant lands exactly where copying it tile by
+    /// tile would.
+    /// </summary>
+    public string? CopyQuads(int bank, int x, int y, int w, int h, int dx, int dy)
+    {
+        int TileOf(int qx, int qy) => bank * Map16Layout.BankTiles
+                                    + (qy >> 1) * Map16Layout.Cols + (qx >> 1);
+        static int VisualOf(int qx, int qy) => ((qy & 1) << 1) | (qx & 1);
+
+        for (int j = 0; j < h; j++)
+            for (int i = 0; i < w; i++)
+            {
+                int qx = x + i + dx, qy = y + j + dy;
+                if (qx < 0 || qy < 0 || qx >= Map16Layout.Cols * 2 || qy >= Map16Layout.BankRows * 2
+                    || QuadOffset(TileOf(qx, qy), VisualOf(qx, qy)) < 0)
+                    return "copy target has unallocated tiles — paint there first.";
+            }
+
+        var src = new ushort[w * h];
+        for (int j = 0; j < h; j++)
+            for (int i = 0; i < w; i++)
+            {
+                int qx = x + i, qy = y + j;
+                src[j * w + i] = ReadDef(TileOf(qx, qy)) is { } def ? def[VisualOf(qx, qy)].Raw : Empty;
+            }
+        for (int j = 0; j < h; j++)
+            for (int i = 0; i < w; i++)
+            {
+                int qx = x + i + dx, qy = y + j + dy;
+                StampQuad(TileOf(qx, qy), VisualOf(qx, qy), src[j * w + i]);
+            }
         return null;
     }
 }

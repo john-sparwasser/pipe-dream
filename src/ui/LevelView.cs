@@ -106,7 +106,17 @@ public class LevelView : Control
         AffectsMeasure<LevelView>(ZoomProperty);
     }
 
-    public LevelView() => Focusable = true;
+    /// <summary>Centred in whatever hosts it: on an axis where the level is SMALLER than the
+    /// viewport it floats in the middle instead of hugging the top-left — a horizontal level
+    /// centres vertically, a vertical one horizontally, once the zoom is far enough out for it
+    /// to fit. On an axis that overflows this is a no-op: Arrange clamps the size to what is
+    /// available, so the scrolling axis still starts at its origin.</summary>
+    public LevelView()
+    {
+        Focusable = true;
+        HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center;
+        VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center;
+    }
 
     /// <summary>
     /// The whole level at the current zoom. Without this the control reports no desired size,
