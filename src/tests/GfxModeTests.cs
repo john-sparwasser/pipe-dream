@@ -139,6 +139,43 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(history, g.UndoDepth);
     }
 
+
+    /// <summary>
+    /// Depth is per FILE, not per ROM. Layer-3 graphics (0x28-0x2B) and 0x2F are 2bpp — the game
+    /// streams them out with a routine that is not the tile uploader — so decoding them at the
+    /// ROM's depth reads 24 bytes out of 16-byte tiles and draws noise. The list of exceptions
+    /// comes from those routines (Gfx.IsTilePlanar3Bpp), not from sniffing file sizes: 0x800
+    /// bytes is 128 2bpp tiles, 85 3bpp tiles or 64 4bpp tiles, and nothing in the file says
+    /// which.
+    /// </summary>
+    [Fact]
+    public void layer3_files_are_2bpp_whatever_the_rom_stores_everything_else_at()
+    {
+        if (Open() is not { } s) { log.WriteLine("SKIP: no ROM"); return; }
+        var g = s.GfxPixels!;
+
+        g.Open(0x14);                                  // ordinary FG tiles: the ROM's depth
+        Assert.Equal(Gfx.RomBpp(s.Rom!), g.Bpp);
+        Assert.Equal(7, g.MaxColor);                   // vanilla is 3bpp
+
+        foreach (int file in new[] { 0x28, 0x29, 0x2A, 0x2B, 0x2F })
+        {
+            g.Open(file);
+            Assert.Equal(2, g.Bpp);
+            Assert.Equal(3, g.MaxColor);
+            Assert.Equal(g.Bytes!.Length / 16, g.Layout.Tiles);   // 16 bytes a tile, not 24
+        }
+
+        // ...and the paint path follows it: colour clamps to the four the file can hold, and a
+        // write lands in the planes that exist.
+        g.Open(0x28);
+        g.Color = 7;
+        Assert.Equal(3, g.Color);
+        Assert.True(g.Paint(0, 0, out _) || g.ColorAt(0, 0) == 3);
+        g.EndStroke();
+        Assert.Equal(3, g.ColorAt(0, 0));
+    }
+
     /// <summary>The selection clipboard is colour indices, not plane bytes, so a copy taken in
     /// one file pastes into another — that is what makes cross-bin copy work. Cut and paste are
     /// each ONE undo entry, and a move commits as one entry too.</summary>
@@ -184,15 +221,19 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(new byte[] { 1, 2, 3, 4 }, new[]
             { (byte)g.ColorAt(0, 0)!, (byte)g.ColorAt(1, 0)!, (byte)g.ColorAt(0, 1)!, (byte)g.ColorAt(1, 1)! });
 
-        // A move: grab, preview through several offsets, commit. One undo entry, source cleared.
+        // A move: lift the block off the sheet, wander, drop. The lift leaves a hole and the
+        // drop closes the SAME stroke, so it is one undo entry — and nowhere the block passed
+        // over on the way was written, only where it landed.
         depth = g.UndoDepth;
         int was = g.ColorAt(4, 2)!.Value;             // whatever the stock sheet has there
-        g.BeginMove(0, 0, 2, 2);
-        g.MoveBy(1, 0);
-        g.MoveBy(4, 2);
-        g.EndMove();
-        Assert.Equal(0, g.ColorAt(0, 0));             // the intermediate offset left nothing behind
+        int passed = g.ColorAt(2, 0)!.Value;          // ...and where it merely travelled through
+        var lifted = g.Lift(0, 0, 2, 2);
+        Assert.Equal(new byte[] { 1, 2, 3, 4 }, lifted);
+        Assert.Equal(depth, g.UndoDepth);             // the hole is still an open stroke
+        Assert.True(g.Paste(4, 2, selBefore: (0, 0, 2, 2), px: (2, 2, lifted)));
+        Assert.Equal(0, g.ColorAt(0, 0));             // the source is empty...
         Assert.Equal(0, g.ColorAt(1, 0));
+        Assert.Equal(passed, g.ColorAt(2, 0));        // ...and the trip left no marks
         Assert.Equal(1, g.ColorAt(4, 2));
         Assert.Equal(4, g.ColorAt(5, 3));
         Assert.Equal(depth + 1, g.UndoDepth);
@@ -1097,6 +1138,277 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
             Assert.Equal(preview.OrderBy(p => p).ToArray(), changed.OrderBy(p => p).ToArray());
             Assert.True(g.Undo());
         }
+    }
+
+
+    /// <summary>
+
+    /// <summary>
+    /// Dragging a selection LIFTS it: the block leaves a hole, rides above the sheet, and eats
+    /// nothing it passes over. Only the drop — a click elsewhere — writes, as one undo entry.
+    /// Before this, releasing the mouse committed wherever the block happened to be, so a move
+    /// that changed its mind had already destroyed the pixels it landed on first.
+    /// </summary>
+    [AvaloniaFact]
+    public void dragging_a_selection_floats_it_and_only_the_drop_writes()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeGfx").RaiseEvent(
+            new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("GfxSelect").RaiseEvent(
+            new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var view = w.GetControl<GfxCanvasView>("GfxCanvas");
+        var g = SessionOf(w).GfxPixels!;
+        Point At(int x, int y) => view.TranslatePoint(
+            new Point(x * view.Zoom + view.Zoom / 2, y * view.Zoom + view.Zoom / 2), w)!.Value;
+
+        // A known 2x2 block, and what sits where it will pass through and where it will land.
+        foreach (var (x, y, c) in new[] { (0, 0, 1), (1, 0, 2), (0, 1, 3), (1, 1, 4) })
+        { g.Color = c; g.Paint(x, y, out _); }
+        g.EndStroke();
+        var passed = Snapshot(g, 6, 6, 2, 2);
+        var landing = Snapshot(g, 12, 9, 2, 2);
+        int depth = g.UndoDepth;
+
+        view.Selection = (0, 0, 2, 2);
+        Dispatcher.UIThread.RunJobs();
+
+        // Grab it and wander: over one spot, then on to another.
+        w.MouseDown(At(0, 0), MouseButton.Left);
+        w.MouseMove(At(6, 6));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal((6, 6, 2, 2), view.Float);        // it is on the floating layer now
+        Assert.Equal(passed, Snapshot(g, 6, 6, 2, 2)); // ...and has eaten nothing under it
+        w.MouseMove(At(12, 9));
+        w.MouseUp(At(12, 9), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal((12, 9, 2, 2), view.Float);
+        Assert.Equal(passed, Snapshot(g, 6, 6, 2, 2));    // the place it changed its mind about
+        Assert.Equal(landing, Snapshot(g, 12, 9, 2, 2));  // release is not a commitment either
+        Assert.Equal(depth, g.UndoDepth);
+        Assert.Equal(new[] { 0, 0, 0, 0 }, Snapshot(g, 0, 0, 2, 2));   // only the hole it left
+
+        // A click elsewhere drops it: ONE undo entry for the whole move.
+        w.MouseDown(At(30, 3), MouseButton.Left);
+        w.MouseUp(At(30, 3), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Null(view.Float);
+        Assert.Equal(new[] { 1, 2, 3, 4 }, Snapshot(g, 12, 9, 2, 2));
+        Assert.Equal(passed, Snapshot(g, 6, 6, 2, 2));
+        Assert.Equal(depth + 1, g.UndoDepth);
+        Assert.True(g.Undo());
+        Assert.Equal(new[] { 1, 2, 3, 4 }, Snapshot(g, 0, 0, 2, 2));   // home in one step
+        Assert.Equal(landing, Snapshot(g, 12, 9, 2, 2));
+
+        // Esc on a lifted block is the same deal in reverse: the hole fills back in.
+        g.Redo();
+        view.Selection = (12, 9, 2, 2);
+        Dispatcher.UIThread.RunJobs();
+        depth = g.UndoDepth;
+        w.MouseDown(At(12, 9), MouseButton.Left);
+        w.MouseMove(At(20, 20));
+        w.MouseUp(At(20, 20), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        w.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Null(view.Float);
+        Assert.Equal((12, 9, 2, 2), view.Selection);                   // the marquee goes home
+        Assert.Equal(new[] { 1, 2, 3, 4 }, Snapshot(g, 12, 9, 2, 2));
+        Assert.Equal(depth, g.UndoDepth);                              // and nothing happened
+    }
+
+    /// Rotate and flip act on the marquee: they are greyed until the select tool holds one, the
+    /// quarter turns need a SQUARE one (w×h turned is h×w, with nowhere to put it), and Ctrl
+    /// while rubber-banding forces a square so getting one is not a pixel-counting exercise.
+    /// </summary>
+    [AvaloniaFact]
+    public void rotate_and_flip_act_on_the_marquee_and_ctrl_drags_a_square()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeGfx").RaiseEvent(
+            new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("GfxSelect").RaiseEvent(
+            new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var view = w.GetControl<GfxCanvasView>("GfxCanvas");
+        var g = SessionOf(w).GfxPixels!;
+        var (rotL, rotR) = (w.GetControl<Button>("GfxRotL"), w.GetControl<Button>("GfxRotR"));
+        var (flipH, flipV) = (w.GetControl<Button>("GfxFlipH"), w.GetControl<Button>("GfxFlipV"));
+
+        // Nothing selected: all four are dead.
+        Assert.False(rotL.IsEnabled || rotR.IsEnabled || flipH.IsEnabled || flipV.IsEnabled);
+
+        Point At(int x, int y) => view.TranslatePoint(
+            new Point(x * view.Zoom + view.Zoom / 2, y * view.Zoom + view.Zoom / 2), w)!.Value;
+
+        // A plain drag: 6 wide, 3 tall. All four act on it — a quarter turn takes the marquee
+        // round with the pixels rather than needing a square to fit back into.
+        w.MouseDown(At(4, 4), MouseButton.Left);
+        w.MouseMove(At(9, 6));
+        w.MouseUp(At(9, 6), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal((4, 4, 6, 3), view.Selection);
+        Assert.True(rotL.IsEnabled && rotR.IsEnabled && flipH.IsEnabled && flipV.IsEnabled);
+
+        // The same 6x3 drag with Ctrl held, clear of the last one: the shorter axis wins, so the
+        // square lands inside the drag.
+        w.MouseDown(At(20, 10), MouseButton.Left);
+        w.MouseMove(At(25, 12), RawInputModifiers.Control);
+        w.MouseUp(At(25, 12), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal((20, 10, 3, 3), view.Selection);
+        Assert.True(rotL.IsEnabled && rotR.IsEnabled);
+
+        // A turn happens ON THE FLOATING LAYER, like a move: the block is lifted, turns in the
+        // air, and only the drop writes. Nothing under it is disturbed on the way.
+        void Drop()
+        {
+            w.MouseDown(At(40, 20), MouseButton.Left);
+            w.MouseUp(At(40, 20), MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        // A known 2x2 block to turn.
+        foreach (var (x, y, c) in new[] { (0, 0, 1), (1, 0, 2), (0, 1, 3), (1, 1, 4) })
+        { g.Color = c; g.Paint(x, y, out _); }
+        g.EndStroke();
+        int depth = g.UndoDepth;
+
+        foreach (var (btn, want) in new[] { (flipH, new[] { 2, 1, 4, 3 }), (flipV, [3, 4, 1, 2]),
+                                            (rotR, [3, 1, 4, 2]), (rotL, [2, 4, 1, 3]) })
+        {
+            view.Selection = (0, 0, 2, 2);
+            Dispatcher.UIThread.RunJobs();
+            btn.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal((0, 0, 2, 2), view.Float);        // up in the air, not on the sheet
+            Assert.Equal(depth, g.UndoDepth);
+            Drop();
+            Assert.Equal(want, Snapshot(g, 0, 0, 2, 2));
+            Assert.Equal(depth + 1, g.UndoDepth);          // one gesture, one undo entry
+            Assert.True(g.Undo());
+            Assert.Equal(new[] { 1, 2, 3, 4 }, Snapshot(g, 0, 0, 2, 2));
+        }
+
+        // A NON-square block: 3 wide, 1 tall. Turning it right stands it on end — the float
+        // comes round to 1x3 and pivots about its own centre — and what it now covers is
+        // untouched until it lands. This is the whole reason a turn floats: in place, it would
+        // have to clear the footprint it no longer covers AND write over three fresh pixels.
+        foreach (var (x, c) in new[] { (8, 1), (9, 2), (10, 3) })
+        { g.Color = c; g.Paint(x, 4, out _); }
+        g.EndStroke();
+        var under = new[] { g.ColorAt(9, 3)!.Value, g.ColorAt(9, 5)!.Value };   // what it will cover
+        depth = g.UndoDepth;
+        view.Selection = (8, 4, 3, 1);
+        Dispatcher.UIThread.RunJobs();
+
+        rotR.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal((9, 3, 1, 3), view.Float);
+        Assert.Equal(under, new[] { g.ColorAt(9, 3)!.Value, g.ColorAt(9, 5)!.Value });      // still there while it hovers
+        Assert.Equal(depth, g.UndoDepth);
+
+        // Turn it again before dropping: still nothing written, and it is back on its side.
+        rotR.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal((8, 4, 3, 1), view.Float);
+        Assert.Equal(under, new[] { g.ColorAt(9, 3)!.Value, g.ColorAt(9, 5)!.Value });
+        Assert.Equal(depth, g.UndoDepth);
+
+        // Esc puts the whole thing back as if none of it happened.
+        w.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Null(view.Float);
+        Assert.Equal((8, 4, 3, 1), view.Selection);
+        Assert.Equal(new[] { 1, 2, 3 }, Snapshot(g, 8, 4, 3, 1));
+        Assert.Equal(depth, g.UndoDepth);
+
+        // ...and once dropped, a half turn is one undo entry: the row reversed in place.
+        rotR.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        rotR.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Drop();
+        Assert.Equal(new[] { 3, 2, 1 }, Snapshot(g, 8, 4, 3, 1));
+        Assert.Equal(under, new[] { g.ColorAt(9, 3)!.Value, g.ColorAt(9, 5)!.Value });      // the pixels it hovered over survived
+        Assert.Equal(depth + 1, g.UndoDepth);
+        Assert.True(g.Undo());
+        Assert.Equal(new[] { 1, 2, 3 }, Snapshot(g, 8, 4, 3, 1));
+
+        // A tool that is not Select leaves the marquee alone but takes the buttons away: these
+        // act on what the pointer holds, and the pencil holds nothing.
+        w.GetControl<ToggleButton>("GfxPencil").RaiseEvent(
+            new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(flipH.IsEnabled || rotR.IsEnabled);
+    }
+
+
+    /// <summary>
+    /// The depth box under the canvas re-reads the open file at another depth. Nothing in a raw
+    /// planar file says how deep it is, so the detected depth has to be arguable with — and the
+    /// argument is per file: opening another one drops it, or every file after a 2bpp layer-3
+    /// file would decode as 2bpp too.
+    /// </summary>
+    [AvaloniaFact]
+    public void the_depth_box_re_reads_the_file_and_resets_when_it_changes()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeGfx").RaiseEvent(
+            new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var box = w.GetControl<ComboBox>("GfxBpp");
+        var view = w.GetControl<GfxCanvasView>("GfxCanvas");
+        var g = SessionOf(w).GfxPixels!;
+
+        // A vanilla tile file. It is STORED as three planes, but three planes is not something
+        // the SNES displays — the upload expands them — so the box says what it will look like:
+        // 4bpp tile data.
+        Assert.Equal(3, g.Bpp);
+        Assert.Equal(0, box.SelectedIndex);
+        int tiles3 = g.Layout.Tiles;
+
+        // Read it as 2bpp instead: 16 bytes a tile, so the same bytes are half again as many
+        // tiles, and the sheet the canvas holds grows with them.
+        box.SelectedIndex = 1;
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(2, g.Bpp);
+        Assert.Equal(3, g.MaxColor);
+        Assert.Equal(tiles3 * 3 / 2, g.Layout.Tiles);
+        Assert.Equal(g.Layout.Tiles, view.Tiles);
+
+        // Another file drops the argument — and a layer-3 file knows its own depth.
+        g.Open(0x28);
+        RefreshOf(w);
+        Assert.Null(g.BppOverride);
+        Assert.Equal(2, g.Bpp);
+        Assert.Equal(1, box.SelectedIndex);
+    }
+
+    /// <summary>Re-run the window's GFX refresh, the way every real file switch does.</summary>
+    private static void RefreshOf(MainWindow w)
+    {
+        typeof(MainWindow).GetMethod("RefreshGfx",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .Invoke(w, null);
+        Dispatcher.UIThread.RunJobs();
     }
 
     /// <summary>The colour indices of a w×h box, row-major from (x,y).</summary>

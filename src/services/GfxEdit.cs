@@ -81,6 +81,7 @@ public sealed class GfxEdit
     {
         if (file == File) return;
         AbortStroke();
+        BppOverride = null;              // a depth argued for one file says nothing about the next
         File = Math.Clamp(file, 0, 0xFFF);
     }
 
@@ -93,11 +94,34 @@ public sealed class GfxEdit
     /// <summary>The file's bytes, or null when the id resolves nowhere.</summary>
     public byte[]? Bytes => Gfx.Cached(rom, File);
 
-    public int Bpp => Gfx.RomBpp(rom);
+    /// <summary>The depth THIS file is read at — the ROM's depth for tile data, but 2bpp for
+    /// the layer-3 files, which are read by a different routine in the game and would decode as
+    /// noise at any other depth. <see cref="MaxColor"/> follows it, so a 2bpp file offers four
+    /// colours rather than pretending to eight.</summary>
+    public int Bpp => BppOverride ?? Gfx.FileBpp(rom, File);
 
-    /// <summary>The highest colour index this ROM's depth can hold. A vanilla ROM is 3bpp, so
-    /// colours run 0-7 — offering 16 would let you pick one that silently paints its low three
-    /// bits instead, which looks like the editor ignoring the click.</summary>
+    /// <summary>Read this file at a depth of your choosing instead of the one it is known (or
+    /// assumed) to be. Null = follow the file. Nothing in a raw planar file says how deep it is
+    /// — a custom ExGFX bound for a 2bpp slot looks exactly like a short 4bpp one — so the
+    /// depth the bar shows has to be arguable with. It is dropped when the file changes: it is
+    /// a statement about THIS file, and carrying it to the next one would decode that one
+    /// wrong.</summary>
+    public int? BppOverride { get; set; }
+
+    /// <summary>Read the open file as one of the two depths the SNES DISPLAYS: 4bpp tile data
+    /// (FG/BG/sprites) or 2bpp (layer 3). Three planes is a storage format, not a display one —
+    /// the game's upload expands it — so "4bpp" here means the ROM's tile stride, which is 3
+    /// bytes a row on an unconverted base and 4 on a converted one. The colour it paints with
+    /// comes along, because a shallower read holds fewer colours.</summary>
+    public void ViewAs(int displayBpp)
+    {
+        BppOverride = displayBpp == 2 ? 2 : Gfx.RomBpp(rom);
+        Color = color;
+    }
+
+    /// <summary>The highest colour index this FILE's depth can hold — 7 on a vanilla 3bpp ROM,
+    /// 3 in a 2bpp layer-3 file. Offering more would let you pick a colour that silently paints
+    /// its low bits instead, which looks like the editor ignoring the click.</summary>
     public int MaxColor => (1 << Bpp) - 1;
 
     /// <summary>Tiles in the file, and the sheet's size in GFX pixels at 16 tiles per row.</summary>
@@ -328,6 +352,39 @@ public sealed class GfxEdit
 
     public void Copy(int x, int y, int w, int h) => Clipboard = (w, h, ReadRect(x, y, w, h));
 
+    /// <summary>Turning a selection in place. Rotation is the pair of quarter turns; the flips
+    /// are the mirrors.</summary>
+    public enum Xform { RotateLeft, RotateRight, FlipH, FlipV }
+
+    /// <summary>
+    /// Turn a block of colour indices. A quarter turn swaps the block's sides, which is why the
+    /// size comes back with it.
+    ///
+    /// PURE — nothing is written here. A rotate or a flip happens on the floating layer, the
+    /// same place a move does: the block comes off the sheet first, turns in the air as often as
+    /// you like, and only the drop writes. Turning in place would have to clear the footprint it
+    /// no longer covers, which is exactly the "it ate what was underneath" bug.
+    /// </summary>
+    public static (int W, int H, byte[] Px) Turn(int w, int h, byte[] src, Xform t)
+    {
+        bool turn = t is Xform.RotateLeft or Xform.RotateRight;
+        int dw = turn ? h : w, dh = turn ? w : h;
+        var dst = new byte[src.Length];
+        for (int j = 0; j < h; j++)
+            for (int i = 0; i < w; i++)
+            {
+                var (di, dj) = t switch
+                {
+                    Xform.FlipH => (w - 1 - i, j),
+                    Xform.FlipV => (i, h - 1 - j),
+                    Xform.RotateRight => (h - 1 - j, i),
+                    _ => (j, w - 1 - i),
+                };
+                dst[dj * dw + di] = src[j * w + i];
+            }
+        return (dw, dh, dst);
+    }
+
     public void Cut(int x, int y, int w, int h)
     {
         Copy(x, y, w, h);
@@ -336,48 +393,33 @@ public sealed class GfxEdit
         EndStroke();
     }
 
-    /// <summary>Stamp the clipboard at (x,y) as one undo entry; pixels past the sheet edge are
-    /// clipped away. False when there is nothing to paste (or nothing to paste onto).
-    /// <paramref name="selBefore"/> is where the marquee sat before the paste, so undoing it can
-    /// put the marquee back too — the paste itself becomes the selection.</summary>
-    public bool Paste(int x, int y, SelRect? selBefore = null)
+    /// <summary>Stamp a block at (x,y) as one undo entry — the clipboard by default, or
+    /// <paramref name="px"/> for pixels that never went through it (a lifted move landing).
+    /// Pixels past the sheet edge are clipped away. False when there is nothing to paste (or
+    /// nothing to paste onto). <paramref name="selBefore"/> is where the marquee sat before,
+    /// so undoing it can put the marquee back too — the paste itself becomes the selection.</summary>
+    public bool Paste(int x, int y, SelRect? selBefore = null, (int W, int H, byte[] Px)? px = null)
     {
-        if (Clipboard is not { } c || Layout.Tiles == 0) return false;
+        if ((px ?? Clipboard) is not { } c || Layout.Tiles == 0) return false;
         WriteRect(x, y, c.W, c.H, c.Px);
         strokeSel = (selBefore, (x, y, c.W, c.H));
         EndStroke();
         return true;
     }
 
-    // A move previews by write-through, like a paint stroke: each step reverts the open stroke
-    // and re-applies clear+stamp at the new offset, so release commits ONE undo entry.
-    private (int X, int Y, int W, int H, byte[] Px)? moving;
-    private (int Dx, int Dy) moved;
-
-    public void BeginMove(int x, int y, int w, int h)
+    /// <summary>
+    /// Take a block off the sheet to move it: its colour indices come back, and the hole it
+    /// leaves goes into an OPEN stroke that the <see cref="Paste"/> which drops it closes. So
+    /// the whole move — however far it wandered on the way — is one undo entry, and every pixel
+    /// it passed over is untouched: only where it finally LANDS gets written.
+    ///
+    /// <see cref="AbortStroke"/> puts the block back, which is what Esc on a lifted move does.
+    /// </summary>
+    public byte[] Lift(int x, int y, int w, int h)
     {
-        moving = (x, y, w, h, ReadRect(x, y, w, h));
-        moved = (0, 0);
-    }
-
-    /// <summary>Preview the grabbed rectangle offset by (dx,dy) from where it started. Leaves the
-    /// stroke open — <see cref="EndMove"/> commits it.</summary>
-    public void MoveBy(int dx, int dy)
-    {
-        if (moving is not { } m) return;
-        moved = (dx, dy);
-        AbortStroke();
-        if (dx == 0 && dy == 0) return;      // back home: no bytes changed, no empty undo entry
-        WriteRect(m.X, m.Y, m.W, m.H, null);
-        WriteRect(m.X + dx, m.Y + dy, m.W, m.H, m.Px);
-    }
-
-    public void EndMove()
-    {
-        if (moving is { } m)
-            strokeSel = ((m.X, m.Y, m.W, m.H), (m.X + moved.Dx, m.Y + moved.Dy, m.W, m.H));
-        moving = null;
-        EndStroke();
+        var px = ReadRect(x, y, w, h);
+        WriteRect(x, y, w, h, null);
+        return px;
     }
 
     /// <summary>Close the stroke into one undo entry. The bytes are already in place (the paint

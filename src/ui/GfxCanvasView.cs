@@ -52,22 +52,27 @@ public class GfxCanvasView : Control
     public (int X, int Y, int W, int H)? Selection
     {
         get => selection;
-        set { selection = value; InvalidateVisual(); }
+        set { selection = value; SelectionChanged?.Invoke(this, EventArgs.Empty); InvalidateVisual(); }
     }
     private (int X, int Y, int W, int H)? selection;
 
-    /// <summary>A drag grabbed the selection: capture its pixels before any preview moves them.</summary>
+    /// <summary>The marquee changed — appeared, moved, resized or went away. One funnel for
+    /// everything that touches it, so a bar button that only works on a selection can grey
+    /// itself without anyone remembering to tell it.</summary>
+    public event EventHandler? SelectionChanged;
+
+    /// <summary>A drag grabbed the selection. The owner is expected to LIFT it — take the
+    /// pixels off the sheet and hand them back through <see cref="ShowFloat"/> — after which
+    /// the drag continues as an ordinary float drag. Dragging a selection and dragging a paste
+    /// are then the same gesture over the same layer, which is why neither disturbs the pixels
+    /// it passes over until it lands.</summary>
     public event EventHandler<(int X, int Y, int W, int H)>? SelectionMoveStarted;
-    /// <summary>Total offset from where the grab started, for live preview.</summary>
-    public event EventHandler<(int Dx, int Dy)>? SelectionMoved;
-    public event EventHandler? SelectionMoveEnded;
 
     private (int X, int Y)? bandAnchor;
-    private ((int X, int Y, int W, int H) Home, (int X, int Y) Grab)? moveDrag;
 
-    // ---- floating paste layer ----
-    // Pasted pixels ride ABOVE the sheet until dropped: nothing is written to the file while
-    // they are positioned, so the drop is one undo entry and Esc simply throws them away.
+    // ---- floating layer ----
+    // Pasted or lifted pixels ride ABOVE the sheet until dropped: nothing under them is written
+    // while they are positioned, so the drop is one undo entry and Esc throws it away.
 
     /// <summary>Where the floating paste sits in sheet pixels, or null when nothing floats.</summary>
     public (int X, int Y, int W, int H)? Float { get; private set; }
@@ -79,13 +84,14 @@ public class GfxCanvasView : Control
     /// file where it rests (and then clear it).</summary>
     public event EventHandler? FloatDropRequested;
 
-    /// <summary>Start floating pasted pixels (RGBA, transparent where the sheet should show
-    /// through) at the top-left corner. The float replaces the marquee until it drops.</summary>
-    public void ShowFloat(uint[] px, int w, int h)
+    /// <summary>Start floating pixels (RGBA, transparent where the sheet should show through)
+    /// at (x,y) — the corner for a paste, where it was lifted from for a move. The float
+    /// replaces the marquee until it drops.</summary>
+    public void ShowFloat(uint[] px, int w, int h, int x = 0, int y = 0)
     {
         floatBmp?.Dispose();
         floatBmp = LevelBitmap.FromPixels(px, w, h);
-        Float = (0, 0, w, h);
+        Float = (x, y, w, h);
         Selection = null;
         InvalidateVisual();
     }
@@ -193,9 +199,10 @@ public class GfxCanvasView : Control
             }
             if (Inside(Selection, px))
             {
-                moveDrag = (Selection!.Value, px);
                 Cursor = ClosedHand;
-                SelectionMoveStarted?.Invoke(this, Selection.Value);
+                SelectionMoveStarted?.Invoke(this, Selection!.Value);
+                // The owner lifted it onto the floating layer; the rest of the drag is that.
+                if (Float is { } lifted) floatDrag = ((lifted.X, lifted.Y), px);
             }
             else { bandAnchor = px; Selection = (px.X, px.Y, 1, 1); }
             e.Pointer.Capture(this);
@@ -227,7 +234,7 @@ public class GfxCanvasView : Control
         var at = PixelAt(e.GetPosition(this));
         if (at != Hover) { Hover = at; InvalidateVisual(); }
         // The grab hands: closed while dragging, open over anything draggable, default elsewhere.
-        Cursor = floatDrag is not null || moveDrag is not null ? ClosedHand
+        Cursor = floatDrag is not null ? ClosedHand
                : Selecting && at is { } h2 && (Inside(Float, h2) || Inside(Selection, h2)) ? OpenHand
                : null;
         // Selection drags clamp to the sheet instead of dying past its edge, so a fast drag to
@@ -240,19 +247,13 @@ public class GfxCanvasView : Control
             InvalidateVisual();
             return;
         }
-        if ((bandAnchor is not null || moveDrag is not null)
-            && ClampedPixelAt(e.GetPosition(this)) is { } cp)
+        if (bandAnchor is { } a && ClampedPixelAt(e.GetPosition(this)) is { } cp)
         {
-            if (bandAnchor is { } a)
-                Selection = (Math.Min(a.X, cp.X), Math.Min(a.Y, cp.Y),
-                             Math.Abs(cp.X - a.X) + 1, Math.Abs(cp.Y - a.Y) + 1);
-            else if (moveDrag is { } d)
-            {
-                int dx = Math.Clamp(cp.X - d.Grab.X, -d.Home.X, sheetW - d.Home.W - d.Home.X);
-                int dy = Math.Clamp(cp.Y - d.Grab.Y, -d.Home.Y, sheetH - d.Home.H - d.Home.Y);
-                Selection = (d.Home.X + dx, d.Home.Y + dy, d.Home.W, d.Home.H);
-                SelectionMoved?.Invoke(this, (dx, dy));
-            }
+            if (e.KeyModifiers.HasFlag(KeyModifiers.Control)
+                || e.KeyModifiers.HasFlag(KeyModifiers.Meta))
+                cp = Squared(a, cp);
+            Selection = (Math.Min(a.X, cp.X), Math.Min(a.Y, cp.Y),
+                         Math.Abs(cp.X - a.X) + 1, Math.Abs(cp.Y - a.Y) + 1);
             return;
         }
         // The shape drag clamps to the sheet like a selection drag, so a fast drag past an
@@ -282,14 +283,10 @@ public class GfxCanvasView : Control
             e.Pointer.Capture(null);
             return;
         }
-        if (bandAnchor is not null || moveDrag is not null)
+        if (bandAnchor is not null)
         {
-            bool moved = moveDrag is not null;
             bandAnchor = null;
-            moveDrag = null;
-            Cursor = moved ? OpenHand : Cursor;
             e.Pointer.Capture(null);
-            if (moved) SelectionMoveEnded?.Invoke(this, EventArgs.Empty);
             return;
         }
         if (shapeAnchor is not null)
@@ -320,6 +317,18 @@ public class GfxCanvasView : Control
             case Key.Up: PalRowStepped?.Invoke(this, -1); e.Handled = true; break;
             case Key.Down: PalRowStepped?.Invoke(this, 1); e.Handled = true; break;
         }
+    }
+
+    /// <summary>The dragged corner pulled onto the square the anchor and it span — the shorter
+    /// axis wins, so the square is always inside the drag, and it shrinks again if the sheet
+    /// edge is nearer than that.</summary>
+    private (int X, int Y) Squared((int X, int Y) a, (int X, int Y) cp)
+    {
+        int dx = cp.X - a.X, dy = cp.Y - a.Y;
+        int n = Math.Min(Math.Abs(dx), Math.Abs(dy));
+        n = Math.Min(n, dx >= 0 ? sheetW - 1 - a.X : a.X);
+        n = Math.Min(n, dy >= 0 ? sheetH - 1 - a.Y : a.Y);
+        return (a.X + (dx >= 0 ? n : -n), a.Y + (dy >= 0 ? n : -n));
     }
 
     private static void Marquee(DrawingContext ctx, (int X, int Y, int W, int H) s, double z)
@@ -382,7 +391,9 @@ public class GfxCanvasView : Control
             Marquee(ctx, fl, z);
         }
 
-        if (Hover is not { } h) return;
+        // No reticle under the pointer tool: it paints nothing, so a crosshair on the pixel it
+        // would land only competes with the marquee it is actually there to drag.
+        if (Selecting || Hover is not { } h) return;
         ctx.DrawRectangle(null, new Pen(UiColors.Selection, 1.5), new Rect(h.X * z, h.Y * z, z, z));
         ctx.DrawRectangle(null, new Pen(UiColors.Band, 1),
                           new Rect((h.X & ~7) * z, (h.Y & ~7) * z, 8 * z, 8 * z));
