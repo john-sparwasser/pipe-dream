@@ -82,7 +82,7 @@ public partial class MainWindow : Window
     private TextBlock spFilesLabel = null!, objectHint = null!;
     private Grid split = null!;
     private ToggleButton modeLevel = null!, modeMap16 = null!, modeGfx = null!;
-    private ToggleButton layerOne = null!, layerTwo = null!, exitsMode = null!;
+    private ToggleButton layerOne = null!, layerTwo = null!, exitsMode = null!, entrancesMode = null!;
     private Button dropLayer2 = null!;
     private TextBlock layer2Note = null!;
     private TextBlock m16SelLabel = null!, m16ActsNote = null!, m16Unallocated = null!;
@@ -116,6 +116,7 @@ public partial class MainWindow : Window
         layerOne = this.GetControl<ToggleButton>("LayerOne");
         layerTwo = this.GetControl<ToggleButton>("LayerTwo");
         exitsMode = this.GetControl<ToggleButton>("ExitsMode");
+        entrancesMode = this.GetControl<ToggleButton>("EntrancesMode");
         dropLayer2 = this.GetControl<Button>("DropLayer2");
         layer2Note = this.GetControl<TextBlock>("Layer2Note");
 
@@ -797,12 +798,12 @@ public partial class MainWindow : Window
             else if (modeGfx.IsChecked == true && gfxCanvas.Selection is not null)
                 gfxCanvas.Selection = null;
             else if (modeLevel.IsChecked != true) OnMode(modeLevel, new RoutedEventArgs());
-            // Exits mode is a mode you can be IN, so Esc is how you leave it — before it gets
-            // as far as the layer/sprite cycle, which has no meaning while it is armed.
-            else if (canvas.Mode == LevelView.EditMode.Exits)
+            // The overlay modes are modes you can be IN, so Esc is how you leave one — before it
+            // gets as far as the layer/sprite cycle, which has no meaning while one is armed.
+            else if (canvas.Mode is LevelView.EditMode.Exits or LevelView.EditMode.Entrances)
             {
-                exitsMode.IsChecked = false;
-                OnExitsMode(exitsMode, new RoutedEventArgs());
+                exitsMode.IsChecked = entrancesMode.IsChecked = false;
+                ApplyOverlayMode(exitsMode);
             }
             else if (brush is not null) SetBrush(null, 1, 1);
             else
@@ -1177,13 +1178,27 @@ public partial class MainWindow : Window
     /// than sitting beside it: while it is on, the layer toggles are dead, the canvas paints no
     /// selection, and a click means "this screen", not "this object".
     /// </summary>
-    private void OnExitsMode(object? sender, RoutedEventArgs e)
+    private void OnExitsMode(object? sender, RoutedEventArgs e) => ApplyOverlayMode(exitsMode);
+    private void OnEntrancesMode(object? sender, RoutedEventArgs e) => ApplyOverlayMode(entrancesMode);
+
+    /// <summary>
+    /// Arm or disarm one of the level's overlay modes. They are the two halves of a connection —
+    /// where a level leads and where it is entered — and each TAKES OVER from the layer being
+    /// edited, so they are exclusive with each other as well: arming one disarms the other,
+    /// rather than leaving two modes both claiming the canvas.
+    /// </summary>
+    private void ApplyOverlayMode(ToggleButton clicked)
     {
-        bool on = exitsMode.IsChecked == true;
-        canvas.Mode = on ? LevelView.EditMode.Exits
-                         : paletteTabs.SelectedIndex == 1 ? LevelView.EditMode.Sprites
-                                                          : LevelView.EditMode.Objects;
-        layerOne.IsEnabled = layerTwo.IsEnabled = !on;
+        if (clicked.IsChecked == true)
+            foreach (var other in new[] { exitsMode, entrancesMode })
+                if (!ReferenceEquals(other, clicked)) other.IsChecked = false;
+
+        bool exits = exitsMode.IsChecked == true, entrances = entrancesMode.IsChecked == true;
+        canvas.Mode = exits ? LevelView.EditMode.Exits
+                    : entrances ? LevelView.EditMode.Entrances
+                    : paletteTabs.SelectedIndex == 1 ? LevelView.EditMode.Sprites
+                                                     : LevelView.EditMode.Objects;
+        layerOne.IsEnabled = layerTwo.IsEnabled = !exits && !entrances;
         edit?.Selection.Clear();
         canvas.Sprites?.Selection.Clear();
         RefreshExitBadges();
@@ -1504,9 +1519,10 @@ public partial class MainWindow : Window
 
     private void OnPaletteTab()
     {
-        // Exits mode outranks the tabs: it took the canvas from whichever layer was being
+        // An overlay mode outranks the tabs: it took the canvas from whichever layer was being
         // edited, and a drawer tab is not how you leave it — the toggle is.
-        if (canvas.Mode == LevelView.EditMode.Exits) { RefreshDrawer(); return; }
+        if (canvas.Mode is LevelView.EditMode.Exits or LevelView.EditMode.Entrances)
+        { RefreshDrawer(); return; }
 
         // The Palette tab belongs to no edit mode (ImGui parity: its tab carries a null mode),
         // so opening it leaves the canvas doing whatever it was doing.

@@ -37,6 +37,7 @@
     <StreamGeometry x:Key="IconFlipVertical">M21 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v3 M21 16v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3 M2 12h2 M8 12h2 M14 12h2 M20 12h2</StreamGeometry>
     <StreamGeometry x:Key="IconMountain">M8 3l4 8 5-5 5 15H2L8 3z</StreamGeometry>
     <StreamGeometry x:Key="IconMountainSnow">M8 3l4 8 5-5 5 15H2L8 3z M4.14 15.08c2.62-1.57 5.24-1.43 7.86.42 2.74 1.94 5.49 2 8.23.19</StreamGeometry>
+    <StreamGeometry x:Key="IconDoorClosed">M18 20V6a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v14 M2 20h20 M14 12v.01</StreamGeometry>
     <StreamGeometry x:Key="IconDoorOpen">M13 4h3a2 2 0 0 1 2 2v14 M2 20h3 M13 20h9 M10 12v.01 M13 4.562v16.157a1 1 0 0 1-1.242.97L5 20V5.562a2 2 0 0 1 1.515-1.94l4-1A2 2 0 0 1 13 4.562Z</StreamGeometry>
     <StreamGeometry x:Key="IconPalette">M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z M13.5 6.5h.01 M17.5 10.5h.01 M6.5 12.5h.01 M8.5 7.5h.01</StreamGeometry>
   </Window.Resources>
@@ -607,6 +608,15 @@
                    than the mode bar, where they sat next to two modes that cannot use them.
                    A toggle, not a button: it arms a canvas mode that takes over from the layer
                    being edited, rather than opening a table away from the level. -->
+              <!-- Where the level is entered, next to where it leads: the two halves of a
+                   connection, and only one of them can own the canvas at a time. -->
+              <ToggleButton x:Name="EntrancesMode" Classes="mode" Click="OnEntrancesMode"
+                            ToolTip.Tip="Entrances: where this level puts Mario, from the overworld and from a secondary exit.">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <Path Data="{StaticResource IconDoorClosed}"/>
+                  <TextBlock Text="Entrances" VerticalAlignment="Center"/>
+                </StackPanel>
+              </ToggleButton>
               <ToggleButton x:Name="ExitsMode" Classes="mode" Click="OnExitsMode"
                             ToolTip.Tip="Screen exits: every screen that leads somewhere is badged with where it goes. Click a screen to set it.">
                 <StackPanel Orientation="Horizontal" Spacing="6">

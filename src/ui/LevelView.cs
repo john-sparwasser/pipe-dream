@@ -53,7 +53,7 @@ public class LevelView : Control
     /// the two modes, exactly as in the ImGui editor.</summary>
     public SpriteEdit? Sprites { get; set; }
 
-    public enum EditMode { Objects, Sprites, Exits }
+    public enum EditMode { Objects, Sprites, Exits, Entrances }
     public EditMode Mode { get; set; } = EditMode.Objects;
 
     /// <summary>Screen exits to draw in <see cref="EditMode.Exits"/>: which screen leads where.
@@ -253,6 +253,9 @@ public class LevelView : Control
             e.Handled = true;
             return;
         }
+        // Entrances owns the canvas too, and has nothing to do with a click yet — but it must
+        // still swallow it, or the layer underneath would be edited by a mode that is not it.
+        if (Mode == EditMode.Entrances) { e.Handled = true; return; }
 
         // Alt+left is the eyedropper, in every mode. A modifier rather than an armed tool: a
         // mode you can forget you are in costs more than a key you have to hold.
@@ -568,6 +571,10 @@ public class LevelView : Control
         // Exits mode owns the overlay outright: no selection, no handles, no band — the whole
         // point is that the level is being read screen by screen, not edited object by object.
         if (Mode == EditMode.Exits) { DrawExits(ctx, z); return; }
+        // Entrances takes the canvas the same way. It has nothing of its own to paint yet: a
+        // main entrance record carries no screen, only Mario X/Y INDICES into $05D750/58 and
+        // $05D730/40, so a marker means reading those tables first.
+        if (Mode == EditMode.Entrances) return;
 
         if (Mode == EditMode.Sprites && Sprites is { } spv)
         {

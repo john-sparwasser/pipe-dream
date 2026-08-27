@@ -270,6 +270,42 @@ public class ExitsAndEntrancesTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(0x05, w.Applied![0].Destination);
     }
 
+    /// <summary>Entrances and Exits are the two halves of a connection and both want the canvas,
+    /// so they are exclusive with each other as well as with the layer being edited.</summary>
+    [AvaloniaFact]
+    public void the_two_overlay_modes_hand_the_canvas_to_each_other()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var exits = w.GetControl<ToggleButton>("ExitsMode");
+        var entrances = w.GetControl<ToggleButton>("EntrancesMode");
+        var canvas = w.GetControl<LevelView>("Canvas");
+        var layerOne = w.GetControl<ToggleButton>("LayerOne");
+        void Click(ToggleButton b, bool on)
+        {
+            b.IsChecked = on;
+            b.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        Click(exits, true);
+        Assert.Equal(LevelView.EditMode.Exits, canvas.Mode);
+
+        Click(entrances, true);                       // arming one disarms the other
+        Assert.Equal(LevelView.EditMode.Entrances, canvas.Mode);
+        Assert.False(exits.IsChecked);
+        Assert.False(layerOne.IsEnabled);             // the layer is still not in play
+        Assert.Empty(canvas.Exits);                   // and the exit badges are gone with it
+
+        Click(entrances, false);
+        Assert.NotEqual(LevelView.EditMode.Entrances, canvas.Mode);
+        Assert.True(layerOne.IsEnabled);
+    }
+
     /// <summary>The badge is a link, not decoration: a click ON it says "follow this exit" and
     /// a click anywhere else on the same screen still means "edit this exit". Both come out of
     /// the same press, so the badge has to win.</summary>
