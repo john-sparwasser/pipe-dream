@@ -19,7 +19,8 @@ namespace PipeDream.Ui;
 ///   RIGHT with a lasso put a COPY of the selection here instead — a Map16 selection outranks the
 ///                      brush at either grain, and survives so it can be stamped again
 ///   LEFT click+drag    lasso, at the grain in force: whole tiles at 16x16, where a plain click
-///                      selects one and arms it as the level brush, or single 8x8 quadrants at 8x8
+///                      selects one tile and also arms it as the level brush, or single 8x8
+///                      quadrants at 8x8
 ///   LEFT on selection  (16x16 only) drag to move the lassoed tiles (overlap-safe, one undo)
 ///   X / Y / P          flip horizontally, flip vertically, toggle priority — on the quadrant
 ///                      under the cursor, not the selection
@@ -237,16 +238,16 @@ public class Map16CanvasView : Control
         if (lassoStart is { } a && lassoEnd is { } b)
         {
             var r = Lasso(a, b);
-            // At 16x16 a single-TILE lasso is a PICK, not a selection — it arms the level brush.
-            // At 8x8 there is nothing to arm: a quadrant is not something the level can place.
+            Selection = r;
+            // At 16x16 a single-TILE lasso is ALSO a pick: it arms the level brush. It stays a
+            // selection as well, so one tile copies on right-click like any other. At 8x8 there
+            // is nothing to arm — a quadrant is not something the level can place.
             if (Grain != TileGrain.Quad8 && r is { W: 2, H: 2 })
             {
-                Selection = null;
                 int picked = Bank * Map16Layout.BankTiles + r.Y / 2 * Map16Layout.Cols + r.X / 2;
                 SelectedTile = picked;
                 TilePicked?.Invoke(this, picked);
             }
-            else Selection = r;
         }
         else if (moveStart is { } m && lassoEnd is { } n && Selection is { } sel)
         {

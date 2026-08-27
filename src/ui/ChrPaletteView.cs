@@ -28,12 +28,18 @@ public class ChrPaletteView : Control
     public (int X, int Y, int W, int H) Brush { get; private set; } = (0, 0, 1, 1);
 
     /// <summary>Whether that pick is still standing. Deselecting in the Map16 canvas drops it
-    /// here too — one deselect, not one per surface — and only the outline depends on it: the
-    /// brush keeps its last rectangle, so a stamp with nothing picked still has something to
-    /// stamp.</summary>
+    /// here too — one deselect, not one per surface.</summary>
     public bool HasSelection { get; private set; }
 
-    public void ClearSelection() { HasSelection = false; InvalidateVisual(); }
+    /// <summary>Drop the pick, footprint and all. The brush goes back to a single tile rather
+    /// than keeping the shape of a selection that is no longer there — a deselect that leaves a
+    /// 2x2 cursor behind on the Map16 canvas has not deselected anything the eye can see.</summary>
+    public void ClearSelection()
+    {
+        HasSelection = false;
+        Brush = (0, 0, 1, 1);
+        InvalidateVisual();
+    }
 
     public event EventHandler? BrushChanged;
 

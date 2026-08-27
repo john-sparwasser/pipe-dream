@@ -1,0 +1,88 @@
+{
+  "note": [
+    "What an acts-as code makes a tile DO, for the Map16 gutter readout.",
+    "",
+    "Hand-edited, and meant to be: SMW stores no such table, so every line here was read out",
+    "of reference/smw-disasm and carries the label it was read from in `src`. Anything without",
+    "an entry shows as a bare code rather than a guess — fill those in as they are traced, and",
+    "keep `src` honest so the next reader can check the claim.",
+    "",
+    "Keys and range bounds are hex acts-as numbers, 0x000-0x1FF (Lunar Magic enforces < 0x200).",
+    "An exact code wins over a range; the first matching range wins after that."
+  ],
+
+  "codes": {
+    "04": {
+      "name": "Lava — sprites sink and burn",
+      "src": "bank_01 CODE_019240: CPY #$04 then CODE_019330 'Sink in lava'"
+    },
+    "06": {
+      "name": "Vine — climbable",
+      "src": "bank_01 CODE_019233: ';If tiles #$06 (vine) and further branch'"
+    },
+    "0C": {
+      "name": "Conveyor rope, left — Rope 1 and Rope 3 tilesets only",
+      "src": "bank_00 CODE_00EE48: SBC #$0C, CMP #$02, gated on tileset 02/08"
+    },
+    "0D": {
+      "name": "Conveyor rope, right — Rope 1 and Rope 3 tilesets only",
+      "src": "bank_00 CODE_00EE48: SBC #$0C, CMP #$02, gated on tileset 02/08"
+    },
+    "1E": {
+      "name": "Turn block — spins when hit, shatters to a spin jump",
+      "src": "bank_00 CODE_00ED09 and CODE_00EE5F: ';If block is turn block'"
+    },
+    "25": {
+      "name": "Nothing — pass straight through",
+      "src": "bank_00 CODE_00F4A1 and CODE_00F4E8: LDY #$25 is what the engine reports for a collision point outside the level"
+    },
+    "29": {
+      "name": "Invisible ? block — only while the blue P-switch runs",
+      "src": "bank_00 CODE_00F54B: ';If block isn't Invisible POW ? block', else behaviour becomes 24"
+    },
+    "2B": {
+      "name": "Coin",
+      "src": "bank_00 PSwitchNotInvQBlk: CPY #$2B ';If block is Coin'"
+    },
+    "2F": {
+      "name": "Muncher — hurts on contact, a coin while the silver P-switch runs",
+      "src": "bank_00 CODE_00F127 ';If 2F (muncher)' and CODE_00F584 ';make muncher coin'"
+    },
+    "32": {
+      "name": "Brown used block",
+      "src": "bank_00 CODE_00F571: ';make block a brown block'"
+    },
+    "6E": {
+      "name": "3-up moon",
+      "src": "bank_01 CODE_019221 and CODE_0192A0: '#$6E = 3-up moon'"
+    }
+  },
+
+  "ranges": [
+    {
+      "from": "11", "to": "2D",
+      "name": "Hittable block — bounces and turns into something when hit",
+      "src": "bank_00 CODE_00F160: SBC #$11, CMP #$1D, indexing DATA_00F05C/F080/F0A4/F0C8 (bounce sprite, contents, hit sides, what it becomes)"
+    },
+    {
+      "from": "59", "to": "5B",
+      "name": "Castle spikes — hurt on contact",
+      "src": "bank_00 CODE_00F12B: ';If castle spikes' CMP #$59 .. #$5C"
+    },
+    {
+      "from": "66", "to": "69",
+      "name": "Bush — no interaction",
+      "src": "bank_00 CODE_00F144: ';Bush tiles do nothing?' CMP #$66 .. #$6A"
+    },
+    {
+      "from": "EC", "to": "FB",
+      "name": "Coin — becomes a brown block while the blue P-switch runs",
+      "src": "bank_00 CODE_00F55E: SBC #$EC, CMP #$10, then ';Make block brown'"
+    },
+    {
+      "from": "100", "to": "1FF",
+      "name": "Solid",
+      "src": "bank_00 CODE_00EC8A/CODE_00ECB1: the collision read returns with the HIGH byte in A, and a nonzero one (page 1) takes the solid path. Page 1 sub-classifies further at CPY #$11 / #$6E / #$D8 — ledges, slopes and corners — which is not traced here yet."
+    }
+  ]
+}

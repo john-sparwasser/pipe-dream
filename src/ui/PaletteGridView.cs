@@ -43,6 +43,10 @@ public class PaletteGridView : Control
 
     public int Selected { get; private set; } = -1;
 
+    /// <summary>False for a grid that only SHOWS a palette — the Map16 gutter, where a tile picks
+    /// a row rather than a colour. Clicks do nothing and nothing is ever ringed.</summary>
+    public bool Selectable { get; set; } = true;
+
     public event EventHandler<int>? SelectionChanged;
 
     public PaletteGridView() => Focusable = true;
@@ -65,6 +69,7 @@ public class PaletteGridView : Control
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
+        if (!Selectable) return;
         Focus();
         if (IndexAt(e.GetPosition(this)) is not { } i) return;
         // A disabled swatch takes the click and does nothing with it — moving the ring there
