@@ -738,6 +738,28 @@ RomPrep stamps its own routine at that address; `RomPrepTests.v7_decides_the_hig
 as_lunar_magic_does` runs both ROMs' routines under Cpu65816 over every flag combination and
 asserts they agree, so a base prepped here and one saved by LM are interchangeable.
 
+### 9d-3. Where an entrance puts Mario  [CONFIRMED from the decode]
+
+No entrance record stores a position. It stores a SCREEN and two indices into small bank-05
+tables, and the three kinds keep the screen in three different places:
+
+| kind | screen | X index | Y index |
+|---|---|---|---|
+| main | `$05F600` bits 0-4 (`$05D9EC`: `LDA $01 : AND #$1F`) | `$05F200` bits 0-2 | `$05F000` bits 0-3 |
+| midway | `$05F400` bits 4-7 (`$05D9E1`: `LDA $02 : LSR x4`) | — shares the main's | — shares the main's |
+| secondary | `$05FC00` bits 0-4 (stashed to `$01`, same tail) | `$05FC00` bits 5-7 | `$05FA00` bits 0-3 |
+
+Position = `screen * 0x100 + DATA_05D750[xIndex]`, `DATA_05D730/40[yIndex]`. `DATA_05D758`
+supplies an X high byte too, but the horizontal tail overwrites it with the screen — which is
+why indices 0-3 and 4-7 collapse to the same five distinct offsets on a horizontal level, and
+why a screen field exists at all. Vertical levels take the other branch at `$05D9A7` and keep
+the table's high byte.
+
+Two consequences for an editor. A marker can only sit at one of **8 x 16 spots per screen**, so
+a drag snaps. And a **midway entrance carries only a screen** — its position inside that screen
+is the main entrance's — so a midway marker moves a screen at a time and cannot move vertically
+at all. Both are in `EntrancePlacement` and pinned by `EntrancePlacementTests`.
+
 ### 9e. Level connections  [CONFIRMED in-game, two-room hack in Mesen]
 
 Screen exit ($0DA512) → secondary entrance ($05F800/FA00/FC00/FE00) → destination level

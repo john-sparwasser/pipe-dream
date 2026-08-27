@@ -80,6 +80,30 @@ public class LevelView : Control
     /// re-deriving the layout arithmetic and testing its own copy of it.</summary>
     internal IReadOnlyList<(Rect Box, int Screen)> Badges => badges;
 
+    /// <summary>The entrances to draw in <see cref="EditMode.Entrances"/> — where this level
+    /// puts Mario. Positions are level pixels; the host resolves them from the records.</summary>
+    public IReadOnlyList<LevelEntrance> Entrances { get; set; } = [];
+
+    /// <summary>An entrance was dragged to a level-pixel position. It will not land exactly
+    /// there — the ROM stores a screen and two indices — so the host snaps it and hands back a
+    /// refreshed list.</summary>
+    public event EventHandler<(EntranceKind Kind, int Index, int X, int Y)>? EntranceMoved;
+
+    /// <summary>Which entrance is under the cursor, and the grab offset while dragging one.</summary>
+    private (LevelEntrance E, Point Grab)? dragEntrance;
+
+    /// <summary>Mario stands ON the spot, so the marker hangs above it rather than centring on
+    /// it — the same way the sprite overlay marks a spawn.</summary>
+    private Rect MarkerRect(LevelEntrance e, double z)
+        => new(e.X * z - Origin.X - 9, e.Y * z - Origin.Y - 20, 18, 22);
+
+    private LevelEntrance? EntranceAt(Point p, double z)
+    {
+        for (int i = Entrances.Count - 1; i >= 0; i--)          // topmost first
+            if (MarkerRect(Entrances[i], z).Contains(p)) return Entrances[i];
+        return null;
+    }
+
     private int? BadgeAt(Point p)
     {
         foreach (var (box, screen) in badges) if (box.Contains(p)) return screen;
@@ -253,9 +277,19 @@ public class LevelView : Control
             e.Handled = true;
             return;
         }
-        // Entrances owns the canvas too, and has nothing to do with a click yet — but it must
-        // still swallow it, or the layer underneath would be edited by a mode that is not it.
-        if (Mode == EditMode.Entrances) { e.Handled = true; return; }
+        // Entrances owns the canvas too: a press on a marker picks it up, and a press anywhere
+        // else is swallowed rather than reaching the layer underneath.
+        if (Mode == EditMode.Entrances)
+        {
+            var p = e.GetPosition(this);
+            if (props.IsLeftButtonPressed && EntranceAt(p, Zoom) is { } hit)
+            {
+                dragEntrance = (hit, p - new Point(hit.X * Zoom - Origin.X, hit.Y * Zoom - Origin.Y));
+                e.Pointer.Capture(this);
+            }
+            e.Handled = true;
+            return;
+        }
 
         // Alt+left is the eyedropper, in every mode. A modifier rather than an armed tool: a
         // mode you can forget you are in costs more than a key you have to hold.
@@ -362,6 +396,23 @@ public class LevelView : Control
             Cursor = new Cursor(BadgeAt(e.GetPosition(this)) is null
                 ? StandardCursorType.Arrow : StandardCursorType.Hand);
 
+        if (Mode == EditMode.Entrances)
+        {
+            var p = e.GetPosition(this);
+            Cursor = new Cursor(dragEntrance is not null || EntranceAt(p, Zoom) is not null
+                ? StandardCursorType.SizeAll : StandardCursorType.Arrow);
+            // The drag PREVIEWS by moving the marker: the drop snaps to what the ROM can store,
+            // and seeing that happen is how the 8x16 grid explains itself.
+            if (dragEntrance is { } d)
+            {
+                var at = p - d.Grab;
+                dragEntrance = (d.E with { X = (int)((at.X + Origin.X) / Zoom), Y = (int)((at.Y + Origin.Y) / Zoom) },
+                                d.Grab);
+                InvalidateVisual();
+            }
+            return;
+        }
+
         var cell = CellAt(e.GetPosition(this));
         if (cell != HoverCell) { HoverCell = cell; InvalidateVisual(); }
 
@@ -452,6 +503,14 @@ public class LevelView : Control
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
+        if (dragEntrance is { } drop)
+        {
+            dragEntrance = null;
+            e.Pointer.Capture(null);
+            EntranceMoved?.Invoke(this, (drop.E.Kind, drop.E.Index, drop.E.X, drop.E.Y));
+            InvalidateVisual();
+            return;
+        }
         if (sampling)
         {
             sampling = false;
@@ -571,10 +630,7 @@ public class LevelView : Control
         // Exits mode owns the overlay outright: no selection, no handles, no band — the whole
         // point is that the level is being read screen by screen, not edited object by object.
         if (Mode == EditMode.Exits) { DrawExits(ctx, z); return; }
-        // Entrances takes the canvas the same way. It has nothing of its own to paint yet: a
-        // main entrance record carries no screen, only Mario X/Y INDICES into $05D750/58 and
-        // $05D730/40, so a marker means reading those tables first.
-        if (Mode == EditMode.Entrances) return;
+        if (Mode == EditMode.Entrances) { DrawEntrances(ctx, z); return; }
 
         if (Mode == EditMode.Sprites && Sprites is { } spv)
         {
@@ -706,6 +762,43 @@ public class LevelView : Control
             badges.Add((box, screen));
         }
     }
+
+    /// <summary>
+    /// Entrances mode: a marker per place this level puts Mario, standing ON the spot with its
+    /// kind written beside it. The one being dragged is drawn at the cursor rather than at its
+    /// stored position — the drop snaps, and watching it snap is what teaches the grid.
+    /// </summary>
+    private void DrawEntrances(DrawingContext ctx, double z)
+    {
+        if (Source is not { HasImages: true }) return;
+
+        foreach (var e in Entrances)
+        {
+            // The dragged one is drawn from the drag's own copy, so it follows the cursor.
+            var shown = dragEntrance is { } d && d.E.Kind == e.Kind && d.E.Index == e.Index ? d.E : e;
+            var r = MarkerRect(shown, z);
+
+            // Mario's cap: a red disc with a white M, which reads at any zoom and needs no
+            // graphics out of the ROM. The stem points at the exact pixel he stands on.
+            ctx.DrawLine(new Pen(Brushes.White, 1), new Point(r.Center.X, r.Bottom),
+                         new Point(r.Center.X, r.Bottom + 4));
+            var cap = new Rect(r.X, r.Y, 18, 18);
+            ctx.DrawEllipse(MarioRed, new Pen(Brushes.White, 1.5), cap.Center, 9, 9);
+            var m = new FormattedText("M", System.Globalization.CultureInfo.InvariantCulture,
+                                      FlowDirection.LeftToRight, Typeface.Default, 11, Brushes.White);
+            ctx.DrawText(m, new Point(cap.Center.X - m.Width / 2, cap.Center.Y + 11 * 0.72 / 2 - m.Baseline));
+
+            var label = new FormattedText(shown.Label, System.Globalization.CultureInfo.InvariantCulture,
+                                          FlowDirection.LeftToRight, Typeface.Default, 11, Brushes.White);
+            var box = new Rect(cap.Right + 3, cap.Center.Y - 8, label.Width + 11, 16);
+            ctx.DrawRectangle(UiColors.SelectionFill, new Pen(UiColors.Selection, 1), box, 3, 3);
+            ctx.DrawText(label, new Point(box.X + 5, box.Center.Y + 11 * 0.72 / 2 - label.Baseline));
+        }
+    }
+
+    /// <summary>Mario's cap red. Not from the ROM's palette on purpose: the marker has to read
+    /// against whatever artwork is under it, and the level's own colours are the artwork.</summary>
+    private static readonly IBrush MarioRed = new SolidColorBrush(Color.Parse("#D63A2F"));
 
     // SMW screens are 16 cells wide; the boundary lines are the editor's main orientation cue.
     private void DrawScreenBoundaries(DrawingContext ctx, Rect dst, double z)

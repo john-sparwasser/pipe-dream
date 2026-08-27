@@ -1340,6 +1340,63 @@ public sealed class EditorSession
         => Rom is { } r && index >= 0 && index < Rom.SecondaryEntranceCount
             ? r.ReadSecondaryEntrance(index) : null;
 
+    /// <summary>
+    /// Every entrance that lands in THIS level, as positions on the canvas: the main entrance,
+    /// the midway one, and every secondary record pointing here.
+    ///
+    /// "Pointing here" is the low byte only — a record's destination is 8 bits and its ninth
+    /// comes from the submap the player crossed ($05F800's own doc), so $005 and $105 share a
+    /// set. Showing both beats hiding half of them and calling it precision.
+    /// </summary>
+    public IReadOnlyList<LevelEntrance> Entrances()
+    {
+        if (Rom is not { } rom || !HasLevel || MainEntrance is not { } main) return [];
+        var list = new List<LevelEntrance>
+        {
+            new(EntranceKind.Main, LevelNum,
+                EntrancePlacement.X(rom, main.ReservedMode, main.MarioX),
+                EntrancePlacement.Y(rom, main.MarioY)),
+            // The midway shares the main's spot inside its screen — it overrides nothing else.
+            new(EntranceKind.Midway, LevelNum,
+                EntrancePlacement.X(rom, main.ReservedBoundary, main.MarioX),
+                EntrancePlacement.Y(rom, main.MarioY)),
+        };
+        for (int i = 0; i < Rom.SecondaryEntranceCount; i++)
+        {
+            var e = rom.ReadSecondaryEntrance(i);
+            if (e.DestinationLevel != (LevelNum & 0xFF)) continue;
+            list.Add(new LevelEntrance(EntranceKind.Secondary, i,
+                                       EntrancePlacement.X(rom, e.ReservedX, e.MarioX),
+                                       EntrancePlacement.Y(rom, e.MarioY)));
+        }
+        return list;
+    }
+
+    /// <summary>
+    /// Move an entrance to the nearest position the ROM can express. Returns false when nothing
+    /// changed — including a midway dragged within its own screen, which has nowhere to store
+    /// the move (see <see cref="LevelEntrance.ScreenOnly"/>).
+    /// </summary>
+    public bool MoveEntrance(EntranceKind kind, int index, int px, int py)
+    {
+        if (Rom is not { } rom) return false;
+        var (screen, xIndex) = EntrancePlacement.NearestX(rom, px);
+        int yIndex = EntrancePlacement.NearestY(rom, py);
+
+        if (kind == EntranceKind.Secondary)
+        {
+            if (ReadEntrance(index) is not { } e) return false;
+            return WriteEntrance(index, e with { ReservedX = screen, MarioX = xIndex, MarioY = yIndex });
+        }
+        if (MainEntrance is not { } main) return false;
+        var moved = kind == EntranceKind.Midway
+            ? main with { ReservedBoundary = screen }
+            : main with { ReservedMode = screen, MarioX = xIndex, MarioY = yIndex };
+        if (moved == main) return false;
+        ApplyEntry(moved);
+        return true;
+    }
+
     /// <summary>Write one secondary entrance. Returns false when it already said that.</summary>
     public bool WriteEntrance(int index, SecondaryEntrance entrance)
     {

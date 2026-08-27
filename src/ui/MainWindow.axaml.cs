@@ -167,6 +167,14 @@ public partial class MainWindow : Window
         canvas.SelectionChanged += (_, _) => PushDirty();;
         canvas.ExitScreenClicked += async (_, screen) => await EditScreenExit(screen);
         canvas.ExitBadgeClicked += (_, screen) => FollowExit(screen);
+        canvas.EntranceMoved += (_, m) =>
+        {
+            // The drop position is where the cursor was; the session snaps it to what the ROM
+            // can store, so the markers are re-read rather than trusting the drag.
+            session.MoveEntrance(m.Kind, m.Index, m.X, m.Y);
+            RefreshEntranceMarkers();
+            UpdateTitle();
+        };
         canvas.SampleRequested += (_, p) =>
         {
             if (session.SampleCgramIndex(p.X, p.Y) is not { } idx)
@@ -644,6 +652,7 @@ public partial class MainWindow : Window
         canvas.Vertical = session.Vertical;
         canvas.Sprites = session.Sprites;
         RefreshExitBadges();               // another level, another exit table
+        RefreshEntranceMarkers();          // ...and another set of entrances
 
         if (!session.HasLevel) return;
 
@@ -1202,6 +1211,16 @@ public partial class MainWindow : Window
         edit?.Selection.Clear();
         canvas.Sprites?.Selection.Clear();
         RefreshExitBadges();
+        RefreshEntranceMarkers();
+    }
+
+    /// <summary>Re-read where this level's entrances put Mario. Cheap — a main record, a midway
+    /// screen and a scan of the entrance table — so it runs after every move rather than being
+    /// kept in step by hand.</summary>
+    private void RefreshEntranceMarkers()
+    {
+        canvas.Entrances = canvas.Mode == LevelView.EditMode.Entrances ? session.Entrances() : [];
+        canvas.InvalidateVisual();
     }
 
     /// <summary>

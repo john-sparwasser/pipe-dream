@@ -270,6 +270,52 @@ public class ExitsAndEntrancesTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(0x05, w.Applied![0].Destination);
     }
 
+    /// <summary>
+    /// Entrances mode marks every place the level puts Mario, and a marker can be dragged. It
+    /// does NOT land where it was dropped: the ROM stores a screen and two indices, so the drop
+    /// snaps to the nearest spot that can be expressed — and the marker comes back at that spot,
+    /// not the cursor's.
+    /// </summary>
+    [AvaloniaFact]
+    public void an_entrance_marker_drags_to_the_nearest_spot_the_rom_can_store()
+    {
+        if (Open() is not { } s) { log.WriteLine("SKIP: no ROM"); return; }
+        var before = s.Entrances();
+        log.WriteLine($"level $105: {string.Join(", ", before.Select(e => $"{e.Label} @ {e.X:X3},{e.Y:X3}"))}");
+        Assert.Contains(before, e => e.Kind == EntranceKind.Main);
+        Assert.Contains(before, e => e.Kind == EntranceKind.Midway);
+
+        // Drop the main entrance somewhere arbitrary and read back where it actually landed.
+        var main = before.First(e => e.Kind == EntranceKind.Main);
+        Assert.True(s.MoveEntrance(EntranceKind.Main, main.Index, 0x347, 0x0C4));
+
+        var moved = s.Entrances().First(e => e.Kind == EntranceKind.Main);
+        Assert.Equal(3, moved.X >> 8);                       // the screen it was dropped on
+        Assert.NotEqual(0x347, moved.X);                     // ...but snapped within it
+        Assert.Equal(EntrancePlacement.Y(Rom.Load(Vanilla), EntrancePlacement.NearestY(Rom.Load(Vanilla), 0x0C4)),
+                     moved.Y);
+        // Idempotent: dropping it exactly where it already is changes nothing.
+        Assert.False(s.MoveEntrance(EntranceKind.Main, moved.Index, moved.X, moved.Y));
+    }
+
+    /// <summary>Vanilla's midway entrance stores ONLY a screen — its position inside that screen
+    /// is the main entrance's. So a midway marker moves a screen at a time, and dragging it
+    /// vertically has nowhere to be written.</summary>
+    [AvaloniaFact]
+    public void a_midway_marker_can_only_change_its_screen()
+    {
+        if (Open() is not { } s) { log.WriteLine("SKIP: no ROM"); return; }
+        var mid = s.Entrances().First(e => e.Kind == EntranceKind.Midway);
+        Assert.True(mid.ScreenOnly);
+
+        Assert.True(s.MoveEntrance(EntranceKind.Midway, mid.Index, 0x512, 0x180));
+        var after = s.Entrances().First(e => e.Kind == EntranceKind.Midway);
+        var main = s.Entrances().First(e => e.Kind == EntranceKind.Main);
+        Assert.Equal(5, after.X >> 8);                       // the screen moved...
+        Assert.Equal(main.X & 0xFF, after.X & 0xFF);         // ...the offset inside it did not
+        Assert.Equal(main.Y, after.Y);                       // and Y is the main entrance's
+    }
+
     /// <summary>Entrances and Exits are the two halves of a connection and both want the canvas,
     /// so they are exclusive with each other as well as with the layer being edited.</summary>
     [AvaloniaFact]
