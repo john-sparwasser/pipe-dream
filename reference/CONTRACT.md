@@ -763,8 +763,23 @@ Both are in `EntrancePlacement` and pinned by `EntrancePlacementTests`.
 **Lunar Magic lifts both**, and its help says so in as many words: the tables are "method 1",
 while "Method 2 does not use table-based coordinates, and is an enhancement inserted by Lunar
 Magic", and "Lunar Magic adds an option to use separate settings for the midway entrance"
-(`level_main_entrance.htm`). Neither is installed in a vanilla or prepped ROM. See
-`reference/LM_PARITY.md` for where the enhancement lives and what adopting it would cost.
+(`level_main_entrance.htm`). LM's version is hooked at `$05D979` and gated by `$192A` bit 6 —
+see `reference/LM_PARITY.md`.
+
+**Prep v10 lifts both here**, by a different route. Every path through the decode ends
+`JMP $05DA17`, and the two that matter arrive from different branches — `$05D9FE` having placed
+the main entrance, `$05D9E9` the midway. Each three-byte jump is repointed at a stub that writes
+`$94`/`$96` straight from a table (8 bytes per level: main X/Y, midway X/Y, bit 15 of a Y word =
+"placed freely"), then jumps where it always went. A record with that bit clear leaves vanilla's
+answer untouched, so an unplaced level plays identically. The main stub stands down when `$1B93`
+is set — that is a secondary entry, whose position belongs to the record; **secondary entrances
+are still on the grid**. Proven in Mesen: a level entered at `$0A8` instead of `$080`, which the
+eight-offset table cannot express, starts Mario 40px right of where vanilla puts him.
+
+Two caveats. The FG/BG initial scroll is still vanilla's, so a position far from the original can
+put the camera somewhere unhelpful — LM solves this with a separate "set FG/BG relative to
+player" option we do not have. And this is OUR layout, not LM's: a ROM re-saved by Lunar Magic
+keeps working, but free positions revert to the grid.
 
 ### 9e. Level connections  [CONFIRMED in-game, two-room hack in Mesen]
 

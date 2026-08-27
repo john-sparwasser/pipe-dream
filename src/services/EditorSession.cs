@@ -1351,15 +1351,20 @@ public sealed class EditorSession
     public IReadOnlyList<LevelEntrance> Entrances()
     {
         if (Rom is not { } rom || !HasLevel || MainEntrance is not { } main) return [];
+        // A freely placed entrance (prep v10) overrides the grid one. The vanilla record is
+        // still there underneath and still what an unprepped ROM would use, so it stays the
+        // fallback rather than being cleared.
+        var mainAt = FreeEntrance.Read(rom, LevelNum, midway: false)
+                     ?? (EntrancePlacement.X(rom, main.ReservedMode, main.MarioX),
+                         EntrancePlacement.Y(rom, main.MarioY));
+        // The midway shares the main's spot inside its screen — until v10 gives it one.
+        var midAt = FreeEntrance.Read(rom, LevelNum, midway: true)
+                    ?? (EntrancePlacement.X(rom, main.ReservedBoundary, main.MarioX),
+                        EntrancePlacement.Y(rom, main.MarioY));
         var list = new List<LevelEntrance>
         {
-            new(EntranceKind.Main, LevelNum,
-                EntrancePlacement.X(rom, main.ReservedMode, main.MarioX),
-                EntrancePlacement.Y(rom, main.MarioY)),
-            // The midway shares the main's spot inside its screen — it overrides nothing else.
-            new(EntranceKind.Midway, LevelNum,
-                EntrancePlacement.X(rom, main.ReservedBoundary, main.MarioX),
-                EntrancePlacement.Y(rom, main.MarioY)),
+            new(EntranceKind.Main, LevelNum, mainAt.Item1, mainAt.Item2) { Free = FreeEntrance.Supported(rom) },
+            new(EntranceKind.Midway, LevelNum, midAt.Item1, midAt.Item2) { Free = FreeEntrance.Supported(rom) },
         };
         for (int i = 0; i < Rom.SecondaryEntranceCount; i++)
         {
@@ -1380,6 +1385,20 @@ public sealed class EditorSession
     public bool MoveEntrance(EntranceKind kind, int index, int px, int py)
     {
         if (Rom is not { } rom) return false;
+
+        // v10: the main and midway entrances go exactly where they were dropped, and the midway
+        // gets a position of its own rather than borrowing the main's.
+        if (kind != EntranceKind.Secondary && FreeEntrance.Supported(rom))
+        {
+            px = Math.Clamp(px, 0, 0x1FFF);
+            py = Math.Clamp(py, 0, 0x7FFF);
+            if (!FreeEntrance.Write(rom, LevelNum, kind == EntranceKind.Midway, px, py)) return false;
+            Project?.Data.Level(LevelNum).FreeEntrances = Convert.ToHexString(FreeEntrance.Bytes(rom, LevelNum));
+            Project?.MarkDirty();
+            Report($"entrance moved to {px:X3},{py:X3}");
+            return true;
+        }
+
         var (screen, xIndex) = EntrancePlacement.NearestX(rom, px);
         int yIndex = EntrancePlacement.NearestY(rom, py);
 

@@ -57,6 +57,10 @@ public sealed class Asm(int orgSnes)
 
     public Asm Label(string name) { labels[name] = Pc; return this; }
 
+    /// <summary>The SNES address a label landed on — for a caller that has to write a jump to it
+    /// from OUTSIDE this block (a hijack at a fixed site pointing into the code being built).</summary>
+    public int LabelAt(string name) => labels[name];
+
     // ---- loads/stores ----
     public Asm LdaImm8(int v) => E(0xA9, (byte)v);
     public Asm LdaImm16(int v) => Imm16(0xA9, v);
@@ -106,6 +110,7 @@ public sealed class Asm(int orgSnes)
     /// <summary>BIT #imm — tests bits WITHOUT touching A, which is the whole reason to use it
     /// over AND when the accumulator is still needed afterwards.</summary>
     public Asm BitImm8(int v) => E(0x89, (byte)v);
+    public Asm BitImm16(int v) => Imm16(0x89, v);
     public Asm Clc() => E(0x18);
     public Asm Sec() => E(0x38);
     public Asm IncA() => E(0x1A);

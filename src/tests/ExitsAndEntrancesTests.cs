@@ -298,6 +298,43 @@ public class ExitsAndEntrancesTests(ITestOutputHelper log) : IDisposable
         Assert.False(s.MoveEntrance(EntranceKind.Main, moved.Index, moved.X, moved.Y));
     }
 
+    /// <summary>
+    /// On a v10 base the two vanilla limits are gone: a marker lands exactly where it was
+    /// dropped, and the midway is its own entrance rather than the main one's screen. Both are
+    /// checked against the SAME level on a prepped base, so the difference is the prep and not
+    /// the level.
+    /// </summary>
+    [AvaloniaFact]
+    public void a_prepped_base_places_entrances_exactly_and_frees_the_midway()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Directory.CreateDirectory(dir);
+        string prepped = Path.Combine(dir, "v10.smc");
+        File.Copy(Vanilla, prepped, overwrite: true);
+        Assert.Null(RomPrep.PrepInPlace(prepped));
+
+        var s = new EditorSession();
+        Assert.True(s.OpenRom(prepped));
+        s.ShowLevel(0x105);
+
+        var main = s.Entrances().First(e => e.Kind == EntranceKind.Main);
+        Assert.True(main.Free);
+        Assert.False(s.Entrances().First(e => e.Kind == EntranceKind.Midway).ScreenOnly);
+
+        // 0x0A9 is not on the grid at all — the eight offsets are 00/10/70/80/E0.
+        Assert.True(s.MoveEntrance(EntranceKind.Main, main.Index, 0x0A9, 0x0157));
+        var moved = s.Entrances().First(e => e.Kind == EntranceKind.Main);
+        Assert.Equal((0x0A9, 0x0157), (moved.X, moved.Y));       // exactly there, no snap
+
+        // The midway moves on its own now, in both axes.
+        Assert.True(s.MoveEntrance(EntranceKind.Midway, main.Index, 0x0777, 0x0088));
+        Assert.Equal((0x0777, 0x0088),
+                     s.Entrances().First(e => e.Kind == EntranceKind.Midway) is var m ? (m.X, m.Y) : default);
+        Assert.Equal((0x0A9, 0x0157),
+                     s.Entrances().First(e => e.Kind == EntranceKind.Main) is var k ? (k.X, k.Y) : default);
+        Assert.False(s.MoveEntrance(EntranceKind.Main, main.Index, 0x0A9, 0x0157));   // idempotent
+    }
+
     /// <summary>Vanilla's midway entrance stores ONLY a screen — its position inside that screen
     /// is the main entrance's. So a midway marker moves a screen at a time, and dragging it
     /// vertically has nowhere to be written.</summary>

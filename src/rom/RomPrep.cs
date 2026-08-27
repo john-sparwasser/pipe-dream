@@ -53,7 +53,7 @@ public static class RomPrep
     /// ROM's checksum reading as Super Mario World's own, so LM stops calling it tampered with.
     /// Version-keyed stamp lists keep every released version BYTE-FROZEN: a v1 project's
     /// pinned image must reproduce forever (golden-hash tested).</summary>
-    public const int Version = 9;
+    public const int Version = 10;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -78,6 +78,19 @@ public static class RomPrep
     /// leaves this byte $FF. V5 does the same, by branching over it — see CONTRACT §0.
     /// </summary>
     public const int LmAccessFlag = 0x0DF100;
+    // ---- V10: entrance positions that are not on the vanilla grid ----
+    /// <summary>The two `JMP $05DA17` at the end of the main and midway position setups. Each is
+    /// repointed at a stub that overrides Mario's position from V10's table — three bytes for
+    /// three bytes, and each site already knows which entrance it just placed, which is what
+    /// makes telling main from midway free.</summary>
+    public const int MainJmpSite = 0x05D9FE, MidwayJmpSite = 0x05D9E9;
+    /// <summary>Where the two stubs live: the vanilla $FF run in bank 05, past V7's routine.</summary>
+    public const int EntranceFix = 0x05DC90;
+    /// <summary>8 bytes per level: main X, main Y, midway X, midway Y, each a 16-bit word with
+    /// bit 15 of the Y word meaning "this one is placed freely". 0x1000 bytes for 512 levels.</summary>
+    public const int Entrance2TagPc = 0x9AFF8, Entrance2Pc = 0x9B000;
+    public const int Entrance2Size = 0x1000, Entrance2Snes = 0x13B000;
+
     // ---- V9: a ROM whose checksum still reads as Super Mario World's ----
     /// <summary>RATS tag for the checksum balance; the tunable bytes follow at +8. First-fit
     /// allocation skips RATS-tagged space, so reserving the head of the 0x80000 gap keeps the
@@ -163,7 +176,8 @@ public static class RomPrep
            && (version < 6 || Gfx.RomBpp(rom) == 4 || Gfx.Cached(rom, 0) is null)
            && (version < 7 || rom.HasExitLevelHighBit)
            && (version < 8 || rom.HasLmGfx4bppHack)
-           && (version < 9 || HasBalance(rom));
+           && (version < 9 || HasBalance(rom))
+           && (version < 10 || rom.HasFreeEntrancePositions);
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying
@@ -296,7 +310,71 @@ public static class RomPrep
         if (version >= 8) AppendV8Stamps(s);
         // V9 reserves the balance; FixChecksum is what fills it, on every write.
         if (version >= 9) s.Add((BalanceTagPc, Rats(new byte[BalanceSize])));
+        if (version >= 10) AppendV10Stamps(s);
         return s;
+    }
+
+    /// <summary>
+    /// V10: an entrance that can stand anywhere, and a midway that is its own entrance.
+    ///
+    /// Vanilla stores no position. It stores a screen and two INDICES into the bank-05 tables
+    /// ($05D750/58 and $05D730/40), so Mario can only start at one of 8 x 16 spots per screen —
+    /// and the midway record carries only a screen, sharing the main entrance's spot inside it
+    /// ($05D9E1 overrides just the X high byte). Both limits are the data's, not the game's:
+    /// $94/$96 are plain 16-bit positions by the time the level runs.
+    ///
+    /// So this overrides them at the last moment. Every path through the entrance decode ends
+    /// `JMP $05DA17`, and the two that matter arrive from different branches — $05D9FE having
+    /// placed the main entrance, $05D9E9 the midway. Repointing each three-byte jump at its own
+    /// stub is an exact fit AND tells the two apart for free, which reading a flag at $05DA17
+    /// would not.
+    ///
+    /// Each stub writes $94/$96 (Mario's position, 16-bit each) straight from the table and then
+    /// jumps where it always went. A record whose Y word has bit 15 clear is not placed freely,
+    /// and the stub leaves vanilla's answer exactly as it found it — so an untouched level plays
+    /// identically, byte for byte, which is what the VRAM-parity discipline asks of a stamp that
+    /// runs on every level entry.
+    ///
+    /// The main stub also stands down when `$1B93` is set: that is a SECONDARY entry, whose
+    /// position belongs to the entrance record and not to the level. Secondary records stay on
+    /// the vanilla grid for now — they need their own table, indexed by record.
+    ///
+    /// Lunar Magic solves the same problem its own way ("method 2", hooked at $05D979 and gated
+    /// by $192A bit 6 — reference/LM_PARITY.md). We do NOT match its layout: its tables are
+    /// RATS-allocated at per-ROM addresses baked into code it generates, so there is nothing
+    /// fixed to agree with. The consequence is written down rather than papered over — a ROM
+    /// re-saved by LM keeps working, but the free positions revert to the grid.
+    /// </summary>
+    private static void AppendV10Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        s.Add((Entrance2TagPc, Rats(new byte[Entrance2Size])));
+
+        var a = new Asm(EntranceFix);
+        // Main: skip when a secondary exit placed Mario — that position is the record's.
+        a.Label("main").LdaAbs(0x1B93).Bne("mainOut");
+        Place(a, 0, "mainDone");
+        a.Label("mainOut").JmpAbs(0xDA17);
+
+        a.Label("mid");
+        Place(a, 4, "midDone");
+        a.JmpAbs(0xDA17);
+        s.Add((Pc(EntranceFix), a.Bytes()));
+
+        // Three bytes for three bytes: each JMP keeps its size and gains a stop on the way.
+        s.Add((Pc(MainJmpSite), [0x4C, unchecked((byte)a.LabelAt("main")), (byte)(a.LabelAt("main") >> 8)]));
+        s.Add((Pc(MidwayJmpSite), [0x4C, unchecked((byte)a.LabelAt("mid")), (byte)(a.LabelAt("mid") >> 8)]));
+
+        // Entered with 8-bit A and 16-bit index. Widths are restored before leaving, because
+        // $05DA17 expects exactly what vanilla left it.
+        static void Place(Asm a, int offset, string done)
+        {
+            a.Rep(0x30);
+            a.LdaDp(0x0E).Asl().Asl().Asl().Tax();                 // level x 8
+            a.LdaLongX(Entrance2Snes + offset + 2).BitImm16(0x8000).Beq(done);
+            a.AndImm16(0x7FFF).StaDp(0x96);                        // Mario Y
+            a.LdaLongX(Entrance2Snes + offset).StaDp(0x94);        // Mario X
+            a.Label(done).Sep(0x30);
+        }
     }
 
     /// <summary>

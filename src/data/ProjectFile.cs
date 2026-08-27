@@ -71,6 +71,11 @@ public sealed class ProjectFile
         /// <summary>Main entrance / entry settings edit: the 4 table bytes as hex, or null
         /// to keep the base ROM's.</summary>
         public string? MainEntrance { get; set; }
+        /// <summary>Prep v10's free entrance positions: the level's 8 bytes (main X/Y, midway
+        /// X/Y) as hex, or null while both entrances are still on vanilla's grid. Separate from
+        /// <see cref="MainEntrance"/> because it lives in a different table and a base without
+        /// v10 simply ignores it.</summary>
+        public string? FreeEntrances { get; set; }
         public List<ObjectDto> Objects { get; set; } = new();
         /// <summary>Layer-2 object stream, or null to keep whatever the base ROM has. A
         /// non-null list also selects object mode: the build writes a real bank into the

@@ -50,4 +50,55 @@ public class EntrancePlacementTests(ITestOutputHelper log)
             Assert.Equal(exact, EntrancePlacement.Y(rom, EntrancePlacement.NearestY(rom, exact)));
         }
     }
+
+    /// <summary>
+    /// V10's stub, run as code. It has to do two things and no more: put the table's position
+    /// into $94/$96 when the record is active, and leave vanilla's answer completely alone when
+    /// it is not — a stamp that runs on every level entry has no business changing an untouched
+    /// level.
+    /// </summary>
+    [RealRomFact]
+    public void v10_places_mario_from_the_table_and_otherwise_keeps_out_of_the_way()
+    {
+        var rom = Rom.Load(TestRom.RealRomPath);
+        RomPrep.Apply(rom, 10);
+        Assert.True(rom.HasFreeEntrancePositions);
+        Assert.True(FreeEntrance.Supported(rom));
+
+        // The stub ends by jumping where vanilla went; for the test it returns instead, so what
+        // is being measured is the stub and not the whole level load.
+        foreach (int site in new[] { 0x05DCB3, 0x05DCD4 })
+            rom.Data[rom.FileOffset(site)] = 0x60;                  // JMP -> RTS
+
+        (int X, int Y) Run(int entry, int level, int secondary)
+        {
+            var cpu = new Cpu65816(rom);
+            cpu.PresetWidths(m8: true, x8: false);                  // 8-bit A, 16-bit index
+            cpu.Ram7E[0x0E] = (byte)level; cpu.Ram7E[0x0F] = (byte)(level >> 8);
+            cpu.Ram7E[0x1B93] = (byte)secondary;
+            cpu.Ram7E[0x94] = 0x11; cpu.Ram7E[0x95] = 0x22;         // vanilla's answer, to spot
+            cpu.Ram7E[0x96] = 0x33; cpu.Ram7E[0x97] = 0x44;
+            cpu.CallNear(entry);
+            return (cpu.Ram7E[0x94] | (cpu.Ram7E[0x95] << 8), cpu.Ram7E[0x96] | (cpu.Ram7E[0x97] << 8));
+        }
+
+        // Nothing placed: vanilla's position survives untouched.
+        Assert.Equal((0x2211, 0x4433), Run(0x05DC90, 0x105, 0));
+        Assert.Equal((0x2211, 0x4433), Run(0x05DCB6, 0x105, 0));
+
+        Assert.True(FreeEntrance.Write(rom, 0x105, midway: false, 0x0345, 0x0123));
+        Assert.True(FreeEntrance.Write(rom, 0x105, midway: true, 0x1EE0, 0x0210));
+        Assert.Equal((0x0345, 0x0123), Run(0x05DC90, 0x105, 0));    // main
+        Assert.Equal((0x1EE0, 0x0210), Run(0x05DCB6, 0x105, 0));    // midway, independently
+
+        // A secondary entry keeps its own record's position: the main stub stands down.
+        Assert.Equal((0x2211, 0x4433), Run(0x05DC90, 0x105, 1));
+        // ...and another level is unaffected by this one being placed.
+        Assert.Equal((0x2211, 0x4433), Run(0x05DC90, 0x106, 0));
+
+        Assert.Equal((0x0345, 0x0123), FreeEntrance.Read(rom, 0x105, midway: false));
+        Assert.True(FreeEntrance.Clear(rom, 0x105, midway: false));
+        Assert.Null(FreeEntrance.Read(rom, 0x105, midway: false));
+        Assert.Equal((0x2211, 0x4433), Run(0x05DC90, 0x105, 0));    // back to vanilla's
+    }
 }

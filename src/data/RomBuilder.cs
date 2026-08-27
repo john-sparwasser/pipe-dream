@@ -65,8 +65,11 @@ internal static class RomBuilder
         }
         foreach (var (levelHex, state) in data.Levels)
         {
+            int level = Convert.ToInt32(levelHex, 16);
+            if (state.FreeEntrances is { Length: 16 } free)
+                FreeEntrance.SetBytes(rom, level, Convert.FromHexString(free));
             if (state.MainEntrance is not { Length: 8 } hex) continue;
-            rom.WriteMainEntrance(Convert.ToInt32(levelHex, 16), new MainEntrance(Convert.FromHexString(hex)));
+            rom.WriteMainEntrance(level, new MainEntrance(Convert.FromHexString(hex)));
         }
     }
 

@@ -346,6 +346,22 @@ public static class LunarMagic
         public bool HasGfx4bppUpload => rom.ReadByte(0x00AAE5) == 0xEB;
 
         /// <summary>
+        /// True when the main and midway entrances can stand anywhere rather than on vanilla's
+        /// 8 x 16 grid — i.e. prep v10's stubs are in, detected by both `JMP $05DA17` sites
+        /// having been repointed into the bank-05 tail where they live.
+        ///
+        /// Deliberately does NOT report true for Lunar Magic's own "method 2": that solves the
+        /// same problem with its own tables at per-ROM addresses (LM_PARITY), which we can
+        /// neither read nor write, so claiming the capability would promise positions this
+        /// editor cannot actually see.
+        /// </summary>
+        public bool HasFreeEntrancePositions
+            => rom.ReadByte(RomPrep.MainJmpSite) == 0x4C
+            && rom.ReadValue(RomPrep.MainJmpSite + 1, 2) is var m && m >= 0xDC90 && m < 0xDD00
+            && rom.ReadByte(RomPrep.MidwayJmpSite) == 0x4C
+            && rom.ReadValue(RomPrep.MidwayJmpSite + 1, 2) is var w && w >= 0xDC90 && w < 0xDD00;
+
+        /// <summary>
         /// True when the GFX upload is the one Lunar Magic recognizes as its 4bpp hack: the
         /// planes-0/1 loop replaced by a verbatim 32-byte-per-tile copy that returns where
         /// vanilla's second loop began ($00AACD = `LDX #$10`, $00AAE1 = `RTS`).

@@ -55,6 +55,10 @@ public class RomPrepTests
     /// checksum balance, which lands the ROM back on Super Mario World's own $A0DA, 2026-08-27).</summary>
     private const string GoldenPrepV9Sha256 = "052f0eff5302795306b7be42af15eae6d9d83b197ced651e7c39501d9314da4f";
 
+    /// <summary>Golden SHA-256 (headerless) of the V10-prepped vanilla US ROM (V9 stamps + free
+    /// entrance positions for the main and midway entrances, 2026-08-27).</summary>
+    private const string GoldenPrepV10Sha256 = "c3a9d98af705b94929fe772877e5efbd102822db7cddece746e01df0111de370";
+
     private static Rom Prepped()
     {
         var rom = TestRom.Create();
@@ -482,11 +486,15 @@ public class RomPrepTests
             Assert.Equal(GoldenPrepV8Sha256, RomHash.HeaderlessSha256File(tmp));
 
             File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
-            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V9)
-            string v9 = RomHash.HeaderlessSha256File(tmp);
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 9));      // frozen V9 stamp list
+            Assert.Equal(GoldenPrepV9Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V10)
+            string v10 = RomHash.HeaderlessSha256File(tmp);
             // Spelled out rather than left to the assertion message: xunit truncates a mismatch,
             // and this hash is what the NEXT version bump has to be told.
-            Assert.True(GoldenPrepV9Sha256 == v9, $"V9 golden hash is now {v9}");
+            Assert.True(GoldenPrepV10Sha256 == v10, $"V10 golden hash is now {v10}");
         }
         finally { File.Delete(tmp); }
     }

@@ -101,9 +101,13 @@ Read out of juz, whose copy sits at `$11FB03`:
 - The SCREEN still comes from the vanilla field: LM's routine writes `$01` and re-enters the
   decode at `$05D9A1`, so the shared tail's `LDA $01 : AND #$1F : STA $95` still runs.
 
-So adopting it is: a prep version installing the hook and its routine, a table block, and an
-editor that writes 16px-granular X/Y plus a Y high byte instead of two indices. The midway half
-needs its own record; where LM keeps it is not decoded yet. Note `$138008` collides with the
+**Prep v10 does the same job our own way** (CONTRACT §9d-3): stubs on the two `JMP $05DA17`
+sites, a per-level table, exact pixel positions and an independent midway. It deliberately does
+NOT match LM's layout — LM's tables are RATS-allocated at per-ROM addresses baked into code it
+generates, so there is nothing fixed to agree with. Consequence, stated rather than hidden: a
+ROM re-saved by LM keeps working and free positions revert to the grid. Matching LM would mean
+decoding how it FINDS its tables (as `LmMap16Slot` does for the Map16 ladder) and emitting the
+same operand positions; that is the upgrade path if the round trip ever has to carry them. Note `$138008` collides with the
 address our prep pins for the ExGFX pointer table — LM allocates dynamically, we do not, so
 whichever lands first must be RATS-respected by the other.
 
