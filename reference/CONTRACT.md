@@ -23,6 +23,16 @@ that strands their hack. It holds until pipe-dream grows features LM has no repr
 for, which is far enough off that nothing should be traded away for it now. When that day
 comes the break must be a deliberate, announced, opt-in divergence — never a silent one.
 
+**Use LM's rails. Do not route around them.** When a feature exists in Lunar Magic, ours goes
+on the same hook sites, with the same flag layout, reading and writing the same structures —
+even when a private mechanism would be quicker to build and easier to test. The failure mode is
+seductive and has recurred: find LM in the way (a site it overwrites, a table at a per-ROM
+address, a decode half-finished), and route around it. Every time, the right move was to finish
+reading what LM does. Prep v7's exit flags and v8's 4bpp upload are what agreement looks like —
+byte-identical, asserted against LM's own ROMs. `reference/LM_PARITY.md` is the standing
+inventory of where we have not managed it yet, and **v10's entrance positions are the current
+debt**: our own hook sites and our own table, decided by scope rather than necessity.
+
 Where it stands today: **LM can now READ a prepped base (v5+); it still cannot WRITE to one.**
 Tested against the real `Lunar Magic.exe` via its command line (`info_command_line.htm`),
 which is scriptable — that is the harness for all of this.
