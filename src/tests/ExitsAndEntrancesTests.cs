@@ -270,6 +270,55 @@ public class ExitsAndEntrancesTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(0x05, w.Applied![0].Destination);
     }
 
+    /// <summary>The badge is a link, not decoration: a click ON it says "follow this exit" and
+    /// a click anywhere else on the same screen still means "edit this exit". Both come out of
+    /// the same press, so the badge has to win.</summary>
+    [AvaloniaFact]
+    public void the_destination_badge_takes_the_click_before_the_screen_under_it()
+    {
+        if (Open() is not { } s) { log.WriteLine("SKIP: no ROM"); return; }
+
+        var bitmap = new LevelBitmap();
+        bitmap.SetImages(s.Phases, s.PxW, s.PxH, 0);
+        var canvas = new LevelView
+        {
+            Source = bitmap, Edit = s.Edit, Mode = LevelView.EditMode.Exits, Zoom = 1,
+            Exits = [(Screen: 1, Dest: 0x105, LmForm: false)],
+        };
+        var w = new Window { Content = canvas, Width = 900, Height = 600 };
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        // The badges are a RENDER artifact — they exist where they were last drawn, which is the
+        // only place a click can sensibly test against. No frame, no badges.
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+        Dispatcher.UIThread.RunJobs();
+
+        int? followed = null, edited = null;
+        canvas.ExitBadgeClicked += (_, screen) => followed = screen;
+        canvas.ExitScreenClicked += (_, screen) => edited = screen;
+
+        var badge = Assert.Single(canvas.Badges);
+        Assert.Equal(1, badge.Screen);
+        // It belongs to screen 1's top-right corner: screens are 16 cells of 16px.
+        double right = 2 * 16 * 16 * canvas.Zoom;
+        Assert.InRange(badge.Box.Right, right - 40, right);
+        var onBadge = canvas.TranslatePoint(badge.Box.Center, w)!.Value;
+        w.MouseDown(onBadge, MouseButton.Left);
+        w.MouseUp(onBadge, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(1, followed);
+        Assert.Null(edited);
+
+        // The same screen, well clear of the badge, still opens the editor.
+        followed = null;
+        var onScreen = canvas.TranslatePoint(new Point(badge.Box.X - 40, badge.Box.Bottom + 80), w)!.Value;
+        w.MouseDown(onScreen, MouseButton.Left);
+        w.MouseUp(onScreen, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(1, edited);
+        Assert.Null(followed);
+    }
+
     /// <summary>A click reports the SCREEN it landed on, which is what the exit table is keyed
     /// by. Vertical levels stack their screens down the same column, so the axis swaps.</summary>
     [AvaloniaFact]

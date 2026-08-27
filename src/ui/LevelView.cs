@@ -65,6 +65,27 @@ public class LevelView : Control
     /// or not it already has an exit.</summary>
     public event EventHandler<int>? ExitScreenClicked;
 
+    /// <summary>The destination BADGE was clicked, rather than the screen behind it — go to
+    /// where this exit leads instead of editing it. The argument is the screen number; what it
+    /// leads to is the host's to resolve, since a secondary exit's destination is an entrance
+    /// index and only the session can read that record.</summary>
+    public event EventHandler<int>? ExitBadgeClicked;
+
+    /// <summary>Where each badge was last drawn, for hit-testing. Rebuilt every render — the
+    /// badges move with the scroll and the zoom, so anything cached across frames would send
+    /// clicks to the level number that used to be under the cursor.</summary>
+    private readonly List<(Rect Box, int Screen)> badges = [];
+
+    /// <summary>Where the badges were last drawn. Exposed so a test can aim at one rather than
+    /// re-deriving the layout arithmetic and testing its own copy of it.</summary>
+    internal IReadOnlyList<(Rect Box, int Screen)> Badges => badges;
+
+    private int? BadgeAt(Point p)
+    {
+        foreach (var (box, screen) in badges) if (box.Contains(p)) return screen;
+        return null;
+    }
+
     /// <summary>Which screen a cell belongs to. Vertical levels stack their screens down the
     /// same 16-cell-wide column, so the axis swaps with the level's mode.</summary>
     public int ScreenOf((int X, int Y) cell) => (Vertical ? cell.Y : cell.X) / 16;
@@ -220,9 +241,15 @@ public class LevelView : Control
         CellPressed?.Invoke(this, cell);
 
         // Exits mode owns the canvas: a click picks a SCREEN, and nothing else in here runs.
+        // The badge is the exception — it is a link to where the exit goes, so it gets the
+        // click before the screen under it does.
         if (Mode == EditMode.Exits)
         {
-            if (props.IsLeftButtonPressed) ExitScreenClicked?.Invoke(this, ScreenOf(cell));
+            if (props.IsLeftButtonPressed)
+            {
+                if (BadgeAt(e.GetPosition(this)) is { } dest) ExitBadgeClicked?.Invoke(this, dest);
+                else ExitScreenClicked?.Invoke(this, ScreenOf(cell));
+            }
             e.Handled = true;
             return;
         }
@@ -326,6 +353,12 @@ public class LevelView : Control
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
+        // A badge is a link, so it says so under the cursor — otherwise nothing distinguishes it
+        // from the rest of the screen, which opens the prompt instead.
+        if (Mode == EditMode.Exits)
+            Cursor = new Cursor(BadgeAt(e.GetPosition(this)) is null
+                ? StandardCursorType.Arrow : StandardCursorType.Hand);
+
         var cell = CellAt(e.GetPosition(this));
         if (cell != HoverCell) { HoverCell = cell; InvalidateVisual(); }
 
@@ -640,6 +673,8 @@ public class LevelView : Control
             ctx.DrawRectangle(UiColors.SelectionFill, new Pen(UiColors.Selection, 2),
                               ScreenRect(ScreenOf(hc), z));
 
+        badges.Clear();
+        const double size = 13, padX = 6, padY = 4;
         foreach (var (screen, dest, lm) in Exits)
         {
             var r = ScreenRect(screen, z);
@@ -648,12 +683,20 @@ public class LevelView : Control
             // badge should read as the level number the user typed.
             var text = new FormattedText(lm ? $"{dest:X4}" : dest > 0xFF ? $"{dest:X3}" : $"{dest:X2}",
                                          System.Globalization.CultureInfo.InvariantCulture,
-                                         FlowDirection.LeftToRight, Typeface.Default, 13, Brushes.White);
+                                         FlowDirection.LeftToRight, Typeface.Default, size, Brushes.White);
+            // The box is sized to the DIGITS, not to the line box: FormattedText.Height carries
+            // the font's descent and line gap, and digits have no descenders, so centring on it
+            // parks the number against the top of the badge.
+            var box = new Rect(r.Right - text.Width - padX * 2 - 8, r.Top + 6,
+                               text.Width + padX * 2, size + padY * 2);
             // Anchored to the screen's top-right corner, not the viewport's: the badge names
             // THIS screen, and one that floated would name whichever is scrolled into view.
-            var box = new Rect(r.Right - text.Width - 14, r.Top + 6, text.Width + 10, text.Height + 4);
             ctx.DrawRectangle(UiColors.Accent, new Pen(Brushes.White, 1), box, 3, 3);
-            ctx.DrawText(text, new Point(box.X + 5, box.Y + 2));
+            // Baseline placed so the cap height straddles the middle. DrawText takes the top of
+            // the line box, hence the Baseline term.
+            double cap = size * 0.72;
+            ctx.DrawText(text, new Point(box.X + padX, box.Center.Y + cap / 2 - text.Baseline));
+            badges.Add((box, screen));
         }
     }
 

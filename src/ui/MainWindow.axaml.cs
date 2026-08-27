@@ -165,6 +165,7 @@ public partial class MainWindow : Window
         // RefreshPixels is a no-op when nothing is dirty, so a plain selection costs nothing.
         canvas.SelectionChanged += (_, _) => PushDirty();;
         canvas.ExitScreenClicked += async (_, screen) => await EditScreenExit(screen);
+        canvas.ExitBadgeClicked += (_, screen) => FollowExit(screen);
         canvas.SampleRequested += (_, p) =>
         {
             if (session.SampleCgramIndex(p.X, p.Y) is not { } idx)
@@ -1186,6 +1187,22 @@ public partial class MainWindow : Window
         edit?.Selection.Clear();
         canvas.Sprites?.Selection.Clear();
         RefreshExitBadges();
+    }
+
+    /// <summary>
+    /// Walk the connection: the badge names where a screen leads, so clicking it goes there.
+    /// A secondary exit's destination is an INDEX into the entrance table rather than a level,
+    /// so that one is resolved through the record — which is the whole reason the view hands
+    /// back a screen number and lets this side work out what it means.
+    /// </summary>
+    private void FollowExit(int screen)
+    {
+        if (edit?.ReadExits().FirstOrDefault(x => x.Screen == screen) is not { } exit) return;
+        int level = exit.Secondary && session.ReadEntrance(exit.Destination) is { } entrance
+            ? entrance.DestinationLevel
+            : exit.Destination;
+        if (level < 0 || level >= EditorSession.LevelCount) return;
+        levelBox.SelectedIndex = level;         // the picker IS the load path
     }
 
     /// <summary>Re-read the exit table the canvas draws its badges from. Cheap enough to run on
