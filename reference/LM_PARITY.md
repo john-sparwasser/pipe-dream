@@ -70,6 +70,43 @@ ranges plus per-tileset page tables; prep v3 covers four. Feature: extended Map1
 v2 loader at `$0FF770`/`$0FF780`. Two independent loaders on one ROM is a real hazard if both
 ever install.
 
+### Entrance positions — "method 2" and the separate midway  [CONFIRMED from four hacks]
+
+The two limits our Entrances mode enforces are **vanilla's**, not the medium's, and LM's help
+says so outright (`level_main_entrance.htm`): the bank-05 tables are "method 1", and *"Method 2
+does not use table-based coordinates, and is an enhancement inserted by Lunar Magic"*, which is
+*"practically required for reaching most areas in horizontal levels that are taller than the
+original game"*. Separately, *"In the original game the two are tied together... However Lunar
+Magic adds an option to use separate settings for the midway entrance"*.
+
+The hook is one instruction, and every real hack here has it — the reference bases do not:
+
+| ROM | `$05D979` |
+|---|---|
+| vanilla, prepped, `after.smc` | `29 38 4A 4A` — vanilla `AND #$38 : LSR : LSR` |
+| ShaoBase, BigEye | `JSL $10FE7F` |
+| juz | `JSL $11FB03` |
+| DogsOfWar | `JSL $12EFC0` |
+
+Read out of juz, whose copy sits at `$11FB03`:
+
+- **Gate**: `BIT $192A : BVC vanilla` — **bit 6 of `$192A`**, which is the very bit an LM
+  extended EXIT sets from its flags bit 3 (CONTRACT §9d-2, and prep v7 already writes it). The
+  exit says "this arrival is an extended one" and the entrance decode answers.
+- **Tables**, per level, RATS-allocated so the addresses differ per ROM (juz's shown):
+  `$138008+lvl` flags — bit 5 = use method 2, bit 3 = X high bit, bits 0-2/6-7 → `$192A`;
+  `$138208+lvl` position — high nibble = Y low, low nibble << 4 = X low, i.e. **16px granularity
+  in both axes**; `$138608+lvl` Y high, 6 bits, so Y spans the whole level; `$138408+lvl` FG/BG
+  scroll; plus `$06FC00+lvl` and `$06FE00+lvl`.
+- The SCREEN still comes from the vanilla field: LM's routine writes `$01` and re-enters the
+  decode at `$05D9A1`, so the shared tail's `LDA $01 : AND #$1F : STA $95` still runs.
+
+So adopting it is: a prep version installing the hook and its routine, a table block, and an
+editor that writes 16px-granular X/Y plus a Y high byte instead of two indices. The midway half
+needs its own record; where LM keeps it is not decoded yet. Note `$138008` collides with the
+address our prep pins for the ExGFX pointer table — LM allocates dynamically, we do not, so
+whichever lands first must be RATS-respected by the other.
+
 ### Object handlers with `$13D7`
 `$0DA963`, `$0DA9D6` — both do arithmetic against `$13D7`, the level's screen count.
 INFERRED: LM's variable level width. We have no equivalent and no feature that wants one yet.

@@ -23,8 +23,15 @@ public sealed record LevelEntrance(EntranceKind Kind, int Index, int X, int Y)
         _ => $"{Index:X3}",
     };
 
-    /// <summary>Vanilla's midway entrance carries ONLY a screen — its position within that
-    /// screen is the main entrance's ($05D9E1 overrides just the X high byte). So a midway
-    /// marker moves sideways a screen at a time and cannot move vertically at all.</summary>
+    /// <summary>
+    /// Vanilla's midway entrance carries ONLY a screen — its position within that screen is the
+    /// main entrance's ($05D9E1 overrides just the X high byte). So a midway marker moves
+    /// sideways a screen at a time and cannot move vertically at all.
+    ///
+    /// This is a limit of the DATA, not of the idea: Lunar Magic ships an enhancement that gives
+    /// the midway its own settings, and another that drops the position tables entirely
+    /// (reference/LM_PARITY.md). Neither is installed in a vanilla or prepped ROM, so until one
+    /// is, this is the truth and the UI should say so rather than pretend otherwise.
+    /// </summary>
     public bool ScreenOnly => Kind == EntranceKind.Midway;
 }

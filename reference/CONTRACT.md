@@ -755,10 +755,16 @@ why indices 0-3 and 4-7 collapse to the same five distinct offsets on a horizont
 why a screen field exists at all. Vertical levels take the other branch at `$05D9A7` and keep
 the table's high byte.
 
-Two consequences for an editor. A marker can only sit at one of **8 x 16 spots per screen**, so
-a drag snaps. And a **midway entrance carries only a screen** — its position inside that screen
-is the main entrance's — so a midway marker moves a screen at a time and cannot move vertically
-at all. Both are in `EntrancePlacement` and pinned by `EntrancePlacementTests`.
+Two consequences, **for vanilla data only**. A marker can only sit at one of **8 x 16 spots per
+screen**, so a drag snaps; and a **midway entrance carries only a screen** — its position inside
+that screen is the main entrance's — so it moves a screen at a time and not vertically at all.
+Both are in `EntrancePlacement` and pinned by `EntrancePlacementTests`.
+
+**Lunar Magic lifts both**, and its help says so in as many words: the tables are "method 1",
+while "Method 2 does not use table-based coordinates, and is an enhancement inserted by Lunar
+Magic", and "Lunar Magic adds an option to use separate settings for the midway entrance"
+(`level_main_entrance.htm`). Neither is installed in a vanilla or prepped ROM. See
+`reference/LM_PARITY.md` for where the enhancement lives and what adopting it would cost.
 
 ### 9e. Level connections  [CONFIRMED in-game, two-room hack in Mesen]
 

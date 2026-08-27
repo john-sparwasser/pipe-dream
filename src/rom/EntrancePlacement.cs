@@ -20,7 +20,13 @@ namespace PipeDream;
 ///           full 16-bit so it spans the level's height.
 ///
 /// The consequence for an editor: a marker cannot be dragged anywhere. It snaps to one of
-/// 8 x 16 positions per screen, because that is all the ROM can express.
+/// 8 x 16 positions per screen, because that is all a VANILLA ROM can express.
+///
+/// Lunar Magic calls this "method 1" and ships a "method 2" that abandons the tables for
+/// 16px-granular coordinates plus a Y high byte, hooked at $05D979 and gated by $192A bit 6 —
+/// the same bit an extended screen exit sets. Every real hack in reference/ carries it; no
+/// vanilla or prepped ROM does. reference/LM_PARITY.md has the layout and what adopting it
+/// would take.
 /// </summary>
 public static class EntrancePlacement
 {
