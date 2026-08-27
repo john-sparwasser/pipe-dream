@@ -21,6 +21,12 @@ public sealed class LevelExit
     public bool Water { get; set; }
     public bool Secondary { get; set; }
 
+    /// <summary>The extended flag layout (RomPrep §V7 / Lunar Magic): the X nibble's bit 0 is the
+    /// destination's bit 8, which is what lets an exit name a level above $0FF at all. Set
+    /// implicitly by a destination that needs it; a base without the patch reads the low byte
+    /// and ignores the rest. <see cref="Water"/> does not exist in this layout.</summary>
+    public bool Extended { get; set; }
+
     /// <summary>Lunar Magic's secondary-exit form: extended object 0x02 carrying a two-byte exit
     /// word, which packs its own flags into the high byte — so <see cref="Water"/> and
     /// <see cref="Secondary"/> do not apply to it.</summary>

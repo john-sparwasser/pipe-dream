@@ -45,9 +45,12 @@ public static class RomPrep
     /// Lunar Magic reads as its level-access flag, which made every prepped base unopenable in
     /// LM (see <see cref="LmAccessFlag"/> and CONTRACT §0); V6 converts the FILES to 4bpp, which
     /// is what v4's reader has been waiting for — a v4/v5 base uploads garbage until it lands.
+    /// V7 gives a screen exit a destination bit 8, so an exit can name levels $100-$1FF at all
+    /// — vanilla takes that bit from the submap the player happens to be on, which is why a
+    /// pipe to $105 was impossible to author (see <see cref="ExitHighByte"/>).
     /// Version-keyed stamp lists keep every released version BYTE-FROZEN: a v1 project's
     /// pinned image must reproduce forever (golden-hash tested).</summary>
-    public const int Version = 6;
+    public const int Version = 7;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -72,6 +75,20 @@ public static class RomPrep
     /// leaves this byte $FF. V5 does the same, by branching over it — see CONTRACT §0.
     /// </summary>
     public const int LmAccessFlag = 0x0DF100;
+    // ---- V7: screen-exit destination bit 8 ----
+    /// <summary>Where the level-number high byte is decided. Vanilla inlines "am I on a submap?"
+    /// at $05D7CE; this replaces those 4 bytes with a JSL here. The address is the one Lunar
+    /// Magic uses for the same hijack, and the vanilla $FF run at $05DC46 is 954 bytes long, so
+    /// a base prepped here and a base saved by LM agree on both the site and the data format.
+    /// </summary>
+    public const int ExitHighByte = 0x05DC50;
+    /// <summary>The vanilla `BEQ +2 : LDA #$01` that hardcodes bit 8 from the submap flag.</summary>
+    public const int ExitHighByteSite = 0x05D7CE;
+    /// <summary>`LDA $0B : AND #$01` in the screen-exit object handler — the mask that throws
+    /// away every exit flag but water. V7 widens it to #$0F so the whole X nibble survives into
+    /// $19D8,X, which is where <see cref="ExitHighByte"/> reads them from.</summary>
+    public const int ExitFlagMask = 0x0DA532;      // the operand byte of that AND
+
     public const int SpriteStub = 0x0EF300, SpriteBankTable = 0x0EF100;
     public const int PalTrampoline = 0x0EFC50, PalApply = 0x0EFC90, PalThunk = 0x00FF93;
     public const int PalHook2Stub = 0x0EFC60;      // second hook: re-apply after $00A5BC
@@ -103,7 +120,8 @@ public static class RomPrep
            // V6 leaves no stamp to look for — its evidence is the DATA, so the check is the
            // depth itself. An image whose GFX00 does not resolve (a synthetic test ROM) has
            // nothing to convert and nothing to claim, so it does not fail the test either.
-           && (version < 6 || Gfx.RomBpp(rom) == 4 || Gfx.Cached(rom, 0) is null);
+           && (version < 6 || Gfx.RomBpp(rom) == 4 || Gfx.Cached(rom, 0) is null)
+           && (version < 7 || rom.HasExitLevelHighBit);
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying
@@ -200,7 +218,63 @@ public static class RomPrep
         // V5 restamps the Direct-Map16 handler block over V1's, the way V3 restamps the Map16
         // lookup — V1's list stays byte-frozen and a v1 project's pinned image still reproduces.
         if (version >= 5) s.Add((Pc(Handler22), Dm16Handlers(5)));
+        if (version >= 7) AppendV7Stamps(s);
         return s;
+    }
+
+    /// <summary>
+    /// V7: let a screen exit name a level above $0FF.
+    ///
+    /// Vanilla has no field for it. $05D7BD reads the destination byte into $0E and then decides
+    /// the HIGH byte from the player's own position — `LDA $1F11,Y : BEQ +2 : LDA #$01 : STA $0F`
+    /// — so the same exit lands in $005 from the main map and $105 from a submap, and an editor
+    /// cannot express "go to $105" at all.
+    ///
+    /// Two stamps move that decision into the level data:
+    ///
+    ///   $0DA531  `AND #$01` → `AND #$0F`  — the object handler keeps the whole X nibble in
+    ///            $19D8,X instead of just the water bit. Safe by inspection: $19D8,X has NO
+    ///            reader anywhere in the vanilla image (only the store at $0DA533), so the
+    ///            other three bits are free real estate.
+    ///   $05D7CE  `BEQ +2 : LDA #$01` (4 bytes) → `JSL ExitHighByte` (4 bytes, exact fit).
+    ///
+    /// The flag layout is Lunar Magic's, deliberately: an exit authored here must work in a ROM
+    /// LM later touches and vice versa, and the format is the interface. Bit 2 marks an extended
+    /// exit — without it the routine falls back, so every vanilla exit in the ROM keeps behaving
+    /// exactly as it did.
+    ///
+    ///   bit0  destination bit 8          bit2  "this exit is extended" (else fall back)
+    ///   bit1  use the secondary table    bit3  entrance action → $192A bit 6
+    ///   bits4-7  further high bits, only reachable through LM's word form (ext obj 0x02),
+    ///            since the vanilla-form handler masks to a nibble.
+    ///
+    /// The fallback is NOT vanilla's submap test: with the exit tables now data-driven, an
+    /// old-style exit takes bit 8 from whether the CURRENT level is a main level ($13BF >= $25),
+    /// which is what the submap test was standing in for and does not depend on how the player
+    /// arrived. That is also what LM does, so the two agree on untouched exits too.
+    /// </summary>
+    private static void AppendV7Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        s.Add((Pc(ExitFlagMask), [0x0F]));
+        s.Add((Pc(ExitHighByteSite), [0x22, unchecked((byte)ExitHighByte),
+                                      unchecked((byte)(ExitHighByte >> 8)), (byte)(ExitHighByte >> 16)]));
+
+        var a = new Asm(ExitHighByte);
+        // In: X = the screen index the caller already resolved, A = $1F11,Y (vanilla's answer,
+        // which we ignore). Out: A = the level number's high byte, stored to $0F by the caller.
+        a.LdaAbsX(0x19D8).BitImm8(0x04).Beq("plain");
+
+        a.Pha().AndImm8(0x02).Lsr().StaAbs(0x1B93);       // bit1 → secondary-exit flag
+        a.Pla().Pha().AndImm8(0x08).Asl().Asl().Asl().StaAbs(0x192A);   // bit3 → $192A bit 6
+        // High byte = (flags >> 4) << 1 | bit0. The carry carries bit0 across the shifts, which
+        // is cheaper than a scratch byte — and every DP byte around here is live ($0E/$0F are
+        // mid-assembly, $00-$0D belong to the caller).
+        a.Pla().Lsr().Php().Lsr().Lsr().Lsr().Plp().Rol().Rtl();
+
+        // Not extended: no entrance action, and bit 8 says whether THIS level is a main level.
+        a.Label("plain").StzAbs(0x192A);
+        a.LdaAbs(0x13BF).CmpImm8(0x25).LdaImm8(0x00).Rol().Rtl();
+        s.Add((Pc(ExitHighByte), a.Bytes()));
     }
 
     /// <summary>

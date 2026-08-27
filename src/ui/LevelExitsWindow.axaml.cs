@@ -92,9 +92,13 @@ public partial class LevelExitsWindow : Window
         rows.Add((e, screen, dest, water, secondary));
     }
 
-    private static int Parse(TextBox box, int max)
+    /// <summary>Hex out of a box, MASKED to the field's real width rather than clamped: these
+    /// are fixed-width ROM fields, and the handler itself masks ($0DA512 does `$0A &amp; $1F`).
+    /// Clamping turned a full level number — $105 for the byte $05 — into $FF, which is a
+    /// different destination entirely and nothing the user typed.</summary>
+    private static int Parse(TextBox box, int mask)
         => int.TryParse(box.Text, System.Globalization.NumberStyles.HexNumber, null, out int v)
-            ? Math.Clamp(v, 0, max) : 0;
+            ? v & mask : 0;
 
     private void OnAdd(object? sender, RoutedEventArgs e)
     {

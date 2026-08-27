@@ -42,6 +42,10 @@ public class RomPrepTests
     /// tile-planar GFX file stored 4bpp, 2026-08-25).</summary>
     private const string GoldenPrepV6Sha256 = "be34b9ef972baf618ae45c272ecdad27309f1c365fb5bb695d90e67349cbfefa";
 
+    /// <summary>Golden SHA-256 (headerless) of the V7-prepped vanilla US ROM (V6 stamps + the
+    /// screen-exit destination high bit, 2026-08-27).</summary>
+    private const string GoldenPrepV7Sha256 = "8d8c98bd0f8fba1c1014678363f0a0ee8860c15efda95848850084f3ec605f6a";
+
     private static Rom Prepped()
     {
         var rom = TestRom.Create();
@@ -457,11 +461,15 @@ public class RomPrepTests
             Assert.Equal(GoldenPrepV5Sha256, RomHash.HeaderlessSha256File(tmp));
 
             File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
-            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V6)
-            string v6 = RomHash.HeaderlessSha256File(tmp);
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 6));      // frozen V6 stamp list
+            Assert.Equal(GoldenPrepV6Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V7)
+            string v7 = RomHash.HeaderlessSha256File(tmp);
             // Spelled out rather than left to the assertion message: xunit truncates a mismatch,
             // and this hash is what the NEXT version bump has to be told.
-            Assert.True(GoldenPrepV6Sha256 == v6, $"V6 golden hash is now {v6}");
+            Assert.True(GoldenPrepV7Sha256 == v7, $"V7 golden hash is now {v7}");
         }
         finally { File.Delete(tmp); }
     }
@@ -1100,5 +1108,74 @@ public class RomPrepTests
             Assert.Equal(t, emulated.Get(x, y));
             Assert.Equal(t, ported.Get(x, y));
         }
+    }
+
+    // ---- V7: a screen exit that can name a level above $0FF ----
+
+    /// <summary>Run the ROM's own level-number-high-byte routine and read what it decides.
+    /// Returns (highByte, $1B93 secondary flag, $192A entrance action).</summary>
+    private static (int High, int Secondary, int Action) RunExitHighByte(Rom rom, int screen, int flags,
+                                                                        int translevel = 0x25)
+    {
+        var cpu = new Cpu65816(rom);
+        cpu.PresetWidths(m8: true, x8: true);
+        cpu.Ram7E[0x19D8 + screen] = (byte)flags;
+        cpu.Ram7E[0x13BF] = (byte)translevel;
+        cpu.PresetX(screen);
+        cpu.CallLong(RomPrep.ExitHighByte);
+        return (cpu.Acc & 0xFF, cpu.Ram7E[0x1B93], cpu.Ram7E[0x192A]);
+    }
+
+    /// <summary>
+    /// The V7 patch, run as code. Vanilla decides the destination's bit 8 from the submap the
+    /// player is standing on, so "exit to $105" is inexpressible; this takes it from the exit's
+    /// own flags instead. Every case is checked against the ROM's real behaviour, not the
+    /// stamp bytes — the bytes are only interesting if they run like this.
+    /// </summary>
+    [RealRomFact]
+    public void v7_takes_the_destinations_ninth_bit_from_the_exit_flags()
+    {
+        var rom = PreppedReal();
+        Assert.True(rom.HasExitLevelHighBit);
+
+        // Extended (bit2), bit0 = the ninth bit of the destination.
+        Assert.Equal((1, 0, 0), RunExitHighByte(rom, screen: 3, flags: 0x05));
+        Assert.Equal((0, 0, 0), RunExitHighByte(rom, screen: 3, flags: 0x04));
+        // bit1 arms the secondary-entrance table, bit3 the entrance action ($192A bit 6).
+        Assert.Equal((1, 1, 0), RunExitHighByte(rom, screen: 7, flags: 0x07));
+        Assert.Equal((1, 0, 0x40), RunExitHighByte(rom, screen: 7, flags: 0x0D));
+        // Indexed per screen, like the tables it reads.
+        Assert.Equal((0, 0, 0), RunExitHighByte(rom, screen: 0x1F, flags: 0x04));
+
+        // WITHOUT bit2 nothing is extended and the old rule applies: bit 8 says whether the
+        // level being left is a main level. Every exit already in the ROM is this case.
+        Assert.Equal(1, RunExitHighByte(rom, screen: 1, flags: 0x01, translevel: 0x25).High);
+        Assert.Equal(0, RunExitHighByte(rom, screen: 1, flags: 0x01, translevel: 0x24).High);
+    }
+
+    /// <summary>The point of matching LM's site and flag layout: an exit authored in either
+    /// editor must mean the same thing in the other. Same inputs, same answers, both ROMs.</summary>
+    [LmRefRomFact]
+    public void v7_decides_the_high_byte_exactly_as_lunar_magic_does()
+    {
+        var ours = PreppedReal();
+        var lm = Rom.Load(AfterRomPath);
+        Assert.True(lm.HasExitLevelHighBit);          // LM's own patch, detected the same way
+
+        foreach (int flags in new[] { 0x00, 0x01, 0x04, 0x05, 0x06, 0x07, 0x0C, 0x0D, 0x0F })
+            foreach (int tl in new[] { 0x10, 0x25 })
+                Assert.Equal(RunExitHighByte(lm, 5, flags, tl), RunExitHighByte(ours, 5, flags, tl));
+    }
+
+    /// <summary>The other half: the object handler has to KEEP the flags. Vanilla masks the X
+    /// nibble down to the water bit, so bits 1-3 never reached $19D8,X to be read back.</summary>
+    [RealRomFact]
+    public void v7_keeps_the_whole_exit_nibble_in_ram()
+    {
+        var vanilla = Rom.Load(TestRom.RealRomPath);
+        var prepped = PreppedReal();
+        Assert.Equal(0x01, vanilla.ReadByte(RomPrep.ExitFlagMask));
+        Assert.Equal(0x0F, prepped.ReadByte(RomPrep.ExitFlagMask));
+        Assert.False(vanilla.HasExitLevelHighBit);
     }
 }

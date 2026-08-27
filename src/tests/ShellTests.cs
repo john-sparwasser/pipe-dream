@@ -76,9 +76,12 @@ public class ShellTests(ITestOutputHelper log)
         Dispatcher.UIThread.RunJobs();
         Assert.True(string.IsNullOrEmpty(readout.Text), $"stale readout: {readout.Text}");
 
+        // Map16 spends the gutter on BEHAVIOUR: which tile is hovered is already in the header,
+        // and the acts-as code is the one thing nothing else on screen explains.
         Mode("ModeMap16");
         Dispatcher.UIThread.RunJobs();
-        Assert.Matches(@"^tile 0x[0-9A-F]{4}", HoverOver(Find<Map16CanvasView>(w, "Map16Canvas")));
+        Assert.Matches(@"^(acts 0x[0-9A-F]{3}|acts-like: |unallocated)",
+                       HoverOver(Find<Map16CanvasView>(w, "Map16Canvas")));
 
         Mode("ModeGfx");
         Dispatcher.UIThread.RunJobs();
@@ -141,6 +144,21 @@ public class ShellTests(ITestOutputHelper log)
         Assert.Equal(1, modes.Count(m => m.IsChecked == true));
         Assert.True(modes[1].IsChecked);
         Assert.Equal(drawerWasVisible, drawer.IsVisible);
+    }
+
+    /// <summary>The drawer's tab header and the canvas's layer bar are one strip across the
+    /// window. A TabStrip measures taller than a row of toggles, so the header takes its height
+    /// from the bar rather than trusting the two to agree.</summary>
+    [AvaloniaFact]
+    public void the_level_drawer_header_is_the_same_height_as_the_canvas_bar()
+    {
+        if (Open() is not { } w) { log.WriteLine("SKIP: no ROM"); return; }
+        double canvasBar = Find<Border>(w, "LevelEditorBar").Bounds.Height;
+        double drawerBar = Find<Border>(w, "LevelDrawerBar").Bounds.Height;
+        log.WriteLine($"canvas bar {canvasBar:F0}px, drawer bar {drawerBar:F0}px");
+
+        Assert.True(canvasBar > 0, "the level canvas has no header");
+        Assert.Equal(canvasBar, drawerBar, 1);
     }
 
     [AvaloniaFact]

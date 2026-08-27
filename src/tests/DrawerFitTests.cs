@@ -42,31 +42,23 @@ public class DrawerFitTests(ITestOutputHelper log)
         Assert.Equal(16 * 16 * 4 + 16, Map16PaletteView.ContentWidth(4));
     }
 
-    /// <summary>The one that would have caught the clipping: at every tile size the drawer
-    /// must be wide enough that the sixteenth column is inside it.</summary>
-    [AvaloniaTheory]
-    [InlineData(1)]
-    [InlineData(2)]
-    [InlineData(3)]
-    [InlineData(4)]
-    public void every_tile_size_fits_a_whole_row_inside_the_drawer(double zoom)
+    /// <summary>The one that would have caught the clipping: the drawer must be wide enough that
+    /// the sixteenth column is inside it. The tile size is fixed for now — the size control is
+    /// gone — so this holds it at whatever the picker's own zoom is.</summary>
+    [AvaloniaFact]
+    public void a_whole_tile_row_fits_inside_the_drawer()
     {
         if (Open() is not { } w) { log.WriteLine("SKIP: no ROM"); return; }
-
-        w.GetControl<Slider>("TileZoom").Value = zoom;
-        Dispatcher.UIThread.RunJobs();
-        w.InvalidateMeasure();
-        Dispatcher.UIThread.RunJobs();
 
         var drawer = w.GetControl<Border>("Drawer");
         var palette = w.GetControl<Map16PaletteView>("Palette");
 
         double tiles = Map16Layout.Cols * 16 * palette.Zoom;
-        log.WriteLine($"zoom {zoom}: drawer {drawer.Bounds.Width:F0}px, needs {tiles:F0}px of tiles " +
-                      $"(+{Map16PaletteView.Pad * 2} pad, +chrome)");
+        log.WriteLine($"zoom {palette.Zoom}: drawer {drawer.Bounds.Width:F0}px, needs {tiles:F0}px " +
+                      $"of tiles (+{Map16PaletteView.Pad * 2} pad, +chrome)");
 
         Assert.True(drawer.Bounds.Width >= tiles + Map16PaletteView.Pad * 2,
-                    $"drawer {drawer.Bounds.Width:F0}px cannot hold a {tiles:F0}px tile row at zoom {zoom}");
+                    $"drawer {drawer.Bounds.Width:F0}px cannot hold a {tiles:F0}px tile row");
 
         // And the palette itself was actually given that room, not just the drawer.
         Assert.True(palette.Bounds.Width >= tiles - 0.5,
@@ -138,30 +130,5 @@ public class DrawerFitTests(ITestOutputHelper log)
 
         Assert.True(chr.Zoom > before, $"tiles stayed at {before:F2}x in a drawer 160px wider");
         Assert.Equal(ChrPaletteView.Cols * 8 * chr.Zoom, chr.Bounds.Width, 1);
-    }
-
-    /// <summary>Growing the tile size widens the drawer; the splitter can still make it wider
-    /// than the minimum, and that extra width is kept.</summary>
-    [AvaloniaFact]
-    public void the_drawer_grows_with_the_tile_size_and_keeps_a_manual_widening()
-    {
-        if (Open() is not { } w) { log.WriteLine("SKIP: no ROM"); return; }
-        var split = w.GetControl<Grid>("Split");
-        var zoomSlider = w.GetControl<Slider>("TileZoom");
-
-        zoomSlider.Value = 1;
-        Dispatcher.UIThread.RunJobs();
-        double atOne = split.ColumnDefinitions[0].MinWidth;
-
-        zoomSlider.Value = 3;
-        Dispatcher.UIThread.RunJobs();
-        Assert.True(split.ColumnDefinitions[0].MinWidth > atOne, "bigger tiles did not widen the drawer");
-
-        // A manual drag past the minimum survives — the fit only raises the floor.
-        double wide = split.ColumnDefinitions[0].MinWidth + 200;
-        split.ColumnDefinitions[0].Width = new GridLength(wide);
-        zoomSlider.Value = 2;
-        Dispatcher.UIThread.RunJobs();
-        Assert.Equal(wide, split.ColumnDefinitions[0].Width.Value);
     }
 }

@@ -317,6 +317,7 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
             Destination = o.ExitDestination,
             Water = o.ExitIsWater,
             Secondary = o.ExitUsesSecondary,
+            Extended = o.ExitIsExtended,
         }).ToList();
 
     /// <summary>
@@ -332,10 +333,20 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         foreach (var r in exits)
         {
             int streamScreen = r.Source?.Screen ?? r.Screen;
+            bool newScreen = r.Source?.NewScreen ?? false;
+            // A destination above $0FF has nowhere to live in the vanilla layout, so it forces
+            // the extended one. Below that the row keeps whatever form it arrived in — rewriting
+            // every untouched vanilla exit into the extended form would make the whole table a
+            // diff against the base for no gain.
+            bool extended = r.Extended || r.Destination > 0xFF;
             objects.Add(r.LmForm
-                ? new LevelObject(r.Source?.NewScreen ?? false, 0, streamScreen,
+                ? new LevelObject(newScreen, 0, streamScreen,
                                   r.Source?.XNibble ?? 0, r.Screen & 0x1F, 0x02, r.Destination & 0xFFFF)
-                : new LevelObject(r.Source?.NewScreen ?? false, 0, streamScreen,
+                : extended
+                ? new LevelObject(newScreen, 0, streamScreen,
+                                  4 | (r.Secondary ? 2 : 0) | ((r.Destination >> 8) & 1),
+                                  r.Screen & 0x1F, 0x00, r.Destination & 0xFF)
+                : new LevelObject(newScreen, 0, streamScreen,
                                   (r.Secondary ? 2 : 0) | (r.Water ? 1 : 0),
                                   r.Screen & 0x1F, 0x00, r.Destination & 0xFF));
         }

@@ -211,18 +211,14 @@ public class Layer2EditingTests(ITestOutputHelper log) : IDisposable
 
         var l1 = w.GetControl<ToggleButton>("LayerOne");
         var l2 = w.GetControl<ToggleButton>("LayerTwo");
-        var add = w.GetControl<Button>("AddLayer2");
         var drop = w.GetControl<Button>("DropLayer2");
 
         Assert.True(l1.IsChecked);
-        // +L2 is offered exactly when there is no object layer to switch to.
-        Assert.Equal(session(w).Layer2Editable, !add.IsVisible);
         // Dropping is only offered for a stream this project created, never the base ROM's.
         Assert.False(drop.IsVisible);
 
         // L2 stays CLICKABLE either way: a disabled button was the usual state on background
         // levels, and a dead control is harder to read than one that lands and changes nothing.
-        // The +L2 button beside it is the affordance that gives the level a layer 2.
         Assert.True(l2.IsEnabled);
         if (session(w).Layer2Editable) return;
 

@@ -35,16 +35,51 @@
     <StreamGeometry x:Key="IconRotateCw">M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8 M21 3v5h-5</StreamGeometry>
     <StreamGeometry x:Key="IconFlipHorizontal">M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3 M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3 M12 2v2 M12 8v2 M12 14v2 M12 20v2</StreamGeometry>
     <StreamGeometry x:Key="IconFlipVertical">M21 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v3 M21 16v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3 M2 12h2 M8 12h2 M14 12h2 M20 12h2</StreamGeometry>
+    <StreamGeometry x:Key="IconMountain">M8 3l4 8 5-5 5 15H2L8 3z</StreamGeometry>
+    <StreamGeometry x:Key="IconMountainSnow">M8 3l4 8 5-5 5 15H2L8 3z M4.14 15.08c2.62-1.57 5.24-1.43 7.86.42 2.74 1.94 5.49 2 8.23.19</StreamGeometry>
+    <StreamGeometry x:Key="IconDoorOpen">M13 4h3a2 2 0 0 1 2 2v14 M2 20h3 M13 20h9 M10 12v.01 M13 4.562v16.157a1 1 0 0 1-1.242.97L5 20V5.562a2 2 0 0 1 1.515-1.94l4-1A2 2 0 0 1 13 4.562Z</StreamGeometry>
     <StreamGeometry x:Key="IconPalette">M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z M13.5 6.5h.01 M17.5 10.5h.01 M6.5 12.5h.01 M8.5 7.5h.01</StreamGeometry>
   </Window.Resources>
 
   <Window.Styles>
     <!-- The header mode toggle's ToggleButton.mode styles live in App.axaml: the GFX browser's
          view switch draws the same control, and two copies of a style drift. -->
-    <!-- Drawer tabs match the mode toggles: same text size, same icon treatment. Their stroke
-         binds to the item's Foreground so it tracks Fluent's selected/hover states for free. -->
+    <!-- Drawer tabs ARE the mode toggles, drawn by a TabStrip: same metrics, same accent pill,
+         same icon treatment, so the drawer's header reads as one furniture with the mode bar
+         above it. Their stroke binds to the item's Foreground, which the states below drive. -->
+    <!-- Height, padding, corner and content centring come from the Border.bar rules below, the
+         same ones the mode toggles get them from — the only way the two rows stay identical. -->
     <Style Selector="TabStrip#PaletteTabs TabStripItem">
       <Setter Property="FontSize" Value="13"/>
+      <Setter Property="MinWidth" Value="82"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <!-- Fluent's own template carries a selection underline that no setter can turn off, and
+           chrome the mode toggles do not have. This is the pill and nothing else, so the two
+           rows are the same control drawn twice rather than one imitating the other. -->
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Background="{TemplateBinding Background}"
+                  CornerRadius="{TemplateBinding CornerRadius}">
+            <ContentPresenter Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                              Foreground="{TemplateBinding Foreground}"
+                              Padding="{TemplateBinding Padding}"
+                              HorizontalContentAlignment="Center"
+                              VerticalContentAlignment="Center"/>
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="TabStrip#PaletteTabs TabStripItem:pointerover">
+      <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
+    </Style>
+    <Style Selector="TabStrip#PaletteTabs TabStripItem:selected">
+      <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="Foreground" Value="White"/>
+    </Style>
+    <Style Selector="TabStrip#PaletteTabs TabStripItem:selected:pointerover">
+      <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
     </Style>
     <Style Selector="TabStrip#PaletteTabs Path">
       <Setter Property="Stroke" Value="{Binding $parent[TabStripItem].Foreground}"/>
@@ -66,7 +101,7 @@
          all have different intrinsic heights, so a row of them lands on three different
          baselines unless they are pinned to one. 28px is what the mode toggles come out at. -->
     <Style Selector="Border.bar Button, Border.bar ToggleButton, Border.bar ComboBox,
-                     Border.bar TextBox, Border.bar CheckBox">
+                     Border.bar TextBox, Border.bar CheckBox, Border.bar TabStripItem">
       <Setter Property="MinHeight" Value="28"/>
       <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
@@ -74,14 +109,14 @@
          5 top / 6 bottom, which sits a text label a pixel low and, on a toggle whose content is
          text rather than a 14px icon, pushes the whole row past the 28px it is supposed to be. -->
     <Style Selector="Border.bar Button, Border.bar ToggleButton,
-                     Border.bar ComboBox, Border.bar TextBox">
+                     Border.bar ComboBox, Border.bar TextBox, Border.bar TabStripItem">
       <Setter Property="Padding" Value="10,3"/>
       <Setter Property="CornerRadius" Value="5"/>
     </Style>
     <!-- A toolbar button's content sits in the middle of it. Fluent leaves the content STRETCHED,
          which for a label narrower than the button's MinWidth means the text is drawn against the
          left of a box the full width of the button — "8x8" in a 52px slot reads off-centre. -->
-    <Style Selector="Border.bar Button, Border.bar ToggleButton">
+    <Style Selector="Border.bar Button, Border.bar ToggleButton, Border.bar TabStripItem">
       <Setter Property="HorizontalContentAlignment" Value="Center"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
     </Style>
@@ -90,6 +125,11 @@
     </Style>
     <Style Selector="Border.bar TextBlock">
       <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <!-- The palette-row picker, one per canvas mode in the same gutter slot. One width for both,
+         here rather than on each: they sit in the same place and must not drift apart. -->
+    <Style Selector="ComboBox.palrow">
+      <Setter Property="Width" Value="82"/>
     </Style>
     <!-- Separator between groups in a toolbar row, so the groups read as groups. -->
     <Style Selector="Rectangle.sep">
@@ -232,6 +272,10 @@
       <MenuItem Header="_Level">
         <MenuItem Header="_Properties…" Click="OnLevelProperties" InputGesture="Ctrl+L"/>
         <MenuItem Header="_Reload from project" Click="OnReloadLevel" InputGesture="Ctrl+R"/>
+        <!-- The whole exit TABLE, with the water/secondary flags and the way into the secondary
+             entrance records. The canvas's Exits mode is the everyday route — it sets a
+             destination per screen; this is for the parts a badge cannot show. -->
+        <MenuItem Header="Screen e_xits…" Click="OnLevelExits"/>
       </MenuItem>
       <MenuItem Header="_View">
         <MenuItem Header="Toggle _palette" Click="OnTogglePalette" InputGesture="Ctrl+P"/>
@@ -243,6 +287,7 @@
       <!-- Only in a - -dev launch (the F5 profile): shortcuts for testing, never shipped UI. -->
       <MenuItem x:Name="DebugMenu" Header="De_bug" IsVisible="False">
         <MenuItem Header="_Clear project edits…" Click="OnClearProject"/>
+        <MenuItem Header="Build and open in _Lunar Magic" Click="OnOpenLunarMagic"/>
       </MenuItem>
       <MenuItem Header="_Help">
         <MenuItem Header="Check for _updates…" Click="OnCheckUpdates"/>
@@ -284,26 +329,8 @@
 
         <Rectangle Classes="sep" Margin="10,4"/>
 
-        <!-- Which LAYER the canvas edits. Layer 2 is the same object stream format, so the whole
-             editor works on it unchanged — this only says which one is active. -->
-        <ToggleButton x:Name="LayerOne" Classes="mode" MinWidth="44" Content="L1"
-                      IsChecked="True" Click="OnEditLayer"/>
-        <ToggleButton x:Name="LayerTwo" Classes="mode" MinWidth="44" Content="L2" Click="OnEditLayer"
-                      ToolTip.Tip="Edit layer 2's objects. Levels whose layer 2 is a background image have none until +L2 gives them one."/>
-        <Button x:Name="BgButton" Content="BG…" MinWidth="52" Click="OnPickBackground"
-                ToolTip.Tip="Pick which background image layer 2 uses"/>
-        <Button x:Name="AddLayer2" Content="+L2" MinWidth="52" Click="OnAddLayer2"
-                ToolTip.Tip="Layer 2 is a background image — give it an editable object layer. Most background levels also use a level mode that never loads layer-2 objects, so change the mode in Properties as well."/>
-        <Button x:Name="DropLayer2" Content="−L2" MinWidth="52" Click="OnDropLayer2"
-                ToolTip.Tip="Drop this project's layer-2 objects and restore the base ROM's background image"/>
-        <TextBlock x:Name="Layer2Note" Classes="mono"/>
-
-        <Rectangle Classes="sep" Margin="10,4"/>
-
         <TextBlock Classes="dim" Text="level"/>
         <ComboBox x:Name="LevelBox" Width="104"/>
-        <Button Content="Reload" MinWidth="72" Click="OnReloadLevel"/>
-        <Button Content="Exits" MinWidth="72" Click="OnLevelExits"/>
       </StackPanel>
     </Border>
 
@@ -333,8 +360,24 @@
 
       <Border x:Name="Drawer" Classes="panel" BorderThickness="0,0,1,0">
         <DockPanel>
-          <TabStrip x:Name="PaletteTabs" DockPanel.Dock="Top"
-                    Background="{DynamicResource SurfaceBrush}">
+          <!-- The drawer's header, wearing the same bar the mode toggles and the other two
+               drawers' headers wear. It follows the strip it holds, so a canvas mode that owns
+               the drawer takes the whole strip away rather than leaving an empty rule. -->
+          <!-- Height tracks the canvas bar beside it, the same deal the Map16 and GFX drawers
+               have with their editor bars: a TabStrip measures a couple of pixels taller than
+               a row of toggles, and the two headers have to read as one strip. -->
+          <Border x:Name="LevelDrawerBar" DockPanel.Dock="Top" Classes="panel bar"
+                  BorderThickness="0,0,0,1"
+                  Padding="10,0" IsVisible="{Binding #PaletteTabs.IsVisible}"
+                  Height="{Binding #LevelEditorBar.Bounds.Height}">
+          <TabStrip x:Name="PaletteTabs" Background="Transparent" Padding="0"
+                    VerticalAlignment="Center">
+            <!-- The same 6px gap the mode bar's StackPanel puts between its toggles. -->
+            <TabStrip.ItemsPanel>
+              <ItemsPanelTemplate>
+                <StackPanel Orientation="Horizontal" Spacing="6"/>
+              </ItemsPanelTemplate>
+            </TabStrip.ItemsPanel>
             <!-- GFX is NOT here: it is a canvas mode, and its bins live with its editor. -->
             <TabStripItem IsSelected="True">
               <StackPanel Orientation="Horizontal" Spacing="6">
@@ -361,30 +404,32 @@
               </StackPanel>
             </TabStripItem>
           </TabStrip>
-
-          <Border x:Name="PaletteBar" Classes="bar" DockPanel.Dock="Top" Padding="10,6"
-                  Background="{DynamicResource SurfaceBrush}">
-            <StackPanel Orientation="Horizontal" Spacing="6">
-              <TextBlock Classes="dim" Text="bank"/>
-              <ComboBox x:Name="BankBox" Width="82" SelectedIndex="0">
-                <ComboBoxItem Content="0 FG"/>
-                <ComboBoxItem Content="1 FG"/>
-                <ComboBoxItem Content="2 BG"/>
-              </ComboBox>
-              <Rectangle Classes="sep"/>
-              <TextBlock Classes="dim" Text="size"/>
-              <Slider x:Name="TileZoom" Width="90" Minimum="1" Maximum="4" Value="2"
-                      TickFrequency="1" IsSnapToTickEnabled="True"/>
-              <TextBlock x:Name="SelLabel" Classes="mono" Margin="4,0,0,0"/>
-            </StackPanel>
           </Border>
 
           <!-- The drawer follows the canvas mode: Map16 tiles for the level, 8x8 GFX for
                the Map16 editor. Pick here, stamp there — one grammar at both levels. -->
           <Panel>
-            <ScrollViewer x:Name="PaletteScroll" HorizontalScrollBarVisibility="Auto">
-              <ui:Map16PaletteView x:Name="Palette" Margin="8"/>
-            </ScrollViewer>
+            <DockPanel x:Name="TilesPanel">
+              <!-- Which slice of the Map16 table this picker lists, and what is armed out of it.
+                   A footer rather than a second header: the tabs already say what the drawer is
+                   showing, and the bank is a setting on it, not another thing to read first. -->
+              <Border x:Name="PaletteBar" DockPanel.Dock="Bottom" Classes="panel bar"
+                      BorderThickness="0,1,0,0" Padding="10,6">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <TextBlock Classes="dim" Text="bank" VerticalAlignment="Center"/>
+                  <ComboBox x:Name="BankBox" Width="82" SelectedIndex="0">
+                    <ComboBoxItem Content="0 FG"/>
+                    <ComboBoxItem Content="1 FG"/>
+                    <ComboBoxItem Content="2 BG"/>
+                  </ComboBox>
+                  <TextBlock x:Name="SelLabel" Classes="mono" Margin="4,0,0,0"
+                             VerticalAlignment="Center"/>
+                </StackPanel>
+              </Border>
+              <ScrollViewer x:Name="PaletteScroll" HorizontalScrollBarVisibility="Auto">
+                <ui:Map16PaletteView x:Name="Palette" Margin="8"/>
+              </ScrollViewer>
+            </DockPanel>
             <DockPanel x:Name="ChrPanel" IsVisible="False">
               <!-- Height tracks the canvas bar so the two headers read as one strip, the same
                    deal the GFX drawer has with the GFX editor bar. -->
@@ -511,23 +556,80 @@
                       ToolTip.Tip="How to read this file: 4bpp tile data (FG/BG/sprites) or 2bpp (layer 3). Most files are STORED as three planes on an unconverted base — they still display 4bpp, with colours 8-15 out of reach"/>
           </StackPanel>
           <StackPanel Orientation="Horizontal" Spacing="8">
-            <TextBlock Classes="dim" Text="palette"/>
-            <ComboBox x:Name="GfxPalRow" Width="82"/>
+            <Path Classes="kind" Data="{StaticResource IconPalette}"/>
+            <ComboBox x:Name="GfxPalRow" Classes="palrow"/>
             <ui:PaletteGridView x:Name="GfxColors" VerticalAlignment="Center"/>
           </StackPanel>
         </DockPanel>
       </Border>
 
+      <!-- Map16's own gutter palette, in the same place the GFX one sits: the row the selected
+           tile draws with, and the sixteen colours in it. The swatches are inert on purpose — a
+           Map16 tile chooses a ROW, not a colour, so a swatch that took a click would promise an
+           edit this mode cannot make. -->
+      <Border x:Name="M16PaletteBar" DockPanel.Dock="Bottom" Classes="panel bar" IsVisible="False"
+              BorderThickness="0,1,0,0" Padding="10,6">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Path Classes="kind" Data="{StaticResource IconPalette}"/>
+          <ComboBox x:Name="M16Palette" Classes="palrow"/>
+          <ui:PaletteGridView x:Name="M16Colors" VerticalAlignment="Center"/>
+        </StackPanel>
+      </Border>
+
       <!-- Canvas modes share the region: exactly one is visible, and the drawer keeps
            feeding whichever it is. -->
       <Panel>
-        <!-- The desk lives on the SCROLL VIEWER, not the canvas: a centred level no longer
-             covers the whole viewport, and the space it leaves is desk like any other. -->
-        <ScrollViewer x:Name="CanvasScroll"
-                      Background="{x:Static ui:UiColors.DeskPattern}"
-                      HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-          <ui:LevelView x:Name="Canvas"/>
-        </ScrollViewer>
+        <!-- Level mode wears the same skeleton as Map16 and GFX: a bar over the canvas, under
+             the mode bar, so switching modes does not move the furniture. -->
+        <DockPanel x:Name="LevelPane">
+          <!-- Which LAYER the canvas edits, over the canvas that edits it. Layer 2 is the same
+               object stream format, so the whole editor works on it unchanged — this only says
+               which one is active. -->
+          <Border x:Name="LevelEditorBar" DockPanel.Dock="Top" Classes="panel bar"
+                  BorderThickness="0,0,0,1" Padding="10,6" MinHeight="40">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <ToggleButton x:Name="LayerOne" Classes="mode" IsChecked="True" Click="OnEditLayer"
+                            ToolTip.Tip="Edit layer 1's objects — the level itself">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <Path Data="{StaticResource IconMountain}"/>
+                  <TextBlock Text="Layer 1" VerticalAlignment="Center"/>
+                </StackPanel>
+              </ToggleButton>
+              <ToggleButton x:Name="LayerTwo" Classes="mode" Click="OnEditLayer"
+                            ToolTip.Tip="Edit layer 2's objects. Levels whose layer 2 is a background image have none.">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <Path Data="{StaticResource IconMountainSnow}"/>
+                  <TextBlock Text="Layer 2" VerticalAlignment="Center"/>
+                </StackPanel>
+              </ToggleButton>
+              <Rectangle Classes="sep"/>
+              <!-- Exits are a property of the LEVEL, so they belong to the level canvas rather
+                   than the mode bar, where they sat next to two modes that cannot use them.
+                   A toggle, not a button: it arms a canvas mode that takes over from the layer
+                   being edited, rather than opening a table away from the level. -->
+              <ToggleButton x:Name="ExitsMode" Classes="mode" Click="OnExitsMode"
+                            ToolTip.Tip="Screen exits: every screen that leads somewhere is badged with where it goes. Click a screen to set it.">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <Path Data="{StaticResource IconDoorOpen}"/>
+                  <TextBlock Text="Exits" VerticalAlignment="Center"/>
+                </StackPanel>
+              </ToggleButton>
+              <!-- Both only exist for a level whose layer 2 this project made editable, so the
+                   separator goes with the button rather than hanging on an empty bar. -->
+              <Rectangle Classes="sep" IsVisible="{Binding #DropLayer2.IsVisible}"/>
+              <Button x:Name="DropLayer2" Content="−L2" MinWidth="52" Click="OnDropLayer2"
+                      ToolTip.Tip="Drop this project's layer-2 objects and restore the base ROM's background image"/>
+              <TextBlock x:Name="Layer2Note" Classes="mono" VerticalAlignment="Center"/>
+            </StackPanel>
+          </Border>
+          <!-- The desk lives on the SCROLL VIEWER, not the canvas: a centred level no longer
+               covers the whole viewport, and the space it leaves is desk like any other. -->
+          <ScrollViewer x:Name="CanvasScroll"
+                        Background="{x:Static ui:UiColors.DeskPattern}"
+                        HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+            <ui:LevelView x:Name="Canvas"/>
+          </ScrollViewer>
+        </DockPanel>
         <!-- Map16 mode wears the same skeleton as GFX: a bar over the canvas and one over the
              drawer, both sitting under the mode bar, so switching between the two modes does not
              move the furniture. -->
@@ -561,9 +663,6 @@
                      inside its template that no MinHeight on the control can lower, and one
                      32px control makes this bar taller than every other mode's. -->
                 <ToggleButton x:Name="M16Priority" Content="Priority"/>
-                <Rectangle Classes="sep"/>
-                <TextBlock Classes="dim" Text="palette"/>
-                <ComboBox x:Name="M16Palette" Width="66"/>
                 <Rectangle Classes="sep"/>
                 <Button MinWidth="44" Click="OnFlipX" ToolTip.Tip="Flip the selected tiles horizontally">
                   <Path Data="{StaticResource IconFlipHorizontal}"/>

@@ -47,9 +47,9 @@ public partial class MainWindow : Window
 
     private Map16PaletteView palette = null!;
     private ComboBox levelBox = null!, bankBox = null!;
-    private Slider zoomSlider = null!, tileZoom = null!;
+    private Slider zoomSlider = null!;
     private TextBlock readout = null!, zoomLabel = null!, selLabel = null!;
-    private Border drawer = null!, paletteBar = null!;
+    private Border drawer = null!;
     private TabStrip paletteTabs = null!;
     private DockPanel spritePanel = null!, objectPanel = null!, palettePanel = null!;
     private GfxCanvasView gfxCanvas = null!;
@@ -82,14 +82,16 @@ public partial class MainWindow : Window
     private TextBlock spFilesLabel = null!, objectHint = null!;
     private Grid split = null!;
     private ToggleButton modeLevel = null!, modeMap16 = null!, modeGfx = null!;
-    private ToggleButton layerOne = null!, layerTwo = null!;
-    private Button addLayer2 = null!, dropLayer2 = null!;
+    private ToggleButton layerOne = null!, layerTwo = null!, exitsMode = null!;
+    private Button dropLayer2 = null!;
     private TextBlock layer2Note = null!;
     private TextBlock m16SelLabel = null!, m16ActsNote = null!, m16Unallocated = null!;
     private StackPanel m16Fields = null!;
     private TextBox m16Acts = null!;
     private ToggleButton m16Priority = null!;
     private ComboBox m16Palette = null!;
+    private Border m16PaletteBar = null!;
+    private PaletteGridView m16Colors = null!;
 
     public MainWindow()
     {
@@ -103,7 +105,6 @@ public partial class MainWindow : Window
         levelBox = this.GetControl<ComboBox>("LevelBox");
         bankBox = this.GetControl<ComboBox>("BankBox");
         zoomSlider = this.GetControl<Slider>("ZoomSlider");
-        tileZoom = this.GetControl<Slider>("TileZoom");
         split = this.GetControl<Grid>("Split");
         readout = this.GetControl<TextBlock>("Readout");
         zoomLabel = this.GetControl<TextBlock>("ZoomLabel");
@@ -114,7 +115,7 @@ public partial class MainWindow : Window
         modeGfx = this.GetControl<ToggleButton>("ModeGfx");
         layerOne = this.GetControl<ToggleButton>("LayerOne");
         layerTwo = this.GetControl<ToggleButton>("LayerTwo");
-        addLayer2 = this.GetControl<Button>("AddLayer2");
+        exitsMode = this.GetControl<ToggleButton>("ExitsMode");
         dropLayer2 = this.GetControl<Button>("DropLayer2");
         layer2Note = this.GetControl<TextBlock>("Layer2Note");
 
@@ -163,6 +164,7 @@ public partial class MainWindow : Window
         // objects stayed where they were drawn and the edit looked like it had not happened.
         // RefreshPixels is a no-op when nothing is dirty, so a plain selection costs nothing.
         canvas.SelectionChanged += (_, _) => PushDirty();;
+        canvas.ExitScreenClicked += async (_, screen) => await EditScreenExit(screen);
         canvas.SampleRequested += (_, p) =>
         {
             if (session.SampleCgramIndex(p.X, p.Y) is not { } idx)
@@ -188,8 +190,7 @@ public partial class MainWindow : Window
         grain8 = this.GetControl<ToggleButton>("Grain8");
         chr.BrushChanged += (_, _) =>
         {
-            map16Canvas.BrushW = chr.Brush.W;
-            map16Canvas.BrushH = chr.Brush.H;
+            AdoptChrBrush();
             // Picking an 8x8 tile IS the 8x8 grain — the pick means nothing at the other one, so
             // taking one switches rather than arming a brush that right-click will ignore.
             SetGrain(quad8: true);
@@ -239,6 +240,11 @@ public partial class MainWindow : Window
         m16Priority = this.GetControl<ToggleButton>("M16Priority");
         m16Palette = this.GetControl<ComboBox>("M16Palette");
         for (int i = 0; i < 8; i++) m16Palette.Items.Add($"{i}");
+        m16PaletteBar = this.GetControl<Border>("M16PaletteBar");
+        m16Colors = this.GetControl<PaletteGridView>("M16Colors");
+        m16Colors.Rows = 1;
+        m16Colors.Cell = 20;
+        m16Colors.Selectable = false;      // it shows the row, it does not choose within it
 
         map16Canvas.SelectionChanged += (_, _) => RefreshMap16Props();
         map16Canvas.TilePicked += (_, _) => RefreshMap16Props();
@@ -251,6 +257,7 @@ public partial class MainWindow : Window
                 || src.FindAncestorOfType<ScrollBar>() is not null) return;
             map16Canvas.ClearSelection();
             chr.ClearSelection();          // one deselect covers both surfaces, at either grain
+            AdoptChrBrush();               // ...including the footprint the cursor was drawing
             RefreshMap16Props();
         };
         // Committed on Enter or on leaving the field, not per keystroke: half a hex number is
@@ -270,6 +277,7 @@ public partial class MainWindow : Window
             int row = m16Palette.SelectedIndex;
             map16?.Transform(map16Canvas.SelectedTiles(),
                              w => (ushort)((w.Raw & ~0x1C00) | (row << 10)));
+            RefreshM16Colors(row);
         };
 
         // The slider is in PERCENT; the canvas scales by a factor.
@@ -290,18 +298,8 @@ public partial class MainWindow : Window
             SetBrush(null, 1, 1);          // picking a tile replaces a grabbed brush
         };
 
-        tileZoom.PropertyChanged += (_, e) =>
-        {
-            if (e.Property != RangeBase.ValueProperty) return;
-            palette.Zoom = tileZoom.Value;
-            palette.InvalidateMeasure();
-            palette.InvalidateVisual();
-            ApplyDrawerPane(drawerPane);        // the Map16 row got wider or narrower
-        };
-
         // ---- drawer tabs: Map16 tiles / sprite catalog / object catalog ----
         paletteTabs = this.GetControl<TabStrip>("PaletteTabs");
-        paletteBar = this.GetControl<Border>("PaletteBar");
         spritePanel = this.GetControl<DockPanel>("SpritePanel");
         objectPanel = this.GetControl<DockPanel>("ObjectPanel");
         spriteList = this.GetControl<ListBox>("SpriteList");
@@ -484,8 +482,7 @@ public partial class MainWindow : Window
             if (e.Property == IsVisibleProperty) OnDrawerVisibilityChanged();
         };
 
-        palette.Zoom = tileZoom.Value;
-        ApplyDrawerPane(Pane.Level);
+        ApplyDrawerPane(Pane.Level);   // sized for the picker's own zoom, which nothing drives yet
 
         // ---- menu items that depend on state ----
         recentMenu = this.GetControl<MenuItem>("RecentMenu");
@@ -644,6 +641,8 @@ public partial class MainWindow : Window
         canvas.Edit = edit;
         canvas.Vertical = session.Vertical;
         canvas.Sprites = session.Sprites;
+        RefreshExitBadges();               // another level, another exit table
+
         if (!session.HasLevel) return;
 
         bitmap.SetImages(session.Phases, session.PxW, session.PxH, 0);
@@ -797,6 +796,13 @@ public partial class MainWindow : Window
             else if (modeGfx.IsChecked == true && gfxCanvas.Selection is not null)
                 gfxCanvas.Selection = null;
             else if (modeLevel.IsChecked != true) OnMode(modeLevel, new RoutedEventArgs());
+            // Exits mode is a mode you can be IN, so Esc is how you leave it — before it gets
+            // as far as the layer/sprite cycle, which has no meaning while it is armed.
+            else if (canvas.Mode == LevelView.EditMode.Exits)
+            {
+                exitsMode.IsChecked = false;
+                OnExitsMode(exitsMode, new RoutedEventArgs());
+            }
             else if (brush is not null) SetBrush(null, 1, 1);
             else
             {
@@ -902,12 +908,19 @@ public partial class MainWindow : Window
         return $"({c.X,3},{c.Y,2})  tile 0x{tile:X3}{acts}";
     }
 
+    /// <summary>Which tile is hovered is already in the header, so the gutter spends its width on
+    /// the thing nothing else says: what the tile's acts-as code makes it DO. Codes the table has
+    /// nothing sourced for read as the bare number — see <see cref="ActsAs"/>.</summary>
     private string Map16Readout()
     {
         if (map16Canvas.HoverQuad is not { } h || map16 is not { } m16) return "";
-        if (m16.ReadDef(h.Tile) is not { } def) return $"tile 0x{h.Tile:X4}  unallocated";
-        string acts = m16.ActsAs(h.Tile) is { } a ? $"  acts 0x{a:X3}" : "";
-        return $"tile 0x{h.Tile:X4}{acts}  pal {def[0].Palette}";
+        if (m16.ReadDef(h.Tile) is null) return "unallocated";
+        // Same two reasons the header greys its acts-as box: say which, rather than going blank
+        // and leaving the gutter looking broken.
+        if (m16.ActsAs(h.Tile) is not { } a)
+            return h.Tile >= 0x4000 ? "acts-like: n/a for BG tiles" : "acts-like: no LM table";
+        string what = ActsAs.Describe(a);
+        return what.Length > 0 ? $"acts 0x{a:X3}  {what}" : $"acts 0x{a:X3}";
     }
 
     private string GfxReadout()
@@ -1084,6 +1097,16 @@ public partial class MainWindow : Window
         levelBox.SelectedIndex = session.LevelNum;
     }
 
+    /// <summary>Dev only: build, then hand the result to Lunar Magic — the check that a base
+    /// we prepped is one LM can actually open. A failure has nowhere else to appear (the status
+    /// line is not on screen), so it gets said out loud.</summary>
+    private async void OnOpenLunarMagic(object? sender, RoutedEventArgs e)
+    {
+        if (session.OpenInLunarMagic() is not { } problem) { UpdateTitle(); return; }
+        UpdateTitle();
+        await new ConfirmWindow("Lunar Magic", problem, "OK").ShowDialog(this);
+    }
+
     private void OnSave(object? sender, RoutedEventArgs e)
     {
         CommitGfxFloat();                    // a paste still adrift belongs in what gets saved
@@ -1148,6 +1171,78 @@ public partial class MainWindow : Window
     /// <summary>Screen exits, staged in a table and applied as one object edit. "Entrance…" hands
     /// off to the entrance record the exit points at, applying the table on the way so nothing
     /// typed is lost.</summary>
+    /// <summary>
+    /// Arm or disarm the canvas's exits mode. It TAKES OVER from the layer being edited rather
+    /// than sitting beside it: while it is on, the layer toggles are dead, the canvas paints no
+    /// selection, and a click means "this screen", not "this object".
+    /// </summary>
+    private void OnExitsMode(object? sender, RoutedEventArgs e)
+    {
+        bool on = exitsMode.IsChecked == true;
+        canvas.Mode = on ? LevelView.EditMode.Exits
+                         : paletteTabs.SelectedIndex == 1 ? LevelView.EditMode.Sprites
+                                                          : LevelView.EditMode.Objects;
+        layerOne.IsEnabled = layerTwo.IsEnabled = !on;
+        edit?.Selection.Clear();
+        canvas.Sprites?.Selection.Clear();
+        RefreshExitBadges();
+    }
+
+    /// <summary>Re-read the exit table the canvas draws its badges from. Cheap enough to run on
+    /// every write — it is a handful of objects out of the layer-1 stream.</summary>
+    private void RefreshExitBadges()
+    {
+        canvas.Exits = edit is null || canvas.Mode != LevelView.EditMode.Exits
+            ? []
+            : [.. edit.ReadExits().Select(x => (x.Screen, x.Destination, x.LmForm))];
+        canvas.InvalidateVisual();
+    }
+
+    /// <summary>
+    /// One screen's destination, asked for over the level itself. Everything else about an exit
+    /// — the water and secondary flags, the LM word form — is left exactly as it was found;
+    /// clearing the box removes the exit, which is the only other thing this view can mean.
+    /// </summary>
+    private async Task EditScreenExit(int screen)
+    {
+        if (edit is null) return;
+        var exits = edit.ReadExits();
+        var here = exits.FirstOrDefault(x => x.Screen == screen);
+        // How wide the destination can be depends on the BASE. A v7-prepped (or LM-saved) ROM
+        // takes the level's ninth bit from the exit's own flags, so the whole level range is
+        // reachable; on anything older the ninth bit comes from the submap the player entered
+        // from, and only the low byte means anything.
+        bool high = session.ExitsReachHighLevels;
+        int mask = here?.LmForm == true ? 0xFFFF : high ? 0x1FF : 0xFF;
+        string range = here?.LmForm == true ? "0000-FFFF" : high ? "000-1FF" : "00-FF, low byte only";
+
+        var dlg = new TextPromptWindow(
+            $"Screen {screen:X2} exits to (hex level {range} — blank for none)",
+            here is null ? "" : here.Destination.ToString(here.LmForm ? "X4" : high ? "X3" : "X2"));
+        await dlg.ShowDialog(this);
+        if (dlg.Result is not { } text) return;
+
+        text = text.Trim();
+        if (text.Length == 0)
+        {
+            if (here is null) return;
+            exits.Remove(here);
+        }
+        else if (int.TryParse(text, System.Globalization.NumberStyles.HexNumber, null, out int dest))
+        {
+            // MASKED, not clamped: the field is as wide as it is. Clamping turned $105 into
+            // $FF — a level nobody asked for, written silently.
+            dest &= mask;
+            if (here is not null) here.Destination = dest;
+            else exits.Add(new LevelExit { Screen = screen, Destination = dest });
+        }
+        else return;                       // not a number: the safe answer is to change nothing
+
+        if (edit.WriteExits(exits)) PushDirty();
+        RefreshExitBadges();
+        UpdateTitle();
+    }
+
     private async void OnLevelExits(object? sender, RoutedEventArgs e)
     {
         if (edit is null) return;
@@ -1206,19 +1301,6 @@ public partial class MainWindow : Window
         AdoptSession();
     }
 
-    private async void OnPickBackground(object? sender, RoutedEventArgs e)
-    {
-        var dlg = new BackgroundPickerWindow(session.Backgrounds(), session.CurrentBackground);
-        await dlg.ShowDialog(this);
-        if (dlg.Picked is not { } lo16) return;
-        AdoptSession();
-    }
-
-    private void OnAddLayer2(object? sender, RoutedEventArgs e)
-    {
-        AdoptSession();
-    }
-
     private void OnDropLayer2(object? sender, RoutedEventArgs e)
     {
         AdoptSession();
@@ -1232,10 +1314,9 @@ public partial class MainWindow : Window
         layerOne.IsChecked = session.EditLayer == 0;
         // Deliberately NOT disabled when layer 2 is a background image. Most levels are one, so
         // the button spent most of its life greyed out and clicking it did nothing at all —
-        // whereas SetEditLayer already has the answer ("use +L2 to give it an object layer") and
-        // can only say it if the click gets through.
+        // whereas SetEditLayer already has the answer and can only say it if the click gets
+        // through.
         layerTwo.IsChecked = session.EditLayer == 1;
-        addLayer2.IsVisible = !session.Layer2Editable;
         dropLayer2.IsVisible = session.Layer2FromProject;
         layer2Note.Text = session.Layer2Editable && !session.LevelModeReadsLayer2 && session.Header is { } h
             ? $"(mode {h.LevelMode:X2} ignores L2)" : "";
@@ -1406,6 +1487,10 @@ public partial class MainWindow : Window
 
     private void OnPaletteTab()
     {
+        // Exits mode outranks the tabs: it took the canvas from whichever layer was being
+        // edited, and a drawer tab is not how you leave it — the toggle is.
+        if (canvas.Mode == LevelView.EditMode.Exits) { RefreshDrawer(); return; }
+
         // The Palette tab belongs to no edit mode (ImGui parity: its tab carries a null mode),
         // so opening it leaves the canvas doing whatever it was doing.
         var want = paletteTabs.SelectedIndex switch
@@ -1443,18 +1528,14 @@ public partial class MainWindow : Window
         // does nothing.
         paletteTabs.IsVisible = !modal;
 
-        this.GetControl<ScrollViewer>("PaletteScroll").IsVisible = tab == 0;
+        this.GetControl<DockPanel>("TilesPanel").IsVisible = tab == 0;
         this.GetControl<DockPanel>("ChrPanel").IsVisible = map16Mode;
         gfxToolPanel.IsVisible = gfxMode;
         gfxPaletteBar.IsVisible = gfxMode;      // canvas-side, but the same mode decides it
+        m16PaletteBar.IsVisible = map16Mode;    // its opposite number, same gutter
         spritePanel.IsVisible = tab == 1;
         objectPanel.IsVisible = tab == 2;
         palettePanel.IsVisible = tab == 3;
-        // The bank/size row belongs to the level's tile picker. It is off in every canvas mode:
-        // a catalog and the pixel editor never had a use for it, and the Map16 drawer is down to
-        // its header while those controls wait for a new home.
-        paletteBar.IsVisible = tab == 0;
-
         if (spritePanel.IsVisible) EnsureSpriteCatalog();
         if (objectPanel.IsVisible) EnsureObjectCatalog();
         if (palettePanel.IsVisible) RefreshPaletteTab();
@@ -2017,7 +2098,7 @@ public partial class MainWindow : Window
         // opposite case — deliberate content not yet in any bytes — so it is dropped first.
         if (!gfx) { CommitGfxFloat(); session.GfxPixels?.AbortStroke(); }
 
-        this.GetControl<ScrollViewer>("CanvasScroll").IsVisible = !map16 && !gfx;
+        this.GetControl<DockPanel>("LevelPane").IsVisible = !map16 && !gfx;
         this.GetControl<DockPanel>("Map16Pane").IsVisible = map16;
         gfxScroll.IsVisible = gfx;
         edit?.Selection.Clear();
@@ -2081,6 +2162,7 @@ public partial class MainWindow : Window
             m16ActsNote.Text = "";
             m16Priority.IsChecked = false;
             m16Palette.SelectedIndex = -1;
+            RefreshM16Colors(-1);
             m16Fields.IsVisible = true;
             m16Unallocated.IsVisible = false;
             loadingM16Props = false;
@@ -2106,6 +2188,7 @@ public partial class MainWindow : Window
         m16ActsNote.Text = acts ? "" : first >= 0x4000 ? "n/a for BG tiles" : "no LM acts-like table";
         m16Priority.IsChecked = def[0].Priority;
         m16Palette.SelectedIndex = def[0].Palette;
+        RefreshM16Colors(def[0].Palette);
         loadingM16Props = false;
     }
 
@@ -2115,6 +2198,30 @@ public partial class MainWindow : Window
         if (!int.TryParse(m16Acts.Text, System.Globalization.NumberStyles.HexNumber, null, out int v))
         { RefreshMap16Props(); return; }
         m16.SetActsAs(map16Canvas.SelectedTiles(), v);
+    }
+
+    /// <summary>The sixteen colours a palette row draws with, in the Map16 gutter. Index 0 keeps
+    /// the sheet's grey convention — in a tile it means transparent, and a black swatch would read
+    /// as black. A row of -1 (nothing selected) leaves the strip empty rather than showing row 0's
+    /// colours as if they were the selection's.</summary>
+    private void RefreshM16Colors(int row)
+    {
+        var colors = new uint[16];
+        if (row >= 0 && session.PaletteRgba is { } pal && pal.Length >= (row + 1) * 16)
+            for (int i = 0; i < 16; i++)
+                colors[i] = i == 0 ? 0xFF303030u : pal[row * 16 + i];
+        m16Colors.Cols = 16;
+        m16Colors.Colors = colors;
+        m16Colors.InvalidateVisual();
+    }
+
+    /// <summary>The Map16 cursor draws the 8x8 brush's footprint, so it follows the picker —
+    /// when the pick changes and when it is dropped.</summary>
+    private void AdoptChrBrush()
+    {
+        map16Canvas.BrushW = chr.Brush.W;
+        map16Canvas.BrushH = chr.Brush.H;
+        map16Canvas.InvalidateVisual();
     }
 
     /// <summary>Radio behaviour without a group, as the canvas modes do it: exactly one grain.

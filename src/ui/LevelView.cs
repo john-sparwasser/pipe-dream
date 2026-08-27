@@ -53,8 +53,21 @@ public class LevelView : Control
     /// the two modes, exactly as in the ImGui editor.</summary>
     public SpriteEdit? Sprites { get; set; }
 
-    public enum EditMode { Objects, Sprites }
+    public enum EditMode { Objects, Sprites, Exits }
     public EditMode Mode { get; set; } = EditMode.Objects;
+
+    /// <summary>Screen exits to draw in <see cref="EditMode.Exits"/>: which screen leads where.
+    /// The view only paints and hit-tests them — the table itself lives in the level stream, and
+    /// the host writes it.</summary>
+    public IReadOnlyList<(int Screen, int Dest, bool LmForm)> Exits { get; set; } = [];
+
+    /// <summary>A screen was clicked in exits mode. The argument is the screen number, whether
+    /// or not it already has an exit.</summary>
+    public event EventHandler<int>? ExitScreenClicked;
+
+    /// <summary>Which screen a cell belongs to. Vertical levels stack their screens down the
+    /// same 16-cell-wide column, so the axis swaps with the level's mode.</summary>
+    public int ScreenOf((int X, int Y) cell) => (Vertical ? cell.Y : cell.X) / 16;
 
     /// <summary>Sprite number armed from the catalog, or -1. Right-click places it.</summary>
     public int CatalogSprite { get; set; } = -1;
@@ -205,6 +218,14 @@ public class LevelView : Control
         var props = e.GetCurrentPoint(this).Properties;
         LastClickedCell = cell;
         CellPressed?.Invoke(this, cell);
+
+        // Exits mode owns the canvas: a click picks a SCREEN, and nothing else in here runs.
+        if (Mode == EditMode.Exits)
+        {
+            if (props.IsLeftButtonPressed) ExitScreenClicked?.Invoke(this, ScreenOf(cell));
+            e.Handled = true;
+            return;
+        }
 
         // Alt+left is the eyedropper, in every mode. A modifier rather than an armed tool: a
         // mode you can forget you are in costs more than a key you have to hold.
@@ -511,6 +532,10 @@ public class LevelView : Control
 
         if (ShowGrid) DrawScreenBoundaries(ctx, dst, z);
 
+        // Exits mode owns the overlay outright: no selection, no handles, no band — the whole
+        // point is that the level is being read screen by screen, not edited object by object.
+        if (Mode == EditMode.Exits) { DrawExits(ctx, z); return; }
+
         if (Mode == EditMode.Sprites && Sprites is { } spv)
         {
             // Sprites highlight over their whole PIXEL display, not their spawn cell — the
@@ -582,6 +607,54 @@ public class LevelView : Control
         if (wOk) { Knob(r.Left, my); Knob(r.Right, my); }
         if (hOk) { Knob(mx, r.Top); Knob(mx, r.Bottom); }
         Knob(r.Left, r.Top); Knob(r.Right, r.Top); Knob(r.Left, r.Bottom); Knob(r.Right, r.Bottom);
+    }
+
+    /// <summary>The screen's own rectangle, in cells: a full-height column of the level (a
+    /// full-width band, in a vertical level).</summary>
+    private Rect ScreenRect(int screen, double z)
+    {
+        int cols = (Source?.PxW ?? 0) / 16, rows = (Source?.PxH ?? 0) / 16;
+        return Vertical
+            ? CellRect(0, screen * 16, cols, Math.Min(16, rows - screen * 16), z)
+            : CellRect(screen * 16, 0, Math.Min(16, cols - screen * 16), rows, z);
+    }
+
+    /// <summary>Exits mode's overlay: every screen that HAS an exit is bordered in blue and
+    /// badged with its destination, and the screen under the cursor is ringed on top — so the
+    /// level's connections are readable at a glance instead of through a table of numbers.
+    /// The hover ring is a different hue on purpose: "this one leads somewhere" and "this is
+    /// the one you are about to click" are different statements and overlap constantly.</summary>
+    private void DrawExits(DrawingContext ctx, double z)
+    {
+        if (Source is not { HasImages: true }) return;
+
+        // Exits first, hover second: on a screen that is both, the ring wins.
+        var border = new Pen(UiColors.Accent, 3);
+        foreach (var (screen, _, _) in Exits)
+        {
+            var r = ScreenRect(screen, z);
+            if (r.Width > 0) ctx.DrawRectangle(null, border, r);
+        }
+
+        if (HoverCell is { } hc)
+            ctx.DrawRectangle(UiColors.SelectionFill, new Pen(UiColors.Selection, 2),
+                              ScreenRect(ScreenOf(hc), z));
+
+        foreach (var (screen, dest, lm) in Exits)
+        {
+            var r = ScreenRect(screen, z);
+            if (r.Width <= 0) continue;
+            // Two digits for a byte, three once the destination carries its ninth bit — the
+            // badge should read as the level number the user typed.
+            var text = new FormattedText(lm ? $"{dest:X4}" : dest > 0xFF ? $"{dest:X3}" : $"{dest:X2}",
+                                         System.Globalization.CultureInfo.InvariantCulture,
+                                         FlowDirection.LeftToRight, Typeface.Default, 13, Brushes.White);
+            // Anchored to the screen's top-right corner, not the viewport's: the badge names
+            // THIS screen, and one that floated would name whichever is scrolled into view.
+            var box = new Rect(r.Right - text.Width - 14, r.Top + 6, text.Width + 10, text.Height + 4);
+            ctx.DrawRectangle(UiColors.Accent, new Pen(Brushes.White, 1), box, 3, 3);
+            ctx.DrawText(text, new Point(box.X + 5, box.Y + 2));
+        }
     }
 
     // SMW screens are 16 cells wide; the boundary lines are the editor's main orientation cue.

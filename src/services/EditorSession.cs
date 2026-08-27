@@ -105,6 +105,11 @@ public sealed class EditorSession
     public LevelHeader? Header => Scene?.Level.Header;
     public bool HasLevel => Scene is not null;
 
+    /// <summary>Whether a screen exit on this base can name a level above $0FF. False on a raw
+    /// vanilla or pre-v7 base, where the destination is one byte and its ninth bit comes from
+    /// the submap the player entered from.</summary>
+    public bool ExitsReachHighLevels => Rom?.HasExitLevelHighBit == true;
+
     /// <summary>The composed level image, one buffer per animation phase, and its size.</summary>
     public uint[]?[] Phases => Scene?.Phases ?? [];
     public int PxW => Scene?.Width ?? 0;
@@ -1546,6 +1551,33 @@ public sealed class EditorSession
         var (status, path) = RomBuilder.Build(Project);
         Report(path is null ? status : $"built {Path.GetFileName(path)} — {status}");
         return Status;
+    }
+
+    /// <summary>
+    /// Dev only: build the project and open the result in Lunar Magic. Prep's stated
+    /// requirement is that what we stamp is what LM reads (CONTRACT §0 tracks the divergences),
+    /// and the loop for checking that was "build, find the file, drag it onto LM" — this is the
+    /// same thing in one click. Returns a problem, or null when LM was launched.
+    ///
+    /// The path comes from the reference-ROM root (PIPEDREAM_SMW_ROOT), which is where the
+    /// gated tests already expect Lunar Magic to live — no new setting to keep in sync.
+    /// </summary>
+    public string? OpenInLunarMagic()
+    {
+        if (Project is null) return "no project open";
+        Build();
+        string rom = Path.Combine(Project.Folder, "build", Project.Name + ".smc");
+        if (!File.Exists(rom)) return Status;                  // the build already said why
+        string exe = ReferenceRoms.Resource(Path.Combine("Lunar Magic", "Lunar Magic.exe"));
+        if (!File.Exists(exe)) return $"Lunar Magic is not at {exe}";
+        try
+        {
+            System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(exe, rom) { UseShellExecute = true });
+        }
+        catch (Exception ex) { return $"could not start Lunar Magic: {ex.Message}"; }
+        Report($"opened {Path.GetFileName(rom)} in Lunar Magic");
+        return null;
     }
 
     public string ExportBps()

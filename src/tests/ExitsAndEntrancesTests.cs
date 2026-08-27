@@ -1,4 +1,9 @@
+using Avalonia.VisualTree;
+using Avalonia;
+using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using PipeDream.Ui;
@@ -176,6 +181,108 @@ public class ExitsAndEntrancesTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(2, w.Applied!.Count);
         Assert.Equal(0x20, w.Applied[0].Destination);
         Assert.True(w.Applied[1].Secondary);
+    }
+
+    /// <summary>The everyday route: a canvas MODE rather than a table. Arming it takes the
+    /// canvas away from whichever layer was being edited, hands the view the exit table to badge
+    /// the screens with, and turns a click into "this screen" — which is what the small
+    /// destination prompt hangs off.</summary>
+    [AvaloniaFact]
+    public void exits_mode_takes_the_canvas_over_from_the_layer_toggles()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var toggle = w.GetControl<ToggleButton>("ExitsMode");
+        var canvas = w.GetControl<LevelView>("Canvas");
+        var layerOne = w.GetControl<ToggleButton>("LayerOne");
+
+        toggle.IsChecked = true;
+        toggle.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(LevelView.EditMode.Exits, canvas.Mode);
+        Assert.False(layerOne.IsEnabled);      // the layer being edited is not in play
+        log.WriteLine($"badging {canvas.Exits.Count} exit(s)");
+
+        // A drawer tab must NOT take the canvas back — only the toggle does.
+        w.GetControl<TabStrip>("PaletteTabs").SelectedIndex = 1;
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(LevelView.EditMode.Exits, canvas.Mode);
+
+        toggle.IsChecked = false;
+        toggle.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotEqual(LevelView.EditMode.Exits, canvas.Mode);
+        Assert.True(layerOne.IsEnabled);
+        Assert.Empty(canvas.Exits);            // nothing to draw once the mode is gone
+    }
+
+    /// <summary>A left click on the canvas reports the screen it landed on — the hook the
+    /// destination prompt hangs off. Nothing else in the canvas may act on that click.</summary>
+    [AvaloniaFact]
+    public void a_click_in_exits_mode_reports_the_screen_and_edits_nothing()
+    {
+        if (Open() is not { } s) { log.WriteLine("SKIP: no ROM"); return; }
+
+        // The view on its own, not the window: MainWindow answers this event with a MODAL
+        // prompt, which a headless click would sit in forever.
+        var bitmap = new LevelBitmap();
+        bitmap.SetImages(s.Phases, s.PxW, s.PxH, 0);
+        var canvas = new LevelView { Source = bitmap, Edit = s.Edit, Mode = LevelView.EditMode.Exits };
+        var w = new Window { Content = canvas, Width = 900, Height = 600 };
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        int? got = null;
+        canvas.ExitScreenClicked += (_, screen) => got = screen;
+
+        // Cell (20, 4) is screen 1: screens are 16 cells wide.
+        var at = canvas.TranslatePoint(new Point(20 * 16 * canvas.Zoom + 8, 4 * 16 * canvas.Zoom + 8), w)!.Value;
+        w.MouseDown(at, MouseButton.Left);
+        w.MouseUp(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(1, got);
+        Assert.Empty(s.Edit!.Selection);           // no object was picked up on the way
+    }
+
+    /// <summary>A destination typed as a whole level number keeps the byte the ROM reads. It
+    /// used to be CLAMPED, so $105 landed as $FF — a destination nobody asked for. Bit 8 is not
+    /// this field's to carry: it comes from the submap the player is on.</summary>
+    [AvaloniaFact]
+    public void a_full_level_number_keeps_its_low_byte_instead_of_pinning_to_ff()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var w = new LevelExitsWindow([new LevelExit { Screen = 1, Destination = 0x20 }]);
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var dest = w.GetVisualDescendants().OfType<TextBox>().Skip(1).First();
+        dest.Text = "105";
+        w.GetControl<Button>("ApplyButton").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(0x05, w.Applied![0].Destination);
+    }
+
+    /// <summary>A click reports the SCREEN it landed on, which is what the exit table is keyed
+    /// by. Vertical levels stack their screens down the same column, so the axis swaps.</summary>
+    [AvaloniaFact]
+    public void a_cell_maps_to_the_screen_that_owns_it()
+    {
+        var v = new LevelView();
+        Assert.Equal(0, v.ScreenOf((15, 20)));
+        Assert.Equal(1, v.ScreenOf((16, 0)));
+        Assert.Equal(3, v.ScreenOf((60, 5)));
+
+        v.Vertical = true;
+        Assert.Equal(0, v.ScreenOf((15, 15)));
+        Assert.Equal(2, v.ScreenOf((3, 32)));
     }
 
     [AvaloniaFact]

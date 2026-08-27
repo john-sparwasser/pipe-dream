@@ -102,6 +102,10 @@ public sealed class Asm(int orgSnes)
     public Asm CpxImm16(int v) => Imm16(0xE0, v);
     public Asm Asl() => E(0x0A);
     public Asm Lsr() => E(0x4A);
+    public Asm Rol() => E(0x2A);
+    /// <summary>BIT #imm — tests bits WITHOUT touching A, which is the whole reason to use it
+    /// over AND when the accumulator is still needed afterwards.</summary>
+    public Asm BitImm8(int v) => E(0x89, (byte)v);
     public Asm Clc() => E(0x18);
     public Asm Sec() => E(0x38);
     public Asm IncA() => E(0x1A);

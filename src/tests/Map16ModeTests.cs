@@ -229,7 +229,7 @@ public class Map16ModeTests(ITestOutputHelper log)
         w.Show();
         Dispatcher.UIThread.RunJobs();
 
-        Assert.True(w.GetControl<ScrollViewer>("CanvasScroll").IsVisible);
+        Assert.True(w.GetControl<DockPanel>("LevelPane").IsVisible);
         Assert.False(w.GetControl<DockPanel>("Map16Pane").IsVisible);
 
         var mode = w.GetControl<Avalonia.Controls.Primitives.ToggleButton>("ModeMap16");
@@ -238,9 +238,9 @@ public class Map16ModeTests(ITestOutputHelper log)
 
         // The canvas IS the editor: the Map16 view takes the region, and the drawer follows
         // it to 8x8 GFX rather than opening a second panel.
-        Assert.False(w.GetControl<ScrollViewer>("CanvasScroll").IsVisible);
+        Assert.False(w.GetControl<DockPanel>("LevelPane").IsVisible);
         Assert.True(w.GetControl<DockPanel>("Map16Pane").IsVisible);
-        Assert.False(w.GetControl<ScrollViewer>("PaletteScroll").IsVisible);
+        Assert.False(w.GetControl<DockPanel>("TilesPanel").IsVisible);
         Assert.True(w.GetControl<DockPanel>("ChrPanel").IsVisible);
         Assert.True(w.GetControl<Border>("Drawer").IsVisible);
         // ...and the tabs that choose what the drawer shows for the LEVEL go with it: every one
@@ -275,10 +275,9 @@ public class Map16ModeTests(ITestOutputHelper log)
 
         Assert.True(canvasBar > 0, "the Map16 canvas has no header");
         Assert.Equal(canvasBar, drawerBar, 1);
-
-        // The controls that used to sit in the drawer are gone with them — the bank/size row is
+        // The controls that used to sit in the drawer are gone with them — the bank footer is
         // the level picker's, and it does not follow the drawer into this mode.
-        Assert.False(w.GetControl<Border>("PaletteBar").IsVisible);
+        Assert.False(w.GetControl<DockPanel>("TilesPanel").IsVisible);
     }
 
     /// <summary>The sheet is centred, so there is desk either side of it. Clicking that desk is a
@@ -447,6 +446,20 @@ public class Map16ModeTests(ITestOutputHelper log)
         Assert.Equal(0, painted);                        // the 8x8 brush is not in play here
         Assert.Equal((0, 2, 4, 2, 8, 10), dup);          // in QUADRANTS, top-left under the cursor
         Assert.Equal((0, 2, 4, 2), v.Selection);         // and stays selected for the next copy
+
+        // One tile is a selection too — it arms the level brush AND copies on right-click.
+        int picked = -1;
+        v.TilePicked += (_, t) => picked = t;
+        w.MouseDown(Quad(3, 5), MouseButton.Left);       // anywhere inside tile (1,2)
+        w.MouseUp(Quad(3, 5), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal((2, 4, 2, 2), v.Selection);         // the whole tile, in quadrants
+        Assert.Equal(0x21, picked);                      // row 2, column 1
+
+        w.MouseDown(Quad(9, 13), MouseButton.Right);     // tile (4,6) again
+        w.MouseUp(Quad(9, 13), MouseButton.Right);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal((2, 4, 2, 2, 6, 8), dup);           // snapped to the tile grid, not to 9,13
     }
 
     /// <summary>8x8 is a different mode, not a finer cursor: the lasso selects QUADRANTS and a
@@ -526,12 +539,17 @@ public class Map16ModeTests(ITestOutputHelper log)
         Assert.True(fields.IsEnabled);                     // a tile is armed on the way in
         Assert.NotNull(sheet.SelectedTile);
 
-        // Pick an 8x8 tile in the drawer as well, so there is one of each to drop.
-        var pick = chr.TranslatePoint(new Point(4, 4), w)!.Value;
-        w.MouseDown(pick, MouseButton.Left);
-        w.MouseUp(pick, MouseButton.Left);
+        // Take a 2x2 brush in the drawer as well, so there is one of each to drop — and so the
+        // cursor on the canvas is carrying a footprint that has to go with it.
+        double cell = chr.Zoom * 8;
+        Point At8(int col, int row) => chr.TranslatePoint(new Point(col * cell + 2, row * cell + 2), w)!.Value;
+        w.MouseDown(At8(0, 0), MouseButton.Left);
+        w.MouseMove(At8(1, 1));
+        w.MouseUp(At8(1, 1), MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
         Assert.True(chr.HasSelection);
+        Assert.Equal((0, 0, 2, 2), chr.Brush);
+        Assert.Equal(2, sheet.BrushW);
         Assert.Equal(Map16CanvasView.TileGrain.Quad8, sheet.Grain);
 
         var desk = w.GetControl<ScrollViewer>("Map16Scroll").TranslatePoint(new Point(4, 40), w)!.Value;
@@ -541,7 +559,10 @@ public class Map16ModeTests(ITestOutputHelper log)
 
         Assert.Null(sheet.SelectedTile);
         Assert.Empty(sheet.SelectedTiles());
-        Assert.False(w.GetControl<ChrPaletteView>("Chr").HasSelection);   // the 8x8 pick too
+        Assert.False(chr.HasSelection);                    // the 8x8 pick goes too...
+        Assert.Equal((0, 0, 1, 1), chr.Brush);             // ...footprint and all
+        Assert.Equal(1, sheet.BrushW);
+        Assert.Equal(1, sheet.BrushH);
         Assert.Equal("Tile ######", label.Text);
         Assert.Equal("-", w.GetControl<TextBox>("M16Acts").Text);
         Assert.False(label.IsEnabled);
@@ -579,6 +600,38 @@ public class Map16ModeTests(ITestOutputHelper log)
         Assert.Equal(0x23, sheet.SelectedTile);
         Assert.Contains("0023", w.GetControl<TextBlock>("M16SelLabel").Text);
         Assert.True(prio.IsChecked, "the toggle was reset by the refresh it triggered");
+    }
+
+    /// <summary>The Map16 palette lives in the gutter, where the GFX one does, and shows the row
+    /// the selected tile draws with. Its swatches are inert: a Map16 tile chooses a ROW, so a
+    /// click that moved a selection ring would promise an edit this mode cannot make.</summary>
+    [AvaloniaFact]
+    public void the_map16_palette_sits_in_the_gutter_and_only_shows()
+    {
+        if (Prepped is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        var bar = w.GetControl<Border>("M16PaletteBar");
+        Assert.False(bar.IsVisible);                       // level mode: the GFX gutter's slot
+
+        w.GetControl<ToggleButton>("ModeMap16")
+         .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var swatches = w.GetControl<PaletteGridView>("M16Colors");
+        Assert.True(bar.IsVisible);
+        Assert.False(w.GetControl<Border>("GfxPaletteBar").IsVisible);
+        Assert.True(w.GetControl<ComboBox>("M16Palette").SelectedIndex >= 0, "no row shown");
+        Assert.Equal(16, swatches.Colors.Length);
+        Assert.NotEqual(0u, swatches.Colors[1]);           // a real row, not a blank strip
+
+        var at = swatches.TranslatePoint(new Point(30, 8), w)!.Value;
+        w.MouseDown(at, MouseButton.Left);
+        w.MouseUp(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(-1, swatches.Selected);               // the click went nowhere, as intended
     }
 
     /// <summary>Every canvas mode's header is the same strip: switching modes must not move the

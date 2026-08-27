@@ -372,9 +372,9 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         // The canvas IS the editor: the GFX sheet takes the region and the drawer follows it to
         // the paint colours rather than opening a second panel.
         Assert.True(w.GetControl<DockPanel>("GfxScroll").IsVisible);
-        Assert.False(w.GetControl<ScrollViewer>("CanvasScroll").IsVisible);
+        Assert.False(w.GetControl<DockPanel>("LevelPane").IsVisible);
         Assert.True(w.GetControl<DockPanel>("GfxToolPanel").IsVisible);
-        Assert.False(w.GetControl<ScrollViewer>("PaletteScroll").IsVisible);
+        Assert.False(w.GetControl<DockPanel>("TilesPanel").IsVisible);
 
         var sheet = w.GetControl<GfxCanvasView>("GfxCanvas");
         Assert.True(sheet.Tiles > 0, "the sheet never loaded a file");

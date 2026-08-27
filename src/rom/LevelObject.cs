@@ -57,14 +57,36 @@ public readonly struct LevelObject
 
     /// <summary>Screen this exit governs (both exit forms index by the Y field).</summary>
     public int ExitScreen => Y;
-    public bool ExitIsWater => (XNibble & 1) != 0;
-    public bool ExitUsesSecondary => XNibble >> 1 != 0;
+
+    /// <summary>
+    /// The EXTENDED flag layout, marked by X-nibble bit 2 (RomPrep §V7, and Lunar Magic's own).
+    /// It repurposes the nibble the vanilla handler threw away: bit0 becomes the destination's
+    /// bit 8 — the only way an exit can name a level above $0FF, since vanilla takes that bit
+    /// from the submap the player is standing on — and bit3 feeds $192A.
+    ///
+    /// A ROM without the patch ignores bit 2 entirely: it stores `XNibble &amp; 1` and reads
+    /// nothing back, so an extended exit degrades to its low byte rather than misbehaving.
+    /// </summary>
+    public bool ExitIsExtended => (XNibble & 4) != 0;
+
+    /// <summary>Water only exists in the vanilla layout — the extended one spends that bit on
+    /// the destination's high bit.</summary>
+    public bool ExitIsWater => !ExitIsExtended && (XNibble & 1) != 0;
+
+    public bool ExitUsesSecondary => ExitIsExtended ? (XNibble & 2) != 0 : XNibble >> 1 != 0;
+
     /// <summary>Destination: a level number for a plain exit, or an index into the
     /// secondary entrance table when <see cref="ExitUsesSecondary"/>.</summary>
-    public int ExitDestination => ExtraByte;
+    public int ExitDestination => ExtraByte | (ExitIsExtended ? (XNibble & 1) << 8 : 0);
 
     public static LevelObject ScreenExit(int screen, int destination, bool water, bool secondary) =>
         new(false, 0, screen, (secondary ? 2 : 0) | (water ? 1 : 0), screen & 0x1F, 0x00, destination & 0xFF);
+
+    /// <summary>An exit in the extended layout, which is what a destination above $0FF needs.
+    /// Water has no bit here; bit 0 is the destination's ninth.</summary>
+    public static LevelObject ExtendedScreenExit(int screen, int destination, bool secondary) =>
+        new(false, 0, screen, 4 | (secondary ? 2 : 0) | ((destination >> 8) & 1),
+            screen & 0x1F, 0x00, destination & 0xFF);
 
     /// <summary>Create a Direct Map16 object placing <paramref name="tile"/> at a cell.
     /// Sizes past 16 use LM's extended Form B (page bits 6+7: 7-bit width in byte3,

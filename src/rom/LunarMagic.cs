@@ -345,6 +345,19 @@ public static class LunarMagic
         /// hold them.</summary>
         public bool HasGfx4bppUpload => rom.ReadByte(0x00AAE5) == 0xEB;
 
+        /// <summary>
+        /// True when a screen exit's destination can name a level above $0FF — i.e. the level
+        /// number's high byte comes from the exit's own flags rather than from the submap the
+        /// player is standing on.
+        ///
+        /// Two independent halves, both required: the decision at $05D7CE must be a JSL (vanilla
+        /// has `BEQ +2 : LDA #$01` there), and the object handler must keep the whole X nibble
+        /// ($0DA532 = #$0F, vanilla #$01). True for a v7-prepped base AND for any LM-saved ROM —
+        /// same sites, same flag layout.
+        /// </summary>
+        public bool HasExitLevelHighBit
+            => rom.ReadByte(0x05D7CE) == 0x22 && rom.ReadByte(0x0DA532) == 0x0F;
+
         /// <summary>True if LM's VRAM reorganization patch is installed ($0081E2 = JML).
         /// Without it the BG2/BG3 bypass slots are never uploaded (option_vram.htm) —
         /// vanilla and prepped bases lack it, so those slots stay editor-only.</summary>

@@ -27,6 +27,42 @@ public class ScreenExitTests
         Assert.Equal(2, s.XNibble);           // bit1 only
     }
 
+    /// <summary>The extended layout (RomPrep §V7): X-nibble bit 2 marks it, and bit 0 becomes the
+    /// destination's ninth — the only way an exit can name a level above $0FF, since vanilla
+    /// takes that bit from the submap the player entered from.</summary>
+    [Fact]
+    public void an_extended_exit_carries_a_destination_above_ff()
+    {
+        var o = LevelObject.ExtendedScreenExit(screen: 2, destination: 0x105, secondary: false);
+        Assert.True(o.IsScreenExit);
+        Assert.True(o.ExitIsExtended);
+        Assert.Equal(0x105, o.ExitDestination);
+        Assert.Equal(0x05, o.ExtraByte);      // the ROM still reads ONE byte here...
+        Assert.Equal(5, o.XNibble);           // ...and bit 0 of the nibble is the ninth
+        Assert.False(o.ExitUsesSecondary);
+        Assert.False(o.ExitIsWater);          // water has no bit in this layout
+
+        var s = LevelObject.ExtendedScreenExit(3, 0x0C5, secondary: true);
+        Assert.Equal(0x0C5, s.ExitDestination);
+        Assert.True(s.ExitUsesSecondary);
+        Assert.Equal(6, s.XNibble);
+
+        // A vanilla-layout exit is unaffected: bit 2 clear means the old reading of every bit.
+        var v = LevelObject.ScreenExit(1, 0xC5, water: true, secondary: true);
+        Assert.False(v.ExitIsExtended);
+        Assert.True(v.ExitIsWater);
+        Assert.True(v.ExitUsesSecondary);
+        Assert.Equal(0xC5, v.ExitDestination);
+
+        // And it survives the stream: the flags ride in the object's X nibble, which the
+        // encoder writes and the parser reads back like any other object byte.
+        var (rom, level) = TestRom.CreateWithLevel();
+        var back = LevelParser.ParseEncoded(rom, LevelEncoder.Encode(level, [o, s, v]))
+                              .Where(x => x.IsScreenExit).ToList();
+        Assert.Equal([0x105, 0x0C5, 0xC5], back.Select(x => x.ExitDestination));
+        Assert.Equal([true, true, false], back.Select(x => x.ExitIsExtended));
+    }
+
     [Fact]
     public void an_exit_survives_encode_then_parse_with_its_flags()
     {

@@ -60,6 +60,21 @@ Remaining divergences, in the order they'd need settling:
   vanilla's inner loops in place, because our loader delegates to that routine rather than
   replacing it. Both work; they are not the same ROM. A plain LM save (`after.smc`) has
   neither — vanilla loops intact, no loader at `$00AA50`, but the VRAM patch at `$0081E2`.
+  **Measured symptom [CONFIRMED 2026-08-27]:** since v6 stores the FILES 4bpp, LM now renders
+  every level and the 8x8 editor as noise, because `$00AAE1` is how LM decides a ROM's files
+  are 4bpp at all. `-ExportGFX` is the headless proof (exit 0, no dialog):
+
+  | ROM | `$00AA50` | `$00AAE1` | LM's `GFX00.bin` |
+  |---|---|---|---|
+  | vanilla | vanilla | `A2` | 4096 (3bpp, widened on export) |
+  | ours v5 | `22 80 F7 0F` | `A2` | 4096 ✓ |
+  | ours v6/v7 | `22 80 F7 0F` | `A2` | **5456 ✗** — 4bpp data read as 3bpp |
+  | ShaoBase (LM 4bpp) | `22 80 F7 0F` | `60` | 4096 ✓ |
+
+  5456 = 170 tiles × 32 + 16, i.e. LM read our 4096-byte 4bpp file as 3bpp (4096/24 tiles) and
+  widened it. The GAME is unaffected — a v7 build boots and renders correctly in Mesen — so
+  this is LM's preview only, and the fix is to install LM's mechanism (stub the expand-upload
+  with `RTS` and upload from our own loader) rather than rewriting vanilla's loops in place.
 - **The decompression buffer address is ours alone.** V4 moves it to `$7F:A000`, chosen from
   a free-space audit of *vanilla*. Where LM puts its own 4bpp buffer is unknown; if a ROM
   ever carried both they would have to agree, or one would corrupt the other.
@@ -645,6 +660,46 @@ sprite-pointer site ($05D8F5) and the acts-like call sites (the four vanilla
 $05D909 does `TAX` with 16-bit X, so a leaked B shifts every entrance-table index by
 +0x100 for levels >= 0x100 (symptom: garbage spawn/scroll state, e.g. instant TIME UP).
 Vanilla $00F545 is pure 8-bit and B-transparent; replacements must be too.
+
+### 9d-2. A screen exit's destination bit 8  [CONFIRMED from disassembly + emulated parity]
+
+Vanilla has **no field** for the destination level's ninth bit. $05D7BD reads the destination
+byte into $0E, then takes the high byte from where the PLAYER is:
+
+```
+$05D7BD  LDA $19B8,X : STA $0E          ; destination low byte
+$05D7C5  LDA $0DD6 : LSR : LSR : TAY
+$05D7CB  LDA $1F11,Y                    ; the player's submap flag
+$05D7CE  BEQ +2 : LDA #$01 : STA $0F    ; high byte = "am I on a submap?"
+```
+
+So the same exit lands in $005 from the main map and $105 from a submap, and "exit to $105"
+is inexpressible in the data. Same for the secondary route: $05F800,Y is a low byte too.
+
+$19D8,X (the exit flags the handler writes) has **no reader anywhere in the vanilla image** —
+only the store at $0DA533 — so its upper bits are free. Both Lunar Magic and RomPrep §V7 use
+that, at the same two sites and with the same layout:
+
+| site | vanilla | patched |
+|---|---|---|
+| $0DA531 | `AND #$01` (keep the water bit) | `AND #$0F` (keep the whole X nibble) |
+| $05D7CE | `BEQ +2 : LDA #$01` | `JSL $05DC50` (4 bytes, exact fit) |
+
+$05DC50 (vanilla $FF run from $05DC46, 954 bytes) reads $19D8,X:
+
+- **bit 2** — extended exit; clear falls back, so every untouched exit keeps its behaviour
+- **bit 0** — destination bit 8 &nbsp;&nbsp; **bit 1** — use the secondary table ($1B93)
+- **bit 3** — entrance action → $192A bit 6 &nbsp;&nbsp; **bits 4-7** — further high bits, only
+  reachable through LM's word form (ext obj 0x02), since the nibble form masks to 4 bits
+- high byte = `(flags >> 4) << 1 | bit0`; fallback = `$13BF >= $25` (is this a main level),
+  which replaces the submap test and no longer depends on how the player arrived
+
+Ext obj 0x02 ($0DE1B0) is the same two tables in one object: `LDA [$65] : STA $19B8,X : XBA :
+STA $19D8,X` — the "exit word" is `destination | flags << 8`, NOT a 16-bit destination.
+
+RomPrep stamps its own routine at that address; `RomPrepTests.v7_decides_the_high_byte_exactly_
+as_lunar_magic_does` runs both ROMs' routines under Cpu65816 over every flag combination and
+asserts they agree, so a base prepped here and one saved by LM are interchangeable.
 
 ### 9e. Level connections  [CONFIRMED in-game, two-room hack in Mesen]
 
