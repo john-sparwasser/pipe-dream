@@ -50,7 +50,7 @@ public static class RomPrep
     /// pipe to $105 was impossible to author (see <see cref="ExitHighByte"/>).
     /// Version-keyed stamp lists keep every released version BYTE-FROZEN: a v1 project's
     /// pinned image must reproduce forever (golden-hash tested).</summary>
-    public const int Version = 7;
+    public const int Version = 8;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -75,6 +75,12 @@ public static class RomPrep
     /// leaves this byte $FF. V5 does the same, by branching over it — see CONTRACT §0.
     /// </summary>
     public const int LmAccessFlag = 0x0DF100;
+    // ---- V8: the 4bpp upload, in the shape Lunar Magic looks for ----
+    /// <summary>Vanilla's `LDX #$07` opening the expand-upload's planes-0/1 loop ($00AA80's
+    /// first inner loop). V8 replaces the loop, the tile loop and the routine's tail from here
+    /// — the same 0x15 bytes LM replaces, at the same address.</summary>
+    public const int Gfx4bppLoopSite = 0x00AACD;
+
     // ---- V7: screen-exit destination bit 8 ----
     /// <summary>Where the level-number high byte is decided. Vanilla inlines "am I on a submap?"
     /// at $05D7CE; this replaces those 4 bytes with a JSL here. The address is the one Lunar
@@ -115,13 +121,17 @@ public static class RomPrep
            && rom.HasLmPaletteHook && rom.LmSpriteBankTable >= 0
            && (version < 2 || rom.HasLmGfxLoader)
            && (version < 3 || rom.HasMap16Range(1))    // the widened lookup ladder
-           && (version < 4 || rom.HasGfx4bppUpload)
+           // V4's clause tests the PROPERTY — the ROM's graphics reach 16 colours — not our
+           // particular encoding of it. Testing our instruction at $00AAE5 made IsPrepped false
+           // for an LM 4bpp hack, and IsPrepped false is a licence to stamp over it (CONTRACT §0).
+           && (version < 4 || rom.HasGfx4bppUpload || rom.HasLmGfx4bppHack)
            && (version < 5 || rom.ReadByte(LmAccessFlag) == 0xFF)
            // V6 leaves no stamp to look for — its evidence is the DATA, so the check is the
            // depth itself. An image whose GFX00 does not resolve (a synthetic test ROM) has
            // nothing to convert and nothing to claim, so it does not fail the test either.
            && (version < 6 || Gfx.RomBpp(rom) == 4 || Gfx.Cached(rom, 0) is null)
-           && (version < 7 || rom.HasExitLevelHighBit);
+           && (version < 7 || rom.HasExitLevelHighBit)
+           && (version < 8 || rom.HasLmGfx4bppHack);
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying
@@ -133,7 +143,7 @@ public static class RomPrep
         rom.ExpandTo(0x100000);                        // also writes size code at $FFD7
         foreach (var (pc, bytes) in BuildStamps(version))
             Array.Copy(bytes, 0, rom.Data, pc + rom.HeaderOffset, bytes.Length);
-        if (version >= 6) ConvertGfxTo4bpp(rom);       // data, not a stamp: it allocates
+        if (version >= 6) ConvertGfxTo4bpp(rom, version);   // data, not a stamp: it allocates
         RatsWriter.FixChecksum(rom);
         ResetScanCaches(rom);
     }
@@ -174,7 +184,7 @@ public static class RomPrep
     /// and converting them would corrupt each one. Ascending ids into first-fit space keeps the
     /// result byte-reproducible, so the golden-hash discipline still holds.
     /// </summary>
-    private static void ConvertGfxTo4bpp(Rom rom)
+    private static void ConvertGfxTo4bpp(Rom rom, int version)
     {
         Gfx.InvalidateCache(rom);                       // the stamps above moved the loader
         if (Gfx.RomBpp(rom) != 4)
@@ -186,12 +196,44 @@ public static class RomPrep
                 catch { continue; }                     // unreadable file: leave its pointer alone
                 if (three.Length == 0 || three.Length % Gfx.TileBytes(3) != 0) continue;
                 byte[] four = Gfx.NormalizeBpp(three, 3, 4, out _);
+                if (version >= 8) BakeVanillaSwap(four, id);
                 int snes = RatsWriter.Allocate(rom, Gfx.Lz2Compress(four), from: GfxConvertBase);
                 rom.Data[rom.FileOffset(Gfx.PtrLow) + id] = (byte)snes;
                 rom.Data[rom.FileOffset(Gfx.PtrHigh) + id] = (byte)(snes >> 8);
                 rom.Data[rom.FileOffset(Gfx.PtrBank) + id] = (byte)(snes >> 16);
             }
         Gfx.InvalidateCache(rom);                       // depth probe and file cache both stale
+    }
+
+    /// <summary>
+    /// V8: put vanilla's plane-3 swap into the DATA, because the upload no longer does it.
+    ///
+    /// Vanilla's expand-upload synthesizes plane 3 as `plane0 | plane1 | plane2` for exactly
+    /// four tiles of two files — `$00AA9B-$00AAC6` sets the `$0A` filter to `$FF00` only when
+    /// the file is `$01` or `$17` and Y is `$6E`, `$6F`, `$7E` or `$7F`. Everything else on that
+    /// path runs with `$0A` = 0, which is why a verbatim 32-byte copy is otherwise an exact
+    /// substitute. (Files `$08` on tileset >= `$11` and `$1E` never reach this path at all —
+    /// `$00AA96` jumps them to the filter path, which v4 still owns.)
+    ///
+    /// **Y is not the tile number.** It is `LDY #$7F` counting DOWN while the source pointer
+    /// walks forward, so the tile it selects is `$7F - Y`: file tiles `$00`, `$01`, `$10`, `$11`.
+    /// Read it as a tile number and the swap lands on four tiles that never wanted it and the
+    /// four that did stay wrong — which is exactly what the VRAM parity test caught.
+    ///
+    /// Tileset does not enter into it here, which is what makes baking exact rather than the
+    /// compromise LM makes with its own reconverted files.
+    /// </summary>
+    private static void BakeVanillaSwap(byte[] four, int id)
+    {
+        if (id is not (0x01 or 0x17)) return;
+        foreach (int tile in (int[])[0x00, 0x01, 0x10, 0x11])
+        {
+            int b = tile * 32;
+            if (b + 32 > four.Length) continue;
+            for (int row = 0; row < 8; row++)
+                four[b + 16 + row * 2 + 1] =
+                    (byte)(four[b + row * 2] | four[b + row * 2 + 1] | four[b + 16 + row * 2]);
+        }
     }
 
     private static void ResetScanCaches(Rom rom)
@@ -219,7 +261,45 @@ public static class RomPrep
         // lookup — V1's list stays byte-frozen and a v1 project's pinned image still reproduces.
         if (version >= 5) s.Add((Pc(Handler22), Dm16Handlers(5)));
         if (version >= 7) AppendV7Stamps(s);
+        if (version >= 8) AppendV8Stamps(s);
         return s;
+    }
+
+    /// <summary>
+    /// V8: upload 4bpp the way Lunar Magic does, so LM can READ the graphics it is looking at.
+    ///
+    /// V4 made the upload four-plane by rewriting vanilla's SECOND inner loop in place, keeping
+    /// the surrounding routine. It works in the game — but LM decides whether a ROM's GFX files
+    /// are 4bpp by looking for its OWN hack, and ours does not look like it. Since v6 stores the
+    /// files 4bpp, LM read every 4096-byte file as 3bpp: `-ExportGFX` came out 5456 bytes
+    /// (170 tiles widened from 24-byte storage) and every level and 8x8 grid in LM was noise.
+    /// Measured, then bisected: grafting exactly these 0x15 bytes out of an LM 4bpp hack
+    /// (ShaoBase) into a v7 base flips the export back to 4096 (CONTRACT §0).
+    ///
+    /// The shape is also simply RIGHT for 4bpp storage, which is why adopting it costs nothing:
+    /// a 4bpp tile is 32 bytes of exactly what VRAM wants, so the whole per-tile job is a
+    /// verbatim copy, and vanilla's two-loop plane dance — the `$1BB2,X` row mask and the `$0A`
+    /// plane-3 synthesis — has nothing left to do. The tile loop closes inside it and the
+    /// routine returns where vanilla's second loop used to start.
+    ///
+    ///     LDX #$10 : [LDA [$00] : STA $2118 : INC $00 : INC $00 : NOP : DEX : BNE] : DEY : BPL
+    ///     SEP #$20 : RTS
+    ///
+    /// The NOP is LM's and is kept deliberately: the byte lengths and branch offsets are what
+    /// LM's detector reads, and a shorter loop is a ROM it calls 3bpp again.
+    ///
+    /// Only the MAIN path moves. The filter path ($00AB0D) keeps v4's rewrite, which uploads
+    /// the same bytes by a different route — the parity test walks both.
+    /// </summary>
+    private static void AppendV8Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        var a = new Asm(Gfx4bppLoopSite);
+        a.Label("tile").LdxImm8(0x10);
+        a.Label("word").LdaIndLong(0x00).StaAbs(0x2118).IncDp(0x00).IncDp(0x00).Nop()
+         .Dex().Bne("word");
+        a.Dey().Bpl("tile");
+        a.Sep(0x20).Rts().AssertAt(0x00AAE2);
+        s.Add((Pc(Gfx4bppLoopSite), a.Bytes()));
     }
 
     /// <summary>

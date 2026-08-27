@@ -53,6 +53,17 @@ to gate something.
 
 Remaining divergences, in the order they'd need settling:
 
+- ~~**The v4 4bpp GFX upload is not LM's mechanism.**~~ **[SOLVED in prep v8]** V8 installs LM's
+  shape instead: `$00AACD` becomes `LDX #$10` and the planes-0/1 loop, the tile loop and the
+  routine's tail collapse into a verbatim 32-byte-per-tile copy returning at `$00AAE1` — which
+  is the only thing that makes LM read a ROM's files as 4bpp. `-ExportGFX` on a v8 base now
+  yields 4096, LM renders levels and the 8x8 grid correctly, and the game is unchanged (VRAM
+  parity against v3 for every file, plus a Mesen boot). Vanilla's plane-3 swap moved into the
+  DATA, since the copy no longer synthesizes it: `$00AA9B-$00AAC6` applies it only to files
+  `$01`/`$17` when Y is `$6E/$6F/$7E/$7F`, and Y counts DOWN from `$7F` while the pointer walks
+  forward — so the tiles are `$00`, `$01`, `$10`, `$11`, not the Y values. Files `$08`
+  (tileset >= `$11`) and `$1E` never reach that path; `$00AA96` sends them to the filter path,
+  which keeps v4's rewrite. The original finding, for the record:
 - **The v4 4bpp GFX upload is not LM's mechanism.** Byte evidence from the reference ROMs:
   on an LM 4bpp hack (ShaoBase) `$00AA50` is `22 80 F7 0F` (JSL $0FF780 — LM's loader, the
   same address our prep uses since v2) and `$00AAE1` is `60`, i.e. LM **stubs vanilla's
@@ -80,11 +91,11 @@ Remaining divergences, in the order they'd need settling:
   ever carried both they would have to agree, or one would corrupt the other.
 - **`HasLmVramPatch` (`$0081E2` = JML) is present on LM saves and absent on ours.** LM's
   BG2/BG3 bypass slots depend on it, which is why those stay editor-only here.
-- **`IsPrepped` must stay true for LM-saved ROMs** or `Apply` will stamp over foreign
-  structures — its stated contract. V4's `HasGfx4bppUpload` check breaks that (it tests for
-  our instruction at `$00AAE5`, which is `29` on ShaoBase). Fix by testing the *property*
-  — the ROM stores 4bpp — rather than our particular encoding of it. V6's own clause already
-  does that (`Gfx.RomBpp(rom) == 4`); it is v4's that still needs rewriting.
+- ~~**`IsPrepped` must stay true for LM-saved ROMs**~~ **[SOLVED alongside v8]** V4's clause
+  tested our instruction at `$00AAE5` (`29` on ShaoBase), so an LM 4bpp hack read as unprepped
+  — a licence to stamp over it. It now accepts either mechanism
+  (`HasGfx4bppUpload || HasLmGfx4bppHack`), and `v8_wears_the_4bpp_hack_lunar_magic_looks_for`
+  asserts ShaoBase reads as prepped.
 
 The gate stays empirical, not analytical: prep a base here, drive real LM over it, and diff.
 **`reference/LUNAR_MAGIC.md` is the harness** — the invocation, the message-box hazard, the

@@ -341,7 +341,8 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
             bool extended = r.Extended || r.Destination > 0xFF;
             objects.Add(r.LmForm
                 ? new LevelObject(newScreen, 0, streamScreen,
-                                  r.Source?.XNibble ?? 0, r.Screen & 0x1F, 0x02, r.Destination & 0xFFFF)
+                                  r.Source?.XNibble ?? 0, r.Screen & 0x1F, 0x02,
+                                  (r.Destination & 0xFF) | (LmFlags(r, extended) << 8))
                 : extended
                 ? new LevelObject(newScreen, 0, streamScreen,
                                   4 | (r.Secondary ? 2 : 0) | ((r.Destination >> 8) & 1),
@@ -357,6 +358,21 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         Dirty = true;
         Reconcile();
         return true;
+    }
+
+    /// <summary>
+    /// The flags byte for LM's word form, rebuilt from the row. Only the three bits this editor
+    /// models are touched — the destination's ninth, the secondary flag and the extended marker;
+    /// bits 3-7 (the entrance action, and high bits only an expanded ROM uses) are carried over
+    /// from the object as found, so an exit typed by Lunar Magic and not edited here re-encodes
+    /// to the same two bytes it arrived as.
+    /// </summary>
+    private static int LmFlags(LevelExit r, bool extended)
+    {
+        int keep = (r.Source?.ExitFlags ?? 0) & 0xF8;
+        return extended
+            ? keep | 4 | (r.Secondary ? 2 : 0) | ((r.Destination >> 8) & 1)
+            : keep | (r.Secondary ? 2 : 0) | (r.Water ? 1 : 0);
     }
 
     // ---- resize ----

@@ -46,6 +46,11 @@ public class RomPrepTests
     /// screen-exit destination high bit, 2026-08-27).</summary>
     private const string GoldenPrepV7Sha256 = "8d8c98bd0f8fba1c1014678363f0a0ee8860c15efda95848850084f3ec605f6a";
 
+    /// <summary>Golden SHA-256 (headerless) of the V8-prepped vanilla US ROM (V7 stamps + the
+    /// 4bpp upload in Lunar Magic's shape, with vanilla's plane-3 swap baked into files $01/$17,
+    /// 2026-08-27).</summary>
+    private const string GoldenPrepV8Sha256 = "4d42db9e1616990255416ed927c70de54ee930f267398fd9941cde3f376d90dc";
+
     private static Rom Prepped()
     {
         var rom = TestRom.Create();
@@ -465,11 +470,15 @@ public class RomPrepTests
             Assert.Equal(GoldenPrepV6Sha256, RomHash.HeaderlessSha256File(tmp));
 
             File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
-            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V7)
-            string v7 = RomHash.HeaderlessSha256File(tmp);
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 7));      // frozen V7 stamp list
+            Assert.Equal(GoldenPrepV7Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V8)
+            string v8 = RomHash.HeaderlessSha256File(tmp);
             // Spelled out rather than left to the assertion message: xunit truncates a mismatch,
             // and this hash is what the NEXT version bump has to be told.
-            Assert.True(GoldenPrepV7Sha256 == v7, $"V7 golden hash is now {v7}");
+            Assert.True(GoldenPrepV8Sha256 == v8, $"V8 golden hash is now {v8}");
         }
         finally { File.Delete(tmp); }
     }
@@ -739,6 +748,60 @@ public class RomPrepTests
                           + $"(tile {at / 32:X2} byte {at % 32:X2}): v3 {a[at]:X2} != v6 {b[at]:X2}");
             }
         }
+    }
+
+    // ---- V8: the upload in the shape LM reads as 4bpp ----
+
+    /// <summary>
+    /// V8 changes HOW the upload works, so the bar is the one v4 set: every file, every filter
+    /// case, byte-identical VRAM against v3 reading the same artwork at 3bpp. If a verbatim
+    /// 32-byte copy loses something vanilla's plane dance was doing, it shows up here rather
+    /// than as a subtly wrong tile in a level three months from now.
+    /// </summary>
+    [RealRomFact]
+    public void v8_uploads_every_file_byte_identically_to_v3()
+    {
+        foreach (var (file, tileset) in new[] { (0x02, 0x00), (0x01, 0x00), (0x17, 0x00),
+                                                (0x1E, 0x00), (0x08, 0x00), (0x08, 0x11) })
+        {
+            var v3 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v3, 3);
+            var v8 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v8, 8);
+
+            // The base supplies the converted file, so the swap v8 bakes in is part of what is
+            // being judged rather than something the test re-does by hand.
+            var a = UploadVram(v3, file, tileset, Gfx.DecompressFile(v3, file));
+            var b = UploadVram(v8, file, tileset, Gfx.DecompressFile(v8, file));
+            Assert.Equal(0x1000, a.Count);
+            if (!a.SequenceEqual(b))
+            {
+                int at = a.Zip(b).ToList().FindIndex(p => p.First != p.Second);
+                Assert.Fail($"file {file:X2} tileset {tileset:X2}: VRAM diverges at +{at:X} "
+                          + $"(tile {at / 32:X2} byte {at % 32:X2}): v3 {a[at]:X2} != v8 {b[at]:X2}");
+            }
+        }
+    }
+
+    /// <summary>The point of v8: LM decides a ROM's files are 4bpp by finding ITS hack, and a
+    /// real LM 4bpp hack must read as prepped so <see cref="RomPrep.Apply"/> never stamps over
+    /// one.</summary>
+    [LmRefRomFact]
+    public void v8_wears_the_4bpp_hack_lunar_magic_looks_for()
+    {
+        var v7 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v7, 7);
+        var v8 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v8, 8);
+        var shao = Rom.Load(ReferenceRoms.ShaoBase);
+
+        Assert.False(v7.HasLmGfx4bppHack);        // v4's mechanism: correct in game, invisible to LM
+        Assert.True(v8.HasLmGfx4bppHack);
+        Assert.True(shao.HasLmGfx4bppHack);       // and an LM hack reads the same way
+
+        // The bytes are the interface here — LM reads their lengths and branch offsets.
+        for (int i = 0; i < 0x15; i++)
+            Assert.Equal(shao.ReadByte(RomPrep.Gfx4bppLoopSite + i),
+                         v8.ReadByte(RomPrep.Gfx4bppLoopSite + i));
+
+        // IsPrepped must stay true for a foreign LM hack, or Apply would stamp over it.
+        Assert.True(RomPrep.IsPrepped(shao, 4));
     }
 
     /// <summary>Run one GFX file through a prepped ROM's upload and return the bytes it sent to

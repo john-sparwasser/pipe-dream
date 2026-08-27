@@ -346,6 +346,20 @@ public static class LunarMagic
         public bool HasGfx4bppUpload => rom.ReadByte(0x00AAE5) == 0xEB;
 
         /// <summary>
+        /// True when the GFX upload is the one Lunar Magic recognizes as its 4bpp hack: the
+        /// planes-0/1 loop replaced by a verbatim 32-byte-per-tile copy that returns where
+        /// vanilla's second loop began ($00AACD = `LDX #$10`, $00AAE1 = `RTS`).
+        ///
+        /// This is what decides whether LM reads a ROM's GFX files as 4bpp or 3bpp — get it
+        /// wrong and LM renders every level as noise while the game is perfectly fine. True for
+        /// a v8-prepped base and for any LM 4bpp hack; false for vanilla, a plain LM save, and
+        /// our own v4-v7 bases.
+        /// </summary>
+        public bool HasLmGfx4bppHack
+            => rom.ReadByte(0x00AACD) == 0xA2 && rom.ReadByte(0x00AACE) == 0x10
+            && rom.ReadByte(0x00AAE1) == 0x60;
+
+        /// <summary>
         /// True when a screen exit's destination can name a level above $0FF — i.e. the level
         /// number's high byte comes from the exit's own flags rather than from the submap the
         /// player is standing on.

@@ -63,6 +63,32 @@ public class ScreenExitTests
         Assert.Equal([true, true, false], back.Select(x => x.ExitIsExtended));
     }
 
+    /// <summary>LM's word form (ext obj 0x02) is NOT a 16-bit destination. $0DE1B0 does
+    /// `STA $19B8,X : XBA : STA $19D8,X`, so the word is destination | flags &lt;&lt; 8 — read whole,
+    /// an ordinary exit to $25 with the extended marker reads back as level $0525.</summary>
+    [Fact]
+    public void the_lm_word_form_splits_into_a_destination_and_the_same_flags_byte()
+    {
+        // Word $0525: destination byte $25, flags $05 = extended + destination bit 8.
+        var o = new LevelObject(false, 0, 3, 0, 4, 0x02, 0x0525);
+        Assert.True(o.IsLmSecondaryExit);
+        Assert.Equal(0x05, o.ExitFlags);
+        Assert.True(o.ExitIsExtended);
+        Assert.Equal(0x125, o.ExitDestination);      // not 0x0525
+        Assert.False(o.ExitUsesSecondary);
+
+        // Flags $06 = extended + secondary, destination $25 with no ninth bit.
+        var s = new LevelObject(false, 0, 3, 0, 4, 0x02, 0x0625);
+        Assert.Equal(0x25, s.ExitDestination);
+        Assert.True(s.ExitUsesSecondary);
+
+        // Not extended: the flags byte reads the vanilla way, water and all.
+        var v = new LevelObject(false, 0, 3, 0, 4, 0x02, 0x0125);
+        Assert.False(v.ExitIsExtended);
+        Assert.True(v.ExitIsWater);
+        Assert.Equal(0x25, v.ExitDestination);
+    }
+
     [Fact]
     public void an_exit_survives_encode_then_parse_with_its_flags()
     {

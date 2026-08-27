@@ -67,17 +67,28 @@ public readonly struct LevelObject
     /// A ROM without the patch ignores bit 2 entirely: it stores `XNibble &amp; 1` and reads
     /// nothing back, so an extended exit degrades to its low byte rather than misbehaving.
     /// </summary>
-    public bool ExitIsExtended => (XNibble & 4) != 0;
+    /// <summary>
+    /// The flags byte this exit puts in $19D8,X — the thing every reader downstream actually
+    /// decodes. Both forms carry it, in different places: the vanilla object's is its X nibble
+    /// ($0DA531), and LM's word form's is the HIGH BYTE of its two-byte word ($0DE1B0 does
+    /// `STA $19B8,X : XBA : STA $19D8,X`, so the word is destination | flags &lt;&lt; 8 and not a
+    /// 16-bit destination at all).
+    /// </summary>
+    public int ExitFlags => IsLmSecondaryExit ? (ExtraByte >> 8) & 0xFF : XNibble;
+
+    public bool ExitIsExtended => (ExitFlags & 4) != 0;
 
     /// <summary>Water only exists in the vanilla layout — the extended one spends that bit on
     /// the destination's high bit.</summary>
-    public bool ExitIsWater => !ExitIsExtended && (XNibble & 1) != 0;
+    public bool ExitIsWater => !ExitIsExtended && (ExitFlags & 1) != 0;
 
-    public bool ExitUsesSecondary => ExitIsExtended ? (XNibble & 2) != 0 : XNibble >> 1 != 0;
+    public bool ExitUsesSecondary => ExitIsExtended ? (ExitFlags & 2) != 0 : ExitFlags >> 1 != 0;
 
     /// <summary>Destination: a level number for a plain exit, or an index into the
     /// secondary entrance table when <see cref="ExitUsesSecondary"/>.</summary>
-    public int ExitDestination => ExtraByte | (ExitIsExtended ? (XNibble & 1) << 8 : 0);
+    public int ExitDestination
+        => (IsLmSecondaryExit ? ExtraByte & 0xFF : ExtraByte)
+         | (ExitIsExtended ? (ExitFlags & 1) << 8 : 0);
 
     public static LevelObject ScreenExit(int screen, int destination, bool water, bool secondary) =>
         new(false, 0, screen, (secondary ? 2 : 0) | (water ? 1 : 0), screen & 0x1F, 0x00, destination & 0xFF);
