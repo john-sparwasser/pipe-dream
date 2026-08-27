@@ -778,11 +778,15 @@ eight-offset table cannot express, starts Mario 40px right of where vanilla puts
 
 Two caveats. The FG/BG initial scroll is still vanilla's, so a position far from the original can
 put the camera somewhere unhelpful — LM solves this with a separate "set FG/BG relative to
-player" option we do not have. And this is OUR layout, not LM's, which is a **scope decision and
-not a forced one**: LM's routine is byte-identical across hacks with its table address at a fixed
-offset inside it, exactly the shape `LmMap16Slot` already reads. Matching is possible; finishing
-the decode of LM's five tables is what it would take (LM_PARITY). Until then a ROM re-saved by
-Lunar Magic keeps working, but free positions revert to the grid.
+player" option we do not have. And LM's "method 2" turns out to be a DIFFERENT feature rather than a rival
+layout: its table has exactly one reader, gated on `$141A != 0` — arrived from inside a level —
+so it supplies arrival positions for extended screen exits, keyed by destination level. It never
+touches the overworld entrance this section is about (LM_PARITY).
+
+One site does collide. Every LM hack NOPs `$05D9E9`, the midway branch's jump, which is the site
+v10's midway stub uses; `$05D9FE` is untouched in all of them. So a base that has been through
+Lunar Magic keeps its free MAIN entrance and loses the midway one, and
+`Rom.HasFreeMidwayPosition` detects exactly that rather than letting the marker lie.
 
 ### 9e. Level connections  [CONFIRMED in-game, two-room hack in Mesen]
 

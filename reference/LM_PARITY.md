@@ -101,9 +101,26 @@ Read out of juz, whose copy sits at `$11FB03`:
 - The SCREEN still comes from the vanilla field: LM's routine writes `$01` and re-enters the
   decode at `$05D9A1`, so the shared tail's `LDA $01 : AND #$1F : STA $95` still runs.
 
-**Prep v10 does the same job our own way** (CONTRACT §9d-3): stubs on the two `JMP $05DA17`
-sites, a per-level table, exact pixel positions and an independent midway. **That was a scope
-decision, not a forced one, and the first version of this note dressed it up as the latter.**
+**They are not the same feature.** LM's table has exactly one reader — the routine the `$05D979`
+hook calls — and that hook is gated on `$141A != 0`, which the disassembly (`$00D273`,
+`$0096DB`) shows means "arrived from inside a level", i.e. through a screen exit. Combined with
+the `$192A` bit 6 gate an extended EXIT sets, LM's method 2 is **arrival positions for extended
+screen exits, keyed by destination level** — its replacement for burning a secondary entrance
+record. Prep v10 places the **overworld main and midway** entrances. Neither touches the other's
+data, so "convert v10 to LM's format" is not a conversion; LM's is a feature we do not have.
+
+**But the two do collide on one site.** Every LM hack examined — ShaoBase, juz, DogsOfWar,
+BigEye — NOPs `$05D9E9`, the midway branch's `JMP $05DA17`, so the branch falls through into the
+shared horizontal path. That is exactly the site v10's midway stub uses. `$05D9FE`, which v10
+uses for the main entrance, is untouched in all four. So a base that has been through Lunar
+Magic **keeps its freely placed main entrance and loses the midway one** —
+`Rom.HasFreeMidwayPosition` is a separate detector for precisely that, and the editor reports
+the midway as grid-bound rather than letting a marker quietly stop meaning anything.
+
+**Prep v10 therefore stands** (CONTRACT §9d-3): stubs on the two `JMP $05DA17` sites, a per-level
+table, exact pixel positions and an independent midway. What is still worth taking from LM is
+its FEATURE — per-destination arrival positions for extended exits, which pairs with the exits
+work prep v7 already did.
 
 The table addresses do differ per ROM — juz `$138008`, ShaoBase `$128008`, DogsOfWar `$12EFF8`
 — but the ROUTINE is byte-identical in all three, so the address sits at a fixed offset inside

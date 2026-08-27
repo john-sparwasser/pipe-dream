@@ -357,9 +357,24 @@ public static class LunarMagic
         /// </summary>
         public bool HasFreeEntrancePositions
             => rom.ReadByte(RomPrep.MainJmpSite) == 0x4C
-            && rom.ReadValue(RomPrep.MainJmpSite + 1, 2) is var m && m >= 0xDC90 && m < 0xDD00
+            && rom.ReadValue(RomPrep.MainJmpSite + 1, 2) is var m && m >= 0xDC90 && m < 0xDD00;
+
+        /// <summary>
+        /// Whether the MIDWAY half of v10 is still standing. It is a separate question because
+        /// Lunar Magic takes that site: every LM hack examined (ShaoBase, juz, DogsOfWar,
+        /// BigEye) NOPs `$05D9E9`, the midway branch's `JMP $05DA17`, so the branch falls
+        /// through into the shared horizontal path instead. `$05D9FE` — the main entrance's
+        /// jump, which v10 also uses — is untouched in all four.
+        ///
+        /// So a base that has been through LM keeps its freely-placed MAIN entrance and loses
+        /// the midway one. Saying that out loud beats a midway marker that quietly stops
+        /// meaning anything.
+        /// </summary>
+        public bool HasFreeMidwayPosition
+            => rom.HasFreeEntrancePositions
             && rom.ReadByte(RomPrep.MidwayJmpSite) == 0x4C
-            && rom.ReadValue(RomPrep.MidwayJmpSite + 1, 2) is var w && w >= 0xDC90 && w < 0xDD00;
+            && rom.ReadValue(RomPrep.MidwayJmpSite + 1, 2) >= 0xDC90
+            && rom.ReadValue(RomPrep.MidwayJmpSite + 1, 2) < 0xDD00;
 
         /// <summary>
         /// True when the GFX upload is the one Lunar Magic recognizes as its 4bpp hack: the

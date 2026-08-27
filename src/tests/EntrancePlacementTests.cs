@@ -52,6 +52,31 @@ public class EntrancePlacementTests(ITestOutputHelper log)
     }
 
     /// <summary>
+    /// V10 hooks two sites and Lunar Magic takes one of them: every LM hack NOPs `$05D9E9`, the
+    /// midway branch's `JMP $05DA17`, while `$05D9FE` is untouched in all of them. So the two
+    /// halves are detected separately — a base that has been through LM keeps its freely placed
+    /// main entrance and loses the midway one, and the editor has to know which.
+    /// </summary>
+    [LmRefRomFact]
+    public void the_midway_hook_is_a_site_lunar_magic_takes_and_the_main_one_is_not()
+    {
+        var ours = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(ours, 10);
+        Assert.True(ours.HasFreeEntrancePositions);
+        Assert.True(ours.HasFreeMidwayPosition);
+
+        var shao = Rom.Load(ReferenceRoms.ShaoBase);
+        Assert.Equal(0xEA, shao.ReadByte(RomPrep.MidwayJmpSite));      // LM NOPped it
+        Assert.Equal(0x4C, shao.ReadByte(RomPrep.MainJmpSite));        // ...and left this one
+        Assert.False(shao.HasFreeEntrancePositions);                   // neither half is ours
+
+        // Our stamp with LM's NOPs over the midway site: main survives, midway does not.
+        var mixed = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(mixed, 10);
+        for (int i = 0; i < 3; i++) mixed.Data[mixed.FileOffset(RomPrep.MidwayJmpSite) + i] = 0xEA;
+        Assert.True(mixed.HasFreeEntrancePositions);
+        Assert.False(mixed.HasFreeMidwayPosition);
+    }
+
+    /// <summary>
     /// V10's stub, run as code. It has to do two things and no more: put the table's position
     /// into $94/$96 when the record is active, and leave vanilla's answer completely alone when
     /// it is not — a stamp that runs on every level entry has no business changing an untouched

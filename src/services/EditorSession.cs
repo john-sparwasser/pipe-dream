@@ -1358,13 +1358,14 @@ public sealed class EditorSession
                      ?? (EntrancePlacement.X(rom, main.ReservedMode, main.MarioX),
                          EntrancePlacement.Y(rom, main.MarioY));
         // The midway shares the main's spot inside its screen — until v10 gives it one.
-        var midAt = FreeEntrance.Read(rom, LevelNum, midway: true)
+        var midAt = (rom.HasFreeMidwayPosition ? FreeEntrance.Read(rom, LevelNum, midway: true) : null)
                     ?? (EntrancePlacement.X(rom, main.ReservedBoundary, main.MarioX),
                         EntrancePlacement.Y(rom, main.MarioY));
         var list = new List<LevelEntrance>
         {
             new(EntranceKind.Main, LevelNum, mainAt.Item1, mainAt.Item2) { Free = FreeEntrance.Supported(rom) },
-            new(EntranceKind.Midway, LevelNum, midAt.Item1, midAt.Item2) { Free = FreeEntrance.Supported(rom) },
+            // The midway is a separate question: Lunar Magic takes the site v10 hooks for it.
+            new(EntranceKind.Midway, LevelNum, midAt.Item1, midAt.Item2) { Free = rom.HasFreeMidwayPosition },
         };
         for (int i = 0; i < Rom.SecondaryEntranceCount; i++)
         {
@@ -1388,7 +1389,8 @@ public sealed class EditorSession
 
         // v10: the main and midway entrances go exactly where they were dropped, and the midway
         // gets a position of its own rather than borrowing the main's.
-        if (kind != EntranceKind.Secondary && FreeEntrance.Supported(rom))
+        bool free = kind == EntranceKind.Midway ? rom.HasFreeMidwayPosition : FreeEntrance.Supported(rom);
+        if (kind != EntranceKind.Secondary && free)
         {
             px = Math.Clamp(px, 0, 0x1FFF);
             py = Math.Clamp(py, 0, 0x7FFF);
