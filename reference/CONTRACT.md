@@ -44,12 +44,24 @@ saving is when it would look), or LM refusing to write hijacks around structures
 install. Diagnose by capturing the dialog's window text — LM has no documented way to
 suppress message boxes, so the harness has to read them.
 
-**The checksum warning is benign.** LM warns *"The ROM's checksum has been tampered with"* on
-our bases and proceeds. It is not the internal checksum being wrong — ours computes correctly,
-and restoring vanilla's `$A0DA`/`5F25` bytes does **not** silence it. LM expands ROMs without
-updating the checksum at all (after.smc is 1MB and still carries vanilla's), so LM is
-detecting third-party modification some other way. Non-blocking; ignore unless it turns out
-to gate something.
+**The checksum warning. [SOLVED in prep v9]** LM runs TWO checks and words them differently —
+that is the whole clue:
+
+- *"The ROM's checksum is **incorrect**"* — stored ≠ computed.
+- *"The ROM's checksum has been **tampered with**, which means the file has either been
+  previously modified by another program"* — stored **=** computed, but is not the value LM
+  knows Super Mario World has. Every prepped base got this one: adding data and recomputing
+  honestly is exactly what "another program" looks like.
+
+LM skips both for a ROM it considers one of its own hacks — ShaoBase opens silently even with
+its checksum deliberately set to `0000`, and after.smc keeps vanilla's `$A0DA` because LM's
+expansion is zero-filled and does not change the sum.
+
+So v9 stops *writing* a new checksum and starts *steering* the old one: a RATS-tagged block of
+`0x140` bytes at pc `0x80000` whose only meaning is its sum. `RatsWriter.FixChecksum` zeroes it,
+totals the ROM and writes back whatever lands on `$A0DA` — so the ROM is checksum-VALID by the
+hardware's rules and unremarkable by LM's. Every write path goes through FixChecksum, so a
+built ROM is balanced too. Confirmed: a v9 base opens in LM with no dialog at all.
 
 Remaining divergences, in the order they'd need settling:
 

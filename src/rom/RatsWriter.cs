@@ -101,10 +101,15 @@ public static class RatsWriter
     /// Recompute and write the SNES checksum ($FFDE) + complement ($FFDC). Assumes a
     /// power-of-two ROM size (our expanded ROMs are 1/2/4 MB). The placeholder-invariant
     /// trick: checksum computed with checksum=0/complement=0xFFFF equals the final sum.
+    ///
+    /// When the ROM carries prep v9's balance block, the sum is STEERED to Super Mario World's
+    /// own checksum instead of merely being made consistent — see <see cref="Balance"/>.
     /// </summary>
     public static void FixChecksum(Rom rom)
     {
         int h = rom.HeaderOffset, size = rom.ActualRomSize;
+        if (Balance(rom)) return;
+
         rom.Data[0x7FDC + h] = 0xFF; rom.Data[0x7FDD + h] = 0xFF;   // complement placeholder
         rom.Data[0x7FDE + h] = 0x00; rom.Data[0x7FDF + h] = 0x00;   // checksum placeholder
         long sum = 0;
@@ -112,6 +117,54 @@ public static class RatsWriter
         int chk = (int)(sum & 0xFFFF), comp = chk ^ 0xFFFF;
         rom.Data[0x7FDE + h] = (byte)chk; rom.Data[0x7FDF + h] = (byte)(chk >> 8);
         rom.Data[0x7FDC + h] = (byte)comp; rom.Data[0x7FDD + h] = (byte)(comp >> 8);
+    }
+
+    /// <summary>
+    /// Make the ROM's checksum come out as vanilla SMW's `$A0DA` — not by writing that number
+    /// over a different reality, but by adding bytes until the sum genuinely IS it.
+    ///
+    /// Lunar Magic runs two separate checks and says so in two different words. A checksum that
+    /// disagrees with the ROM's contents is *"The ROM's checksum is incorrect"*; one that agrees
+    /// but is not the value LM knows Super Mario World has is *"The ROM's checksum has been
+    /// tampered with, which means the file has either been previously modified by another
+    /// program"* — which is what every prepped base got, because adding data and recomputing
+    /// honestly is exactly what "another program" looks like. (LM skips both checks for a ROM
+    /// it considers one of its own hacks: ShaoBase opens silently even with its checksum
+    /// deliberately set to 0000.)
+    ///
+    /// So the balance block is a run of bytes with no meaning except their sum. Zero it, total
+    /// the ROM, and write back however much is needed to land on `$A0DA`. The result is a ROM
+    /// that is checksum-VALID by the hardware's rules and unremarkable by LM's.
+    ///
+    /// Returns false when the ROM has no balance block (a pre-v9 base, or a foreign ROM, where
+    /// vanilla's checksum would be the wrong target anyway) and the plain path should run.
+    /// </summary>
+    private static bool Balance(Rom rom)
+    {
+        int h = rom.HeaderOffset, size = rom.ActualRomSize;
+        int tag = RomPrep.BalanceTagPc + h, data = RomPrep.BalancePc + h;
+        if (data + RomPrep.BalanceSize > rom.Data.Length) return false;
+        if (rom.Data[tag] != 0x53 || rom.Data[tag + 1] != 0x54
+            || rom.Data[tag + 2] != 0x41 || rom.Data[tag + 3] != 0x52) return false;   // "STAR"
+        if ((rom.Data[tag + 4] | (rom.Data[tag + 5] << 8)) != RomPrep.BalanceSize - 1) return false;
+
+        Array.Clear(rom.Data, data, RomPrep.BalanceSize);
+        rom.Data[0x7FDC + h] = 0xFF; rom.Data[0x7FDD + h] = 0xFF;
+        rom.Data[0x7FDE + h] = 0x00; rom.Data[0x7FDF + h] = 0x00;
+        long sum = 0;
+        for (int i = 0; i < size; i++) sum += rom.Data[h + i];
+
+        for (int need = (int)((RomPrep.VanillaChecksum - sum) & 0xFFFF), i = 0; need > 0; i++)
+        {
+            int put = Math.Min(need, 0xFF);
+            rom.Data[data + i] = (byte)put;
+            need -= put;
+        }
+        int comp = RomPrep.VanillaChecksum ^ 0xFFFF;
+        rom.Data[0x7FDE + h] = unchecked((byte)RomPrep.VanillaChecksum);
+        rom.Data[0x7FDF + h] = (byte)(RomPrep.VanillaChecksum >> 8);
+        rom.Data[0x7FDC + h] = (byte)comp; rom.Data[0x7FDD + h] = (byte)(comp >> 8);
+        return true;
     }
 
     public static void SaveAs(Rom rom, string path) { FixChecksum(rom); File.WriteAllBytes(path, rom.Data); }

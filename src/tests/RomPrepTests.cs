@@ -51,6 +51,10 @@ public class RomPrepTests
     /// 2026-08-27).</summary>
     private const string GoldenPrepV8Sha256 = "4d42db9e1616990255416ed927c70de54ee930f267398fd9941cde3f376d90dc";
 
+    /// <summary>Golden SHA-256 (headerless) of the V9-prepped vanilla US ROM (V8 stamps + the
+    /// checksum balance, which lands the ROM back on Super Mario World's own $A0DA, 2026-08-27).</summary>
+    private const string GoldenPrepV9Sha256 = "052f0eff5302795306b7be42af15eae6d9d83b197ced651e7c39501d9314da4f";
+
     private static Rom Prepped()
     {
         var rom = TestRom.Create();
@@ -474,11 +478,15 @@ public class RomPrepTests
             Assert.Equal(GoldenPrepV7Sha256, RomHash.HeaderlessSha256File(tmp));
 
             File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
-            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V8)
-            string v8 = RomHash.HeaderlessSha256File(tmp);
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 8));      // frozen V8 stamp list
+            Assert.Equal(GoldenPrepV8Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V9)
+            string v9 = RomHash.HeaderlessSha256File(tmp);
             // Spelled out rather than left to the assertion message: xunit truncates a mismatch,
             // and this hash is what the NEXT version bump has to be told.
-            Assert.True(GoldenPrepV8Sha256 == v8, $"V8 golden hash is now {v8}");
+            Assert.True(GoldenPrepV9Sha256 == v9, $"V9 golden hash is now {v9}");
         }
         finally { File.Delete(tmp); }
     }
@@ -748,6 +756,53 @@ public class RomPrepTests
                           + $"(tile {at / 32:X2} byte {at % 32:X2}): v3 {a[at]:X2} != v6 {b[at]:X2}");
             }
         }
+    }
+
+    // ---- V9: a checksum Lunar Magic does not call tampered with ----
+
+    /// <summary>The ROM's real sum, by the rule the hardware uses — checksum field counted as
+    /// 0x0000 and its complement as 0xFFFF, which is the placeholder trick FixChecksum relies
+    /// on.</summary>
+    private static (int Stored, int Computed) Checksum(Rom rom)
+    {
+        int h = rom.HeaderOffset, size = rom.ActualRomSize;
+        int stored = rom.Data[0x7FDE + h] | (rom.Data[0x7FDF + h] << 8);
+        long sum = 0;
+        for (int i = 0; i < size; i++) sum += rom.Data[h + i];
+        sum -= rom.Data[0x7FDC + h] + rom.Data[0x7FDD + h] + rom.Data[0x7FDE + h] + rom.Data[0x7FDF + h];
+        sum += 0xFF + 0xFF;                    // the complement placeholder
+        return (stored, (int)(sum & 0xFFFF));
+    }
+
+    /// <summary>
+    /// V9 lands the ROM back on Super Mario World's own checksum — genuinely, by balancing, not
+    /// by writing the number over a different reality. Both halves matter: LM calls a stored
+    /// value that disagrees with the contents "incorrect", and one that agrees but is not SMW's
+    /// "tampered with", and a prepped base used to get the second.
+    /// </summary>
+    [RealRomFact]
+    public void v9_balances_the_rom_back_onto_super_mario_worlds_checksum()
+    {
+        var v8 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v8, 8);
+        var v9 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v9, 9);
+
+        var (storedOld, computedOld) = Checksum(v8);
+        Assert.Equal(storedOld, computedOld);                       // v8 was always self-consistent
+        Assert.NotEqual(RomPrep.VanillaChecksum, storedOld);        // ...just not SMW's number
+
+        var (stored, computed) = Checksum(v9);
+        Assert.Equal(RomPrep.VanillaChecksum, stored);
+        Assert.Equal(stored, computed);
+        Assert.True(RomPrep.HasBalance(v9));
+
+        // And it holds after the ROM grows, which is what a build does to it: allocate, fix,
+        // still $A0DA. The balance is RATS-tagged, so the allocation cannot land on top of it.
+        int snes = RatsWriter.Allocate(v9, [.. Enumerable.Repeat((byte)0xA5, 0x400)]);
+        Assert.True(snes > 0);
+        RatsWriter.FixChecksum(v9);
+        var (after, afterComputed) = Checksum(v9);
+        Assert.Equal(RomPrep.VanillaChecksum, after);
+        Assert.Equal(after, afterComputed);
     }
 
     // ---- V8: the upload in the shape LM reads as 4bpp ----

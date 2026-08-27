@@ -48,9 +48,12 @@ public static class RomPrep
     /// V7 gives a screen exit a destination bit 8, so an exit can name levels $100-$1FF at all
     /// — vanilla takes that bit from the submap the player happens to be on, which is why a
     /// pipe to $105 was impossible to author (see <see cref="ExitHighByte"/>).
+    /// V8 uploads 4bpp the way LM does, which is the only thing that makes LM read a prepped
+    /// ROM's graphics as 4bpp rather than as noise; V9 reserves the balance that keeps the
+    /// ROM's checksum reading as Super Mario World's own, so LM stops calling it tampered with.
     /// Version-keyed stamp lists keep every released version BYTE-FROZEN: a v1 project's
     /// pinned image must reproduce forever (golden-hash tested).</summary>
-    public const int Version = 8;
+    public const int Version = 9;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -75,6 +78,34 @@ public static class RomPrep
     /// leaves this byte $FF. V5 does the same, by branching over it — see CONTRACT §0.
     /// </summary>
     public const int LmAccessFlag = 0x0DF100;
+    // ---- V9: a ROM whose checksum still reads as Super Mario World's ----
+    /// <summary>RATS tag for the checksum balance; the tunable bytes follow at +8. First-fit
+    /// allocation skips RATS-tagged space, so reserving the head of the 0x80000 gap keeps the
+    /// balance from being handed out to a level or a palette.</summary>
+    public const int BalanceTagPc = 0x80000;
+    public const int BalancePc = BalanceTagPc + 8;
+    /// <summary>Enough bytes to reach any residue: 0x140 x 0xFF covers the full 16-bit range
+    /// several times over, so the balance never runs out of room.</summary>
+    public const int BalanceSize = 0x140;
+
+    /// <summary>Super Mario World's own checksum. Lunar Magic knows this value: a self-consistent
+    /// checksum that is not this one is what it calls "tampered with" (see
+    /// <see cref="RatsWriter.FixChecksum"/>).</summary>
+    public const int VanillaChecksum = 0xA0DA;
+
+    /// <summary>Whether the checksum balance is reserved — a RATS block of exactly
+    /// <see cref="BalanceSize"/> bytes at <see cref="BalanceTagPc"/>. This is V9's evidence, so
+    /// an upgrade knows it still has work to do; without it Apply short-circuits and a v8 base
+    /// upgrades to a v9 that has nowhere to put the balance.</summary>
+    public static bool HasBalance(Rom rom)
+    {
+        int tag = BalanceTagPc + rom.HeaderOffset;
+        return tag + 8 + BalanceSize <= rom.Data.Length
+            && rom.Data[tag] == 0x53 && rom.Data[tag + 1] == 0x54
+            && rom.Data[tag + 2] == 0x41 && rom.Data[tag + 3] == 0x52
+            && (rom.Data[tag + 4] | (rom.Data[tag + 5] << 8)) == BalanceSize - 1;
+    }
+
     // ---- V8: the 4bpp upload, in the shape Lunar Magic looks for ----
     /// <summary>Vanilla's `LDX #$07` opening the expand-upload's planes-0/1 loop ($00AA80's
     /// first inner loop). V8 replaces the loop, the tile loop and the routine's tail from here
@@ -131,7 +162,8 @@ public static class RomPrep
            // nothing to convert and nothing to claim, so it does not fail the test either.
            && (version < 6 || Gfx.RomBpp(rom) == 4 || Gfx.Cached(rom, 0) is null)
            && (version < 7 || rom.HasExitLevelHighBit)
-           && (version < 8 || rom.HasLmGfx4bppHack);
+           && (version < 8 || rom.HasLmGfx4bppHack)
+           && (version < 9 || HasBalance(rom));
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying
@@ -262,6 +294,8 @@ public static class RomPrep
         if (version >= 5) s.Add((Pc(Handler22), Dm16Handlers(5)));
         if (version >= 7) AppendV7Stamps(s);
         if (version >= 8) AppendV8Stamps(s);
+        // V9 reserves the balance; FixChecksum is what fills it, on every write.
+        if (version >= 9) s.Add((BalanceTagPc, Rats(new byte[BalanceSize])));
         return s;
     }
 
