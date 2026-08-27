@@ -110,12 +110,27 @@ record. Prep v10 places the **overworld main and midway** entrances. Neither tou
 data, so "convert v10 to LM's format" is not a conversion; LM's is a feature we do not have.
 
 **But the two do collide on one site.** Every LM hack examined — ShaoBase, juz, DogsOfWar,
-BigEye — NOPs `$05D9E9`, the midway branch's `JMP $05DA17`, so the branch falls through into the
-shared horizontal path. That is exactly the site v10's midway stub uses. `$05D9FE`, which v10
-uses for the main entrance, is untouched in all four. So a base that has been through Lunar
-Magic **keeps its freely placed main entrance and loses the midway one** —
-`Rom.HasFreeMidwayPosition` is a separate detector for precisely that, and the editor reports
-the midway as grid-bound rather than letting a marker quietly stop meaning anything.
+BigEye — NOPs `$05D9E9`, the midway branch's `JMP $05DA17`. That is exactly the site v10's
+midway stub uses. `$05D9FE`, which v10 uses for the main entrance, is untouched in all four.
+
+**LM is not abandoning the midway there — it is routing around it.** Its own code decides
+(ShaoBase `$14EE49`):
+
+```
+AND #$40 : STA $13CF        ; the midway flag, as vanilla does at $05D9DE
+BEQ  → JML $05D9EC          ; no midway: the ordinary path
+LDA $7FB426,X               ; LM's per-level setting — the "separate midway settings" switch
+AND #$0A : CMP #$08 : BEQ →
+JML $05D9DE                 ; ...jump INTO vanilla's midway branch
+```
+
+It jumps into the vanilla branch and owns the flow around it, which is why only the trailing
+`JMP` had to go. So the remedy is NOT "find a site LM does not touch" — that would be hiding
+from a mechanism, not agreeing with one. On a base that has never met LM, v10's midway works.
+On one that has, LM owns the midway routing and our stub is gone;
+`Rom.HasFreeMidwayPosition` detects that so the editor reports the midway as grid-bound instead
+of letting a marker quietly stop meaning anything. Real parity means implementing LM's routing
+and its `$7FB426` switch, which needs the rest of bank `$14` decoded.
 
 **Prep v10 therefore stands** (CONTRACT §9d-3): stubs on the two `JMP $05DA17` sites, a per-level
 table, exact pixel positions and an independent midway. What is still worth taking from LM is
