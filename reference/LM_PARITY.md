@@ -102,14 +102,25 @@ Read out of juz, whose copy sits at `$11FB03`:
   decode at `$05D9A1`, so the shared tail's `LDA $01 : AND #$1F : STA $95` still runs.
 
 **Prep v10 does the same job our own way** (CONTRACT §9d-3): stubs on the two `JMP $05DA17`
-sites, a per-level table, exact pixel positions and an independent midway. It deliberately does
-NOT match LM's layout — LM's tables are RATS-allocated at per-ROM addresses baked into code it
-generates, so there is nothing fixed to agree with. Consequence, stated rather than hidden: a
-ROM re-saved by LM keeps working and free positions revert to the grid. Matching LM would mean
-decoding how it FINDS its tables (as `LmMap16Slot` does for the Map16 ladder) and emitting the
-same operand positions; that is the upgrade path if the round trip ever has to carry them. Note `$138008` collides with the
-address our prep pins for the ExGFX pointer table — LM allocates dynamically, we do not, so
-whichever lands first must be RATS-respected by the other.
+sites, a per-level table, exact pixel positions and an independent midway. **That was a scope
+decision, not a forced one, and the first version of this note dressed it up as the latter.**
+
+The table addresses do differ per ROM — juz `$138008`, ShaoBase `$128008`, DogsOfWar `$12EFF8`
+— but the ROUTINE is byte-identical in all three, so the address sits at a fixed offset inside
+it (operand of the `LDA long,X` at routine+9). That is precisely the shape `LmMap16Slot` already
+reads for the Map16 ladder. Per-ROM addressing is the normal case here, not an obstacle.
+
+What was actually missing was the decode: the full bit layout of LM's five tables, where the
+separate-midway record lives, and which flag really selects method 2 (`$192A` bit 6 is a
+pre-filter — the switch is bit 5 of the per-level flags byte). Matching without that would have
+been guesswork.
+
+So the cost is real and it is ours: a ROM re-saved by Lunar Magic keeps working, and free
+positions revert to the grid. Converting v10 to LM's format means finishing that decode and
+emitting LM's routine shape with our own allocation in the operand slot — the same trick the
+ladder uses. Note `$138008` collides with the address our prep pins for the ExGFX pointer table;
+LM allocates dynamically and we do not, so whichever lands first must be RATS-respected by the
+other.
 
 ### Object handlers with `$13D7`
 `$0DA963`, `$0DA9D6` — both do arithmetic against `$13D7`, the level's screen count.

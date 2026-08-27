@@ -339,11 +339,12 @@ public static class RomPrep
     /// position belongs to the entrance record and not to the level. Secondary records stay on
     /// the vanilla grid for now — they need their own table, indexed by record.
     ///
-    /// Lunar Magic solves the same problem its own way ("method 2", hooked at $05D979 and gated
-    /// by $192A bit 6 — reference/LM_PARITY.md). We do NOT match its layout: its tables are
-    /// RATS-allocated at per-ROM addresses baked into code it generates, so there is nothing
-    /// fixed to agree with. The consequence is written down rather than papered over — a ROM
-    /// re-saved by LM keeps working, but the free positions revert to the grid.
+    /// Lunar Magic solves the same problem its own way ("method 2", hooked at $05D979 —
+    /// reference/LM_PARITY.md). This does not match its layout, and that is a SCOPE decision
+    /// rather than a forced one: LM's routine is byte-identical across hacks with its table
+    /// address at a fixed offset inside it, the same shape LmMap16Slot already reads for the
+    /// Map16 ladder. Matching is possible once LM's five tables are fully decoded. Until then a
+    /// ROM re-saved by LM keeps working and free positions revert to the grid.
     /// </summary>
     private static void AppendV10Stamps(List<(int Pc, byte[] Bytes)> s)
     {

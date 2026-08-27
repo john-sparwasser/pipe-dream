@@ -778,8 +778,11 @@ eight-offset table cannot express, starts Mario 40px right of where vanilla puts
 
 Two caveats. The FG/BG initial scroll is still vanilla's, so a position far from the original can
 put the camera somewhere unhelpful — LM solves this with a separate "set FG/BG relative to
-player" option we do not have. And this is OUR layout, not LM's: a ROM re-saved by Lunar Magic
-keeps working, but free positions revert to the grid.
+player" option we do not have. And this is OUR layout, not LM's, which is a **scope decision and
+not a forced one**: LM's routine is byte-identical across hacks with its table address at a fixed
+offset inside it, exactly the shape `LmMap16Slot` already reads. Matching is possible; finishing
+the decode of LM's five tables is what it would take (LM_PARITY). Until then a ROM re-saved by
+Lunar Magic keeps working, but free positions revert to the grid.
 
 ### 9e. Level connections  [CONFIRMED in-game, two-room hack in Mesen]
 
