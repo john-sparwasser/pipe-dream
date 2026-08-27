@@ -36,13 +36,27 @@ base this editor ever produced was unopenable in LM, from v1 onward.** LM's own 
 respects it: in ShaoBase the surrounding block ends at `$0DF0F8` and leaves the byte `$FF`.
 V5 branches around it; `-ExportAllMap16` then succeeds (exit 0) where v4 fails (exit 1).
 
-**The write path still blocks. [OPEN — next step]** `-ImportLevel` succeeds on a vanilla copy
-(exit 0) but on a v5 base it hangs on a message box and prints nothing at all, so the dialog
-comes up before any output. Reading is unaffected. Prime suspects, none confirmed: a
-conflicted/nested-RATS warning on save (`option_restore.htm` says LM warns about these, and
-saving is when it would look), or LM refusing to write hijacks around structures it did not
-install. Diagnose by capturing the dialog's window text — LM has no documented way to
-suppress message boxes, so the harness has to read them.
+**The write path still blocks — but NOT because the base is ours. [OPEN, re-attributed
+2026-08-27]** The dialog was captured: it is not a warning at all but LM's **"Open" file
+picker, filtered to SNES ROM images** — LM declining the target and asking for another. It
+appears identically on:
+
+| target | `-ImportLevel` (its own exported level) |
+|---|---|
+| vanilla, 512KB | exit 0, ROM written |
+| vanilla after LM itself expanded + imported | exit 0, ROM written |
+| `after.smc` — **LM's own save** | dialog, times out |
+| ShaoBase — **a real LM hack** | dialog, times out |
+| ours, v9 | dialog, times out |
+
+`-ImportAllMap16` behaves the same way on our base. So the CLI write path fails on LM's own
+ROMs too, and blaming the prep for it was wrong. Whatever the discriminator is, it is not
+"pipe-dream touched this file". Reading is unaffected throughout — the same ROMs export levels,
+Map16 and GFX with exit 0.
+
+That leaves the round trip genuinely untested rather than known-broken, and the next step is a
+GUI round trip (open a v9 base in LM, edit, save, reopen here and diff) — not more CLI
+archaeology.
 
 **The checksum warning. [SOLVED in prep v9]** LM runs TWO checks and words them differently —
 that is the whole clue:
