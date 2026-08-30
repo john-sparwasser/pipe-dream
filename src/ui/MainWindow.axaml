@@ -12,6 +12,8 @@
          stroke-drawn, so these render via Path + Stroke, not PathIcon (which fills). -->
     <StreamGeometry x:Key="IconTentTree">M6 4A2 2 0 1 1 2 4A2 2 0 1 1 6 4 M14 5l3-3 3 3 M14 10l3-3 3 3 M17 14V2 M17 14H7l-5 8h20Z M8 14v8 M9 14l5 8</StreamGeometry>
     <StreamGeometry x:Key="IconGrid3x3">M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2 M3 9h18 M3 15h18 M9 3v18 M15 3v18</StreamGeometry>
+    <!-- Lucide "film" — the Animations mode. -->
+    <StreamGeometry x:Key="IconFilm">M18 3v18 M3 7.5h4 M3 12h18 M3 16.5h4 M17 7.5h4 M17 16.5h4 M6 3v18 M3 3h18a0 0 0 0 1 0 0v18a0 0 0 0 1 0 0H3a0 0 0 0 1 0 0V3a0 0 0 0 1 0 0z</StreamGeometry>
     <StreamGeometry x:Key="IconSquarePen">M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7 M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z</StreamGeometry>
     <StreamGeometry x:Key="IconBird">M16 7h.01 M3.4 18H12a8 8 0 0 0 8-8V7a4 4 0 0 0-7.28-2.3L2 20 M20 7l2 .5-2 .5 M10 18v3 M14 17.75V21 M7 18a6 6 0 0 0 3.84-10.61</StreamGeometry>
     <StreamGeometry x:Key="IconScanBox">M12 12v5.5 M17 3h2a2 2 0 0 1 2 2v2 M21 17v2a2 2 0 0 1-2 2h-2 M3 7V5a2 2 0 0 1 2-2h2 M7 21H5a2 2 0 0 1-2-2v-2 M7.264 9.252 12 12l4.737-2.748 M7.995 8.514A2 2 0 0 0 7 10.244v3.516a2 2 0 0 0 .996 1.73l3 1.74a2 2 0 0 0 2.008 0l3-1.74A2 2 0 0 0 17 13.76v-3.517a2 2 0 0 0-.995-1.73l-3-1.742a2 2 0 0 0-1.892-.064z</StreamGeometry>
@@ -258,10 +260,12 @@
         <Separator/>
         <MenuItem Header="_Save" Click="OnSave" InputGesture="Ctrl+S"/>
         <MenuItem Header="_Build ROM" Click="OnBuild" InputGesture="Ctrl+B"/>
+        <MenuItem x:Name="RunEmulatorItem" Header="_Run in emulator" Click="OnRunEmulator" InputGesture="F4"/>
         <MenuItem Header="Export _BPS patch" Click="OnExportBps"/>
         <Separator/>
         <MenuItem x:Name="UpgradePrepItem" Header="Upgrade base prep" Click="OnUpgradePrep"/>
         <MenuItem Header="Set vanilla ROM…" Click="OnSetVanilla"/>
+        <MenuItem Header="Set e_mulator…" Click="OnSetEmulator"/>
         <MenuItem Header="ROM _info…" Click="OnRomInfo"/>
         <Separator/>
         <MenuItem Header="E_xit" Click="OnExit"/>
@@ -277,6 +281,9 @@
              entrance records. The canvas's Exits mode is the everyday route — it sets a
              destination per screen; this is for the parts a badge cannot show. -->
         <MenuItem Header="Screen e_xits…" Click="OnLevelExits"/>
+        <!-- The selected sprite's number, extra bits and LM extra bytes — the one thing about a
+             sprite the canvas cannot set by pointing. -->
+        <MenuItem Header="Sprite _data…" Click="OnSpriteData"/>
       </MenuItem>
       <MenuItem Header="_View">
         <MenuItem Header="Toggle _palette" Click="OnTogglePalette" InputGesture="Ctrl+P"/>
@@ -316,6 +323,12 @@
           <StackPanel Orientation="Horizontal" Spacing="6">
             <Path Data="{StaticResource IconSquarePen}"/>
             <TextBlock Text="Graphics" VerticalAlignment="Center"/>
+          </StackPanel>
+        </ToggleButton>
+        <ToggleButton x:Name="ModeAnim" Classes="mode" Click="OnMode">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <Path Data="{StaticResource IconFilm}"/>
+            <TextBlock Text="Animations" VerticalAlignment="Center"/>
           </StackPanel>
         </ToggleButton>
 
@@ -534,6 +547,23 @@
                 <StackPanel x:Name="GfxBins" Margin="10,6" Spacing="10"/>
               </ScrollViewer>
             </DockPanel>
+
+            <!-- Animations canvas mode's drawer: the graphics manager for the animation
+                 source area (AN2 / the 0x600-based ExAnimation frame tiles). Same skeleton as
+                 the GFX drawer: a header strip tracking the editor bar, then a card list.
+                 ponytail: skeleton — the list is filled by RefreshAnim, empty until then. -->
+            <DockPanel x:Name="AnimToolPanel" IsVisible="False">
+              <Border DockPanel.Dock="Top" Classes="panel bar" BorderThickness="0,0,0,1"
+                      Padding="10,0" Height="{Binding #AnimEditorBar.Bounds.Height}">
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                  <Path Classes="kind" Data="{StaticResource IconFilm}"/>
+                  <TextBlock x:Name="AnimListTitle" Classes="subject" Text="Slots"/>
+                </StackPanel>
+              </Border>
+              <ScrollViewer>
+                <StackPanel x:Name="AnimGfx" Margin="10,6" Spacing="10"/>
+              </ScrollViewer>
+            </DockPanel>
           </Panel>
         </DockPanel>
       </Border>
@@ -574,6 +604,19 @@
           <Path Classes="kind" Data="{StaticResource IconPalette}"/>
           <ComboBox x:Name="M16Palette" Classes="palrow"/>
           <ui:PaletteGridView x:Name="M16Colors" VerticalAlignment="Center"/>
+        </StackPanel>
+      </Border>
+
+      <!-- The Animations gutter palette, the Map16 one's twin: the row the frame previews are
+           coloured with and its sixteen colours. Inert swatches for the same reason — an
+           ExAnimation slot moves tiles, the Map16 tile over the destination picks the row. -->
+      <Border x:Name="AnimPaletteBar" DockPanel.Dock="Bottom" Classes="panel bar" IsVisible="False"
+              BorderThickness="0,1,0,0" Padding="10,6">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Path Classes="kind" Data="{StaticResource IconPalette}"/>
+          <ComboBox x:Name="AnimPalRow" Classes="palrow"
+                    ToolTip.Tip="The palette row the previews are coloured with — the Map16 tiles over the destination decide the real one"/>
+          <ui:PaletteGridView x:Name="AnimColors" VerticalAlignment="Center"/>
         </StackPanel>
       </Border>
 
@@ -689,6 +732,54 @@
                         Background="{x:Static ui:UiColors.DeskPattern}"
                         HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
             <ui:Map16CanvasView x:Name="Map16Canvas" Margin="8"/>
+          </ScrollViewer>
+        </DockPanel>
+        <!-- Animations mode: ExAnimation management. Same skeleton — a bar over the work area,
+             under the mode bar. ponytail: skeleton; the body is a readout of what the level
+             animates until the editor proper exists. -->
+        <DockPanel x:Name="AnimPane" IsVisible="False" Background="{DynamicResource VoidBrush}">
+          <!-- Right drawer: the animated preview, out of the timeline's way. -->
+          <Border DockPanel.Dock="Right" Classes="panel" BorderThickness="1,0,0,0" Width="260">
+            <DockPanel>
+              <Border DockPanel.Dock="Top" Classes="panel bar" BorderThickness="0,0,0,1"
+                      Padding="10,0" Height="{Binding #AnimEditorBar.Bounds.Height}">
+                <TextBlock Classes="subject" Text="Preview" VerticalAlignment="Center"/>
+              </Border>
+              <StackPanel x:Name="AnimPreviewBody" Margin="12" Spacing="8"/>
+            </DockPanel>
+          </Border>
+          <Border x:Name="AnimEditorBar" DockPanel.Dock="Top" Classes="panel bar"
+                  BorderThickness="0,0,0,1" Padding="10,6" MinHeight="40">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <!-- Which list the timeline edits: the level's own slots or the global list that
+                   runs in every level. Same toggle grammar as the Level pane's layer buttons. -->
+              <ToggleButton x:Name="AnimGlobal" Classes="mode" IsChecked="True" Click="OnAnimList"
+                            ToolTip.Tip="The global list — runs in every level">
+                <TextBlock Text="Global" VerticalAlignment="Center"/>
+              </ToggleButton>
+              <ToggleButton x:Name="AnimLevel" Classes="mode" Click="OnAnimList"
+                            ToolTip.Tip="This level's ExAnimation slots">
+                <TextBlock Text="Level" VerticalAlignment="Center"/>
+              </ToggleButton>
+              <Rectangle Classes="sep"/>
+              <Button Click="OnAnimAdd" ToolTip.Tip="Add a slot to this list">
+                <TextBlock Text="Add slot" VerticalAlignment="Center"/>
+              </Button>
+              <Button x:Name="AnimDelete" Click="OnAnimDelete" IsEnabled="False" ToolTip.Tip="Delete the open slot">
+                <TextBlock Text="Delete slot" VerticalAlignment="Center"/>
+              </Button>
+              <TextBlock Classes="dim" Text="source file" VerticalAlignment="Center" Margin="8,0,0,0"/>
+              <ComboBox x:Name="AnimFile" Width="96" SelectedIndex="0"
+                        ToolTip.Tip="Which uncompressed file (ExGFX 60-63) this list's alternate-file slots read">
+                <ComboBoxItem Content="file 60"/><ComboBoxItem Content="file 61"/>
+                <ComboBoxItem Content="file 62"/><ComboBoxItem Content="file 63"/>
+              </ComboBox>
+              <TextBlock x:Name="AnimTitle" Classes="dim" VerticalAlignment="Center" Margin="12,0,0,0"/>
+            </StackPanel>
+          </Border>
+          <!-- The timeline sits on the desk pattern (set in code: UiColors.DeskPattern). -->
+          <ScrollViewer x:Name="AnimBodyScroll">
+            <StackPanel x:Name="AnimBody" Margin="16" Spacing="6"/>
           </ScrollViewer>
         </DockPanel>
         <DockPanel x:Name="GfxScroll" IsVisible="False" Background="{DynamicResource VoidBrush}">

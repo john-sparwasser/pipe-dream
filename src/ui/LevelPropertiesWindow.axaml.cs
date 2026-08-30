@@ -71,15 +71,20 @@ public partial class LevelPropertiesWindow : Window
         void E(string label, int value, int min, int max, Func<int, MainEntrance> set)
             => fields.Children.Add(Row(label, value, min, max, v => { entry = set(v); Refresh(); }));
 
-        E("Mario X", entry.MarioX, 0, 7, v => entry with { MarioX = v });
-        E("Mario Y", entry.MarioY, 0, 15, v => entry with { MarioY = v });
-        E("Entrance action", entry.EntranceAction, 0, 7, v => entry with { EntranceAction = v });
-        E("Screen boundary Y", entry.ScreenBoundaryY, 0, 3, v => entry with { ScreenBoundaryY = v });
-        E("Entry vert. scroll", entry.VerticalScroll, 0, 3, v => entry with { VerticalScroll = v });
         E("Layer 2 scroll", entry.Layer2Scroll, 0, 15, v => entry with { Layer2Scroll = v });
         E("Layer 2 BG setting", entry.Layer2Setting, 0, 3, v => entry with { Layer2Setting = v });
         E("Vertical level", entry.VerticalLevel, 0, 3, v => entry with { VerticalLevel = v });
         E("Skip entrance walk", entry.SkipEntranceWalk, 0, 1, v => entry with { SkipEntranceWalk = v });
+        // Where Mario appears and how he arrives (action, slippery, water, face left, camera) is the
+        // entrance dialog off the canvas marker; what is left here is level-wide.
+        E("BG height (tiles)", entry.BgHeight, 0, 63, v => entry with { BgHeight = v });
+        // Lunar Magic's level height: index into a 32-entry table of heights (0 = vanilla's 27 rows,
+        // 0x1C = one 896-row column); the "Screens" row above is the width, and width x height has
+        // to fit the tilemap — the session refuses a pair that does not.
+        E("Level height (LM index)", entry.HeightIndex, 0, 31, v => entry with { HeightIndex = v });
+        E("Sprite spawn range", entry.SpriteSpawnRange, 0, 3, v => entry with { SpriteSpawnRange = v });
+        E("Smart sprite spawn", entry.SmartSpawn, 0, 1, v => entry with { SmartSpawn = v });
+        E("Vertical positioning", entry.VerticalPositioning, 0, 1, v => entry with { VerticalPositioning = v });
 
         Refresh();
     }

@@ -1,0 +1,40 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="clr-namespace:PipeDream.Ui"
+        x:Class="PipeDream.Ui.TilePickerWindow"
+        Title="Pick source tiles" Width="560" Height="720" CanResize="True"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+
+  <Window.Styles>
+    <Style Selector="TextBlock.dim">
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+    <Style Selector="TextBlock.mono">
+      <Setter Property="FontFamily" Value="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}"/>
+      <Setter Property="FontSize" Value="11"/>
+    </Style>
+  </Window.Styles>
+
+  <DockPanel Margin="12">
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
+      <TextBlock Classes="dim" Text="source" VerticalAlignment="Center"/>
+      <ComboBox x:Name="Source" Width="220"/>
+      <Button x:Name="EditFile" Content="Edit…" IsVisible="False" Click="OnEditFile"
+              ToolTip.Tip="Open this file in the Graphics editor"/>
+      <TextBlock x:Name="Hint" Classes="dim" VerticalAlignment="Center"/>
+    </StackPanel>
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+      <TextBlock x:Name="Readout" Classes="mono" VerticalAlignment="Center" Margin="0,0,12,0"/>
+      <Button Content="Cancel" Click="OnCancel" IsCancel="True"/>
+    </StackPanel>
+    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+      <Panel x:Name="SheetHost" HorizontalAlignment="Left" VerticalAlignment="Top" Background="Transparent">
+        <ui:PixelImage x:Name="Sheet" Stretch="True"/>
+        <Canvas x:Name="Overlay" IsHitTestVisible="False"/>
+      </Panel>
+    </ScrollViewer>
+  </DockPanel>
+</Window>

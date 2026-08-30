@@ -32,6 +32,9 @@ public sealed class Cpu65816(Rom rom)
 
     /// <summary>Debug: when set, logs (PC, addr, value) for writes to $0200-$04FF.</summary>
     public List<(int Pc, int Addr, byte V)>? OamLog;
+    /// <summary>Debug: when set, logs (PC, value) for every write to this one RAM address.</summary>
+    public int WatchAddr = -1;
+    public List<(int Pc, byte V)>? WatchLog;
     /// <summary>Debug: when set, logs writes to the sprite status table $14C8-$14D3.</summary>
     public List<(int Pc, int Addr, byte V)>? StatusLog;
     /// <summary>Debug: when set, records (pc, X, Y) per step while PBR is bank $02 (or mirror),
@@ -60,6 +63,8 @@ public sealed class Cpu65816(Rom rom)
     private void Write(int bank, int addr, byte v)
     {
         bank &= 0xFF; addr &= 0xFFFF;
+        if (WatchLog is not null && addr == WatchAddr && (bank == 0x7E || bank < 0x40 || (bank >= 0x80 && bank < 0xC0)))
+            WatchLog.Add(((PBR << 16) | PC, v));
         if (OamLog is not null && addr is >= 0x200 and < 0x500 &&
             (bank == 0x7E || bank < 0x40 || (bank >= 0x80 && bank < 0xC0)))
             OamLog.Add(((PBR << 16) | PC, addr, v));
@@ -151,6 +156,10 @@ public sealed class Cpu65816(Rom rom)
     public void PresetWidths(bool m8, bool x8)
     { M = m8; XF = x8; if (x8) { X &= 0xFF; Y &= 0xFF; } }
 
+    /// <summary>Preset A/X/Y for a routine that is entered with values in them (a hijack that
+    /// receives its argument in A, an index already in Y).</summary>
+    public void PresetRegs(int a, int x, int y) { A = a & 0xFFFF; X = x & 0xFFFF; Y = y & 0xFFFF; }
+
     /// <summary>The accumulator after a call, 16-bit view — for hijacks that return a value.</summary>
     public int Acc => A;
 
@@ -196,8 +205,14 @@ public sealed class Cpu65816(Rom rom)
     /// banks ($00-$02/$05/$07 and mirrors) — i.e. inside LM/tool-inserted code.</summary>
     public SortedSet<int>? PcHot;
 
+    /// <summary>Debug: the last 64 instruction addresses executed, oldest first.</summary>
+    public IEnumerable<int> RecentPcs => Enumerable.Range(0, 64).Select(i => ring[(ringPos + i) & 63]).Where(p => p != 0);
+    private readonly int[] ring = new int[64];
+    private int ringPos;
+
     private void Step()
     {
+        ring[ringPos++ & 63] = (PBR << 16) | PC;
         BankTrace?.Add(PBR);
         if (PcHot is not null && ((PBR & 0x7F) is not (0x00 or 0x01 or 0x05 or 0x07)
                                   && !((PBR & 0x7F) == 0x02 && PC < 0xA7FC)))
@@ -259,7 +274,7 @@ public sealed class Cpu65816(Rom rom)
             case 0x3F: AndM(Load(7, m), m); break; case 0x31: AndM(Load(9, m), m); break;
             case 0x27: AndM(Load(10, m), m); break; case 0x37: AndM(Load(11, m), m); break;
             case 0x09: A = (A & ~m) | ((A & m) | (m == 0xFF ? Fetch() : Fetch16())); SetNZ(A, m); break;
-            case 0x05: OraM(Load(0, m), m); break; case 0x15: OraM(Load(1, m), m); break;
+            case 0x05: OraM(Load(0, m), m); break; case 0x15: OraM(Load(1, m), m); break; case 0x03: OraM(Load(13, m), m); break;
             case 0x0D: OraM(Load(3, m), m); break; case 0x1D: OraM(Load(4, m), m); break;
             case 0x19: OraM(Load(5, m), m); break; case 0x0F: OraM(Load(6, m), m); break;
             case 0x1F: OraM(Load(7, m), m); break; case 0x11: OraM(Load(9, m), m); break;

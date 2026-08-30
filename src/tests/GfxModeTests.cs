@@ -589,7 +589,8 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         Assert.True(w.GetControl<DockPanel>("GfxToolPanel").IsVisible);
         Assert.True(w.GetControl<PaletteGridView>("GfxColors").IsVisible);
         var bins = w.GetControl<StackPanel>("GfxBins");
-        Assert.Equal(SessionOf(w).GfxBins.Length, bins.Children.Count);
+        // ...plus the "Animation slots" heading + rule and the four ExAnimation source-file cards.
+        Assert.Equal(SessionOf(w).GfxBins.Length + 6, bins.Children.Count);
     }
 
     /// <summary>Clicking a bin opens it in the editor beside it — the selection and the edit are
@@ -694,11 +695,14 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         var bins = w.GetControl<StackPanel>("GfxBins");
         // By colour, not thickness: the border keeps one width so the list does not reflow as the
         // selection moves.
-        static bool Selected(Control c) => ReferenceEquals(((Border)c).BorderBrush, UiColors.Accent);
+        static bool Selected(Control c) => c is Border b && ReferenceEquals(b.BorderBrush, UiColors.Accent);
+        // The "Animation slots" heading and rule sit between the tenth bin and AN1, so bins from
+        // AN1 on are two children further down than their index.
+        static int Card(int i) => i < 10 ? i : i + 2;
 
         void Click(int i)
         {
-            var card = (Border)bins.Children[i];
+            var card = (Border)bins.Children[Card(i)];
             // A card further down the drawer is scrolled out of the clip, and a click at a point
             // the ScrollViewer is clipping hits nothing.
             card.BringIntoView();
@@ -715,7 +719,7 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         {
             if (i < 0) { log.WriteLine("SKIP: no such bin in this level"); continue; }
             Click(i);
-            Assert.True(Selected(bins.Children[i]), $"bin {session.GfxBins[i].Name} did not select");
+            Assert.True(Selected(bins.Children[Card(i)]), $"bin {session.GfxBins[i].Name} did not select");
             Assert.Single(bins.Children, Selected);
             // An empty bin trades the sheet for the Load button rather than showing stale pixels.
             Assert.Equal(session.GfxBins[i].File == 0x7F,

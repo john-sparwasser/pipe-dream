@@ -12,6 +12,10 @@ internal sealed class Config
     public string? VanillaRomPath { get; set; }
     public List<string> RecentProjects { get; set; } = new();
 
+    /// <summary>Emulator for File → Run in emulator (F4). Null = whatever the OS opens .smc
+    /// files with, so the command works before anyone has set anything.</summary>
+    public string? EmulatorPath { get; set; }
+
     /// <summary>Whether to ask GitHub about newer releases on startup. On by default; the only
     /// thing it sends is the request itself, and a build that never checks is a build that
     /// stays old.</summary>

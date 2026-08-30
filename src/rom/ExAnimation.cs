@@ -1,30 +1,95 @@
 namespace PipeDream;
 
 /// <summary>
-/// LM ExAnimation per-level slot data (CONTRACT §12e), read-only. The per-level table at
-/// <see cref="TableSnes"/> holds one 24-bit record pointer per level (sentinel FF 00 00 =
-/// none). The record is an 8-byte header (§12e: slot count + flag masks consumed by the
-/// $108700 level-setup routine) followed by a packed slot array at record+8.
+/// Lunar Magic's ExAnimation data (CONTRACT §12e/§12f, reference/EXANIMATION.md), read-only.
+/// The per-level table (<see cref="Rom.LmExAnimBase"/>, 3 bytes/level, FF 00 00 = none) and
+/// the global list (<see cref="Rom.LmGlobalExAnimPtr"/>) point at RECORDS of one shape:
 ///
-/// Per-slot layout (slot-relative), confirmed by the exanim_0..4 controlled diffs:
-///   +0 word   ? (0x0002 observed)
-///   +2 word   ? (0x0001 observed)
-///   +4 byte   frameCount - 1
-///   +5 word   destination VRAM word = dialog value * 0x10  (FG tile = word / 16 = dialog
-///             value; same word/16 convention as vanilla animation, CONTRACT §12)
-///   +7 ..     frame list, one 16-bit $7E RAM source address per frame
-/// Frame source tile (LM's 0x600-based numbering): addr = $7D00 + (tile - 0x600) * 0x20.
+///   +0 word   low byte = slot-entry count, high byte = alt-ExGFX file index (0-3 → files 60-63,
+///             pointer table $03BCC0)
+///   +2 word   AND mask, +4 word OR mask (→ $7FC0FC, DMA enable)
+///   +6 word   16-bit selector; one trailing byte per set bit (→ $7FC070 manual-frame inits)
+///   section   `count` 16-bit offsets, one per slot number, relative to the section start
+///             (0x0000 = slot unused), then the packed slot blocks:
+///
+///   slot+0 byte  type      (1..0x0E = that many 8x8s in a line; 0x0F = 1 8x8 2bpp; 0x10 = 2
+///                          stacked; 0x11 = 4 as 16x16; 0x12 = 8 as 32x16 [assumed]; 0x13 = palette)
+///   slot+1 byte  trigger   (0 none, 1 POW, 3 ON/OFF, 0x10+n Manual n, 0x30+n One-Shot n;
+///                          the rest of LM's list sits in between and is not yet pinned)
+///   slot+2 byte  frames-1
+///   slot+3 word  destination: VRAM word (tile = word/16) or palette colour index; bit 15 =
+///                          "use alternate ExGFX file" — then frame words are BYTE OFFSETS into
+///                          that file instead of $7E RAM addresses
+///   slot+5 ..    frame words — `frames` of them, or 2×frames for a stateful trigger (the second
+///                          half is the triggered animation; LM zero-fills what you don't set)
+///
+/// RAM-source frame word = $7D00 + (LM tile − 0x600) × 0x20 (AN1 0x600-, AN2 0x780- at $AD00,
+/// Mario 0x900- at $2000). Pinned by the exanim_a..n controlled saves, 2026-08-29.
 /// </summary>
 public sealed class ExAnimation
 {
-    private const int SlotArrayOffset = 8;    // record+8 = slot array ($7FC000 setup, §12e)
+    public const int Type2bpp = 0x0F, TypeStacked = 0x10, Type16x16 = 0x11, Type32x16 = 0x12, TypePalette = 0x13,
+                     TypePaletteRotateRight = 0x18, TypePaletteRotateLeftReverse = 0x1B;
+    /// <summary>Tiles per frame for the line codes 01-0E: 1..8, then 12, 16, 20, 24, 28, 32 (LM's engine,
+    /// --exanimtypes: ctrl = tiles × 0x20).</summary>
+    public static readonly int[] LineTiles = [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 28, 32];
+    public const int TriggerNone = 0, TriggerPow = 1, TriggerSilverPow = 2, TriggerOnOff = 3, TriggerStar = 4,
+                     TriggerManual0 = 0x10, TriggerCustom0 = 0x20, TriggerOneShot0 = 0x30;
 
-    public readonly record struct Slot(int Unknown0, int Unknown2, int FrameCount, int DestWord, ushort[] FrameSrcAddrs)
+    /// <summary>Stateful triggers store 2×frames words (second half = triggered): the standard game
+    /// events 01-0F and the Custom flags 20-2F; Manual and One-Shot do not.</summary>
+    public static bool TriggerDoubles(int trigger) => trigger is (> 0 and < TriggerManual0) or (>= TriggerCustom0 and < TriggerOneShot0);
+    /// <summary>Palette rotation types carry no frame data — the frame count is a delay.</summary>
+    public static bool HasFrameWords(int type) => type < TypePaletteRotateRight;
+
+    /// <summary>One slot, as the record stores it. <paramref name="Frames"/> is the raw word list
+    /// (already doubled for a stateful trigger); <paramref name="AltFileIndex"/> is the record's,
+    /// meaningful only when <see cref="AltFile"/>.</summary>
+    public readonly record struct Slot(int Index, int Type, int Trigger, int FrameCount, int DestWord,
+                                       ushort[] Frames, int AltFileIndex)
     {
-        /// <summary>Destination FG 8x8 tile (VRAM word / 16).</summary>
-        public int DestTile => DestWord >> 4;
-        /// <summary>Frame's source tile in LM's 0x600-based numbering.</summary>
-        public int SrcTile(int frame) => (FrameSrcAddrs[frame] - 0x7D00) / 0x20 + 0x600;
+        public bool AltFile => (DestWord & 0x8000) != 0;
+        public bool IsPalette => Type >= TypePalette;
+        /// <summary>Destination FG 8x8 tile (VRAM word / 16); the colour index for palette types.</summary>
+        public int DestTile => (DestWord & 0x7FFF) >> 4;
+        /// <summary>Palette types: first colour index (low byte) and how many (high byte + 1).</summary>
+        public int DestColor => DestWord & 0xFF;
+        public int Colors => ((DestWord >> 8) & 0x7F) + 1;
+        /// <summary>8x8 tiles moved per frame.</summary>
+        public int TileCount => Type switch
+        {
+            >= 1 and < Type2bpp => LineTiles[Type], Type2bpp => 1, TypeStacked => 2, Type16x16 => 4, Type32x16 => 8, _ => 0,
+        };
+        /// <summary>Destination tile of the k-th source tile: a line, or the block shapes (top row first).</summary>
+        public int DestTileAt(int k) => Type switch
+        {
+            TypeStacked => DestTile + k * 0x10,
+            Type16x16 => DestTile + (k & 1) + (k >> 1) * 0x10,
+            Type32x16 => DestTile + (k & 3) + (k >> 2) * 0x10,
+            _ => DestTile + k,
+        };
+        /// <summary>Whether the trigger keeps a state and so doubles the frame list.</summary>
+        public bool Doubled => TriggerDoubles(Trigger);
+        /// <summary>The frame word for display: the untriggered half.</summary>
+        public int Frame(int phase) => Frames[phase % FrameCount];
+        /// <summary>Frame's source in LM's tile numbering (RAM sources 0x600-based; alt file
+        /// 0xC00 + 0x400×file).</summary>
+        public int SrcTile(int f) => AltFile ? 0xC00 + AltFileIndex * 0x400 + Frames[f] / 0x20
+                                             : (Frames[f] - 0x7D00) / 0x20 + 0x600;
+        /// <summary>Alias kept for the RAM path: the $7E address the engine DMAs from.</summary>
+        public ushort[] FrameSrcAddrs => Frames;
+
+        /// <summary>Every decoded field on one line: frames as LM tile numbers with the raw word
+        /// beside them — a $7E address, or a byte offset into the alternate file.</summary>
+        public string Describe()
+        {
+            var s = this;
+            var frames = string.Join(" ", Enumerable.Range(0, Frames.Length)
+                .Select(f => s.IsPalette ? $"{s.Frames[f]:X4}" : $"{s.SrcTile(f):X3}(${s.Frames[f]:X4})"));
+            string dest = IsPalette ? $"color {DestColor:X2} x{Colors}" : $"destTile {DestTile:X3} (word ${DestWord:X4})";
+            string alt = AltFile ? $"  altfile {0x60 + AltFileIndex:X2}" : "";
+            return $"slot {Index,2}: type {Type:X2} trigger {Trigger:X2}  {dest}  {FrameCount}{(Doubled ? " x2" : "")} frames: {frames}{alt}";
+        }
     }
 
     /// <summary>Slots animated in <paramref name="level"/>; empty if the level has none.</summary>
@@ -34,87 +99,86 @@ public sealed class ExAnimation
         if (baseSnes < 0) return [];
         int ptr = rom.ReadValue(baseSnes + level * 3, 3);
         if ((ptr >> 16) == 0) return [];                 // FF 00 00 sentinel / not set
-
-        // Records are small; a 512-byte window covers any realistic slot array. Clamp to the
-        // ROM so a stray/garbage pointer can't overrun (the overlay runs on every ROM).
-        int fo = rom.FileOffset(ptr);
-        if (fo < 0 || fo >= rom.Data.Length) return [];
-        int n = Math.Min(512, rom.Data.Length - fo);
-        var rec = new byte[n];
-        Array.Copy(rom.Data, fo, rec, 0, n);
-        return ParseSlots(rec);
+        return ReadRecord(rom, ptr);
     }
 
-    /// <summary>
-    /// A global-list slot (§12f): index + raw definition bytes. The block is a 7-byte header
-    /// (fields still type-dependent, undecoded) followed by <see cref="FrameCount"/> 16-bit
-    /// frame words. Frame words use the same 0x600-based tile numbering as the per-level slots
-    /// (§12e): src addr = $7D00 + (tile - 0x600) * 0x20; tile 0x780 → $AD00 (custom source).
-    /// </summary>
-    public readonly record struct GlobalSlot(int Index, byte[] Raw)
-    {
-        public const int HeaderLen = 7;
-        public int FrameCount => Raw.Length >= HeaderLen ? (Raw.Length - HeaderLen) / 2 : 0;
-        public int FrameTile(int f) => Raw[HeaderLen + f * 2] | Raw[HeaderLen + f * 2 + 1] << 8;
-        public int FrameSrcAddr(int f) => 0x7D00 + (FrameTile(f) - 0x600) * 0x20;
-    }
+    /// <summary>The global list's slots (runs in every level); empty when the ROM has none.</summary>
+    public static List<Slot> ReadGlobal(Rom rom)
+        => rom.LmGlobalExAnimPtr < 0 ? [] : ReadRecord(rom, rom.LmGlobalExAnimPtr);
 
-    /// <summary>
-    /// Global ExAnimation slots (CONTRACT §12f) — used by real hacks (per-level table empty).
-    /// The record outer form is read straight from the engine ($13805A on ShaoBase):
-    ///   +0 word   low byte = slot count; high byte = index into $03BCC0 (stride 3)
-    ///   +2 word   AND mask into $7FC0FC (DMA-enable)
-    ///   +4 word   OR  mask into $7FC0FC
-    ///   +6 word   16-bit selector; one trailing byte per set bit → $7FC070,X (popcount bytes)
-    ///   then      slot section: `count` 16-bit offsets (relative to the section start,
-    ///             0x0000 = unused slot), followed by each slot's definition block.
-    /// Per-slot internals are NOT decoded here — the frame encoding differs from the per-level
-    /// form and is interpreted by ~12 type handlers ($10F32D dispatch); this returns the raw
-    /// block per used slot so the format can be cracked from real data (§12f REMAINING #1).
-    /// </summary>
-    public static List<GlobalSlot> ReadGlobalRaw(Rom rom)
+    /// <summary>A record at a SNES address, bounded by its RATS block when it has one so the
+    /// last slot cannot bleed into the next block, and by the ROM otherwise (the overlay runs
+    /// on every ROM, a stray pointer must not overrun).</summary>
+    private static List<Slot> ReadRecord(Rom rom, int snes)
     {
-        var result = new List<GlobalSlot>();
-        int ptr = rom.LmGlobalExAnimPtr;
-        if (ptr < 0) return result;
-        int fo = rom.FileOffset(ptr);
-        if (fo < 0 || fo + 8 > rom.Data.Length) return result;
+        int fo = rom.FileOffset(snes);
+        if (fo < 0 || fo + 8 > rom.Data.Length) return [];
+        int n = Math.Min(0x1000, rom.Data.Length - fo);
         byte[] d = rom.Data;
-
-        int count = d[fo];                                    // +0 low byte
-        int selector = d[fo + 6] | d[fo + 7] << 8;            // +6 selector word
-        int extra = System.Numerics.BitOperations.PopCount((uint)selector);
-        int table = fo + 8 + extra;                           // slot section start ($7FC016 base)
-        if (table + count * 2 > d.Length) return result;
-
-        // The record lives in a RATS block ("STAR" + (size-1) little-endian at fo-8); use that
-        // to bound the last slot so it can't bleed into the next block. Fall back to a 13-byte
-        // cap (the largest real slot) if there's no RATS header.
-        int recEnd = fo + Math.Min(512, d.Length - fo);
         if (fo >= 8 && d[fo - 8] == 'S' && d[fo - 7] == 'T' && d[fo - 6] == 'A' && d[fo - 5] == 'R')
-            recEnd = Math.Min(recEnd, fo + (d[fo - 4] | d[fo - 3] << 8) + 1);
-
-        // Gather (index, offset) for used slots, then size each block from the next-larger
-        // offset (blocks are packed after the offset table; last one runs to the record end).
-        var used = new List<(int idx, int off)>();
-        for (int i = 0; i < count; i++)
-        {
-            int off = d[table + i * 2] | d[table + i * 2 + 1] << 8;
-            if (off != 0) used.Add((i, off));
-        }
-        used.Sort((a, b) => a.off.CompareTo(b.off));
-        for (int k = 0; k < used.Count; k++)
-        {
-            int start = table + used[k].off;
-            int nextStart = k + 1 < used.Count ? table + used[k + 1].off : recEnd;
-            int len = Math.Min(Math.Min(nextStart, recEnd) - start, 13);
-            if (len <= 0) continue;
-            var raw = new byte[len];
-            Array.Copy(d, start, raw, 0, len);
-            result.Add(new GlobalSlot(used[k].idx, raw));
-        }
-        return result;
+            n = Math.Min(n, (d[fo - 4] | d[fo - 3] << 8) + 1);
+        return ParseSlots(new ReadOnlySpan<byte>(d, fo, n));
     }
+
+    /// <summary>
+    /// The inverse of <see cref="ParseSlots"/>: a record LM reads back as these slots. Header masks
+    /// are the FF FF / 00 00 LM writes for a plain list, selector 0; the offset table spans up to the
+    /// highest used slot number; blocks are packed in slot order. A slot's frame list is written as
+    /// stored (already doubled for a stateful trigger; padded/truncated to the count the format
+    /// implies, so a caller can hand over just the untriggered half).
+    /// </summary>
+    public static byte[] Encode(IEnumerable<Slot> slots, int altFileIndex = 0)
+    {
+        var list = slots.OrderBy(s => s.Index).ToList();
+        int count = list.Count == 0 ? 0 : list[^1].Index + 1;
+        var rec = new List<byte> { (byte)count, (byte)(altFileIndex & 3), 0xFF, 0xFF, 0, 0, 0, 0 };
+        var table = new byte[count * 2];
+        var blocks = new List<byte>();
+        foreach (var s in list)
+        {
+            int off = table.Length + blocks.Count;
+            table[s.Index * 2] = (byte)off; table[s.Index * 2 + 1] = (byte)(off >> 8);
+            blocks.Add((byte)s.Type); blocks.Add((byte)s.Trigger); blocks.Add((byte)(s.FrameCount - 1));
+            blocks.Add((byte)s.DestWord); blocks.Add((byte)(s.DestWord >> 8));
+            int words = HasFrameWords(s.Type) ? s.FrameCount * (TriggerDoubles(s.Trigger) ? 2 : 1) : 0;
+            for (int f = 0; f < words; f++)
+            {
+                ushort w = f < s.Frames.Length ? s.Frames[f] : (ushort)0;
+                blocks.Add((byte)w); blocks.Add((byte)(w >> 8));
+            }
+        }
+        rec.AddRange(table);
+        rec.AddRange(blocks);
+        return [.. rec];
+    }
+
+    /// <summary>Parse a record's slots (pure — unit-testable). Slots come back in slot-number order.</summary>
+    public static List<Slot> ParseSlots(ReadOnlySpan<byte> rec)
+    {
+        var slots = new List<Slot>();
+        if (rec.Length < 8) return slots;
+        int count = rec[0], fileIndex = rec[1];
+        int selector = rec[6] | rec[7] << 8;
+        int table = 8 + System.Numerics.BitOperations.PopCount((uint)selector);
+        for (int i = 0; i < count && table + i * 2 + 2 <= rec.Length; i++)
+        {
+            int off = rec[table + i * 2] | rec[table + i * 2 + 1] << 8;
+            if (off == 0) continue;
+            int p = table + off;
+            if (p + 5 > rec.Length) break;
+            int type = rec[p], trigger = rec[p + 1], frameCount = rec[p + 2] + 1;
+            int destWord = rec[p + 3] | rec[p + 4] << 8;
+            int want = HasFrameWords(type) ? frameCount * (TriggerDoubles(trigger) ? 2 : 1) : 0;
+            int words = Math.Min(want, (rec.Length - (p + 5)) / 2);       // truncated record: keep what is there
+            if (words < Math.Min(want, frameCount)) break;
+            var frames = new ushort[words];
+            for (int f = 0; f < words; f++)
+                frames[f] = (ushort)(rec[p + 5 + f * 2] | rec[p + 6 + f * 2] << 8);
+            slots.Add(new Slot(i, type, trigger, frameCount, destWord, frames, fileIndex));
+        }
+        return slots;
+    }
+
 
     /// <summary>
     /// Resolve the global list by EMULATING LM's own engine (CONTRACT §12f): run the setup +
@@ -133,16 +197,17 @@ public sealed class ExAnimation
     /// then the processor for <paramref name="frames"/> consecutive ticks under Cpu65816, reading
     /// the eight stride-7 DMA records LM builds at $7FC0C0 (+0 ctrl, +2 VRAM dest word, +4 3-byte
     /// ROM source). Format-agnostic - no per-slot handler decode. Returns the per-frame timeline.
-    /// $FE (per-level index) is seeded 1 so setup takes the global path (0 sets the skip bit).
+    /// $FE = <paramref name="level"/> + 1 (16-bit): setup walks that level's list, then the global
+    /// one; 0 would set the skip bit. Level 0 has no list, so the default is the global timeline.
     /// </summary>
-    public static List<GlobalFrame> ResolveGlobal(Rom rom, int frames)
+    public static List<GlobalFrame> ResolveGlobal(Rom rom, int frames, int level = 0)
     {
         var result = new List<GlobalFrame>();
         int setup = rom.LmExAnimSetupEntry, proc = rom.LmExAnimProcEntry;
-        if (setup < 0 || proc < 0 || rom.LmGlobalExAnimPtr < 0) return result;
+        if (setup < 0 || proc < 0 || (rom.LmGlobalExAnimPtr < 0 && level <= 0)) return result;
 
         var cpu = new Cpu65816(rom);
-        cpu.Ram7E[0xFE] = 1;                        // nonzero -> setup runs the global path
+        cpu.Ram7E[0xFE] = (byte)(level + 1); cpu.Ram7E[0xFF] = (byte)((level + 1) >> 8);
         try
         {
             cpu.CallLong(setup);                    // populate the $7FC0xx control block once
@@ -179,6 +244,9 @@ public sealed class ExAnimation
     /// so a tile keeps its source on the frames it isn't rewritten). ctrl = DMA byte count, so a
     /// record covers ctrl/0x20 consecutive tiles. Empty array if the ROM has no global list.
     /// </summary>
+    /// <summary>Drop the cached phase snapshots after the global list was rewritten.</summary>
+    public static void InvalidateGlobal(Rom rom) => globalStateCache.Remove(rom);
+
     public static Dictionary<int, TileAnim>[] GlobalStates(Rom rom)
     {
         if (globalStateCache.TryGetValue(rom, out var cached)) return cached;
@@ -203,25 +271,4 @@ public sealed class ExAnimation
         return states;
     }
 
-    /// <summary>Parse the slot array out of a record's raw bytes (pure — unit-testable).</summary>
-    public static List<Slot> ParseSlots(ReadOnlySpan<byte> rec)
-    {
-        var slots = new List<Slot>();
-        int count = rec[0];                              // record+0 low byte = slot count
-        int p = SlotArrayOffset;
-        for (int i = 0; i < count && p + 7 <= rec.Length; i++)
-        {
-            int u0 = rec[p] | rec[p + 1] << 8;
-            int u2 = rec[p + 2] | rec[p + 3] << 8;
-            int frameCount = rec[p + 4] + 1;                  // +4 byte
-            int destWord = rec[p + 5] | rec[p + 6] << 8;      // +5 word
-            if (p + 7 + frameCount * 2 > rec.Length) break;   // truncated / bad count
-            var src = new ushort[frameCount];
-            for (int f = 0; f < frameCount; f++)
-                src[f] = (ushort)(rec[p + 7 + f * 2] | rec[p + 8 + f * 2] << 8);
-            slots.Add(new Slot(u0, u2, frameCount, destWord, src));
-            p += 7 + frameCount * 2;
-        }
-        return slots;
-    }
 }

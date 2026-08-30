@@ -246,7 +246,7 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         foreach (int i in Selection)
         {
             var o = objects[i];
-            objects[i] = ObjectAtCell(o, o.AbsoluteX + dx, Math.Clamp(o.Y + dy, 0, 0x1F));
+            objects[i] = o.AtCell(o.AbsoluteX + dx, Math.Clamp(o.AbsoluteY + dy, 0, Scene.VisibleRows - 1));
         }
         Dirty = true;
         Reconcile();
@@ -274,14 +274,14 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         var picked = Selection.OrderBy(i => i).Where(i => i >= 0 && i < objects.Count).ToList();
         if (picked.Count == 0) return false;
         int ox = picked.Min(i => BBox(i)?.X ?? objects[i].AbsoluteX);
-        int oy = picked.Min(i => BBox(i)?.Y ?? objects[i].Y);
+        int oy = picked.Min(i => BBox(i)?.Y ?? objects[i].AbsoluteY);
 
         undo.Push([.. objects]);
         redo.Clear();
         var added = picked.Select(i =>
         {
             var o = objects[i];
-            return ObjectAtCell(o, o.AbsoluteX + (cx - ox), Math.Clamp(o.Y + (cy - oy), 0, 0x1F));
+            return o.AtCell(o.AbsoluteX + (cx - ox), Math.Clamp(o.AbsoluteY + (cy - oy), 0, Scene.VisibleRows - 1));
         }).ToList();
         objects.AddRange(added);
         Selection.Clear();
@@ -301,7 +301,7 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
     {
         undo.Push([.. objects]);
         redo.Clear();
-        objects.Add(new LevelObject(false, number, (cx >> 4) & 0x1F, cx & 15, cy & 0x1F, CatalogSize, -1));
+        objects.Add(new LevelObject(false, number, (cx >> 4) & 0x1F, cx & 15, cy & 0x1F, CatalogSize, -1, band: cy >> 5));
         Dirty = true;
         Reconcile();
         return true;
@@ -418,14 +418,14 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         bool dm = o.IsDm16;
         var (w0, h0) = DeclaredSize(o, rz);
         int maxW = dm ? 128 : ObjectEngine.MaxSize(rz.W), maxH = dm ? 256 : ObjectEngine.MaxSize(rz.H);
-        int nx = o.AbsoluteX, ny = o.Y, nw = w0, nh = h0;
+        int nx = o.AbsoluteX, ny = o.AbsoluteY, nw = w0, nh = h0;
         if ((edges & 2) != 0) nw = Math.Clamp(w0 + dx, 1, maxW);
         if ((edges & 1) != 0) { nw = Math.Clamp(w0 - dx, 1, maxW); nx = Math.Max(0, nx + (w0 - nw)); }
         if ((edges & 8) != 0) nh = Math.Clamp(h0 + dy, 1, maxH);
-        if ((edges & 4) != 0) { nh = Math.Clamp(h0 - dy, 1, maxH); ny = Math.Clamp(ny + (h0 - nh), 0, 0x1F); }
+        if ((edges & 4) != 0) { nh = Math.Clamp(h0 - dy, 1, maxH); ny = Math.Clamp(ny + (h0 - nh), 0, Scene.VisibleRows - 1); }
         // Clamp at the level bottom (LM parity): the engine will happily write past the last
         // row, bleeding into the next screen's RAM — a drag must not be able to do that.
-        int maxRows = rom.IsVerticalMode(Scene.Level.Header.LevelMode) ? (Target?.Height ?? 27) : 27;
+        int maxRows = Target?.Height ?? Scene.VisibleRows;
         nh = Math.Max(1, Math.Min(nh, maxRows - ny));
         return (nx, ny, nw, nh);
     }
@@ -452,11 +452,11 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         var rz = ResizeInfo(o);
         bool dm = o.IsDm16;
         var (w0, h0) = DeclaredSize(o, rz);
-        if (p.X == o.AbsoluteX && p.Y == o.Y && p.W == w0 && p.H == h0) return false;
+        if (p.X == o.AbsoluteX && p.Y == o.AbsoluteY && p.W == w0 && p.H == h0) return false;
 
         undo.Push([.. objects]);
         redo.Clear();
-        var moved = ObjectAtCell(o, p.X, p.Y);
+        var moved = o.AtCell(p.X, p.Y);
         if (dm) objects[index] = moved.Dm16Resized(p.W, p.H);
         else
         {
@@ -465,17 +465,13 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
             int b3 = rz.W == rz.H
                 ? ObjectEngine.WithSize(o.Byte3, rz.W, p.W != w0 ? p.W : p.H)
                 : ObjectEngine.WithSize(ObjectEngine.WithSize(o.Byte3, rz.W, p.W), rz.H, p.H);
-            objects[index] = new LevelObject(false, o.Number, (p.X >> 4) & 0x1F, p.X & 15, p.Y,
-                                             b3, o.ExtraByte, o.Dm16Tile, o.Dm16Page, o.Dm16ExtX, o.Dm16ExtH);
+            objects[index] = new LevelObject(false, o.Number, (p.X >> 4) & 0x1F, p.X & 15, p.Y & 0x1F,
+                                             b3, o.ExtraByte, o.Dm16Tile, o.Dm16Page, o.Dm16ExtX, o.Dm16ExtH, p.Y >> 5);
         }
         Dirty = true;
         Reconcile();
         return true;
     }
-
-    private static LevelObject ObjectAtCell(LevelObject o, int x, int y)
-        => new(o.NewScreen, o.Number, (x >> 4) & 0x1F, x & 15, y, o.Byte3, o.ExtraByte,
-               o.Dm16Tile, o.Dm16Page, o.Dm16ExtX, o.Dm16ExtH);
 
     private void Reconcile()
     {

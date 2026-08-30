@@ -3,8 +3,12 @@ namespace PipeDream;
 /// <summary>A level's sprite list + header byte (memory setting / buoyancy).</summary>
 public sealed class SpriteData
 {
-    public int SpriteMemory;             // header & 0x3F ($05D8FB)
+    public int SpriteMemory;             // header & 0x1F ($05D8FB; LM narrows vanilla's 0x3F to free bit 5)
     public int Buoyancy;                 // header bits 7-6 ($05D902)
+    /// <summary>Header bit 5 — Lunar Magic's extended list: `FF nn` sets a 32-row band for the
+    /// sprites that follow, `FF FE` ends the list (its loader, block C of the level engine, reads
+    /// it as $0BF5 bit 5). Set on encode whenever a sprite sits in a band; kept if the ROM had it.</summary>
+    public bool ExtendedList;
     public readonly List<Sprite> Sprites = new();
 
     public static SpriteData Parse(Rom rom, int level)
@@ -12,11 +16,21 @@ public sealed class SpriteData
         var d = new SpriteData();
         int p = rom.FileOffset(rom.SpritePointer(level));
         int header = rom.Data[p++];
-        d.SpriteMemory = header & 0x3F;
+        d.SpriteMemory = header & 0x1F;
         d.Buoyancy = header >> 6;
+        d.ExtendedList = (header & 0x20) != 0;
         int sizeBase = rom.LmSpriteSizeBase;     // -1 = vanilla fixed 3-byte entries
-        while (p + 2 < rom.Data.Length && rom.Data[p] != 0xFF)
+        int band = 0;
+        while (p + 1 < rom.Data.Length)
         {
+            if (rom.Data[p] == 0xFF)
+            {
+                // Extended list: FF nn = the band for what follows, FF FE / FF FF = end. Vanilla: end.
+                if (!d.ExtendedList || rom.Data[p + 1] >= 0xFE) break;
+                band = rom.Data[p + 1]; p += 2;
+                continue;
+            }
+            if (p + 2 >= rom.Data.Length) break;
             int b1 = rom.Data[p], b2 = rom.Data[p + 1], b3 = rom.Data[p + 2];
             int extra = (b1 >> 2) & 0x03;
             // LM/PIXI custom sprites: per-(extraBits,number) entry size from the size table.
@@ -29,17 +43,22 @@ public sealed class SpriteData
                 Y: ((b1 & 0x01) << 4) | (b1 >> 4),
                 Extra: extra,
                 Number: b3,
-                ExtraBytes: eb));
+                ExtraBytes: eb,
+                Band: band));
         }
         return d;
     }
 
-    /// <summary>Exact inverse of Parse (header + 3-byte entries + 0xFF terminator).</summary>
+    /// <summary>Exact inverse of Parse: header, entries with LM's `FF nn` band markers where the
+    /// band changes, and `FF FE` (extended) or `FF` (vanilla) to end.</summary>
     public byte[] Encode()
     {
-        var outb = new List<byte> { (byte)((Buoyancy << 6) | (SpriteMemory & 0x3F)) };
+        bool extended = ExtendedList || Sprites.Any(s => s.Band != 0);
+        var outb = new List<byte> { (byte)((Buoyancy << 6) | (extended ? 0x20 : 0) | (SpriteMemory & 0x1F)) };
+        int band = 0;
         foreach (var s in Sprites)
         {
+            if (s.Band != band) { outb.Add(0xFF); outb.Add((byte)s.Band); band = s.Band; }
             outb.Add((byte)(((s.Y & 0x0F) << 4) | ((s.Extra & 0x03) << 2)
                             | ((s.Screen & 0x10) >> 3) | ((s.Y & 0x10) >> 4)));
             outb.Add((byte)((s.XNibble << 4) | (s.Screen & 0x0F)));
@@ -47,6 +66,7 @@ public sealed class SpriteData
             if (s.ExtraBytes is not null) outb.AddRange(s.ExtraBytes);
         }
         outb.Add(0xFF);
+        if (extended) outb.Add(0xFE);
         return outb.ToArray();
     }
 

@@ -83,6 +83,9 @@ public sealed class GfxEdit
         AbortStroke();
         BppOverride = null;              // a depth argued for one file says nothing about the next
         File = Math.Clamp(file, 0, 0xFFF);
+        // An ExAnimation source file (60-63) that does not exist yet comes into being on open —
+        // that is what the drawer's "click to create" promises; EditableBytes makes it blank.
+        if (File is >= 0x60 and <= 0x63 && Gfx.Cached(rom, File) is null) Gfx.EditableBytes(rom, File, out _);
     }
 
     /// <summary>Whether this file resolves to anything, and how it is backed.</summary>

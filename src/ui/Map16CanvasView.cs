@@ -115,6 +115,16 @@ public class Map16CanvasView : Control
         InvalidateMeasure();
     }
 
+    /// <summary>The empty-page tile per phase: every FG page without defs yet is drawn as a
+    /// field of these, the way LM shows its unused pages, and painting one creates the page.</summary>
+    private readonly Bitmap?[] placeholder = new Bitmap?[4];
+
+    public void SetPlaceholder(uint[]?[] px)
+    {
+        for (int p = 0; p < 4; p++) placeholder[p] = px[p] is { } img ? LevelBitmap.FromPixels(img, 16, 16) : null;
+        InvalidateVisual();
+    }
+
     /// <summary>Deselect everything — the lasso AND the armed tile.</summary>
     public void ClearSelection() { Selection = null; SelectedTile = null; InvalidateVisual(); }
 
@@ -310,6 +320,14 @@ public class Map16CanvasView : Control
         var full = new Rect(0, 0, Map16Layout.Cols * ts, Map16Layout.BankRows * ts);
         // Empty pages are ordinary black tiles, not a roped-off region.
         ctx.FillRectangle(Brushes.Black, full);
+        // ...and in the FG banks they are LM's default tile, tiled: the page exists the moment
+        // it is painted, so it should look like one before that too.
+        if (Bank < 2 && placeholder[Phase & 3] is { } ph)
+            ctx.FillRectangle(new ImageBrush(ph)
+            {
+                TileMode = TileMode.Tile, Stretch = Stretch.Fill,
+                DestinationRect = new RelativeRect(0, 0, ts, ts, RelativeUnit.Absolute),
+            }, full);
 
         if (sheet.For(Phase) is { } bmp && sheetH > 0)
         {

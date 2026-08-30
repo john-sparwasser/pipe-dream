@@ -16,6 +16,7 @@ static class DebugCommands
         ("--writedm16",         WriteDm16),
         ("--dumpcell",          DumpCell),
         ("--markers",           DumpMarkers),
+        ("--tallprobe",         TallProbe),
         ("--exits",             DumpExits),
         ("--entrances",         DumpEntrances),
         ("--mainentrance",      DumpMainEntrance),
@@ -23,6 +24,13 @@ static class DebugCommands
         ("--blobsheet",         BlobSheet),
         ("--diff",              (a, i) => DiffRoms(a[i + 1], a[i + 2])),
         ("--globalexanim",      (a, i) => DumpGlobalExAnim(a[i + 1])),
+        ("--exanimtypes",       (a, i) => ExAnimTypeOracle(a[i + 1])),
+        // --exanimrun <rom> <levelHex> : run LM's engine on a level's list and print the DMA queue it emits.
+        ("--exanimrun",         (a, i) => { foreach (var f in ExAnimation.ResolveGlobal(Rom.Load(a[i + 1]), 96, Convert.ToInt32(a[i + 2], 16)).Where(f => f.Ctrl != 0)) Console.WriteLine($"f{f.Frame,2} q{f.Slot}: dest ${f.DestTile << 4:X4} (tile {f.DestTile & 0x7FF:X3}{((f.DestTile & 0x800) != 0 ? ", two rows" : "")})  <- ${f.SrcSnes:X6}  {f.Ctrl:X} bytes"); return 0; }),
+        // --prep10 <rom> <mask> : prep to v10 with only some v10 groups (bisect aid, see RomPrep.V10Groups).
+        ("--prep10",            (a, i) => { RomPrep.V10Groups = int.Parse(a[i + 2]); return PrepRom(a[i + 1], 10); }),
+        // --upgradebase <project.pdp> <vanilla.smc> : re-prep a project's base at the current version (File → Upgrade base, headless).
+        ("--upgradebase",       (a, i) => { var p = Project.Open(a[i + 1]); var err = p.UpgradeBasePrep(a[i + 2]); Console.WriteLine(err ?? $"base upgraded to prep v{RomPrep.Version}"); return err is null ? 0 : 1; }),
         ("--pixitrace",         PixiTrace),
         ("--sprites",           DumpSprites),
         ("--tilepng",           TilePng),
@@ -290,13 +298,66 @@ static class DebugCommands
         return 0;
     }
 
+    // --tallprobe <rom> <levelHex> : debug — run a level through the emulated loader at ITS
+    // height (LM's level-height byte) and report which rows each object wrote. The oracle for
+    // how tall levels address rows past 31.
+    public static int TallProbe(string[] args, int ti)
+    {
+        var rom = Rom.Load(args[ti + 1]);
+        int level = Convert.ToInt32(args[ti + 2], 16);
+        var lv = LevelParser.Parse(rom, level);
+        if (args.ElementAtOrDefault(ti + 3) == "dm16") lv = new Level(lv.Number, lv.DataPointer, lv.Header, [.. lv.Objects, LevelObject.MakeDm16(0x130, 0, 3, 8)], false);
+        int rows = rom.LevelHeightRows(level);
+        Console.WriteLine($"level {level:X3}: height byte {rom.LmLevelHeightByte(level):X2} -> {rom.LevelHeightPx(level):X} px = {rows} rows, " +
+                          $"screens {lv.Header.Screens}, mode {lv.Header.LevelMode:X2}, {lv.Objects.Count} objects");
+        var offs = new List<int>();
+        byte[] enc = LevelEncoder.Encode(lv, lv.Objects, offs);
+        var so = new ushort[enc.Length];
+        for (int i = 0; i < lv.Objects.Count; i++)
+        {
+            int end = i + 1 < lv.Objects.Count ? offs[i + 1] : enc.Length - 1;
+            for (int b = offs[i]; b < end; b++) so[b] = (ushort)(i + 1);
+        }
+        Map16Grid g; Map16Grid? owners;
+        try { g = ObjectEngine.RenderEmulatedStream(rom, lv.Header, enc, 0, so, out owners, out _, 30_000_000, rows); }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"engine threw: {ex.Message}");
+            Console.WriteLine("recent PCs: " + string.Join(" ", (ObjectEngine.LastCpu?.RecentPcs ?? []).Select(p => $"{p:X6}")));
+            return 1;
+        }
+        Console.WriteLine($"grid {g.Width}x{g.Height}");
+        var bbox = new Dictionary<int, (int x0, int y0, int x1, int y1)>();
+        for (int y = 0; y < owners!.Height; y++)
+            for (int x = 0; x < owners.Width; x++)
+            {
+                int id = owners.Get(x, y);
+                if (id == 0 || id == Map16Grid.Empty) continue;
+                bbox[id] = bbox.TryGetValue(id, out var b)
+                    ? (Math.Min(b.x0, x), Math.Min(b.y0, y), Math.Max(b.x1, x), Math.Max(b.y1, y)) : (x, y, x, y);
+            }
+        int shown = 0;
+        for (int i = 0; i < lv.Objects.Count && shown < 60; i++)
+        {
+            var o = lv.Objects[i];
+            string kind = o.IsScreenExit ? "exit" : o.IsDm16 ? "dm16" : o.Extended ? $"ext{o.ExtendedNumber:X2}" : $"obj{o.Number:X2}";
+            string at = bbox.TryGetValue(i + 1, out var b) ? $"rows {b.y0}-{b.y1} cols {b.x0}-{b.x1}" : "(no cells)";
+            Console.WriteLine($"  #{i,3} {kind,-6} screen {o.Screen:X2} x {o.XNibble:X} y {o.Y:X2} b3 {o.Byte3:X2} -> {at}");
+            shown++;
+        }
+        int maxRow = bbox.Values.Count > 0 ? bbox.Values.Max(b => b.y1) : -1;
+        Console.WriteLine($"deepest row written: {maxRow} (of {rows})");
+        return 0;
+    }
+
     // --gfxsheet <rom> <fileHex> <out.png> : debug — render a GFX file as a tile sheet.
     public static int GfxSheet(string[] args, int gi)
     {
         var rom = Rom.Load(args[gi + 1]);
         int file = Convert.ToInt32(args[gi + 2], 16);
-        var data = Gfx.DecompressFile(rom, file);
-        int bpp = data.Length >= 0x1000 ? 4 : 3;
+        var data = Gfx.Cached(rom, file) ?? throw new InvalidOperationException($"GFX{file:X3} not present");
+        int bpp = Gfx.FileBpp(rom, file);                     // the editor's view of the file, not a size guess
+        File.WriteAllBytes(Path.ChangeExtension(args[gi + 3], ".bin"), data);
         var pal = Palette.Load(rom, LevelParser.Parse(rom, 0x105).Header);
         var (px, w, h) = Gfx.TileSheet(data, bpp, pal, 0x0A);
         Png.Write(args[gi + 3], px, w, h);
@@ -373,6 +434,29 @@ static class DebugCommands
     }
 
     // --globalexanim <rom> : dump LM's global ExAnimation slots' raw bytes (CONTRACT §12f).
+    // --exanimtypes <rom> : LM's engine as the oracle for the slot TYPE byte. Takes the ROM's
+    // global slot 0, rewrites its type byte in memory to each value 01..12, runs the engine
+    // (ExAnimation.ResolveGlobal) and reports the DMA byte count it emits — tiles = bytes/0x20.
+    public static int ExAnimTypeOracle(string romPath)
+    {
+        var rom = Rom.Load(romPath);
+        int ptr = rom.LmGlobalExAnimPtr;
+        if (ptr < 0) { Console.WriteLine("needs a ROM with a global ExAnimation slot 0 (exanim_m)."); return 1; }
+        int fo = rom.FileOffset(ptr);
+        int table = fo + 8 + System.Numerics.BitOperations.PopCount((uint)(rom.Data[fo + 6] | rom.Data[fo + 7] << 8));
+        int slot = table + (rom.Data[table] | rom.Data[table + 1] << 8);
+        Console.WriteLine($"slot 0 at ${Rom.PcToSnes(slot - rom.HeaderOffset):X6}, original type {rom.Data[slot]:X2}");
+        for (int t = 1; t <= 0x12; t++)
+        {
+            rom.Data[slot] = (byte)t;
+            var frames = ExAnimation.ResolveGlobal(rom, 16).Where(f => f.Ctrl != 0).ToList();
+            int ctrl = frames.Count == 0 ? 0 : frames.Max(f => f.Ctrl);
+            var dests = string.Join(",", frames.Select(f => f.DestTile.ToString("X3")).Distinct());
+            Console.WriteLine($"  type {t:X2}: ctrl ${ctrl:X4} = {ctrl / 0x20} tile(s)   dests [{dests}]");
+        }
+        return 0;
+    }
+
     public static int DumpGlobalExAnim(string romPath)
     {
         var rom = Rom.Load(romPath);
@@ -384,22 +468,13 @@ static class DebugCommands
         foreach (var gf in frames.Where(f => f.Ctrl != 0).Take(24))
             Console.WriteLine($"    f{gf.Frame,2} slot{gf.Slot}: dest tile {gf.DestTile:X3}  " +
                               $"<- src ${gf.SrcSnes:X6}  (ctrl ${gf.Ctrl:X4})");
-        var slots = ExAnimation.ReadGlobalRaw(rom);
+        var slots = ExAnimation.ReadGlobal(rom);
         Console.WriteLine($"Global ExAnimation record @ ${ptr:X6}: {slots.Count} used slot(s)");
-        Console.WriteLine("  (header fields are type-dependent/undecoded; trailing words in the");
-        Console.WriteLine("   0x600+ tile range resolve to a $7Dxx/$ADxx source, §12e convention)");
-        foreach (var s in slots)
-        {
-            var hdr = Convert.ToHexString(s.Raw, 0, Math.Min(ExAnimation.GlobalSlot.HeaderLen, s.Raw.Length));
-            var words = string.Join(" ", Enumerable.Range(0, s.FrameCount).Select(f =>
-            {
-                int t = s.FrameTile(f);
-                return t >= 0x600 ? $"{t:X3}(->${s.FrameSrcAddr(f):X4})" : $"{t:X3}";
-            }));
-            Console.WriteLine($"  slot {s.Index,2}: hdr {hdr}  {s.FrameCount} word(s): {words}");
-        }
+        foreach (var s in slots) Console.WriteLine("  " + DescribeSlot(s));
         return 0;
     }
+
+    internal static string DescribeSlot(ExAnimation.Slot s) => s.Describe();
 
     // --pixitrace <rom> <levelHex> <spriteNumHex> : trace a custom sprite's capture execution.
     public static int PixiTrace(string[] args, int pti)
@@ -505,14 +580,7 @@ static class DebugCommands
         var rom = Rom.Load(romPath);
         var slots = ExAnimation.ReadLevel(rom, level);
         Console.WriteLine($"Level {level:X3}: {slots.Count} ExAnimation slot(s)");
-        for (int i = 0; i < slots.Count; i++)
-        {
-            var s = slots[i];
-            var frames = string.Join(" ", Enumerable.Range(0, s.FrameCount)
-                .Select(f => $"{s.SrcTile(f):X3}(${s.FrameSrcAddrs[f]:X4})"));
-            Console.WriteLine($"  slot {i}: destTile {s.DestTile:X3} (word ${s.DestWord:X4})  " +
-                              $"{s.FrameCount} frames: {frames}   [u0={s.Unknown0:X4} u2={s.Unknown2:X4}]");
-        }
+        foreach (var s in slots) Console.WriteLine("  " + DescribeSlot(s));
         return 0;
     }
 

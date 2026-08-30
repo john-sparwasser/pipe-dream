@@ -50,6 +50,25 @@ exists if redirected to a file (UTF-8). `Invoke-LunarMagic.ps1` does both.
 - **Vanilla and LM-saved ROMs are clean controls.** Both export with exit 0 and no warnings,
   which is what makes a warning on our ROM meaningful.
 
+## Driving the GUI when the CLI will not do
+
+The CLI cannot answer "what does LM WRITE when you use feature X" — its write switches hang on a
+dialog. The GUI can, and it is scriptable enough:
+
+1. Launch LM on a copy, `AppActivate` the process, then send menu accelerators as ONE
+   invocation — `%l` then `m` opens Level > Modify Main and Midway Entrance. Split across two
+   calls the second `AppActivate` closes the menu first.
+2. Click dialog controls with `SetCursorPos` + `mouse_event` at DEVICE coordinates after
+   `SetProcessDPIAware`. A capture taken without that call is in scaled coordinates and clicks
+   land 25%% off.
+3. `Ctrl+A` does not select the contents of LM's hex fields; `{END}` then backspaces does.
+4. Ctrl+S saves the level. Expect **"Restore System Issue"** first — LM wants the original
+   unmodified ROM for its restore point. Cancel proceeds with the save.
+5. Diff against the copy taken before.
+
+That sequence is what produced the finding in CONTRACT §0 that LM can write to a prepped base
+and the result does not boot.
+
 ## The bisect method
 
 This is how `$0DF100` was found, and it generalises to any "LM dislikes our ROM" report:

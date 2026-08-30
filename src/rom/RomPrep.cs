@@ -53,7 +53,7 @@ public static class RomPrep
     /// ROM's checksum reading as Super Mario World's own, so LM stops calling it tampered with.
     /// Version-keyed stamp lists keep every released version BYTE-FROZEN: a v1 project's
     /// pinned image must reproduce forever (golden-hash tested).</summary>
-    public const int Version = 10;
+    public const int Version = 13;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -78,18 +78,32 @@ public static class RomPrep
     /// leaves this byte $FF. V5 does the same, by branching over it — see CONTRACT §0.
     /// </summary>
     public const int LmAccessFlag = 0x0DF100;
-    // ---- V10: entrance positions that are not on the vanilla grid ----
-    /// <summary>The two `JMP $05DA17` at the end of the main and midway position setups. Each is
-    /// repointed at a stub that overrides Mario's position from V10's table — three bytes for
-    /// three bytes, and each site already knows which entrance it just placed, which is what
-    /// makes telling main from midway free.</summary>
-    public const int MainJmpSite = 0x05D9FE, MidwayJmpSite = 0x05D9E9;
-    /// <summary>Where the two stubs live: the vanilla $FF run in bank 05, past V7's routine.</summary>
-    public const int EntranceFix = 0x05DC90;
-    /// <summary>8 bytes per level: main X, main Y, midway X, midway Y, each a 16-bit word with
-    /// bit 15 of the Y word meaning "this one is placed freely". 0x1000 bytes for 512 levels.</summary>
-    public const int Entrance2TagPc = 0x9AFF8, Entrance2Pc = 0x9B000;
-    public const int Entrance2Size = 0x1000, Entrance2Snes = 0x13B000;
+    // ---- V10: entrance positions that are not on the vanilla grid — Lunar Magic's "method 2" ----
+    /// <summary>LM's hook for the main entrance: `JSL $05DD30` over vanilla's `LSR : STA $192A`
+    /// at $05D97D. The routine is bank-05 free space at a fixed address in every LM save.</summary>
+    public const int LmMainEntranceHook = 0x05D97D, LmMainEntranceRoutine = 0x05DD30;
+    /// <summary>LM's hook for secondary entrances: `LDA $FE00,Y : TYX : JSL $03BCE0` over
+    /// vanilla's `LDA $FE00,Y : AND #$07 : STA $192A` at $05D833. The routine sits in bank 03
+    /// free space, again at a fixed address.</summary>
+    public const int LmSecondaryHook = 0x05D833, LmSecondaryRoutine = 0x03BCE0;
+    /// <summary>Three 5-byte readers the secondary routine calls (`LDA long,X : RTL`): $05FE00,
+    /// then the two per-ROM tables — Y high and FG/BG — whose addresses are the operands.</summary>
+    public const int LmSecondaryReaders = 0x05DC80;
+    /// <summary>Where our two secondary tables go (LM allocates its own; the reader operands
+    /// carry the address, so any RATS block does). 0x200 records each.</summary>
+    public const int SecondaryExtTagPc = 0x9AFF8, SecondaryExtPc = 0x9B000, SecondaryExtSize = 0xD00;
+    public const int SecondaryYHighSnes = 0x13B000, SecondaryFgBgSnes = 0x13B200;
+    /// <summary>LM's "separate midway settings": a routine hooked from $05D9E3 (and, 0xA0 bytes
+    /// in, from $05D979 for exits that target the midway) reading four per-level tables 0x200
+    /// apart — flags, position, FG/BG, Y high. Per-ROM in LM (juz $138008, ShaoBase $128008);
+    /// the routine is byte-identical apart from those operands, so ours sits after the secondary
+    /// tables with the tables in front of it.</summary>
+    public const int LmMidwayHook = 0x05D9E3, LmExitArrivalHook = 0x05D979;
+    public const int MidwayTablesSnes = 0x13B400, MidwayRoutineSnes = 0x13BC00;
+    /// <summary>LM's midway fix: `STA $01` instead of `STA $95` at $05D9E7 and the following
+    /// `JMP $05DA17` NOPped, so the midway screen goes through the shared tail and works on
+    /// vertical levels too. Kept because the tail is what applies method 2's screen.</summary>
+    public const int LmMidwayStore = 0x05D9E7;
 
     // ---- V9: a ROM whose checksum still reads as Super Mario World's ----
     /// <summary>RATS tag for the checksum balance; the tunable bytes follow at +8. First-fit
@@ -140,6 +154,9 @@ public static class RomPrep
     public const int ExitFlagMask = 0x0DA532;      // the operand byte of that AND
 
     public const int SpriteStub = 0x0EF300, SpriteBankTable = 0x0EF100;
+    /// <summary>LM's level-word mirror (`$05D8E2 → JSL`, 16-bit A): `$0E` → `$010B`, level+1 → `$FE`,
+    /// Y = level*2. v10 restamps LM's 12-byte `$0EF300` stub (bank only) and adds this.</summary>
+    public const int LmLevelWordStub = 0x0EF550;
     public const int PalTrampoline = 0x0EFC50, PalApply = 0x0EFC90, PalThunk = 0x00FF93;
     public const int PalHook2Stub = 0x0EFC60;      // second hook: re-apply after $00A5BC
 
@@ -177,7 +194,13 @@ public static class RomPrep
            && (version < 7 || rom.HasExitLevelHighBit)
            && (version < 8 || rom.HasLmGfx4bppHack)
            && (version < 9 || HasBalance(rom))
-           && (version < 10 || rom.HasFreeEntrancePositions);
+           && (version < 10 || (rom.HasFreeEntrancePositions && rom.HasFreeSecondaryPositions && rom.HasLmFgBgRelative && rom.HasLmLevelHeight))
+           // V11: LM's ExAnimation engine is in — ours or LM's own, the property is the same.
+           && (version < 11 || rom.LmExAnimBase >= 0)
+           // V12: LM's ladder entry at $06F540 (CMP #$0400) — what LM's render engine JSLs to.
+           && (version < 12 || rom.ReadValue(0x06F540, 3) == 0x0400C9)
+           // V13: the overworld's tile reader takes 4bpp (LM's 4bpp-mode byte at $0480BD).
+           && (version < 13 || rom.ReadByte(0x0480BD) == 0x10);
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying
@@ -190,8 +213,21 @@ public static class RomPrep
         foreach (var (pc, bytes) in BuildStamps(version))
             Array.Copy(bytes, 0, rom.Data, pc + rom.HeaderOffset, bytes.Length);
         if (version >= 6) ConvertGfxTo4bpp(rom, version);   // data, not a stamp: it allocates
+        if (version >= 10) MigrateSecondaryDestinationBit(rom);  // data: depends on the records
         RatsWriter.FixChecksum(rom);
         ResetScanCaches(rom);
+    }
+
+    /// <summary>
+    /// V10's one data migration, and Lunar Magic's: with $03BCE0 in, a secondary entrance's
+    /// destination gets its ninth bit from the record ($05FE00 bit 3) instead of from the submap
+    /// the player is on. Vanilla's records at index $100-$1FF are exactly the ones reached from a
+    /// submap, so their destinations were $1xx all along — LM sets the bit on every one of them
+    /// when it saves (after.smc), and so does this, or every submap secondary would land in $0xx.
+    /// </summary>
+    private static void MigrateSecondaryDestinationBit(Rom rom)
+    {
+        for (int i = 0x100; i < 0x200; i++) rom.Data[rom.FileOffset(0x05FE00 + i)] |= 0x08;
     }
 
     /// <summary>Prep a ROM file in place. The hash gate lives HERE (not in Apply) so unit
@@ -311,71 +347,200 @@ public static class RomPrep
         // V9 reserves the balance; FixChecksum is what fills it, on every write.
         if (version >= 9) s.Add((BalanceTagPc, Rats(new byte[BalanceSize])));
         if (version >= 10) AppendV10Stamps(s);
+        if (version >= 11) AppendV11Stamps(s);
+        // V12 restamps the Map16 ladder with LM's own bytes (see LmMap16Ladder) — same slot
+        // addresses, so V3's scanner contract holds and EnsureMap16Tiles keeps writing there.
+        if (version >= 12) s.Add((Pc(0x06F538), LmMap16Ladder()));
+        if (version >= 13) AppendV13Stamps(s);
         return s;
     }
 
     /// <summary>
-    /// V10: an entrance that can stand anywhere, and a midway that is its own entrance.
+    /// V13: the decompression buffer back at $7EAD00, and the overworld's 4bpp fixes — all of it
+    /// Lunar Magic's own bytes (identical in ShaoBase, DogsOfWar and BigEye; absent from a plain
+    /// 3bpp save such as exanim_1, so this IS LM's "4bpp mode" for the overworld).
+    ///
+    /// The upload loops are not the only readers of a decompressed GFX file. On overworld load,
+    /// bank 04 copies eleven GFX1C tiles (water, clouds) out of the buffer into $0AF6 as 4bpp,
+    /// and the overworld rotates and DMAs that RAM every frame. That reader has its OWN pointers:
+    /// a table of buffer offsets at $048000 with the bank hard-coded to $7E ($048095, $04814F),
+    /// and a 3bpp expander at $0480B9. V4 moved the buffer to $7FA000, so from v6 on it read
+    /// stale $7EAD00 memory — every base since had a "streaky" overworld (traced in Mesen: VRAM
+    /// tiles $75-$7F of page 0, filled from $0AF6). The ExAnimation write side was never involved.
+    ///
+    /// LM's answer, taken whole: the buffer stays at vanilla's $7EAD00; the table is rescaled
+    /// to 32 bytes a tile; the expander copies 16 word rows (`LDA #$0008` → `#$0010`) and its
+    /// plane-2 loop is cut (`RTS`); and because a 4bpp file now runs to $7EBCFF, the overworld
+    /// sprite tables that lived at $7EB9xx/$7EBAxx move to $7FC5xx/$7FC6xx — 21 two-byte
+    /// operand patches in $04F2B8-$04F3D0, every `$7EB9xx`/`$7EBAxx` reference bank 04 has. The
+    /// layer-2 tile buffer at $7EB900 that V4 moved out of the way of is overrun by LM too, and
+    /// every LM hack lives with it. V4's rescaled GFX00 pointers ($00A879/A87E/A8AE) go back to
+    /// vanilla's: LM's `BRA` at $00A873 (which we carry) skips that expander anyway.
+    /// </summary>
+    private static void AppendV13Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        s.Add((Pc(0x00BA40), [GfxBuffer >> 8 & 0xFF]));                  // CODE_00BA28: LDA #$AD -> $01
+        s.Add((Pc(0x00BA44), [GfxBuffer >> 16]));                        //             LDA #$7E -> $02
+        s.Add((Pc(0x00A879), Word(0xA9, 0xB3F0)));                       // vanilla again (dead code past LM's BRA)
+        s.Add((Pc(0x00A87E), Word(0xA9, 0x7EB3)));
+        s.Add((Pc(0x00A8AE), Word(0xA9, 0xB570)));
+        s.Add((Pc(GfxArmStub), GfxCode(13)));                            // our bypass loader seeds the same pointer
+        // Bank 04, the overworld: LM's bytes.
+        s.Add((Pc(0x048000), Convert.FromHexString(OwTileOffsetsLm)));
+        s.Add((Pc(0x0480BD), [0x10]));   // LDA #$0008 -> #$0010 : 16 word rows = one 4bpp tile
+        s.Add((Pc(0x0480D0), [0x60]));   // LDA [$00],Y -> RTS   : no plane-2 expansion
+        foreach (var (at, hi) in OwSpriteRamMoves)
+            s.Add((Pc(at), [hi, 0x7F]));                                 // $7EB9xx -> $7FC5xx, $7EBAxx -> $7FC6xx
+    }
+
+    /// <summary>$048000-$048085: the overworld's table of buffer offsets for its animated tiles
+    /// (three water tiles, then the cloud frames), every entry vanilla's `$AD00 + tile*24`
+    /// rescaled to `tile*32`. LM's bytes verbatim (ShaoBase = BigEye).</summary>
+    private const string OwTileOffsetsLm =
+        "00B720B740B700B520B540B560B580B5A0B5C0B5E0B500B620B640B660B680B6A0B6C0B6E0B600B720B740B760B780B7" +
+        "A0B7C0B7E0B700B820B840B860B880B8A0B8C0B8E0B800B920B940B960B980B9A0B9C0B9E0B900BA20BA40BA60BA80BA" +
+        "A0BAC0BAE0BA00BB20BB40BB60BB80BBA0BBC0BBE0BB00BC20BC40BC60BC80BCA0BCC0BCE0BC";
+
+    /// <summary>The 21 long-address operands in bank 04 that name the overworld sprite tables
+    /// (high byte $B9 or $BA in bank $7E); LM's 4bpp mode moves them up by $0C00 into bank $7F.</summary>
+    private static readonly (int At, byte Hi)[] OwSpriteRamMoves =
+    [
+        (0x04F2B8, 0xC5), (0x04F2BF, 0xC5), (0x04F2C6, 0xC5), (0x04F2CD, 0xC5), (0x04F2D3, 0xC5), (0x04F2D7, 0xC5),
+        (0x04F2E0, 0xC5), (0x04F2E7, 0xC6), (0x04F2ED, 0xC6), (0x04F32D, 0xC6), (0x04F33C, 0xC6), (0x04F340, 0xC5),
+        (0x04F345, 0xC5), (0x04F39F, 0xC5), (0x04F3A8, 0xC6), (0x04F3AC, 0xC6), (0x04F3B0, 0xC5), (0x04F3C1, 0xC5),
+        (0x04F3C5, 0xC5), (0x04F3CB, 0xC5), (0x04F3CF, 0xC5),
+    ];
+
+    /// <summary>Where a decompressed GFX file lands from V13 on — vanilla's and LM's $7EAD00.
+    /// (V4-V12 used <see cref="Gfx4bppBuffer"/>.)</summary>
+    public const int GfxBuffer = 0x7EAD00;
+
+    /// <summary>
+    /// V10: an entrance that can stand anywhere — on Lunar Magic's rails.
     ///
     /// Vanilla stores no position. It stores a screen and two INDICES into the bank-05 tables
-    /// ($05D750/58 and $05D730/40), so Mario can only start at one of 8 x 16 spots per screen —
-    /// and the midway record carries only a screen, sharing the main entrance's spot inside it
-    /// ($05D9E1 overrides just the X high byte). Both limits are the data's, not the game's:
-    /// $94/$96 are plain 16-bit positions by the time the level runs.
+    /// ($05D750/58 and $05D730/40), so Mario can only start at one of 8 x 16 spots per screen.
+    /// Lunar Magic's "method 2" keeps the record and reinterprets the two index nibbles as 16px
+    /// steps, adding a per-level flags byte ($05DE00: bit 5 = method 2, bits 3-4 = X high bits,
+    /// bits 6-7 → $192A) and a Y high byte ($06FC00) for the main entrance; for secondary ones
+    /// it uses the spare bits of $05FE00 (bit 6 = method 2, bits 4-5 = X high) plus a fifth
+    /// table of Y high bytes. See MainEntrance / SecondaryEntrance for the full layout.
     ///
-    /// So this overrides them at the last moment. Every path through the entrance decode ends
-    /// `JMP $05DA17`, and the two that matter arrive from different branches — $05D9FE having
-    /// placed the main entrance, $05D9E9 the midway. Repointing each three-byte jump at its own
-    /// stub is an exact fit AND tells the two apart for free, which reading a flag at $05DA17
-    /// would not.
+    /// Every LM save installs both routines, at fixed addresses and byte-identical across
+    /// after.smc and every reference hack, so this stamps EXACTLY those bytes: $05DD30 hooked
+    /// from $05D97D, $03BCE0 hooked from $05D833, and the three readers at $05DC80 whose
+    /// operands name the secondary tables — LM's are RATS-allocated per ROM; ours sit at
+    /// $13B000/$13B200, and Rom.LmSecondaryYHighTable reads whichever a ROM carries. The three
+    /// tables LM initialises come with it: $05DE00 and $06FC00 zeroed (a set bit 5 in $FF would
+    /// turn method 2 on everywhere), $06FE00 to LM's $1A — it lands in $13CD, which the midway
+    /// tape at $00F2D8 tests for zero, and LM turns vanilla's `STA $13CD` at $05D9C3 into a
+    /// load for the same reason.
     ///
-    /// Each stub writes $94/$96 (Mario's position, 16-bit each) straight from the table and then
-    /// jumps where it always went. A record whose Y word has bit 15 clear is not placed freely,
-    /// and the stub leaves vanilla's answer exactly as it found it — so an untouched level plays
-    /// identically, byte for byte, which is what the VRAM-parity discipline asks of a stamp that
-    /// runs on every level entry.
-    ///
-    /// The main stub also stands down when `$1B93` is set: that is a SECONDARY entry, whose
-    /// position belongs to the entrance record and not to the level. Secondary records stay on
-    /// the vanilla grid for now — they need their own table, indexed by record.
-    ///
-    /// Lunar Magic solves the same problem its own way ("method 2", hooked at $05D979 —
-    /// reference/LM_PARITY.md). This does not match its layout, and that is a SCOPE decision
-    /// rather than a forced one: LM's routine is byte-identical across hacks with its table
-    /// address at a fixed offset inside it, the same shape LmMap16Slot already reads for the
-    /// Map16 ladder. Matching is possible once LM's five tables are fully decoded. Until then a
-    /// ROM re-saved by LM keeps working and free positions revert to the grid.
+    /// A previous v10 used private stubs on the two `JMP $05DA17` sites and its own table. LM
+    /// wiped them on save (CONTRACT §0); a mechanism LM does not know is data LM loses.
     /// </summary>
+    /// <summary>
+    /// V12: Lunar Magic's Map16 ladder, byte-for-byte (after.smc $06F538-$06F5E3). V3 wrote a
+    /// ladder of our own at the same SLOT addresses — enough for our scanner and for the vanilla
+    /// hook at $00C17A/$00C25C — but LM's render engine (LmLevelRender, v10) JSLs LM's ENTRY at
+    /// $06F540 about 150 times and reads the bank from $0B; ours had `BRA` mid-dispatcher there
+    /// and stored $05, so every tile it drew resolved to the filler def. Measured in Mesen: the
+    /// v10/v11 intro level was one repeated filler tile; a v9 base was fine. Now the entry, the
+    /// $06F5D0 wrapper (LDY $0B : STY $05 for the vanilla caller) and the high-range dispatcher
+    /// are LM's; only the four slot immediates are ours (V3's defaults — range 0 at $12:8008,
+    /// ranges 1-3 empty), since EnsureMap16Tiles owns those bytes. LM's second wrapper at $06F5E4
+    /// (its per-site acts-like path, which we do not take) is left out: our acts stub sits at $06F5F0.
+    /// </summary>
+    private static byte[] LmMap16Ladder()
+    {
+        var b = Convert.FromHexString(
+            "FFFFFFFFFFFFFFFFC900049074C90000902E0AB0410AB01430096900F0A00000840B6B690080A00000840B6B" +
+            "300969FFFFA00000840B6B69FF7FA00000840B6B850BAD301929000F0A650B0A0A6900F0A00000840B6B0AB0" +
+            "14300969" + "0000A00000840B6B690080A00000840B6B300969FFFFA00000840B6B69FF7FA00000840B6BA8AD30" +
+            "19C900109005A900058003A9000D850BB9BE0F6BC22098D40B4B6202008264FFA40B84057A840B6B");
+        // Slot immediates ([SCAN] contract, LunarMagic.SlotAddr): slot0 $06F552 = +1A, slot1 $06F55B
+        // = +23, slot2 $06F566 = +2E, slot3 $06F56F = +37; ADC imm at +1, LDY imm at +4.
+        void Slot(int at, int imm, int bank) { b[at + 1] = (byte)imm; b[at + 2] = (byte)(imm >> 8); b[at + 4] = (byte)bank; b[at + 5] = (byte)(bank >> 8); }
+        Slot(0x1A, 0x7008, 0x1200);
+        Slot(0x23, 0x0008, 0x0000);
+        Slot(0x2E, 0x0008, 0x0000);
+        Slot(0x37, 0x0008, 0x0000);
+        return b;
+    }
+
+    /// <summary>Bisect knob (debug builds of a ROM only, --prep10): which v10 groups to stamp.
+    /// 1 entrances, 2 level-entry A/B, 4 height C-F, 8 render. All by default.</summary>
+    internal static int V10Groups = 15;
+
     private static void AppendV10Stamps(List<(int Pc, byte[] Bytes)> s)
     {
-        s.Add((Entrance2TagPc, Rats(new byte[Entrance2Size])));
-
-        var a = new Asm(EntranceFix);
-        // Main: skip when a secondary exit placed Mario — that position is the record's.
-        a.Label("main").LdaAbs(0x1B93).Bne("mainOut");
-        Place(a, 0, "mainDone");
-        a.Label("mainOut").JmpAbs(0xDA17);
-
-        a.Label("mid");
-        Place(a, 4, "midDone");
-        a.JmpAbs(0xDA17);
-        s.Add((Pc(EntranceFix), a.Bytes()));
-
-        // Three bytes for three bytes: each JMP keeps its size and gains a stop on the way.
-        s.Add((Pc(MainJmpSite), [0x4C, unchecked((byte)a.LabelAt("main")), (byte)(a.LabelAt("main") >> 8)]));
-        s.Add((Pc(MidwayJmpSite), [0x4C, unchecked((byte)a.LabelAt("mid")), (byte)(a.LabelAt("mid") >> 8)]));
-
-        // Entered with 8-bit A and 16-bit index. Widths are restored before leaving, because
-        // $05DA17 expects exactly what vanilla left it.
-        static void Place(Asm a, int offset, string done)
+        if ((V10Groups & 1) != 0) V10Entrances(s);
+        if ((V10Groups & 2) != 0)
         {
-            a.Rep(0x30);
-            a.LdaDp(0x0E).Asl().Asl().Asl().Tax();                 // level x 8
-            a.LdaLongX(Entrance2Snes + offset + 2).BitImm16(0x8000).Beq(done);
-            a.AndImm16(0x7FFF).StaDp(0x96);                        // Mario Y
-            a.LdaLongX(Entrance2Snes + offset).StaDp(0x94);        // Mario X
-            a.Label(done).Sep(0x30);
+            s.Add((Pc(LmLevelEntry.BlockASnes) - 8, Rats(LmLevelEntry.BlockA())));
+            s.Add((Pc(LmLevelEntry.BlockBSnes) - 8, Rats(LmLevelEntry.BlockB())));
+            foreach (var (site, bytes) in LmLevelEntry.Hooks()) s.Add((Pc(site), bytes));
         }
+        if ((V10Groups & 4) != 0)
+        {
+            s.Add((Pc(LmLevelEntry.BlockCSnes) - 8, Rats(LmLevelEntry.BlockC())));
+            s.Add((Pc(LmLevelEntry.BlockDSnes) - 8, Rats(LmLevelEntry.BlockD())));
+            s.Add((Pc(LmLevelEntry.BlockESnes) - 8, Rats(LmLevelEntry.BlockE())));
+            s.Add((Pc(LmLevelEntry.BlockFSnes) - 8, Rats(LmLevelEntry.BlockF())));
+            foreach (var (site, bytes) in LmLevelEntry.HeightHooks()) s.Add((Pc(site), bytes));
+            foreach (var (site, bytes) in LmLevelEntry.InPlacePatches()) s.Add((Pc(site), bytes));
+        }
+        if ((V10Groups & 8) != 0)
+        {
+            s.Add((Pc(LmLevelRender.Bank1FSnes) - 8, Rats(LmLevelRender.Bank1F())));
+            foreach (var (site, bytes) in LmLevelRender.Blocks()) s.Add((Pc(site), bytes));
+            foreach (var (site, bytes) in LmLevelRender.InPlace()) s.Add((Pc(site), bytes));
+            s.Add((Pc(Rom.LmEntranceLayer2), Enumerable.Repeat((byte)0x20, 0x200).ToArray()));
+        }
+    }
+
+    private static void V10Entrances(List<(int Pc, byte[] Bytes)> s)
+    {
+        s.Add((Pc(LmMainEntranceHook), Jsl(LmMainEntranceRoutine)));
+        s.Add((Pc(LmMainEntranceRoutine), Convert.FromHexString(
+            "4A8D2A19BBBF00FC068504BF00FE068DCD13B900DEAA29C00C2A198A8920F02529180A0A0A0A85942A8595" +
+            "B900F20A0A0A0A29700494B900F00A0A0A0A8596A504293F85976B")));
+
+        s.Add((Pc(LmSecondaryHook), [0xB9, 0x00, 0xFE, 0xBB, .. Jsl(LmSecondaryRoutine)]));
+        s.Add((Pc(LmSecondaryRoutine), Convert.FromHexString(
+            "2280DC05A829870C2A199829084A4A4A850F2285DC058502297F8504228ADC05AA29C08DCD138A29200A0C2A19" +
+            "A60EBF00FC0629800404BF00FE06293F0CCD13988940F01F29300A0A0A85942A8595A5014A29700494A5000A0A" +
+            "0A0A8596A502293F8597A5023009A5004A4A4A4A85026BA90C8D00019CAE0D9CAF0D9CB00D988910F009A5008D" +
+            "F61DEE9C1B988920F006A5018DEA1D982907C907D002A9808DD50D0AF006EECE13EEE91DFA68ABFA68E2305CF79300")));
+        s.Add((Pc(LmSecondaryReaders), [0xBF, 0x00, 0xFE, 0x05, 0x6B,
+                                        0xBF, .. Long(SecondaryYHighSnes), 0x6B,
+                                        0xBF, .. Long(SecondaryFgBgSnes), 0x6B]));
+        s.Add((SecondaryExtTagPc, Rats(new byte[SecondaryExtSize])));
+
+        // Separate midway settings — LM's blob (ShaoBase $10FDDF, juz $11FA63, DogsOfWar $12EF20)
+        // with its five operands pointed at our tables and at itself.
+        var mid = Convert.FromHexString(
+            "4A4A4A4AC21148A60EBF088012A8291003018301988920F06429084A4A4A85959829C78D2A19BF088212A829F0" +
+            "8596980A0A0A0A8594BF00FC0629808504BF00FE06293F8DCD13BF088612297F0404293F8597A900EBBF08841285" +
+            "028920D01FA82903AABF0CD705852098290C4A4AAABF08D705851C9829C00CCD1338686BAD1A1418D0F89C2A1984" +
+            "0EA5022901850FFAFA5CB7D805FFFFFFFFFFFF4C4D10012C2A19501A48AD1A14F013B900F422DFFD10A40E9008FA" +
+            "FA85015CA1D9056829384A4A6B");
+        foreach (var (at, snes) in new[] { (0x0A, MidwayTablesSnes), (0x27, MidwayTablesSnes + 0x200),
+                                           (0x48, MidwayTablesSnes + 0x600), (0x57, MidwayTablesSnes + 0x400),
+                                           (0xAF, MidwayRoutineSnes) })
+            Long(snes).CopyTo(mid, at);
+        s.Add((Pc(MidwayRoutineSnes), mid));
+        s.Add((Pc(LmMidwayHook), Jsl(MidwayRoutineSnes)));
+        s.Add((Pc(LmExitArrivalHook), Jsl(MidwayRoutineSnes + 0xA0)));
+
+        s.Add((Pc(Rom.LmEntranceFlags), new byte[0x200]));
+        s.Add((Pc(Rom.LmEntranceYHigh), new byte[0x200]));
+        s.Add((Pc(Rom.LmEntranceFgBg), Enumerable.Repeat((byte)0x1A, 0x200).ToArray()));
+        s.Add((Pc(0x05D9C3), [0xAD]));                          // STA $13CD → LDA $13CD
+        s.Add((Pc(LmMidwayStore), [0x85, 0x01, 0xEA, 0xEA, 0xEA]));
+
+        static byte[] Long(int snes) => [(byte)snes, (byte)(snes >> 8), (byte)(snes >> 16)];
+        static byte[] Jsl(int snes) => [0x22, .. Long(snes)];
     }
 
     /// <summary>
@@ -404,6 +569,21 @@ public static class RomPrep
     /// Only the MAIN path moves. The filter path ($00AB0D) keeps v4's rewrite, which uploads
     /// the same bytes by a different route — the parity test walks both.
     /// </summary>
+    /// <summary>
+    /// V11: Lunar Magic's ExAnimation engine (LmExAnimEngine), byte-for-byte LM's own code
+    /// relocated into bank $1E, its two hook helpers, an empty per-level pointer table, the seven
+    /// hooks, and $03BCC0 zeroed — what LM installs when the ExAnimation dialog is first used.
+    /// A record written by RomBuilder into that table animates in-game exactly as it would in LM.
+    /// </summary>
+    private static void AppendV11Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        s.Add((Pc(LmExAnimEngine.EngineSnes) - 8, Rats(LmExAnimEngine.Engine())));
+        s.Add((Pc(LmExAnimEngine.MvnSnes) - 8, Rats(LmExAnimEngine.Mvn())));
+        s.Add((Pc(LmExAnimEngine.ClearSnes) - 8, Rats(LmExAnimEngine.Clear())));
+        s.Add((Pc(LmExAnimEngine.TableSnes) - 8, Rats(LmExAnimEngine.EmptyTable())));
+        foreach (var (site, bytes) in LmExAnimEngine.Hooks()) s.Add((Pc(site), bytes));
+    }
+
     private static void AppendV8Stamps(List<(int Pc, byte[] Bytes)> s)
     {
         var a = new Asm(Gfx4bppLoopSite);
@@ -1158,9 +1338,9 @@ public static class RomPrep
          .JsrL("resolve")                    // base word the 16-bit ADC $03 reads)
          .Bcs("skip")                        // not inserted / invalid id
          .Sep(0x20)
-         .StzDp(0x00)                        // decompress dest: $7E:AD00, or V4's $7F:A000
-         .LdaImm8(version >= 4 ? BufHi : 0xAD).StaDp(0x01)
-         .LdaImm8(version >= 4 ? BufBank : 0x7E).StaDp(0x02)
+         .StzDp(0x00)                        // decompress dest: $7E:AD00, or V4-V12's $7F:A000
+         .LdaImm8(version is >= 4 and < 13 ? BufHi : (byte)(GfxBuffer >> 8 & 0xFF)).StaDp(0x01)
+         .LdaImm8(version is >= 4 and < 13 ? BufBank : (byte)(GfxBuffer >> 16)).StaDp(0x02)
          .Jsl(GfxThunks)                     // LC_LZ2 core ($8A-$8C → [$00])
          .LdaImm8(0x80).StaAbs(0x2115)       // defensive: word-increment VRAM mode
          .StzAbs(0x2116)

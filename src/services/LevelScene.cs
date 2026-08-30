@@ -60,7 +60,7 @@ public sealed class LevelScene
     {
         var level = LevelParser.Parse(rom, levelNum);
         var grid = ObjectEngine.Render(rom, level);
-        int visRows = rom.IsVerticalMode(level.Header.LevelMode) ? grid.Height : 27;
+        int visRows = grid.Height;          // the engine sizes the grid to the level: LM height, or 27
 
         var bgImage = LevelParser.DecodeBgImage(rom, levelNum);
         var layer2 = bgImage is null ? ObjectEngine.RenderLayer2(rom, level.Header, levelNum) : null;
@@ -121,6 +121,13 @@ public sealed class LevelScene
     /// <summary>The Map16 tile sheet for the palette drawer, 16 tiles per row — the same
     /// composition the level uses, so a tile looks identical in both places.</summary>
     public (uint[] Px, int W, int H) Sheet(int phase = 0) => Map16.ComposeSheet(TileCaches[phase & 3]);
+
+    /// <summary>LM's default-empty definition (4 × word 0x1004, the bytes GrowRange fills a new
+    /// page with) drawn in this level's graphics: what every FG page that has no defs yet looks
+    /// like, so the picker shows the same thing before and after allocation.</summary>
+    public uint[]? Placeholder(Rom rom, int levelNum, int phase)
+        => Palettes[phase & 3] is { } pal
+            ? Map16.Compose(Map16.LmExtendedDef(rom, -1), Fg(rom, levelNum, phase & 3).Fetch, pal) : null;
 
     /// <summary>GFX per phase, kept across recolours. Loading it is the expensive half of a
     /// compose and a colour change cannot move it.</summary>
@@ -201,6 +208,17 @@ public sealed class LevelScene
     {
         if (tiles.Count == 0) return;
         var set = tiles as HashSet<int> ?? [.. tiles];
+
+        // Painting an empty page allocated it: the caches still have the old tile count, and
+        // ComposeInto ignores tiles past its end — which is how a freshly painted page stayed
+        // black. Grow them to the ROM's count first; the new tail is composed like any edit.
+        int count = rom.Map16TileCount;
+        for (int p = 0; p < 4; p++)
+            if (count > TileCaches[p].Length)
+            {
+                set.UnionWith(Enumerable.Range(TileCaches[p].Length, count - TileCaches[p].Length));
+                Array.Resize(ref TileCaches[p], count);
+            }
 
         Parallel.For(0, 4, p =>
         {

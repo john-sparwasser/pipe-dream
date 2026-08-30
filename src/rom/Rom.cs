@@ -139,10 +139,18 @@ public sealed class Rom
     private static readonly int[] SecondaryEntranceTables =
         [0x05F800, 0x05FA00, 0x05FC00, 0x05FE00];
 
+    /// <summary>The fifth byte (LM's Y high) lives wherever the reader at $05DC85 points, and
+    /// only where that reader exists — a base without it reads the byte as zero and drops it
+    /// on write, so the record round-trips on any ROM.</summary>
     public SecondaryEntrance ReadSecondaryEntrance(int index)
     {
-        Span<byte> b = stackalloc byte[4];
+        Span<byte> b = stackalloc byte[6];
         for (int t = 0; t < 4; t++) b[t] = Data[FileOffset(SecondaryEntranceTables[t] + index)];
+        if (this.HasFreeSecondaryPositions)
+        {
+            b[4] = Data[FileOffset(this.LmSecondaryYHighTable + index)];
+            b[5] = Data[FileOffset(this.LmSecondaryFgBgTable + index)];
+        }
         return new SecondaryEntrance(b);
     }
 
@@ -150,23 +158,54 @@ public sealed class Rom
     {
         byte[] b = e.ToBytes();
         for (int t = 0; t < 4; t++) Data[FileOffset(SecondaryEntranceTables[t] + index)] = b[t];
+        if (!this.HasFreeSecondaryPositions) return;
+        Data[FileOffset(this.LmSecondaryYHighTable + index)] = b[4];
+        Data[FileOffset(this.LmSecondaryFgBgTable + index)] = b[5];
     }
 
     // Main entrance / entry settings: the sibling tables, indexed by LEVEL (see MainEntrance).
+    // The last two are Lunar Magic's method-2 bytes, at fixed addresses but only meaningful
+    // where its routine is installed.
     private static readonly int[] MainEntranceTables =
-        [0x05F000, 0x05F200, 0x05F400, 0x05F600];
+        [0x05F000, 0x05F200, 0x05F400, 0x05F600, LmEntranceFlags, LmEntranceYHigh, LmEntranceFgBg];
+    public const int LmEntranceFlags = 0x05DE00, LmEntranceYHigh = 0x06FC00, LmEntranceFgBg = 0x06FE00;
+
+    /// <summary>LM's registration of the sprite size table (help: "Custom Sprite List Sizes", PC
+    /// 0x7750C/0x7750F on a headered ROM): the table's SNES address, and 0x42 to enable it. LM's
+    /// level engine (block C, transplanted by prep v10) reads both — DogsOfWar and ShaoBase
+    /// register theirs here, so this comes before the signature scan for older PIXI code.</summary>
+    public const int LmSpriteSizePtr = 0x0EF30C, LmSpriteSizeFlag = 0x0EF30F;
+    /// <summary>LM's 4x3-byte pointer table to the uncompressed ExAnimation source files 60-63.</summary>
+    public const int LmAltExGfxTable = 0x03BCC0;
+    public const int LmEntranceLayer2 = 0x06FA00;
+
+    /// <summary>Bytes 6-9 are LM's midway tables, wherever this ROM keeps them (per-ROM, 0x200
+    /// apart); like the method-2 bytes they are read as zero and dropped on write where the
+    /// routine that consumes them is absent.</summary>
+    /// <summary>Bytes 0-3 always; 4, 5 and 10 ($05DE00, $06FC00, $06FE00) where LM's method-2
+    /// routine is; 6-9 where its midway routine is; 11 where its level-height engine is. -1 = not on
+    /// this base.</summary>
+    private int MainEntranceByteAddr(int t, int level) => t switch
+    {
+        < 4 => MainEntranceTables[t] + level,
+        4 or 5 or 10 => this.HasFreeEntrancePositions ? MainEntranceTables[t == 10 ? 6 : t] + level : -1,
+        11 => this.HasLmLevelHeight ? this.LmLevelHeightTable + level : -1,
+        _ => this.HasFreeMidwayPosition ? this.LmMidwayTable + (t - 6) * 0x200 + level : -1,
+    };
 
     public MainEntrance ReadMainEntrance(int level)
     {
-        Span<byte> b = stackalloc byte[4];
-        for (int t = 0; t < 4; t++) b[t] = Data[FileOffset(MainEntranceTables[t] + level)];
+        Span<byte> b = stackalloc byte[12];
+        for (int t = 0; t < 12; t++)
+            if (MainEntranceByteAddr(t, level) is var at and >= 0) b[t] = Data[FileOffset(at)];
         return new MainEntrance(b);
     }
 
     public void WriteMainEntrance(int level, MainEntrance e)
     {
         byte[] b = e.ToBytes();
-        for (int t = 0; t < 4; t++) Data[FileOffset(MainEntranceTables[t] + level)] = b[t];
+        for (int t = 0; t < 12; t++)
+            if (MainEntranceByteAddr(t, level) is var at and >= 0) Data[FileOffset(at)] = b[t];
     }
 
     /// <summary>Layer 2 pointer. Bank $FF means "layer 2 is a background image", not object data.</summary>

@@ -51,8 +51,8 @@ public static class Dm16Saver
     private static LevelObject Dm16At(int tile, int cx, int cy, int w, int h, bool vert)
     {
         int screen = vert ? cy >> 4 : (cx >> 4) & 0x1F;
-        int y = vert ? (cy & 15) | (cx >= 16 ? 0x10 : 0) : Math.Clamp(cy, 0, 0x1F);
-        return LevelObject.MakeDm16(tile, screen, cx & 15, y, w, h);
+        int y = vert ? (cy & 15) | (cx >= 16 ? 0x10 : 0) : cy & 0x1F;
+        return LevelObject.MakeDm16(tile, screen, cx & 15, y, w, h, band: vert ? 0 : cy >> 5);
     }
 
 }

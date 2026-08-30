@@ -55,9 +55,13 @@ public class RomPrepTests
     /// checksum balance, which lands the ROM back on Super Mario World's own $A0DA, 2026-08-27).</summary>
     private const string GoldenPrepV9Sha256 = "052f0eff5302795306b7be42af15eae6d9d83b197ced651e7c39501d9314da4f";
 
-    /// <summary>Golden SHA-256 (headerless) of the V10-prepped vanilla US ROM (V9 stamps + free
-    /// entrance positions for the main and midway entrances, 2026-08-27).</summary>
-    private const string GoldenPrepV10Sha256 = "c3a9d98af705b94929fe772877e5efbd102822db7cddece746e01df0111de370";
+    /// <summary>Golden SHA-256 (headerless) of the V10-prepped vanilla US ROM (V9 stamps + Lunar
+    /// Magic's method-2 entrance routines, its separate midway routine and its level-entry engine,
+    /// 2026-08-27).</summary>
+    private const string GoldenPrepV10Sha256 = "3c862300858f50295c2bab79e2f47d9549c1f8891d9d91a9dcf832608869ca78";
+    private const string GoldenPrepV11Sha256 = "59a429e2b88bcf69635608110e1c8e196d008397b9e5dec759df2f612989e254";
+    private const string GoldenPrepV12Sha256 = "37a2fe4e90a8996a6e22a82a801e90f9fd7d9ad1554c265cb15dd89aa0619a92";
+    private const string GoldenPrepV13Sha256 = "b509e09cf2fcb6b253a05a15858ea4b587bcd51e3c97531824ebc69c5956972d";
 
     private static Rom Prepped()
     {
@@ -136,7 +140,7 @@ public class RomPrepTests
         Assert.True(rom.HasLmGfxLoader);
         Assert.Equal(RomPrep.GfxBypassRecords, rom.LmGfxBypassBase);
         Assert.Equal(RomPrep.ExGfxPtrTable, rom.LmExGfxBase);
-        Assert.False(rom.HasLmVramPatch);            // BG2/BG3 stay editor-only
+        Assert.True(rom.HasLmVramPatch);             // v10 carries LM's VRAM patch (LmLevelRender): BG2/BG3 upload in-game
         Assert.Null(rom.LmGfxBypass(0x105));         // zeroed record = no bypass
         Assert.Equal(-1, Gfx.SourceSnes(rom, 0x100));
         Assert.Equal(-1, Gfx.SourceSnes(rom, 0x85));
@@ -147,10 +151,11 @@ public class RomPrepTests
     {
         var rom = Prepped();
         Assert.Equal(-1, rom.LmSpriteSizeBase);
-        Assert.Equal(-1, rom.LmExAnimBase);
-        Assert.Equal(-1, rom.LmGlobalExAnimPtr);
-        Assert.Equal(-1, rom.LmExAnimSetupEntry);
-        Assert.Equal(-1, rom.LmExAnimProcEntry);
+        // V11 carries LM's ExAnimation engine, so these are real hits, at our addresses.
+        Assert.Equal(LmExAnimEngine.TableSnes, rom.LmExAnimBase);
+        Assert.Equal(-1, rom.LmGlobalExAnimPtr);          // no global list until one is written
+        Assert.Equal(LmExAnimEngine.SetupEntry + 2, rom.LmExAnimSetupEntry);   // the PHB prologue after SEP #$30
+        Assert.Equal(LmExAnimEngine.ProcEntry, rom.LmExAnimProcEntry);
         Assert.False(rom.HasPixiSpriteHook);
     }
 
@@ -227,17 +232,17 @@ public class RomPrepTests
     {
         var rom = Prepped();
 
-        string lookup = Disasm.Dis(rom, RomPrep.Map16LookupEntry, 6, m8: true, x8: false);
+        // V12: LM's own ladder. The $06F5D0 wrapper (the vanilla hook's target) hands the tile to
+        // LM's entry at $06F540 and moves the bank from LM's $0B into the caller's $05.
+        string lookup = Disasm.Dis(rom, RomPrep.Map16LookupEntry, 8, m8: true, x8: false);
         Assert.Contains("REP #$20", lookup);
-        Assert.Contains("CMP #$0400", lookup);
-        Assert.Contains("LDA $0FBE,Y", lookup);
-
-        // The range dispatcher: two shifts, and the carry/sign they fall out of pick the slot.
-        string disp = Disasm.Dis(rom, 0x06F538, 11, m8: false, x8: false);
-        Assert.Contains("ASL", disp);
-        Assert.Contains("JMP $F55B", disp);          // range 1's slot, at LM's address
-        Assert.Contains("JMP $F566", disp);          // range 2
-        Assert.Contains("JMP $F56F", disp);          // range 3
+        Assert.Contains("BRL $06F540", lookup);
+        Assert.Contains("STY $05", lookup);
+        string entry = Disasm.Dis(rom, 0x06F540, 12, m8: false, x8: false);
+        Assert.Contains("CMP #$0400", entry);        // tiles < 0x200 take the vanilla $0FBE path
+        Assert.Contains("ASL", entry);               // then two shifts pick the range slot
+        Assert.Contains("STY $0B", entry);
+        Assert.Contains("LDA $0FBE,Y", Disasm.Dis(rom, 0x06F5B9, 10, m8: false, x8: false));
 
         string extdef = Disasm.Dis(rom, 0x06F552, 4, m8: false, x8: false);
         Assert.Contains("ADC #$7008", extdef);
@@ -257,21 +262,28 @@ public class RomPrepTests
 
         string fill = Disasm.Dis(rom, RomPrep.Handler22, 70, m8: true, x8: true);
         Assert.Contains("STA [$6E],Y", fill);
-        Assert.Contains("JSR $A95B", fill);         // vanilla step-right primitive
-        Assert.Contains("JSR $A97D", fill);         // vanilla step-down primitive
+        Assert.Contains("JSR $FEA0", fill);         // LM's step helpers (v10 restamps LM's own DM16 handlers)
+        Assert.Contains("JSR $FED0", fill);
         Assert.Contains("LDA [$65],Y", fill);       // stream extras
 
         string ext02 = Disasm.Dis(rom, RomPrep.ExtHandler02, 22, m8: true, x8: true);
         Assert.Contains("STA $19B8,X", ext02);
         Assert.Contains("STA $19D8,X", ext02);
 
-        string ext03 = Disasm.Dis(rom, RomPrep.ExtHandler03, 4, m8: true, x8: true);
-        Assert.Contains("STA $1928", ext03);
-        Assert.Contains("STA $1BA1", ext03);
+        // v10 restamps LM's own ext 01/03 handlers: both set $8B (the 32-row band) and share a tail.
+        string ext03 = Disasm.Dis(rom, RomPrep.ExtHandler03, 6, m8: true, x8: true);
+        Assert.Contains("STA $8B", ext03);
+        Assert.Contains("BRA $0DE1D9", ext03);
+        string ext01 = Disasm.Dis(rom, 0x0DE1D0, 7, m8: true, x8: true);
+        Assert.Contains("STA $8B", ext01);
+        Assert.Contains("STA $1928", ext01);
+        Assert.Contains("STA $1BA1", ext01);
 
-        string stub = Disasm.Dis(rom, RomPrep.SpriteStub, 12, m8: true, x8: false);
+        string stub = Disasm.Dis(rom, RomPrep.SpriteStub, 8, m8: true, x8: false);
         Assert.Contains("LDA $F100,Y", stub);
-        Assert.Contains("STA $010B", stub);
+        Assert.Contains("STA $D0", stub);
+        string word = Disasm.Dis(rom, RomPrep.LmLevelWordStub, 6, m8: false, x8: false);
+        Assert.Contains("STA $010B", word);
 
         string pal = Disasm.Dis(rom, RomPrep.PalApply, 30, m8: true, x8: true);
         Assert.Contains("LDA $010B", pal);
@@ -303,6 +315,11 @@ public class RomPrepTests
         rom.Data[rom.FileOffset(RomPrep.SpriteBankTable + 0x42)] = 0x13;   // relocated level
         var cpu = new Cpu65816(rom);
         cpu.Ram7E[0x0E] = 0x42;                    // level word low (loader sets $0E)
+        // LM's two-part shape (v10): $05D8E2 JSLs $0EF550 with 16-bit A for the level word, then
+        // $05D8F5 JSLs the $0EF300 stub for the sprite bank.
+        cpu.PresetWidths(m8: false, x8: false);
+        cpu.CallLong(RomPrep.LmLevelWordStub, 100_000);
+        cpu.PresetWidths(m8: true, x8: false);
         cpu.CallLong(RomPrep.SpriteStub, 100_000);
         Assert.Equal(0x13, cpu.Ram7E[0xD0]);
         Assert.Equal(0x42, cpu.Ram7E[0x010B]);
@@ -396,9 +413,10 @@ public class RomPrepTests
         cpu0.CallLong(RomPrep.Map16LookupEntry, 100_000);
         Assert.Equal(0x1234, cpu0.Acc & 0xFFFF);
 
-        // 0x4000+ is past the emitted ladder: the defined blank, never a wrapped slot read.
-        Assert.Equal((0x8000, 0x00), Run(0x4000));
-        Assert.Equal((0x8000, 0x00), Run(0x7FFF));
+        // 0x4000+ falls into LM's high-range slots, which no allocation of ours ever fills: bank
+        // 0 = "no defs here", exactly what HasMap16Range/LmMap16DefAddr say about those ranges.
+        Assert.Equal(0x00, Run(0x4000).bank);
+        Assert.Equal(0x00, Run(0x7FFF).bank);
     }
 
     // ---------------------------------------------------------------- real ROM
@@ -490,11 +508,23 @@ public class RomPrepTests
             Assert.Equal(GoldenPrepV9Sha256, RomHash.HeaderlessSha256File(tmp));
 
             File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
-            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V10)
-            string v10 = RomHash.HeaderlessSha256File(tmp);
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 10));     // frozen V10 stamp list
+            Assert.Equal(GoldenPrepV10Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 11));     // frozen V11 stamp list
+            Assert.Equal(GoldenPrepV11Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 12));     // frozen V12 stamp list
+            Assert.Equal(GoldenPrepV12Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V13)
+            string v13 = RomHash.HeaderlessSha256File(tmp);
             // Spelled out rather than left to the assertion message: xunit truncates a mismatch,
             // and this hash is what the NEXT version bump has to be told.
-            Assert.True(GoldenPrepV10Sha256 == v10, $"V10 golden hash is now {v10}");
+            Assert.True(GoldenPrepV13Sha256 == v13, $"V13 golden hash is now {v13}");
         }
         finally { File.Delete(tmp); }
     }
@@ -583,10 +613,10 @@ public class RomPrepTests
             return cpu;
         }
 
-        // V4 decompresses to $7F:A000, not $7E:AD00 — a 4bpp file does not fit under the
-        // layer-2 tile buffer. Addressed off the constant so a future move cannot rot this.
-        int bufAddr = RomPrep.Gfx4bppBuffer & 0xFFFF;
-        static byte[] Buf(Cpu65816 c) => (RomPrep.Gfx4bppBuffer >> 16) == 0x7F ? c.Ram7F : c.Ram7E;
+        // V13 decompresses where vanilla and LM do, $7E:AD00 (V4-V12 had $7F:A000, which the
+        // overworld's own reader never followed). Addressed off the constant so a move cannot rot this.
+        int bufAddr = RomPrep.GfxBuffer & 0xFFFF;
+        static byte[] Buf(Cpu65816 c) => (RomPrep.GfxBuffer >> 16) == 0x7F ? c.Ram7F : c.Ram7E;
 
         var c = Armed();
         c.CallLong(RomPrep.GfxLoaderEntry, 20_000_000);
@@ -725,7 +755,7 @@ public class RomPrepTests
     {
         var v5 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v5, 5);
         var v6 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v6, 6);
-        Assert.Equal(3, Gfx.FileBpp(v6, 0x32));         // the blob stayed three planes deep
+        Assert.Equal(3, Gfx.FileBpp(v6, 0x33));         // the AN1 blob (GFX33 in LM's numbering) stayed three planes deep
         Assert.Equal(4, Gfx.RomBpp(v6));                // ...even though the tile files did not
 
         foreach (int tileset in new[] { 0x00, 0x01, 0x05 })
@@ -865,6 +895,62 @@ public class RomPrepTests
 
         // IsPrepped must stay true for a foreign LM hack, or Apply would stamp over it.
         Assert.True(RomPrep.IsPrepped(shao, 4));
+    }
+
+    /// <summary>Every converted file, decompressed by VANILLA's own routine ($00BA28: Y = file,
+    /// tables → $8A, buffer → $00, LC_LZ2 core) under emulation, equals what our decoder reads.
+    /// The editor only ever uses our decoder, so a compressor quirk vanilla's decoder disagrees
+    /// with shows up in the game alone — as a file whose tail tiles are garbage.</summary>
+    [Fact]
+    public void vanilla_decompressor_agrees_with_ours_on_every_converted_file()
+    {
+        var rom = PreppedReal();
+        int bufAddr = RomPrep.GfxBuffer & 0xFFFF;
+        for (int id = 0; id < Gfx.Count; id++)
+        {
+            if (!Gfx.IsTilePlanar3Bpp(id) || Gfx.SourceSnes(rom, id) <= 0) continue;
+            var ours = Gfx.DecompressFile(rom, id);
+            var cpu = new Cpu65816(rom);
+            cpu.PresetY(id);
+            cpu.CallNear(0x00BA28);
+            var buf = (RomPrep.GfxBuffer >> 16) == 0x7F ? cpu.Ram7F : cpu.Ram7E;
+            for (int i = 0; i < ours.Length; i++)
+                if (buf[bufAddr + i] != ours[i])
+                    Assert.Fail($"GFX{id:X2}: vanilla's decompressor diverges at +{i:X} (tile {i / 32:X2}): {buf[bufAddr + i]:X2} != {ours[i]:X2}");
+        }
+    }
+
+    /// <summary>V13: the overworld's own GFX1C reader ($0480B9) takes a 4bpp buffer, in exactly
+    /// Lunar Magic's two bytes — on a fresh prep and on a v12 base upgraded in place. Emulated:
+    /// the routine expands 11 tiles of a 4bpp buffer into $0AF6 verbatim (vanilla's version
+    /// reads it as 3bpp and produces the "streaky" overworld).</summary>
+    [LmRefRomFact]
+    public void v13_overworld_tile_reader_takes_4bpp_like_lunar_magic()
+    {
+        var shao = Rom.Load(ReferenceRoms.ShaoBase);
+        var fresh = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(fresh, 13);
+        var upgraded = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(upgraded, 12); RomPrep.Apply(upgraded, 13);
+        Assert.True(RomPrep.IsPrepped(upgraded, 13));
+
+        // Every v13 site carries LM's byte: buffer seeds, the $048000 table, the reader, and
+        // all 21 overworld sprite-RAM operands (whole range compared, so a missed one shows).
+        var sites = new List<int> { 0x00BA40, 0x00BA44, 0x0480BD, 0x0480D0 };
+        sites.AddRange(Enumerable.Range(0x048000, 0x86));
+        sites.AddRange(Enumerable.Range(0x04F2B0, 0x128));
+        foreach (var rom in new[] { fresh, upgraded })
+            foreach (int a in sites)
+                Assert.True(shao.ReadByte(a) == rom.ReadByte(a), $"${a:X6}: {rom.ReadByte(a):X2} != LM's {shao.ReadByte(a):X2}");
+
+        // One tile through the reader: [$00] = a 4bpp tile in the buffer, X = 0 → $0AF6 gets it.
+        var cpu = new Cpu65816(fresh);
+        var tile = Enumerable.Range(0, 32).Select(i => (byte)(0xA0 + i)).ToArray();
+        int buf = RomPrep.GfxBuffer;
+        for (int i = 0; i < 32; i++) cpu.Ram7E[(buf & 0xFFFF) + i] = tile[i];
+        cpu.Ram7E[0x00] = (byte)buf; cpu.Ram7E[0x01] = (byte)(buf >> 8); cpu.Ram7E[0x02] = (byte)(buf >> 16);
+        cpu.PresetX(0);
+        cpu.PresetWidths(m8: false, x8: false);                    // the caller runs it under REP #$30
+        cpu.CallNear(0x0480B9);
+        for (int i = 0; i < 32; i++) Assert.Equal(tile[i], cpu.Ram7E[0x0AF6 + i]);
     }
 
     /// <summary>Run one GFX file through a prepped ROM's upload and return the bytes it sent to
@@ -1043,26 +1129,93 @@ public class RomPrepTests
         var clean = Rom.Load(TestRom.RealRomPath);
         var prep = PreppedReal();
 
-        Cpu65816 Run(Rom rom)
+        // Both a vertical level ($104, the original bug) and a horizontal one ($105): LM's engine
+        // takes different branches for the two.
+        foreach (int level in new[] { 0x104, 0x105 })
         {
-            var cpu = new Cpu65816(rom);
-            cpu.Ram7E[0x0E] = 0x04; cpu.Ram7E[0x0F] = 0x01;              // level 0x104
-            byte[] driver = [0x8B, 0x5C, 0xB7, 0xD8, 0x05];              // PHB : JML $05D8B7
-            driver.CopyTo(cpu.Ram7F, 0x9000);
-            cpu.CallLong(0x7F9000, 5_000_000);                           // tail PLB:RTL balances
-            return cpu;
-        }
+            Cpu65816 Run(Rom rom)
+            {
+                var cpu = new Cpu65816(rom);
+                cpu.Ram7E[0x0E] = (byte)level; cpu.Ram7E[0x0F] = (byte)(level >> 8);
+                // PHB : LDA #$05 : PHA : PLB : JML $05D8B7 — bank-05 code reads its tables DBR-relative.
+                byte[] driver = [0x8B, 0xA9, 0x05, 0x48, 0xAB, 0x5C, 0xB7, 0xD8, 0x05];
+                driver.CopyTo(cpu.Ram7F, 0x9000);
+                cpu.CallLong(0x7F9000, 5_000_000);                           // tail PLB:RTL balances
+                return cpu;
+            }
 
-        var a = Run(clean);
-        var b = Run(prep);
-        for (int i = 0; i < 0x10000; i++)
-        {
-            if (i is 0x010B or 0x010C || (i >= 0x0100 && i <= 0x01FF)) continue;
-            if (a.Ram7E[i] != b.Ram7E[i])
-                Assert.Fail($"RAM 7E:{i:X4} diverged: clean={a.Ram7E[i]:X2} prep={b.Ram7E[i]:X2}");
+            var a = Run(clean);
+            var b = Run(prep);
+            var diverged = new List<string>();
+            for (int i = 0; i < 0x10000; i++)
+            {
+                if (i is 0x010B or 0x010C || (i >= 0x0100 && i <= 0x01FF)) continue;
+                // $13CD: vanilla puts the midway screen there; LM's $05DD30 (v10) puts its $06FE00
+                // byte there and turns vanilla's store into a load. The one reader ($00F2D8) only
+                // tests it for zero, and LM's $1A keeps it non-zero — see AppendV10Stamps.
+                if (i == 0x13CD) continue;
+                // LM's level-entry engine (v10, LmLevelEntry) owns these: its `TSB $5A` marker, $0BE6
+                // bit 14, the per-screen tilemap pointer tables it rebuilds (checked below), and the
+                // level height $13D7 / $1936 that vanilla never had a RAM home for.
+                if (i is 0x06 or 0x5B or 0x0BE7 or 0x13D7 or 0x13D8 or 0x1936 or 0x1937 || (i >= 0x0BF6 && i < 0x0CF6)) continue;
+                // $FE/$FF: LM's $0EF550 level-word mirror leaves level+1 there (its sprite loader's
+                // "next level" scratch).
+                if (i is 0xFE or 0xFF) continue;
+                if (a.Ram7E[i] != b.Ram7E[i])
+                    diverged.Add($"7E:{i:X4} clean={a.Ram7E[i]:X2} prep={b.Ram7E[i]:X2}");
+            }
+            Assert.True(diverged.Count == 0, $"level {level:X3}: " + string.Join(" | ", diverged));
+            // The pointer tables at vanilla height: 32 screens of 0x1B0 bytes from $7E:C800 (low
+            // plane) and $7F:C800 (high plane), which is what vanilla's own table at $00A88B says too.
+            for (int i = 0; i < 0x20; i++)
+            {
+                int lo = b.Ram7E[0x0BF6 + i * 3] | (b.Ram7E[0x0BF7 + i * 3] << 8) | (b.Ram7E[0x0BF8 + i * 3] << 16);
+                int hi = b.Ram7E[0x0C56 + i * 3] | (b.Ram7E[0x0C57 + i * 3] << 8) | (b.Ram7E[0x0C58 + i * 3] << 16);
+                Assert.Equal(0x7EC800 + i * 0x1B0, lo);
+                Assert.Equal(0x7FC800 + i * 0x1B0, hi);
+                Assert.Equal(lo & 0xFF, b.Ram7E[0x0CB6 + i]);                 // the block probe's copies
+                Assert.Equal((lo >> 8) & 0xFF, b.Ram7E[0x0CD6 + i]);
+            }
+            // Both levels are horizontal: $13D7 is the vanilla height, $06 (block A's scratch) is
+            // height less a screen.
+            Assert.Equal(0x01B0, b.Ram7E[0x13D7] | (b.Ram7E[0x13D8] << 8));
+            Assert.Equal(0xC0, b.Ram7E[0x06]);
+            Assert.Equal(0x80, b.Ram7E[0x5B] & 0x80);
+            Assert.Equal(level & 0xFF, b.Ram7E[0x010B]);
+            Assert.Equal(level >> 8, b.Ram7E[0x010C]);
         }
-        Assert.Equal(0x04, b.Ram7E[0x010B]);
-        Assert.Equal(0x01, b.Ram7E[0x010C]);
+    }
+
+    /// <summary>
+    /// The height engine at a NON-vanilla height: set level $105's height byte to LUT index 0x17
+    /// (0x950 px, 149 rows — DogsOfWar's $10F) and run the load chain. $13D7 is the LUT value, the
+    /// per-screen tilemap pointers step by it, and the block probe's copies follow.
+    /// </summary>
+    [RealRomFact]
+    public void a_taller_level_gets_its_height_into_ram_and_its_pointer_tables_restrided()
+    {
+        var prep = PreppedReal();
+        prep.Data[prep.FileOffset(prep.LmLevelHeightTable + 0x105)] = 0x17;
+        Assert.Equal(0x950, prep.LevelHeightPx(0x105));
+        Assert.Equal(149, prep.LevelHeightRows(0x105));
+
+        var cpu = new Cpu65816(prep);
+        cpu.Ram7E[0x0E] = 0x05; cpu.Ram7E[0x0F] = 0x01;
+        // PHB : LDA #$05 : PHA : PLB : JML $05D8B7 — bank-05 code reads its tables DBR-relative.
+                byte[] driver = [0x8B, 0xA9, 0x05, 0x48, 0xAB, 0x5C, 0xB7, 0xD8, 0x05];
+        driver.CopyTo(cpu.Ram7F, 0x9000);
+        cpu.CallLong(0x7F9000, 5_000_000);
+        var b = cpu.Ram7E;
+        Assert.Equal(0x0950, b[0x13D7] | (b[0x13D8] << 8));
+        Assert.Equal(0x0940, b[0x1936] | (b[0x1937] << 8));
+        // 0x3800 / 0x950 = 6 columns fit; LM's builder stops at the first pointer past $FFFF.
+        for (int i = 0; i < 6; i++)
+        {
+            int lo = b[0x0BF6 + i * 3] | (b[0x0BF7 + i * 3] << 8) | (b[0x0BF8 + i * 3] << 16);
+            Assert.Equal(0x7EC800 + i * 0x950, lo);
+            Assert.Equal(lo & 0xFF, b[0x0CB6 + i]);                   // block-probe copies
+            Assert.Equal((lo >> 8) & 0xFF, b[0x0CD6 + i]);
+        }
     }
 
     [RealRomFact]
@@ -1303,5 +1456,39 @@ public class RomPrepTests
         Assert.Equal(0x01, vanilla.ReadByte(RomPrep.ExitFlagMask));
         Assert.Equal(0x0F, prepped.ReadByte(RomPrep.ExitFlagMask));
         Assert.False(vanilla.HasExitLevelHighBit);
+    }
+
+    /// <summary>V11's engine RUNS: a global slot written into a prepped image is resolved by
+    /// LM's own processor (emulated) to the DMA records the game would perform — dest tile A0,
+    /// one 0x20-byte tile per frame, source inside our file-60 block. And the per-level table
+    /// round-trips a record through the same writer LM's layout implies.</summary>
+    [Fact]
+    public void v11_exanimation_engine_runs_a_written_slot()
+    {
+        var rom = PreppedReal();
+        rom.SetLmAltExGfx(0, Enumerable.Range(0, 0x400).Select(i => (byte)i).ToArray());
+        var slot = new ExAnimation.Slot(0, 1, ExAnimation.TriggerNone, 3, 0x8A00, [0x0020, 0x00A0, 0x0140], 0);
+        Assert.Null(rom.WriteGlobalExAnim([slot], 0));
+        Assert.True(rom.LmGlobalExAnimPtr > 0);
+        var back = Assert.Single(ExAnimation.ReadGlobal(rom));
+        Assert.Equal((slot.Type, slot.Trigger, slot.FrameCount, slot.DestWord), (back.Type, back.Trigger, back.FrameCount, back.DestWord));
+        Assert.Equal(slot.Frames, back.Frames);
+
+        var frames = ExAnimation.ResolveGlobal(rom, 32).Where(f => f.Ctrl != 0).ToList();
+        Assert.NotEmpty(frames);
+        Assert.All(frames, f => Assert.Equal(0xA0, f.DestTile));
+        Assert.All(frames, f => Assert.Equal(0x20, f.Ctrl));
+        int file = rom.LmAltExGfx(0);
+        Assert.Contains(frames, f => f.SrcSnes == file + 0x20);
+        Assert.Contains(frames, f => f.SrcSnes == file + 0xA0);
+
+        Assert.Null(rom.WriteLevelExAnim(0x105, [slot with { Index = 5, DestWord = 0x0A00, Frames = [0x7D20, 0x87A0, 0x9240] }], 0));
+        var lvl = Assert.Single(ExAnimation.ReadLevel(rom, 0x105));
+        Assert.Equal(5, lvl.Index);
+        Assert.Equal(0x601, lvl.SrcTile(0));
+        Assert.Null(rom.WriteLevelExAnim(0x105, [], 0));
+        Assert.Empty(ExAnimation.ReadLevel(rom, 0x105));
+        Assert.Null(rom.WriteGlobalExAnim([], 0));
+        Assert.Equal(-1, rom.LmGlobalExAnimPtr);
     }
 }

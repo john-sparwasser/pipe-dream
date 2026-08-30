@@ -30,13 +30,19 @@ public static class LevelEncoder
     public static List<LevelObject> NormalizeStream(IEnumerable<LevelObject> objs, List<int>? provenance)
     {
         var outl = new List<LevelObject>();
-        int running = 0;
+        int running = 0, runningBand = 0;
         // Input screen jumps are dropped and re-derived below — they're stream plumbing,
         // not content. Keeping them would stack a fresh jump in front of each old one on
         // every normalize→save cycle, growing the stream forever.
         foreach (var (o, i) in objs.Select((o, i) => (o, i)).Where(t => !t.o.IsScreenJump).OrderBy(t => t.o.Screen))
         {
-            if (o.Screen != running) { outl.Add(LevelObject.ScreenJump(o.Screen)); provenance?.Add(-1); running = o.Screen; }
+            // A jump whenever the screen OR the band changes. Bands are not sorted: stream order
+            // is z-order, and LM itself emits band jumps mid-screen.
+            if (o.Screen != running || o.Band != runningBand)
+            {
+                outl.Add(LevelObject.ScreenJump(o.Screen, o.Band)); provenance?.Add(-1);
+                running = o.Screen; runningBand = o.Band;
+            }
             outl.Add(o.WithNewScreen(false)); provenance?.Add(i);
         }
         return outl;

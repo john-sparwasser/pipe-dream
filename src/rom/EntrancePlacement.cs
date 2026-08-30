@@ -22,17 +22,35 @@ namespace PipeDream;
 /// The consequence for an editor: a marker cannot be dragged anywhere. It snaps to one of
 /// 8 x 16 positions per screen, because that is all a VANILLA ROM can express.
 ///
-/// Lunar Magic calls this "method 1" and ships a "method 2" that abandons the tables for
-/// 16px-granular coordinates plus a Y high byte, hooked at $05D979 and gated by $192A bit 6 —
-/// the same bit an extended screen exit sets. Every real hack in reference/ carries it; no
-/// vanilla or prepped ROM does. reference/LM_PARITY.md has the layout and what adopting it
-/// would take.
+/// Lunar Magic calls this "method 1" and ships a "method 2" that reinterprets the SAME two
+/// index nibbles as 16px steps (X = screen &lt;&lt; 8 | xHigh &lt;&lt; 7 | xIndex &lt;&lt; 4,
+/// Y = yHigh &lt;&lt; 8 | yIndex &lt;&lt; 4) — $05DD30 for the main entrance, $03BCE0 for secondary
+/// ones. Every LM save installs both and prep v10 stamps the same bytes, so the
+/// <c>Method2*</c> half of this class is the decode of those routines. The midway entrance
+/// stays a screen either way: it borrows the main entrance's in-screen position.
 /// </summary>
 public static class EntrancePlacement
 {
     public const int XTable = 0x05D750;                     // 8 entries, low byte
     public const int YTableLo = 0x05D730, YTableHi = 0x05D740;   // 16 entries
     public const int XCount = 8, YCount = 16, ScreenCount = 0x20;
+
+    /// <summary>Method 2: level-pixel X for a screen, an X index and the X-high bit (bit 7 of
+    /// X, "which half of the screen"). Horizontal levels only — the vertical branch keeps the
+    /// second X-high bit and puts the screen in Y instead.</summary>
+    public static int Method2X(int screen, int xIndex, int xHigh)
+        => (screen & 0x1F) * 0x100 | ((xHigh & 1) << 7) | ((xIndex & 7) << 4);
+
+    /// <summary>Method 2: level-pixel Y for a Y index and the 6-bit Y high byte.</summary>
+    public static int Method2Y(int yIndex, int yHigh) => ((yHigh & 0x3F) << 8) | ((yIndex & 15) << 4);
+
+    /// <summary>The method-2 fields for a level-pixel position, snapped to the 16px grid the
+    /// format can express. The inverse of <see cref="Method2X"/>/<see cref="Method2Y"/>.</summary>
+    public static (int Screen, int XIndex, int XHigh, int YIndex, int YHigh) Method2Fields(int px, int py)
+    {
+        px = Math.Clamp(px, 0, 0x1FFF); py = Math.Clamp(py, 0, 0x3FFF);
+        return (px >> 8, (px >> 4) & 7, (px >> 7) & 1, (py >> 4) & 15, py >> 8);
+    }
 
     /// <summary>Level-pixel X for a screen and an X index.</summary>
     public static int X(Rom rom, int screen, int xIndex)

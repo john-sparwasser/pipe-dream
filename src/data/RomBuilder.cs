@@ -54,11 +54,43 @@ internal static class RomBuilder
     /// <summary>Replay the project's entrance-table edits into a ROM — secondary entrance
     /// records and per-level main entrances. Same code for the session ROM and a fresh build
     /// copy, so the editor can't drift from the built game.</summary>
+    /// <summary>
+    /// Write the project's ExAnimation into the ROM: source files 60-63 (from <c>Gfx</c>, raw,
+    /// uncompressed — the engine DMAs them straight from ROM), then the per-level records and
+    /// the global list. Shared by the build and the session hydrate, so the in-app overlay and
+    /// the built ROM cannot disagree. Silent on a base without the engine only when there is
+    /// nothing to write.
+    /// </summary>
+    internal static void ReplayExAnimation(Rom rom, ProjectFile data, List<string>? warnings)
+    {
+        var alt = data.Gfx.Where(kv => Convert.ToInt32(kv.Key, 16) is >= 0x60 and <= 0x63).ToList();
+        bool any = alt.Count > 0 || data.ExAnimation.Levels.Count > 0 || data.ExAnimation.Global is not null;
+        if (!any) return;
+        if (rom.LmExAnimBase < 0)
+        {
+            warnings?.Add($"ExAnimation skipped (base lacks LM's ExAnimation engine — File → Upgrade base to prep v{RomPrep.Version})");
+            return;
+        }
+        foreach (var (idHex, b64) in alt.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+            rom.SetLmAltExGfx(Convert.ToInt32(idHex, 16) - 0x60, Convert.FromBase64String(b64));
+        foreach (var (key, hex) in data.ExAnimation.Levels.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+        {
+            if (!IsLevelKey(key, out int level)) { warnings?.Add($"ignored ExAnimation entry '{key}' — not a level number"); continue; }
+            var rec = Convert.FromHexString(hex);
+            if (rom.WriteLevelExAnim(level, ExAnimation.ParseSlots(rec), rec.Length > 1 ? rec[1] : 0) is { } err) warnings?.Add($"level {key}: {err}");
+        }
+        if (data.ExAnimation.Global is { } g)
+        {
+            var rec = Convert.FromHexString(g);
+            if (rom.WriteGlobalExAnim(ExAnimation.ParseSlots(rec), rec.Length > 1 ? rec[1] : 0) is { } err) warnings?.Add($"global ExAnimation: {err}");
+        }
+    }
+
     internal static void ReplayEntrances(Rom rom, ProjectFile data)
     {
         foreach (var (idxHex, hex) in data.Entrances)
         {
-            if (hex.Length != 8) continue;               // unfilled placeholder
+            if (hex.Length is not (8 or 10 or 12)) continue;   // unfilled placeholder
             int index = Convert.ToInt32(idxHex, 16);
             if (index is < 0 or >= Rom.SecondaryEntranceCount) continue;
             rom.WriteSecondaryEntrance(index, new SecondaryEntrance(Convert.FromHexString(hex)));
@@ -66,9 +98,7 @@ internal static class RomBuilder
         foreach (var (levelHex, state) in data.Levels)
         {
             int level = Convert.ToInt32(levelHex, 16);
-            if (state.FreeEntrances is { Length: 16 } free)
-                FreeEntrance.SetBytes(rom, level, Convert.FromHexString(free));
-            if (state.MainEntrance is not { Length: 8 } hex) continue;
+            if (state.MainEntrance is not { Length: 8 or 12 or 20 or 22 or 24 } hex) continue;
             rom.WriteMainEntrance(level, new MainEntrance(Convert.FromHexString(hex)));
         }
     }
@@ -84,6 +114,7 @@ internal static class RomBuilder
             if (ReplayMap16(rom, project.Data) is { } err) return (err, null);
             ReplayEntrances(rom, project.Data);
             WriteGfx(rom, project.Data, warnings);
+            ReplayExAnimation(rom, project.Data, warnings);
 
             // Skip level entries whose key is not a level number. A project should never contain
             // one, but an editor bug wrote entries keyed -1 for a while, and refusing to build a
@@ -138,6 +169,16 @@ internal static class RomBuilder
                 // base reads bank $07 fixed, so there it's overwrite-in-place-if-it-fits.
                 var sd = new SpriteData { SpriteMemory = state.SpriteMemory, Buoyancy = state.Buoyancy };
                 sd.Sprites.AddRange(state.Sprites.Select(s => s.ToSprite()));
+                // LM's size table (CONTRACT §11): a record's length is per (extra bits, number), and
+                // the game reads the table, so every sprite carrying extra bytes registers its size.
+                // Two placements of one sprite with different lengths cannot both be right.
+                foreach (var g in sd.Sprites.Where(s => s.ExtraBytes is not null).GroupBy(s => (s.Extra, s.Number)))
+                {
+                    int size = 3 + g.Max(s => s.ExtraBytes!.Length);
+                    if (g.Select(s => s.ExtraBytes!.Length).Distinct().Count() > 1)
+                        warnings.Add($"level {key}: sprite {g.Key.Number:X2} (extra bits {g.Key.Extra}) placed with differing extra-byte counts; the game reads {size} bytes for all of them");
+                    rom.SetSpriteEntrySize(g.Key.Extra, g.Key.Number, size);
+                }
                 byte[] sprites = sd.Encode();
                 if (rom.LmSpriteBankTable >= 0)
                 {
@@ -240,6 +281,7 @@ internal static class RomBuilder
                 warnings.Add($"GFX{id:X3} skipped (base lacks the in-game GFX loader — File → Upgrade base to prep v{RomPrep.Version})");
                 continue;
             }
+            if (id is >= 0x60 and <= 0x63) continue;         // ExAnimation source files: ReplayExAnimation, raw
             if (id is >= 0x34 and < 0x80)
             {
                 warnings.Add($"GFX{id:X2} skipped (0x34-0x7F are not loadable ids)");

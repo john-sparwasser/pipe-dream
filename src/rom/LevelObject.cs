@@ -8,7 +8,11 @@ public readonly struct LevelObject
     public readonly int Number;      // 0x00-0x3F (0 = extended)
     public readonly int Screen;      // absolute screen number
     public readonly int XNibble;     // 0-15 within screen
-    public readonly int Y;           // 0-0x1F
+    public readonly int Y;           // 0-0x1F within the band
+    /// <summary>Lunar Magic's 32-row band (0 in a vanilla-height level): set for the objects that
+    /// follow by ext 01's X nibble or ext 03's Y field — how a tall level places past row 31.
+    /// Row = Band * 32 + Y (<see cref="AbsoluteY"/>).</summary>
+    public readonly int Band;
     public readonly int Byte3;       // raw settings byte (= size for DM16)
     public readonly int ExtraByte;   // 4th byte for screen exits, else -1
     public readonly int Dm16Tile;    // Direct-Map16 tile number, else -1
@@ -21,28 +25,37 @@ public readonly struct LevelObject
     public int Height => (Byte3 >> 4) + 1;
     public int ExtendedNumber => Byte3;   // when Extended
     public int AbsoluteX => Screen * 16 + XNibble;
+    public int AbsoluteY => Band * 32 + Y;
     // Screen exit = extended object 0x00; the only variable-length object (4 bytes).
     public bool IsScreenExit => Extended && Byte3 == 0x00;
-    // Screen jump = extended object 0x01; stream plumbing, re-derived by NormalizeStream.
-    public bool IsScreenJump => Extended && Byte3 == 0x01;
+    // Screen jump = extended object 0x01 (LM: band in X too); band jump = LM's ext 0x03 (band in
+    // Y, screen in X). Both are stream plumbing, re-derived by NormalizeStream.
+    public bool IsScreenJump => Extended && (Byte3 == 0x01 || Byte3 == 0x03);
     // Direct Map16: LM object # 0x23 (Form A, page 1) or 0x27 (Form B, any page).
     public bool IsDm16 => Dm16Tile >= 0;
 
     public LevelObject(bool newScreen, int number, int screen, int xNibble, int y, int b3, int extra, int dm16 = -1,
-                       int dm16Page = -1, int dm16ExtX = -1, int dm16ExtH = -1)
+                       int dm16Page = -1, int dm16ExtX = -1, int dm16ExtH = -1, int band = 0)
     {
         NewScreen = newScreen; Number = number; Screen = screen;
         XNibble = xNibble; Y = y; Byte3 = b3; ExtraByte = extra; Dm16Tile = dm16; Extended = number == 0;
-        Dm16Page = dm16Page; Dm16ExtX = dm16ExtX; Dm16ExtH = dm16ExtH;
+        Dm16Page = dm16Page; Dm16ExtX = dm16ExtX; Dm16ExtH = dm16ExtH; Band = band;
     }
 
     /// <summary>This object with a different NewScreen flag (struct is immutable).</summary>
     public LevelObject WithNewScreen(bool ns) =>
-        new(ns, Number, Screen, XNibble, Y, Byte3, ExtraByte, Dm16Tile, Dm16Page, Dm16ExtX, Dm16ExtH);
+        new(ns, Number, Screen, XNibble, Y, Byte3, ExtraByte, Dm16Tile, Dm16Page, Dm16ExtX, Dm16ExtH, Band);
 
-    /// <summary>A vanilla screen-jump command (ext obj 0x01) targeting a screen.</summary>
-    public static LevelObject ScreenJump(int screen) =>
-        new(false, 0, screen, 0, screen & 0x1F, 0x01, -1);
+    /// <summary>This object at another cell (absolute column and row), everything else kept.</summary>
+    public LevelObject AtCell(int x, int row) =>
+        new(NewScreen, Number, (x >> 4) & 0x1F, x & 15, row & 0x1F, Byte3, ExtraByte, Dm16Tile, Dm16Page, Dm16ExtX, Dm16ExtH, row >> 5);
+
+    /// <summary>A screen-jump command targeting a screen and (LM) a 32-row band: ext 01 carries a
+    /// band up to 15 in its X nibble, which vanilla's handler ignores; bands 16-31 need ext 03,
+    /// whose X nibble is the screen — fine, since they only exist in one-column levels.</summary>
+    public static LevelObject ScreenJump(int screen, int band = 0) =>
+        band < 16 ? new(false, 0, screen, band, screen & 0x1F, 0x01, -1, band: band)
+                  : new(false, 0, screen, screen & 0x0F, band & 0x1F, 0x03, -1, band: band);
 
     // ---- Screen exits (CONTRACT §4, handler $0DA512) -------------------------------
     // The handler indexes its tables with `$0A & $1F` — the Y FIELD, not the object's
@@ -102,15 +115,15 @@ public readonly struct LevelObject
     /// <summary>Create a Direct Map16 object placing <paramref name="tile"/> at a cell.
     /// Sizes past 16 use LM's extended Form B (page bits 6+7: 7-bit width in byte3,
     /// height byte) — verified against the handler: max 128 wide x 256 tall.</summary>
-    public static LevelObject MakeDm16(int tile, int screen, int xNib, int y, int w = 1, int h = 1, bool newScreen = false)
+    public static LevelObject MakeDm16(int tile, int screen, int xNib, int y, int w = 1, int h = 1, bool newScreen = false, int band = 0)
     {
         if (w > 16 || h > 16)
             return new LevelObject(newScreen, 0x27, screen, xNib, y, Math.Clamp(w, 1, 128) - 1, -1, tile,
-                                   ((tile >> 8) & 0x3F) | 0xC0, 0, Math.Clamp(h, 1, 256) - 1);
+                                   ((tile >> 8) & 0x3F) | 0xC0, 0, Math.Clamp(h, 1, 256) - 1, band);
         // Page-0 Form (obj 0x22), page-1 Form A (0x23), or general Form B (0x27).
         int num = tile <= 0xFF ? 0x22 : tile <= 0x1FF ? 0x23 : 0x27;
         int size = ((h - 1) << 4) | (w - 1);
-        return new LevelObject(newScreen, num, screen, xNib, y, size, -1, tile);
+        return new LevelObject(newScreen, num, screen, xNib, y, size, -1, tile, band: band);
     }
 
     /// <summary>Declared size of a DM16 object (extended Form B or nibble forms).
@@ -134,13 +147,13 @@ public readonly struct LevelObject
         {
             int b3 = ((h - 1) << 4) | (w - 1);
             if (Number is 0x22 or 0x23 || Dm16Page < 0)
-                return new(NewScreen, Number, Screen, XNibble, Y, b3, ExtraByte, Dm16Tile);
+                return new(NewScreen, Number, Screen, XNibble, Y, b3, ExtraByte, Dm16Tile, band: Band);
             bool run = (Dm16Page & 0x80) != 0;         // keep the stamp descriptor if present
             return new(NewScreen, Number, Screen, XNibble, Y, b3, ExtraByte, Dm16Tile,
-                       run ? page | 0x80 : page, run ? Math.Max(0, Dm16ExtX) : -1, -1);
+                       run ? page | 0x80 : page, run ? Math.Max(0, Dm16ExtX) : -1, -1, Band);
         }
         int num = Number == 0x29 ? 0x29 : 0x27;
         return new(NewScreen, num, Screen, XNibble, Y, w - 1, ExtraByte, Dm16Tile,
-                   page | 0xC0, Math.Max(0, Dm16ExtX), h - 1);
+                   page | 0xC0, Math.Max(0, Dm16ExtX), h - 1, Band);
     }
 }

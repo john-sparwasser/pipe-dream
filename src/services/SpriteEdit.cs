@@ -27,7 +27,7 @@ public sealed class SpriteEdit(SpriteData sprites, SpriteOverlay? overlay, bool 
     {
         int abs = vert ? cy : cx, y = vert ? cx : cy;
         return new Sprite(Screen: (abs >> 4) & 0x1F, XNibble: abs & 15, Y: y & 0x1F,
-                          Extra: extra, Number: number, ExtraBytes: extraBytes);
+                          Extra: extra, Number: number, ExtraBytes: extraBytes, Band: vert ? 0 : y >> 5);
     }
 
     /// <summary>Pixel rectangle a sprite occupies on screen, falling back to its spawn cell
@@ -74,10 +74,28 @@ public sealed class SpriteEdit(SpriteData sprites, SpriteOverlay? overlay, bool 
         }
     }
 
+    /// <summary>Record size for (extra bits, number) — LM's size table when the ROM has one, else 3.
+    /// A placed sprite gets zeroed extra bytes to that size, or the game reads the next record
+    /// as its data.</summary>
+    public Func<int, int, int> EntrySize { get; init; } = (_, _) => 3;
+
     public bool Place(int number, int cx, int cy)
     {
         Snapshot();
-        Sprites.Sprites.Add(At(number, 0, cx, cy, vertical));
+        int size = EntrySize(0, number);
+        Sprites.Sprites.Add(At(number, 0, cx, cy, vertical, size > 3 ? new byte[size - 3] : null));
+        return Commit();
+    }
+
+    /// <summary>Rewrite what one sprite IS — number, extra bits, extra bytes — keeping its cell.
+    /// LM's "insert manually" fields; the size table follows at build time.</summary>
+    public bool SetData(int i, int number, int extra, byte[]? extraBytes)
+    {
+        if (i < 0 || i >= Sprites.Sprites.Count) return false;
+        Snapshot();
+        var s = Sprites.Sprites[i];
+        Sprites.Sprites[i] = s with { Number = number & 0xFF, Extra = extra & 3,
+                                      ExtraBytes = extraBytes is { Length: > 0 } ? extraBytes : null };
         return Commit();
     }
 

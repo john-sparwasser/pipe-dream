@@ -159,6 +159,15 @@ public sealed class EditorSession
         return (px, w, h);
     }
 
+    /// <summary>The empty-page tile per phase, for the picker to tile over unallocated pages.</summary>
+    public uint[]?[] PlaceholderPhases()
+    {
+        var px = new uint[4][];
+        if (Rom is { } r && Scene is { } s)
+            for (int p = 0; p < 4; p++) px[p] = s.Placeholder(r, LevelNum, p);
+        return px;
+    }
+
     /// <summary>The level's 8x8 GFX sheet in one palette row, for the Map16 editor's picker —
     /// again one per phase, off the scene's own per-phase graphics.</summary>
     public (uint[]?[] Px, int W, int H) ChrPhases(int palRow)
@@ -586,6 +595,16 @@ public sealed class EditorSession
         }
         else if (name.Trim().Length > 0) Rom.ImportedGfxNames[g.File] = name.Trim();
 
+        // An ExAnimation source file lives in the ROM uncompressed: push the edited bytes into
+        // its block too, so the animation overlay draws what was just painted.
+        if (g.File is >= 0x60 and <= 0x63 && Rom.LmExAnimBase >= 0)
+        {
+            Rom.SetLmAltExGfx(g.File - 0x60, bytes);
+            Gfx.InvalidateCache(Rom);
+            Scene?.InvalidateGfx();
+            RecomposeScene();
+        }
+
         Save();
         return GfxName(g.File) is { Length: > 0 } n ? $"saved \"{n}\"" : $"saved GFX{g.File:X3}";
     }
@@ -918,12 +937,20 @@ public sealed class EditorSession
 
     public bool NewProject(string folder, string baseRomSource)
     {
+        bool fresh = !Directory.Exists(folder);
         try
         {
             var p = Project.Create(folder, baseRomSource);
             return OpenProject(p.FilePath);
         }
-        catch (Exception ex) { Report("could not create project: " + ex.Message); return false; }
+        catch (Exception ex)
+        {
+            // A folder with base.smc and no project.pdp is a puzzle to find later, and blocks the
+            // name for the retry (ProjectFolderFor steps to "-2"). Take back only what we made.
+            if (fresh) try { Directory.Delete(folder, recursive: true); } catch { }
+            Report($"could not create project: {ex.Message} ({ex.GetType().Name})");
+            return false;
+        }
     }
 
     // ---- level navigation ----
@@ -973,7 +1000,7 @@ public sealed class EditorSession
             if (live is not null) DrawSprites(live);
 
             Sprites = (live ?? Scene.Sprites) is { } sd
-                ? new SpriteEdit(sd, Scene.Overlay, Vertical) : null;
+                ? new SpriteEdit(sd, Scene.Overlay, Vertical) { EntrySize = Rom.SpriteEntrySize } : null;
 
             layer1 = new LevelEdit(Rom, Scene, objects);
             // Always run the TRACKED render, as the ImGui editor does on every parse. It is
@@ -1314,9 +1341,178 @@ public sealed class EditorSession
     /// its own bank-05 tables, so like Map16 it is written straight into the session ROM and
     /// re-read from there at save time rather than being carried in the level state.
     /// </summary>
+    // ---- ExAnimation (reference/EXANIMATION.md) ----
+
+    /// <summary>The current level's slots, or the global list's, as the ROM has them.</summary>
+    public IReadOnlyList<ExAnimation.Slot> ExAnimSlots(bool global)
+        => Rom is null ? [] : global ? ExAnimation.ReadGlobal(Rom) : ExAnimation.ReadLevel(Rom, LevelNum);
+
+    /// <summary>
+    /// One frame of a tile slot as pixels, in the slot's shape (a line of N tiles, or the
+    /// stacked / 16x16 / 32x16 block), coloured with the level's palette row. The source is
+    /// whatever the frame word names: a byte offset into the list's alternate file, or a $7E
+    /// address in AN1 ($7D00, GFX33), AN2 ($AD00, the level's bypass file) or Mario's sheet
+    /// ($2000, GFX32). Empty when the source is not loaded (no AN2 file, no alt file yet).
+    /// </summary>
+    public (uint[] Px, int W, int H) ExAnimFramePixels(ExAnimation.Slot s, int frame, int palRow)
+    {
+        if (Rom is null || Scene?.Palettes[0] is not { } pal || s.IsPalette || s.TileCount == 0 || frame >= s.Frames.Length)
+            return ([], 0, 0);
+        int word = s.Frames[frame];
+        byte[]? src; int off, bpp;
+        if (s.AltFile)
+        {
+            src = Gfx.Cached(Rom, 0x60 + s.AltFileIndex); off = word; bpp = s.Type == ExAnimation.Type2bpp ? 2 : 4;
+        }
+        else if (word >= 0xAD00)
+        {
+            int an2 = GfxBins.FirstOrDefault(b => b.Name == "AN2").File;
+            src = an2 is 0 or 0x7F ? null : Gfx.Cached(Rom, an2); bpp = an2 is 0 or 0x7F ? 4 : Gfx.FileBpp(Rom, an2);
+            off = (word - 0xAD00) / 0x20 * Gfx.TileBytes(bpp);
+        }
+        else if (word >= 0x7D00)
+        {
+            src = Gfx.Cached(Rom, 0x33); bpp = Gfx.FileBpp(Rom, 0x33); off = (word - 0x7D00) / 0x20 * Gfx.TileBytes(bpp);
+        }
+        else
+        {
+            src = Gfx.Cached(Rom, 0x32); bpp = 4; off = (word - 0x2000) / 0x20 * 0x20;
+        }
+        if (src is null) return ([], 0, 0);
+
+        int cols = s.Type switch { ExAnimation.TypeStacked => 1, ExAnimation.Type16x16 => 2, ExAnimation.Type32x16 => 4, _ => s.TileCount };
+        int rows = (s.TileCount + cols - 1) / cols;
+        int w = cols * 8, h = rows * 8, tb = Gfx.TileBytes(bpp), baseColor = (palRow & 0x0F) * 16;
+        var px = new uint[w * h];
+        for (int k = 0; k < s.TileCount; k++)
+        {
+            if (off + (k + 1) * tb > src.Length) break;
+            var tile = Gfx.DecodeTile(src, off + k * tb, bpp);
+            int ox = (k % cols) * 8, oy = (k / cols) * 8;
+            for (int y = 0; y < 8; y++)
+                for (int x = 0; x < 8; x++)
+                {
+                    int idx = tile[y * 8 + x];
+                    px[(oy + y) * w + ox + x] = idx == 0 ? 0xFF303030u : pal.Rgba[baseColor + idx];
+                }
+        }
+        return (px, w, h);
+    }
+
+    /// <summary>Add a working slot with nothing decided yet — the next free slot number, one 8x8,
+    /// no trigger, one frame of AN1 tile 600, destination tile 000 — so the decisions can be made
+    /// on the timeline afterwards. Null when the list is full or the base cannot hold it.</summary>
+    public ExAnimation.Slot? AddExAnimSlot(bool global)
+    {
+        var have = ExAnimSlots(global);
+        int index = Enumerable.Range(0, 0x20).FirstOrDefault(i => have.All(s => s.Index != i), -1);
+        if (index < 0) { Report("all 32 slots of this list are used"); return null; }
+        var slot = new ExAnimation.Slot(index, 1, ExAnimation.TriggerNone, 1, 0x0000, [0x7D00], ExAnimAltFile(global));
+        return SetExAnimSlot(global, slot) ? slot : null;
+    }
+
+    /// <summary>Replace (or add) one slot in a list, keeping the list's source file.</summary>
+    public bool SetExAnimSlot(bool global, ExAnimation.Slot slot)
+    {
+        var list = ExAnimSlots(global).Where(x => x.Index != slot.Index).ToList();
+        list.Add(slot);
+        return SetExAnim(global, list, ExAnimAltFile(global));
+    }
+
+    /// <summary>What currently sits at a tile slot's destination in the level's VRAM, in the slot's
+    /// shape — the thing the animation will overwrite. Empty for palette slots.</summary>
+    public (uint[] Px, int W, int H) ExAnimDestPixels(ExAnimation.Slot s, int palRow)
+    {
+        if (Rom is null || Scene?.Palettes[0] is not { } pal || s.IsPalette || s.TileCount == 0) return ([], 0, 0);
+        var fg = Scene.Fg(Rom, LevelNum, 0);
+        int cols = s.Type switch { ExAnimation.TypeStacked => 1, ExAnimation.Type16x16 => 2, ExAnimation.Type32x16 => 4, _ => s.TileCount };
+        int rows = (s.TileCount + cols - 1) / cols, w = cols * 8, h = rows * 8, baseColor = (palRow & 0x0F) * 16;
+        var px = new uint[w * h];
+        for (int k = 0; k < s.TileCount; k++)
+        {
+            int tile = s.DestTileAt(k);
+            if (tile is < 0 or >= 0x400) continue;
+            var t = fg.Fetch(tile);
+            int ox = (k % cols) * 8, oy = (k / cols) * 8;
+            for (int y = 0; y < 8; y++)
+                for (int x = 0; x < 8; x++)
+                {
+                    int idx = t[y * 8 + x];
+                    px[(oy + y) * w + ox + x] = idx == 0 ? 0xFF303030u : pal.Rgba[baseColor + idx];
+                }
+        }
+        return (px, w, h);
+    }
+
+    /// <summary>Which of files 60-63 a list reads (its record header), 0 when it has no record.</summary>
+    public int ExAnimAltFile(bool global)
+    {
+        if (Rom is null) return 0;
+        int ptr = global ? Rom.LmGlobalExAnimPtr : Rom.LmExAnimBase < 0 ? -1 : Rom.ReadValue(Rom.LmExAnimBase + LevelNum * 3, 3);
+        return ptr > 0xFFFF ? Rom.ReadByte(ptr + 1) & 3 : 0;
+    }
+
+    /// <summary>Replace the level's (or the global) slot list: written to the session ROM so the
+    /// canvas animates it, recorded in the project as the encoded record, and the graphics
+    /// recomposed. False with a report when the base cannot hold it.</summary>
+    public bool SetExAnim(bool global, IReadOnlyList<ExAnimation.Slot> slots, int altFileIndex)
+    {
+        if (Rom is null) return false;
+        string? err = global ? Rom.WriteGlobalExAnim(slots, altFileIndex) : Rom.WriteLevelExAnim(LevelNum, slots, altFileIndex);
+        if (err is not null) { Report(err); return false; }
+        if (Project is not null)
+        {
+            string? hex = slots.Count == 0 ? null : Convert.ToHexString(ExAnimation.Encode(slots, altFileIndex));
+            if (global) Project.Data.ExAnimation.Global = hex;
+            else if (hex is null) Project.Data.ExAnimation.Levels.Remove(LevelNum.ToString("X3"));
+            else Project.Data.ExAnimation.Levels[LevelNum.ToString("X3")] = hex;
+            Project.MarkDirty();
+        }
+        Scene?.InvalidateGfx();
+        Rebuild("exanimation");
+        return true;
+    }
+
+    /// <summary>Install raw 4bpp tile data as ExAnimation source file 60+<paramref name="index"/>
+    /// (≤ 32KB): into the session ROM for the overlay, and into the project under its id.</summary>
+    /// <summary>The same from a file on disk (a raw 4bpp .bin, as LM's ExGraphics/ExGFX6x.bin).</summary>
+    public bool ImportExAnimSource(int index, string path)
+    {
+        byte[] data;
+        try { data = File.ReadAllBytes(path); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Report($"could not read {path}: {e.Message}"); return false; }
+        return SetExAnimSource(index, data);
+    }
+
+    public bool SetExAnimSource(int index, byte[] data)
+    {
+        if (Rom is null || Rom.LmExAnimBase < 0) { Report("this base has no ExAnimation engine — File → Upgrade base"); return false; }
+        if (data.Length is 0 or > 0x8000) { Report("an ExAnimation source file is 1..32768 bytes"); return false; }
+        Rom.SetLmAltExGfx(index, data);
+        Rom.ImportedGfx[0x60 + index] = data;
+        Project?.MarkDirty();
+        Scene?.InvalidateGfx();
+        Rebuild("exanimation source");
+        return true;
+    }
+
     public void ApplyEntry(MainEntrance entry)
     {
-        if (Rom is null || Rom.ReadMainEntrance(LevelNum) == entry) return;
+        if (Rom is null) return;
+        var had = Rom.ReadMainEntrance(LevelNum);
+        if (had == entry) return;
+        // LM's level height trades width for height: W columns of LUT[H] bytes must fit the
+        // 0x3800-byte tilemap, or the engine writes past RAM. Refuse rather than build a crash.
+        if (entry.HeightIndex != had.HeightIndex && Header is { } hdr)
+        {
+            int px = Rom.HasLmLevelHeight
+                ? Rom.ReadValue(Rom.LmLevelHeightTable + 0x200 + entry.HeightIndex * 2, 2) : 0x1B0;
+            if (hdr.Screens * px > 0x3800)
+            {
+                Report($"{hdr.Screens} screens x {px:X} px does not fit the tilemap (max 0x3800) — height not changed");
+                return;
+            }
+        }
         Rom.WriteMainEntrance(LevelNum, entry);
         if (Project is not null)
         {
@@ -1324,6 +1520,8 @@ public sealed class EditorSession
             Project.MarkDirty();
         }
         touched.Add(LevelNum);
+        // A new height is a new canvas: the engine sizes its grid to it, so reparse like a header.
+        if (entry.HeightIndex != had.HeightIndex) { StashCurrent(); ShowLevel(LevelNum); }
     }
 
     public bool HasHeaderOverride => Rom?.LevelHeaderOverrides.ContainsKey(LevelNum) == true;
@@ -1344,75 +1542,111 @@ public sealed class EditorSession
     /// Every entrance that lands in THIS level, as positions on the canvas: the main entrance,
     /// the midway one, and every secondary record pointing here.
     ///
-    /// "Pointing here" is the low byte only — a record's destination is 8 bits and its ninth
-    /// comes from the submap the player crossed ($05F800's own doc), so $005 and $105 share a
-    /// set. Showing both beats hiding half of them and calling it precision.
+    /// "Pointing here" is the low byte only on a vanilla base — a record's destination is 8 bits
+    /// and its ninth comes from the submap the player crossed ($05F800's own doc), so $005 and
+    /// $105 share a set. With Lunar Magic's secondary routine in, bit 3 of $05FE00 is that ninth
+    /// bit and the match is exact.
     /// </summary>
     public IReadOnlyList<LevelEntrance> Entrances()
     {
         if (Rom is not { } rom || !HasLevel || MainEntrance is not { } main) return [];
-        // A freely placed entrance (prep v10) overrides the grid one. The vanilla record is
-        // still there underneath and still what an unprepped ROM would use, so it stays the
-        // fallback rather than being cleared.
-        var mainAt = FreeEntrance.Read(rom, LevelNum, midway: false)
-                     ?? (EntrancePlacement.X(rom, main.ReservedMode, main.MarioX),
-                         EntrancePlacement.Y(rom, main.MarioY));
-        // The midway shares the main's spot inside its screen — until v10 gives it one.
-        var midAt = (rom.HasFreeMidwayPosition ? FreeEntrance.Read(rom, LevelNum, midway: true) : null)
-                    ?? (EntrancePlacement.X(rom, main.ReservedBoundary, main.MarioX),
-                        EntrancePlacement.Y(rom, main.MarioY));
+        // Method 2 (LM's, prep v10's) reinterprets the record's two index nibbles as 16px steps;
+        // otherwise they index vanilla's tables. Same record either way — the flag decides.
+        var mainAt = main.Method2 != 0
+            ? (EntrancePlacement.Method2X(main.ReservedMode, main.MarioX, main.XHigh),
+               EntrancePlacement.Method2Y(main.MarioY, main.YHigh))
+            : (EntrancePlacement.X(rom, main.ReservedMode, main.MarioX),
+               EntrancePlacement.Y(rom, main.MarioY));
+        // The midway carries only a screen and borrows the main's spot inside it — unless LM's
+        // separate midway settings are on for this level, which give it a 16px position of its own.
+        int midScreen = main.ReservedBoundary | (main.MidwayScreenHigh << 4);
+        var midAt = main.MidwaySeparate != 0
+            ? ((midScreen << 8) | (main.MidwayX << 4),                    // one nibble = X bits 4-7
+               EntrancePlacement.Method2Y(main.MidwayY, main.MidwayYHigh))
+            : main.Method2 != 0
+            ? (EntrancePlacement.Method2X(midScreen, main.MarioX, main.XHigh), mainAt.Item2)
+            : (EntrancePlacement.X(rom, midScreen, main.MarioX), mainAt.Item2);
         var list = new List<LevelEntrance>
         {
-            new(EntranceKind.Main, LevelNum, mainAt.Item1, mainAt.Item2) { Free = FreeEntrance.Supported(rom) },
-            // The midway is a separate question: Lunar Magic takes the site v10 hooks for it.
+            new(EntranceKind.Main, LevelNum, mainAt.Item1, mainAt.Item2) { Free = rom.HasFreeEntrancePositions },
             new(EntranceKind.Midway, LevelNum, midAt.Item1, midAt.Item2) { Free = rom.HasFreeMidwayPosition },
         };
+        bool secFree = rom.HasFreeSecondaryPositions;
         for (int i = 0; i < Rom.SecondaryEntranceCount; i++)
         {
             var e = rom.ReadSecondaryEntrance(i);
             if (e.DestinationLevel != (LevelNum & 0xFF)) continue;
-            list.Add(new LevelEntrance(EntranceKind.Secondary, i,
-                                       EntrancePlacement.X(rom, e.ReservedX, e.MarioX),
-                                       EntrancePlacement.Y(rom, e.MarioY)));
+            if (secFree && e.DestinationHigh != (LevelNum >> 8)) continue;
+            var at = e.Method2 != 0
+                ? (EntrancePlacement.Method2X(e.ReservedX, e.MarioX, e.XHigh), EntrancePlacement.Method2Y(e.MarioY, e.YHigh))
+                : (EntrancePlacement.X(rom, e.ReservedX, e.MarioX), EntrancePlacement.Y(rom, e.MarioY));
+            list.Add(new LevelEntrance(EntranceKind.Secondary, i, at.Item1, at.Item2) { Free = secFree });
         }
         return list;
     }
 
     /// <summary>
-    /// Move an entrance to the nearest position the ROM can express. Returns false when nothing
-    /// changed — including a midway dragged within its own screen, which has nowhere to store
-    /// the move (see <see cref="LevelEntrance.ScreenOnly"/>).
+    /// Move an entrance to the nearest position the ROM can express: a 16px step with method 2,
+    /// one of vanilla's 8 x 16 table spots without. Returns false when nothing changed —
+    /// including a midway dragged within its own screen, which has nowhere to store the move
+    /// (see <see cref="LevelEntrance.ScreenOnly"/>).
     /// </summary>
     public bool MoveEntrance(EntranceKind kind, int index, int px, int py)
     {
         if (Rom is not { } rom) return false;
 
-        // v10: the main and midway entrances go exactly where they were dropped, and the midway
-        // gets a position of its own rather than borrowing the main's.
-        bool free = kind == EntranceKind.Midway ? rom.HasFreeMidwayPosition : FreeEntrance.Supported(rom);
-        if (kind != EntranceKind.Secondary && free)
-        {
-            px = Math.Clamp(px, 0, 0x1FFF);
-            py = Math.Clamp(py, 0, 0x7FFF);
-            if (!FreeEntrance.Write(rom, LevelNum, kind == EntranceKind.Midway, px, py)) return false;
-            Project?.Data.Level(LevelNum).FreeEntrances = Convert.ToHexString(FreeEntrance.Bytes(rom, LevelNum));
-            Project?.MarkDirty();
-            Report($"entrance moved to {px:X3},{py:X3}");
-            return true;
-        }
-
-        var (screen, xIndex) = EntrancePlacement.NearestX(rom, px);
-        int yIndex = EntrancePlacement.NearestY(rom, py);
-
         if (kind == EntranceKind.Secondary)
         {
             if (ReadEntrance(index) is not { } e) return false;
-            return WriteEntrance(index, e with { ReservedX = screen, MarioX = xIndex, MarioY = yIndex });
+            if (rom.HasFreeSecondaryPositions)
+            {
+                var f = EntrancePlacement.Method2Fields(px, py);
+                return WriteEntrance(index, e with { Method2 = 1, ReservedX = f.Screen, MarioX = f.XIndex,
+                                                     XHigh = f.XHigh, MarioY = f.YIndex, YHigh = f.YHigh });
+            }
+            var (sScreen, sX) = EntrancePlacement.NearestX(rom, px);
+            return WriteEntrance(index, e with { ReservedX = sScreen, MarioX = sX, MarioY = EntrancePlacement.NearestY(rom, py) });
         }
+
         if (MainEntrance is not { } main) return false;
-        var moved = kind == EntranceKind.Midway
-            ? main with { ReservedBoundary = screen }
-            : main with { ReservedMode = screen, MarioX = xIndex, MarioY = yIndex };
+        MainEntrance moved;
+        if (kind == EntranceKind.Midway && rom.HasFreeMidwayPosition)
+        {
+            var f = EntrancePlacement.Method2Fields(px, py);
+            // First opt-in: the separate record starts as a copy of what the midway had been
+            // using — the main's action and FG/BG settings — so only the position changes.
+            // MidwayYHigh bit 6 is what LM writes on every separate record; kept for parity.
+            bool first = main.MidwaySeparate == 0;
+            moved = main with
+            {
+                MidwaySeparate = 1, ReservedBoundary = f.Screen & 0x0F, MidwayScreenHigh = f.Screen >> 4,
+                MidwayX = (px >> 4) & 0x0F, MidwayY = f.YIndex,
+                MidwayYHigh = 0x40 | f.YHigh,
+                MidwayAction = first ? main.EntranceAction : main.MidwayAction,
+                MidwayFgBg = first ? main.VerticalScroll | (main.ScreenBoundaryY << 2) : main.MidwayFgBg,
+            };
+        }
+        else if (kind == EntranceKind.Midway)
+        {
+            // A screen is all the midway record holds without LM's separate settings.
+            moved = main with { ReservedBoundary = Math.Clamp(px, 0, 0x0FFF) >> 8 };
+            if (moved == main)
+            {
+                Report("the midway entrance moves a screen at a time; it shares the main entrance's spot");
+                return false;
+            }
+        }
+        else if (rom.HasFreeEntrancePositions)
+        {
+            var f = EntrancePlacement.Method2Fields(px, py);
+            moved = main with { Method2 = 1, ReservedMode = f.Screen, MarioX = f.XIndex, XHigh = f.XHigh,
+                                MarioY = f.YIndex, YHigh = f.YHigh };
+        }
+        else
+        {
+            var (screen, xIndex) = EntrancePlacement.NearestX(rom, px);
+            moved = main with { ReservedMode = screen, MarioX = xIndex, MarioY = EntrancePlacement.NearestY(rom, py) };
+        }
         if (moved == main) return false;
         ApplyEntry(moved);
         return true;
@@ -1656,6 +1890,55 @@ public sealed class EditorSession
         catch (Exception ex) { return $"could not start Lunar Magic: {ex.Message}"; }
         Report($"opened {Path.GetFileName(rom)} in Lunar Magic");
         return null;
+    }
+
+    public string? EmulatorPath => Config.EmulatorPath;
+    /// <summary>The emulator's name for the menu ("Mesen", "snes9x"), null until one is set.</summary>
+    public string? EmulatorName => Config.EmulatorPath is { } p ? Path.GetFileNameWithoutExtension(p) : null;
+
+    public void SetEmulator(string? path)
+    {
+        Config.EmulatorPath = path;
+        Config.Save();
+    }
+
+    /// <summary>File → Run in emulator (F4), Lunar Magic's habit: build, then launch the ROM in
+    /// Mesen — the configured one, or the first Mesen.exe found in the usual places (remembered
+    /// once found). Not the OS's .smc association: on an LM user's machine that IS Lunar Magic.
+    /// Returns a problem, or null when the emulator was launched.</summary>
+    public string? RunInEmulator()
+    {
+        if (Project is null) return "no project open";
+        Build();
+        string rom = Path.Combine(Project.Folder, "build", Project.Name + ".smc");
+        if (!File.Exists(rom)) return Status;                  // the build already said why
+        string? emu = Config.EmulatorPath;
+        if (emu is not null && !File.Exists(emu)) return $"emulator not found at {emu} — File → Set emulator…";
+        if (emu is null && FindMesen() is { } found) { emu = found; SetEmulator(found); }
+        if (emu is null) return "no emulator found — File → Set emulator… (Mesen.exe)";
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(emu, $"\"{rom}\"") { UseShellExecute = true });
+        }
+        catch (Exception ex) { return $"could not start {Path.GetFileName(emu)}: {ex.Message}"; }
+        Report($"running {Path.GetFileName(rom)} in {Path.GetFileNameWithoutExtension(emu)}");
+        return null;
+    }
+
+    /// <summary>Mesen.exe where people keep it: next to the user's home, its installer's
+    /// %LOCALAPPDATA% folder, Program Files, or anywhere on PATH.</summary>
+    private static string? FindMesen()
+    {
+        string exe = OperatingSystem.IsWindows() ? "Mesen.exe" : "Mesen";
+        var dirs = new List<string>
+        {
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Mesen"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Mesen"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Mesen"),
+        };
+        dirs.AddRange((Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries));
+        return dirs.Select(d => Path.Combine(d, exe)).FirstOrDefault(File.Exists);
     }
 
     public string ExportBps()

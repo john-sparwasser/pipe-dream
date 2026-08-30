@@ -71,6 +71,7 @@ public static class LevelParser
         empty = data[p] == 0xFF;
         bool dm16Rom = rom.HasDm16Hijack;        // obj# 0x23/0x27 are DM16 when installed
         int screen = 0;                          // ROM zeroes $1928 at layer-1 start
+        int band = 0;                            // LM's 32-row band ($8B): zero until a jump sets it
         // Safety cap: a level can't exceed its own bank; stop at 0xFF or a sane bound.
         int limit = fo + 0x8000;
         while (p + 2 < data.Length && p < limit)
@@ -82,9 +83,10 @@ public static class LevelParser
             if (newScreen) screen++;             // ROM: $1928 += 1 on the flag
             int number2 = ((b1 & 0x60) >> 1) | (b2 >> 4);
             // Screen jumps retarget the counter for all following objects:
-            // vanilla ext 0x01 ($0DA53D): screen = Y bits; LM ext 0x03 ($0DE1E0): screen = b2.
-            if (number2 == 0 && b3 == 0x01) screen = b1 & 0x1F;
-            else if (dm16Rom && number2 == 0 && b3 == 0x03) screen = b2;
+            // vanilla ext 0x01 ($0DA53D): screen = Y bits; LM's ($0DE1D0) also takes a 32-row band
+            // from the X nibble, and its ext 0x03 ($0DE1E0) takes the band from Y, the screen from X.
+            if (number2 == 0 && b3 == 0x01) { screen = b1 & 0x1F; if (dm16Rom) band = b2 & 0x0F; }
+            else if (dm16Rom && number2 == 0 && b3 == 0x03) { band = b1 & 0x1F; screen = b2 & 0x1F; }
             int y = b1 & 0x1F;
             int xNib = b2 & 0x0F;
             p += 3;
@@ -120,7 +122,7 @@ public static class LevelParser
                 if ((pg & 0x80) != 0) { dm16ExtX = data[p]; p += 1; }
                 if ((pg & 0xC0) == 0xC0) { dm16ExtH = data[p]; p += 1; }
             }
-            objs.Add(new LevelObject(newScreen, number2, screen, xNib, y, b3, extra, dm16, dm16Page, dm16ExtX, dm16ExtH));
+            objs.Add(new LevelObject(newScreen, number2, screen, xNib, y, b3, extra, dm16, dm16Page, dm16ExtX, dm16ExtH, band));
         }
         return objs;
     }

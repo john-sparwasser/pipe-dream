@@ -157,3 +157,86 @@ public class LevelViewTests
         Assert.NotNull(view.Source!.For(0));
     }
 }
+
+public class EntranceMarkerTests
+{
+    /// <summary>The marker is Mario's 16x32 box; picking it up anywhere inside and letting go
+    /// drops him on a whole cell, whatever pixel the cursor is over — the drop is snapped as
+    /// it moves, so the dragged marker and the stored position never disagree.</summary>
+    [AvaloniaFact]
+    public void dragging_an_entrance_drops_it_on_a_cell()
+    {
+        var view = new LevelView { Zoom = 2.0, Mode = LevelView.EditMode.Entrances };
+        var phases = new uint[4][];
+        for (int p = 0; p < 4; p++) { phases[p] = new uint[512 * 432]; Array.Fill(phases[p], 0xFF3366CCu); }
+        var bmp = new LevelBitmap(); bmp.SetImages(phases, 512, 432, 0);
+        view.Source = bmp;
+        view.Entrances = [new Services.LevelEntrance(Services.EntranceKind.Main, 0, 64, 320) { Free = true }];
+        var window = new Window { Width = 800, Height = 900, Content = view };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        (Services.EntranceKind Kind, int Index, int X, int Y)? dropped = null;
+        view.EntranceMoved += (_, m) => dropped = m;
+
+        // Grab Mario by his knees (12px in, 24px down) and let go 37x53 level pixels away.
+        var grab = new Point((64 + 12) * 2, (320 + 24) * 2);
+        window.MouseDown(grab, MouseButton.Left);
+        window.MouseMove(grab + new Vector(37 * 2, -53 * 2));
+        window.MouseUp(grab + new Vector(37 * 2, -53 * 2), MouseButton.Left);
+
+        Assert.NotNull(dropped);
+        Assert.Equal((96, 272), (dropped!.Value.X, dropped.Value.Y));       // 101→96, 267→272: nearest cells
+    }
+}
+
+public class EntranceEditBadgeTests
+{
+    /// <summary>Hovering a marker grows an edit badge after its label; clicking the badge asks the
+    /// host to open that entrance's settings instead of starting a drag. A double-click on the
+    /// marker itself does the same.</summary>
+    [AvaloniaFact]
+    public void hovering_a_marker_offers_an_edit_badge_that_opens_the_entrance()
+    {
+        var view = new LevelView { Zoom = 2.0, Mode = LevelView.EditMode.Entrances };
+        var phases = new uint[4][];
+        for (int p = 0; p < 4; p++) { phases[p] = new uint[512 * 432]; Array.Fill(phases[p], 0xFF3366CCu); }
+        var bmp = new LevelBitmap(); bmp.SetImages(phases, 512, 432, 0);
+        view.Source = bmp;
+        var mid = new Services.LevelEntrance(Services.EntranceKind.Midway, 0, 64, 320) { Free = true };
+        view.Entrances = [mid];
+        var window = new Window { Width = 800, Height = 900, Content = view };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var asked = new List<Services.LevelEntrance>();
+        view.EntranceEditRequested += (_, e) => asked.Add(e);
+        int moved = 0;
+        view.EntranceMoved += (_, _) => moved++;
+
+        // Not hovering: nothing after the label is clickable.
+        window.MouseDown(new Point(400, 100), MouseButton.Left);
+        window.MouseUp(new Point(400, 100), MouseButton.Left);
+        Assert.Empty(asked);
+
+        // Hover the marker, render, then read where the badge landed and click it.
+        window.MouseMove(new Point((64 + 8) * 2, (320 + 16) * 2));
+        Dispatcher.UIThread.RunJobs();
+        var badge = view.EditBadges.Single();
+        Assert.Equal(mid, badge.E);
+        var at = view.TranslatePoint(badge.Box.Center, window)!.Value;   // badge is in view coords
+        window.MouseMove(at);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Single(view.EditBadges);                                    // still offered while over the badge itself
+        window.MouseDown(at, MouseButton.Left);
+        window.MouseUp(at, MouseButton.Left);
+        Assert.Equal([mid], asked);
+        Assert.Equal(0, moved);
+
+        // Double-click on Mario himself.
+        var on = new Point((64 + 8) * 2, (320 + 16) * 2);
+        window.MouseDown(on, MouseButton.Left); window.MouseUp(on, MouseButton.Left);
+        window.MouseDown(on, MouseButton.Left); window.MouseUp(on, MouseButton.Left);
+        Assert.Equal(2, asked.Count);
+    }
+}

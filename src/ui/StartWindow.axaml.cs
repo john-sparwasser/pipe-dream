@@ -18,8 +18,11 @@ public partial class StartWindow : Window
 
     public StartWindow() => AvaloniaXamlLoader.Load(this);
 
-    public StartWindow(IReadOnlyList<string> recentProjects) : this()
+    /// <param name="problem">Why the last attempt did not open anything — shown here because the
+    /// status line is not on screen yet, and a chooser that silently reappears reads as a bug.</param>
+    public StartWindow(IReadOnlyList<string> recentProjects, string? problem = null) : this()
     {
+        if (problem is not null) { var t = this.GetControl<TextBlock>("Problem"); t.Text = problem; t.IsVisible = true; }
         var list = this.GetControl<StackPanel>("RecentList");
         foreach (string path in recentProjects)
         {

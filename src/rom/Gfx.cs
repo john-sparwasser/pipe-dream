@@ -19,8 +19,9 @@ public static class Gfx
     ///               through the shifter at $00ABC4; consumes 0xC00 but is not tile-packed.
     ///   0x28-0x2B   layer-3 tiles, 2bpp (16 B/tile). $00A993 streams 0x800/file straight out.
     ///   0x2F        2bpp. $00955E streams 0x400.
-    ///   0x32-0x33   the animation blobs. 0x33 (ROM $088000) is ALREADY raw 4bpp; 0x32 is 3bpp
-    ///               but is expanded by its own reader at $00B8AD into $7E7D00, not uploaded,
+    ///   0x32-0x33   the boot-time blobs, LM's numbering: 0x32 = Mario's sheet (ROM $088000, raw
+    ///               4bpp); 0x33 = the animated tiles AN1, 3bpp, expanded by its own reader at
+    ///               $00B8AD into $7E7D00, not uploaded,
     ///               and neither is reachable through the pointer tables at all (their
     ///               addresses are the fixed operands at $00B88B/$00B8D8/$00B890).
     /// Everything else below <see cref="Count"/> is FG/BG/sprite tile data that goes through
@@ -46,7 +47,12 @@ public static class Gfx
         }
         int ptr = file switch
         {
-            < 0x80 => -1,                                                    // 0x32-0x7F invalid/skip
+            // The two boot-time blobs are not table-addressed: their pointers are the fixed
+            // operands the loader at $00B888/$00B8D7 carries. LM numbers them GFX32 = Mario's
+            // sheet (raw 4bpp once decompressed), GFX33 = the animated tiles (AN1, $7E:7D00).
+            0x32 => rom.ReadByte(0x00B890) << 16 | rom.ReadValue(0x00B8D8, 2),
+            0x33 => rom.ReadByte(0x00B890) << 16 | rom.ReadValue(0x00B88B, 2),
+            < 0x80 => -1,                                                    // 0x34-0x7F invalid/skip
             < 0x100 => rom.HasLmGfxLoader ? rom.ReadValue(ExGfx80Table + (file - 0x80) * 3, 3) : -1,
             _ => rom.LmExGfxBase < 0 ? -1 : rom.ReadValue(rom.LmExGfxBase + (file - 0x100) * 3, 3),
         };
@@ -68,6 +74,17 @@ public static class Gfx
             if (rom.ImportedGfx.TryGetValue(file, out var imported)) return imported;
             if (rom.GfxFileCache.TryGetValue(file, out var hit)) return hit;
             byte[]? data = null;
+            if (file is >= 0x60 and <= 0x63)
+            {
+                // ExAnimation source files: raw in a RATS block, sized by its tag.
+                int at = rom.LmAltExGfx(file - 0x60);
+                if (at > 0)
+                {
+                    int fo = rom.FileOffset(at), n = (rom.Data[fo - 4] | rom.Data[fo - 3] << 8) + 1;
+                    if (fo + n <= rom.Data.Length) data = rom.Data.AsSpan(fo, n).ToArray();
+                }
+                return rom.GfxFileCache[file] = data;
+            }
             int src = SourceSnes(rom, file);
             if (src > 0) { try { data = Lz2Decompress(rom.Data, rom.FileOffset(src)); } catch { } }
             return rom.GfxFileCache[file] = data;
@@ -110,8 +127,8 @@ public static class Gfx
     /// <see cref="DetectBpp"/>), so it is read off that list instead of sniffed:
     ///   0x28-0x2B  layer-3 tiles, 2bpp — the status bar and the level's layer-3 scenery
     ///   0x2F       2bpp
-    ///   0x33       already raw 4bpp on a vanilla ROM
-    ///   0x27, 0x32 whatever a conversion left them at — see <see cref="UnconvertedBpp"/>
+    ///   0x32       Mario's sheet, raw 4bpp on a vanilla ROM
+    ///   0x27, 0x33 whatever a conversion left them at — see <see cref="UnconvertedBpp"/>
     /// Neither of those two is tile-packed at all, so the depth only says how wide their rows
     /// are; the picker says what they actually hold.
     /// ExGFX (0x80+) follow the ROM: a user file's depth is normalised on import.
@@ -119,8 +136,8 @@ public static class Gfx
     public static int FileBpp(Rom rom, int file) => file switch
     {
         (>= 0x28 and <= 0x2B) or 0x2F => 2,
-        0x33 => 4,
-        0x27 or 0x32 => UnconvertedBpp(rom),
+        0x32 or (>= 0x60 and <= 0x63) => 4,      // Mario's sheet and the ExAnimation source files are always 4bpp
+        0x27 or 0x33 => UnconvertedBpp(rom),     // AN1 (animated tiles): 3bpp unless a 4bpp conversion touched it
         _ => RomBpp(rom),
     };
 
@@ -231,7 +248,7 @@ public static class Gfx
             // reader at $00B8AD is not the tile uploader), 4bpp on an LM 4bpp hack, which
             // converts it too. Fixed 3bpp garbles ShaoBase's munchers; the ROM's depth garbles
             // every animated tile on a v6 base.
-            int a1bpp = FileBpp(rom, 0x32), a1tb = TileBytes(a1bpp);
+            int a1bpp = FileBpp(rom, 0x33), a1tb = TileBytes(a1bpp);
             void Overlay(int vramTile, int srcAddr)
             {
                 byte[]? px =
@@ -273,12 +290,30 @@ public static class Gfx
                 }
             }
 
-            // LM ExAnimation (CONTRACT §12e): overlay each per-level slot's current frame onto
-            // its dest tile. Frame source resolves through the same $7D00 model as vanilla
-            // (custom ExGFX 60-63 not yet loaded there — standard animated GFX only).
+            // LM ExAnimation (CONTRACT §12e): overlay each per-level tile slot's current frame onto
+            // its dest tiles — a RAM source through the same $7D00 model as vanilla, an alternate
+            // ExGFX file (60-63) straight from its uncompressed ROM bytes. Palette slots have no
+            // tiles to draw; triggered slots show their untriggered half.
             if (level >= 0)
                 foreach (var slot in ExAnimation.ReadLevel(rom, level))
-                    Overlay(slot.DestTile, slot.FrameSrcAddrs[phase % slot.FrameCount]);
+                {
+                    if (slot.IsPalette || slot.TileCount == 0) continue;
+                    int frame = slot.Frame(phase);
+                    if (!slot.AltFile)
+                    {
+                        for (int k = 0; k < slot.TileCount; k++) Overlay(slot.DestTileAt(k), frame + k * 0x20);
+                        continue;
+                    }
+                    int file = rom.LmAltExGfx(slot.AltFileIndex);
+                    if (file < 0) continue;
+                    int abpp = slot.Type == ExAnimation.Type2bpp ? 2 : RomBpp(rom), atb = TileBytes(abpp);
+                    int afo = rom.FileOffset(file) + frame;
+                    for (int k = 0; k < slot.TileCount; k++)
+                    {
+                        if (afo < 0 || afo + (k + 1) * atb > rom.Data.Length) break;
+                        OverlayPx(slot.DestTileAt(k), DecodeTile(rom.Data, afo + k * atb, abpp));
+                    }
+                }
 
             // LM global ExAnimation (CONTRACT §12f): resolved by emulating LM's engine. Unlike the
             // vanilla/per-level paths the source is raw ROM GFX (RomBpp), so decode it directly
@@ -465,7 +500,10 @@ public static class Gfx
     {
         forked = false;
         if (rom.ImportedGfx.TryGetValue(file, out var b)) return b;
-        if (Cached(rom, file) is not { } stock) return null;
+        // An absent ExAnimation source file (60-63) is created blank: 128 4bpp tiles, the size
+        // LM's own new-file offer gives, so "click the empty slot, paint, save" works.
+        var stock = Cached(rom, file) ?? (file is >= 0x60 and <= 0x63 ? new byte[0x1000] : null);
+        if (stock is null) return null;
         var fork = (byte[])stock.Clone();
         rom.ImportedGfx[file] = fork;
         InvalidateCache(rom);               // consumers re-resolve through the import
@@ -534,7 +572,8 @@ public static class Gfx
     public static string Describe(Rom rom, int id)
         => Cached(rom, id) is null ? "(empty)"
          : id == 0x27 ? "Mode 7 tiles — not an 8x8 sheet"
-         : id == 0x32 ? "animation source — not an 8x8 sheet"
+         : id == 0x32 ? "Mario's sheet (GFX32)"
+         : id == 0x33 ? "animated tiles AN1 (GFX33), tiles 600-77F"
          : FileBpp(rom, id) == 2 ? "2 bits per pixel (layer 3, colours 0-3)"
          : RomBpp(rom) == 3 ? "4 bits per pixel (colours 0-7)" : "4 bits per pixel";
 
@@ -562,10 +601,14 @@ public static class Gfx
             ("SP2", 0x00A8C3, h.SpriteSet * 4 + 1, 8, 10),
             ("SP3", 0x00A8C3, h.SpriteSet * 4 + 2, 8, 9),
             ("SP4", 0x00A8C3, h.SpriteSet * 4 + 3, 8, 8),
+            // The animated-tile slots (reference/EXANIMATION.md §2): AN1 is GFX33 unless bypassed,
+            // AN2 (the extended area at $7E:AD00) exists only through the bypass.
+            ("AN1", -0x33, 0, 2, 1),
+            ("AN2", -1, 0, 2, 0),
         };
         return slots.Select(s =>
         {
-            int def = s.listBase < 0 ? 0x7F : rom.Data[rom.FileOffset(s.listBase) + s.idx];
+            int def = s.listBase < -1 ? -s.listBase : s.listBase < 0 ? 0x7F : rom.Data[rom.FileOffset(s.listBase) + s.idx];
             bool bypassed = byp is not null && (byp[s.bypWord] & 0xFFF) != 0x7F;
             return (s.name, s.palRow, s.bypWord, def, bypassed ? byp![s.bypWord] & 0xFFF : def);
         }).ToArray();

@@ -40,6 +40,17 @@ public sealed class ProjectFile
     /// so an older .pdp still loads unchanged.</summary>
     public Dictionary<string, string> CourseBot { get; set; } = new();
 
+    /// <summary>LM ExAnimation (reference/EXANIMATION.md): the encoded record per level (key =
+    /// level hex, value = ExAnimation.Encode hex, alt-file index in its header) and the global
+    /// list's. Source files 60-63 live in <see cref="Gfx"/> under their ids.</summary>
+    public ExAnimationState ExAnimation { get; set; } = new();
+
+    public sealed class ExAnimationState
+    {
+        public Dictionary<string, string> Levels { get; set; } = new();
+        public string? Global { get; set; }
+    }
+
     public sealed class BaseRomInfo
     {
         public string Sha256 { get; set; } = "";
@@ -68,14 +79,10 @@ public sealed class ProjectFile
         /// <summary>Level header edit: the 5 replacement bytes as hex, or null to keep the
         /// base ROM's header.</summary>
         public string? Header { get; set; }
-        /// <summary>Main entrance / entry settings edit: the 4 table bytes as hex, or null
+        /// <summary>Main entrance / entry settings edit: the table bytes as hex (4, or 6 with
+        /// Lunar Magic's method-2 bytes), or null
         /// to keep the base ROM's.</summary>
         public string? MainEntrance { get; set; }
-        /// <summary>Prep v10's free entrance positions: the level's 8 bytes (main X/Y, midway
-        /// X/Y) as hex, or null while both entrances are still on vanilla's grid. Separate from
-        /// <see cref="MainEntrance"/> because it lives in a different table and a base without
-        /// v10 simply ignores it.</summary>
-        public string? FreeEntrances { get; set; }
         public List<ObjectDto> Objects { get; set; } = new();
         /// <summary>Layer-2 object stream, or null to keep whatever the base ROM has. A
         /// non-null list also selects object mode: the build writes a real bank into the
@@ -139,14 +146,16 @@ public sealed class ProjectFile
         public int Extra { get; set; }
         public int Number { get; set; }
         public byte[]? ExtraBytes { get; set; }
+        /// <summary>LM's 32-row band (extended sprite list); 0 for everything above row 31.</summary>
+        public int Band { get; set; }
 
         public static SpriteDto From(Sprite s) => new()
         {
             Screen = s.Screen, XNibble = s.XNibble, Y = s.Y,
-            Extra = s.Extra, Number = s.Number, ExtraBytes = s.ExtraBytes,
+            Extra = s.Extra, Number = s.Number, ExtraBytes = s.ExtraBytes, Band = s.Band,
         };
 
-        public Sprite ToSprite() => new(Screen, XNibble, Y, Extra, Number, ExtraBytes);
+        public Sprite ToSprite() => new(Screen, XNibble, Y, Extra, Number, ExtraBytes, Band);
     }
 
     /// <summary>Level state for a level number, created on first touch.</summary>

@@ -68,7 +68,7 @@ public partial class MainWindow : Window
     private ComboBox gfxPalRow = null!, gfxBpp = null!;
     private PaletteGridView gfxColors = null!;
     private MenuItem recentMenu = null!, upgradePrepItem = null!, spriteOverlayItem = null!,
-                     animateItem = null!;
+                     animateItem = null!, runEmulatorItem = null!;
     private PaletteGridView paletteGrid = null!;
     private TextBlock paletteNote = null!, paletteIndex = null!;
 
@@ -82,6 +82,16 @@ public partial class MainWindow : Window
     private TextBlock spFilesLabel = null!, objectHint = null!;
     private Grid split = null!;
     private ToggleButton modeLevel = null!, modeMap16 = null!, modeGfx = null!;
+    private ToggleButton modeAnim = null!;
+    private DockPanel animPane = null!, animToolPanel = null!;
+    private StackPanel animGfx = null!, animBody = null!;
+    private TextBlock animTitle = null!, animListTitle = null!;
+    private Button animDelete = null!;
+    private StackPanel animPreviewBody = null!;
+    private ToggleButton animLevelBtn = null!, animGlobalBtn = null!;
+    private ComboBox animFile = null!, animPalRow = null!;
+    private Border animPaletteBar = null!;
+    private PaletteGridView animColors = null!;
     private ToggleButton layerOne = null!, layerTwo = null!, exitsMode = null!, entrancesMode = null!;
     private Button dropLayer2 = null!;
     private TextBlock layer2Note = null!;
@@ -113,6 +123,36 @@ public partial class MainWindow : Window
         modeLevel = this.GetControl<ToggleButton>("ModeLevel");
         modeMap16 = this.GetControl<ToggleButton>("ModeMap16");
         modeGfx = this.GetControl<ToggleButton>("ModeGfx");
+        modeAnim = this.GetControl<ToggleButton>("ModeAnim");
+        animPane = this.GetControl<DockPanel>("AnimPane");
+        animToolPanel = this.GetControl<DockPanel>("AnimToolPanel");
+        animGfx = this.GetControl<StackPanel>("AnimGfx");
+        animBody = this.GetControl<StackPanel>("AnimBody");
+        animTitle = this.GetControl<TextBlock>("AnimTitle");
+        animDelete = this.GetControl<Button>("AnimDelete");
+        animPreviewBody = this.GetControl<StackPanel>("AnimPreviewBody");
+        this.GetControl<ScrollViewer>("AnimBodyScroll").Background = UiColors.DeskPattern;   // the timeline on the desk
+        animListTitle = this.GetControl<TextBlock>("AnimListTitle");
+        animLevelBtn = this.GetControl<ToggleButton>("AnimLevel");
+        animGlobalBtn = this.GetControl<ToggleButton>("AnimGlobal");
+        animFile = this.GetControl<ComboBox>("AnimFile");
+        animPalRow = this.GetControl<ComboBox>("AnimPalRow");
+        for (int i = 0; i < 16; i++) animPalRow.Items.Add($"{i}");   // all sixteen: a destination can be sprite VRAM too
+        animPalRow.SelectedIndex = 2;
+        animPaletteBar = this.GetControl<Border>("AnimPaletteBar");
+        animColors = this.GetControl<PaletteGridView>("AnimColors");
+        animColors.Rows = 1;
+        animColors.Cell = 20;
+        animColors.Selectable = false;     // shows the row; the tiles over the destination choose it
+        // The list's source file is part of its record: changing it rewrites the record with the
+        // same slots. The palette row is display-only.
+        animFile.SelectionChanged += (_, _) =>
+        {
+            if (loadingAnimHeader || animFile.SelectedIndex < 0 || !session.HasLevel) return;
+            if (animFile.SelectedIndex != session.ExAnimAltFile(animGlobal))
+            { session.SetExAnim(animGlobal, session.ExAnimSlots(animGlobal), animFile.SelectedIndex); RefreshAnim(); }
+        };
+        animPalRow.SelectionChanged += (_, _) => { if (modeAnim.IsChecked == true) RefreshAnim(); };
         layerOne = this.GetControl<ToggleButton>("LayerOne");
         layerTwo = this.GetControl<ToggleButton>("LayerTwo");
         exitsMode = this.GetControl<ToggleButton>("ExitsMode");
@@ -172,6 +212,18 @@ public partial class MainWindow : Window
             // The drop position is where the cursor was; the session snaps it to what the ROM
             // can store, so the markers are re-read rather than trusting the drag.
             session.MoveEntrance(m.Kind, m.Index, m.X, m.Y);
+            RefreshEntranceMarkers();
+            UpdateTitle();
+        };
+        canvas.EntranceEditRequested += async (_, en) =>
+        {
+            if (en.Kind == EntranceKind.Secondary) await ShowEntrance(en.Index);
+            else if (session.MainEntrance is { } me && session.Rom is { } rom)
+            {
+                var dlg = new EntranceWindow(me, en.Kind, rom.HasFreeMidwayPosition);
+                await dlg.ShowDialog(this);
+                if (dlg.Applied is { } applied) session.ApplyEntry(applied);
+            }
             RefreshEntranceMarkers();
             UpdateTitle();
         };
@@ -497,6 +549,7 @@ public partial class MainWindow : Window
         // ---- menu items that depend on state ----
         recentMenu = this.GetControl<MenuItem>("RecentMenu");
         upgradePrepItem = this.GetControl<MenuItem>("UpgradePrepItem");
+        runEmulatorItem = this.GetControl<MenuItem>("RunEmulatorItem");
         spriteOverlayItem = this.GetControl<MenuItem>("SpriteOverlayItem");
         animateItem = this.GetControl<MenuItem>("AnimateItem");
         SetAnimating(true);             // tiles animate as the game does; View ▸ Animate tiles stops it
@@ -606,14 +659,19 @@ public partial class MainWindow : Window
     /// </summary>
     private async Task PromptForProject()
     {
+        string? problem = null;
         while (!session.HasRom)
         {
-            var dlg = new StartWindow(session.RecentProjects);
+            var dlg = new StartWindow(session.RecentProjects, problem);
+            string? before = session.Status;
             await dlg.ShowDialog(this);
             if (dlg.OpenRecent is { } pdp) await OpenProjectPath(pdp);
             else if (dlg.CreateNew) await NewProjectFlow();
             else if (dlg.OpenExisting) await OpenProjectFlow();
             else return;
+            // The status line is not on screen yet, so an attempt's report is only visible if the
+            // chooser carries it back — otherwise a failed create looks like the dialog ignored you.
+            problem = !session.HasRom && session.Status != before ? session.Status : null;
         }
     }
 
@@ -668,6 +726,22 @@ public partial class MainWindow : Window
         spriteList.ItemsSource = null;
         RefreshDrawer();
         RefreshLayerBar();
+
+        // The other canvas modes show THIS level's graphics too: the GFX editor follows the
+        // selected bin into the new level's file (an ExAnimation source file 60-63 is ROM-wide
+        // and stays put), and the Animations page lists the new level's slots.
+        if (modeGfx?.IsChecked == true && session.GfxPixels is { } gp)
+        {
+            var bin = session.GfxBins.FirstOrDefault(b => b.BypWord == gfxSlot);
+            if (bin.Name is not null && bin.File != gp.File)
+            {
+                CommitGfxFloat();
+                gp.Open(bin.File);
+                gp.PalRow = bin.PalRow;
+            }
+            RefreshGfx();
+        }
+        if (modeAnim?.IsChecked == true) RefreshAnim();
         UpdateTitle();
     }
 
@@ -706,6 +780,12 @@ public partial class MainWindow : Window
     /// leaving a non-Level canvas mode before it touches selection, and - / = zooming.</summary>
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
+        if (e.Key == Key.F4 && e.KeyModifiers == KeyModifiers.None)
+        {
+            OnRunEmulator(this, e);              // Lunar Magic's F4
+            e.Handled = true;
+            return;
+        }
         if (e.Key == Key.Z && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
             bool redo = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
@@ -981,6 +1061,16 @@ public partial class MainWindow : Window
     private async void OnBrowseGfx(object? sender, RoutedEventArgs e)
     {
         CommitGfxFloat();                    // before the sheet under it can change
+        if (gfxSlot is >= 0x60 and <= 0x63)
+        {
+            // An ExAnimation source file: Load imports raw 4bpp tiles INTO it (up to 32KB),
+            // rather than repointing a bin — there is no bin, slots read the file by offset.
+            if (await PickFile($"Import raw 4bpp tiles into ExGFX{gfxSlot:X2}", new FilePickerFileType("GFX") { Patterns = ["*.bin"] }) is not { } path
+                || !session.ImportExAnimSource(gfxSlot - 0x60, path)) return;
+            session.GfxPixels?.Open(gfxSlot);
+            RefreshGfx();
+            return;
+        }
         var slot = session.GfxBins.Where(b => b.BypWord == gfxSlot)
                           .Select(b => ((string Name, int PalRow)?)(b.Name, b.PalRow))
                           .FirstOrDefault();
@@ -1140,7 +1230,9 @@ public partial class MainWindow : Window
 
     /// <summary>Level header + main entrance, staged in a dialog and applied in one go: every
     /// header field forces a full reparse, so live-applying a slider would be unusable.</summary>
-    private async void OnLevelProperties(object? sender, RoutedEventArgs e)
+    private async void OnLevelProperties(object? sender, RoutedEventArgs e) => await EditLevelProperties();
+
+    private async Task EditLevelProperties()
     {
         if (session.Header is not { } header || session.MainEntrance is not { } entrance) return;
         var dlg = new LevelPropertiesWindow(header, entrance, session.HasHeaderOverride);
@@ -1175,6 +1267,24 @@ public partial class MainWindow : Window
     {
         if (await PickFile("Choose your verified vanilla SMW ROM", RomType) is not { } p) return;
         session.SetVanillaRom(p);
+    }
+
+    private async void OnSetEmulator(object? sender, RoutedEventArgs e)
+    {
+        var exe = new FilePickerFileType("Emulator") { Patterns = OperatingSystem.IsWindows() ? ["*.exe"] : ["*"] };
+        if (await PickFile("Choose the emulator for Run in emulator (F4)", exe) is not { } p) return;
+        session.SetEmulator(p);
+        RefreshFileMenu();
+    }
+
+    /// <summary>F4, as in Lunar Magic: build and run. Problems come up in a dialog because
+    /// the status line is easy to miss when nothing visibly happened.</summary>
+    private async void OnRunEmulator(object? sender, RoutedEventArgs e)
+    {
+        var problem = session.RunInEmulator();
+        UpdateTitle();
+        RefreshFileMenu();                       // auto-found emulator now has a name
+        if (problem is not null) await new ConfirmWindow("Run in emulator", problem, "OK").ShowDialog(this);
     }
 
     private void OnExit(object? sender, RoutedEventArgs e) => Close();
@@ -1220,6 +1330,11 @@ public partial class MainWindow : Window
     private void RefreshEntranceMarkers()
     {
         canvas.Entrances = canvas.Mode == LevelView.EditMode.Entrances ? session.Entrances() : [];
+        // ponytail: built once per window from the first level's palette; Mario's own 10 colours
+        // come from the ROM, only row 8's shared colours 1-5 could differ between levels.
+        if (canvas.MarioIcon is null && session.Rom is { } rom && session.Scene?.Palettes[0] is { } pal
+            && PlayerGfx.BigMarioStanding(rom, pal) is { } px)
+            canvas.MarioIcon = LevelBitmap.FromPixels(px, 16, 32);
         canvas.InvalidateVisual();
     }
 
@@ -1294,6 +1409,21 @@ public partial class MainWindow : Window
         UpdateTitle();
     }
 
+    private async void OnSpriteData(object? sender, RoutedEventArgs e)
+    {
+        if (session.Sprites is not { } sp || sp.Selection.Count != 1) return;   // menu does nothing without exactly one selected sprite
+        int i = sp.Selection.First();
+        var dlg = new SpriteDataWindow(sp.Sprites.Sprites[i]);
+        await dlg.ShowDialog(this);
+        if (dlg.Applied is { } d && sp.SetData(i, d.Number, d.Extra, d.ExtraBytes))
+        {
+            session.RefreshSprites();
+            PushSpritePixels();
+            PushDirty();
+        }
+        UpdateTitle();
+    }
+
     private async void OnLevelExits(object? sender, RoutedEventArgs e)
     {
         if (edit is null) return;
@@ -1322,6 +1452,8 @@ public partial class MainWindow : Window
     /// list, whether a prep upgrade is available, and the two view checkmarks.</summary>
     private void RefreshFileMenu()
     {
+        // Says which emulator F4 will use — the one set, or "emulator" until one is found/chosen.
+        runEmulatorItem.Header = $"_Run in {session.EmulatorName ?? "emulator"}";
         var items = new List<MenuItem>();
         foreach (string path in session.RecentProjects)
         {
@@ -1487,7 +1619,7 @@ public partial class MainWindow : Window
 
     /// <summary>Which thing the drawer is holding. Not the same as the canvas mode by accident —
     /// each mode's drawer shows different content, and they are nowhere near the same width.</summary>
-    private enum Pane { Level, Map16, Graphics }
+    private enum Pane { Level, Map16, Graphics, Animations }
 
     private Pane drawerPane = Pane.Level;
 
@@ -1503,6 +1635,7 @@ public partial class MainWindow : Window
     {
         Pane.Map16 => Map16BarWidth,
         Pane.Graphics => Math.Max(GfxBinCardWidth, Map16BarWidth),
+        Pane.Animations => Math.Max(GfxBinCardWidth, Map16BarWidth),
         _ => Map16PaletteView.ContentWidth(palette.Zoom),
     };
 
@@ -1572,7 +1705,8 @@ public partial class MainWindow : Window
     {
         bool map16Mode = modeMap16.IsChecked == true;
         bool gfxMode = modeGfx.IsChecked == true;
-        bool modal = map16Mode || gfxMode;          // a canvas mode that owns the drawer
+        bool animMode = modeAnim.IsChecked == true;
+        bool modal = map16Mode || gfxMode || animMode;         // a canvas mode that owns the drawer
         int tab = modal ? -1 : Math.Max(0, paletteTabs.SelectedIndex);
 
         // The tabs choose what the drawer shows FOR THE LEVEL. Map16 and GFX modes own the
@@ -1583,6 +1717,8 @@ public partial class MainWindow : Window
         this.GetControl<DockPanel>("TilesPanel").IsVisible = tab == 0;
         this.GetControl<DockPanel>("ChrPanel").IsVisible = map16Mode;
         gfxToolPanel.IsVisible = gfxMode;
+        animToolPanel.IsVisible = animMode;
+        animPaletteBar.IsVisible = animMode;    // its gutter palette, like the Map16 and GFX ones
         gfxPaletteBar.IsVisible = gfxMode;      // canvas-side, but the same mode decides it
         m16PaletteBar.IsVisible = map16Mode;    // its opposite number, same gutter
         spritePanel.IsVisible = tab == 1;
@@ -1946,11 +2082,29 @@ public partial class MainWindow : Window
     private void RefreshGfxBins()
     {
         gfxBins.Children.Clear();
-        foreach (var bin in session.GfxBins)
+        // The level's ten VRAM bins, then — under their own heading — the animation slots: AN1/AN2
+        // (real bypass words) and the four ExAnimation source files 60-63, which are not bins at
+        // all (nothing points a level at them; ExAnimation slots read them by offset) but ARE
+        // graphics files the pixel editor can paint. Their "bypass word" is the file id itself
+        // (0x60-0x63, clear of the real words 0-11): selecting one opens the file, and Load on it
+        // imports a .bin into it. An absent one still opens — as a blank file to create.
+        var bins = session.GfxBins.ToList();
+        for (int i = 0; i < 4; i++)
+            bins.Add(($"E{0x60 + i:X2}", 2, 0x60 + i, 0x7F, session.Rom is { } r && (r.ImportedGfx.ContainsKey(0x60 + i) || r.LmAltExGfx(i) > 0) ? 0x60 + i : 0x7F));
+        foreach (var bin in bins)
         {
             int bypWord = bin.BypWord, palRow = bin.PalRow, file = bin.File;
+            bool altFile = bypWord >= 0x60;
+            int openFile = altFile ? Convert.ToInt32(bin.Name[1..], 16) : file;   // "E60" → 0x60
+            if (bin.Name == "AN1")
+            {
+                var sep = new TextBlock { Text = "Animation slots", Margin = new Thickness(0, 8, 0, 0) };
+                sep.Classes.Add("subject");
+                gfxBins.Children.Add(sep);
+                gfxBins.Children.Add(new Border { Height = 1, Background = (IBrush)this.FindResource("BorderBrush")!, Margin = new Thickness(0, 0, 0, 2) });
+            }
             bool empty = file == 0x7F;
-            bool custom = session.GfxBinNote(bypWord, file, bin.Def) == "custom";
+            bool custom = !altFile && session.GfxBinNote(bypWord, file, bin.Def) == "custom";
             var kind = new Avalonia.Controls.Shapes.Path
             {
                 Classes = { "kind" },
@@ -1971,7 +2125,7 @@ public partial class MainWindow : Window
                                     Width = 40, FontWeight = FontWeight.Bold,
                                     Foreground = (IBrush)this.FindResource("TextDimBrush")! },
                     kind,
-                    new TextBlock { Text = empty ? "Empty" : session.GfxName(file) ?? $"GFX{file:X3}",
+                    new TextBlock { Text = empty ? (altFile ? "Empty — click to create" : "Empty") : session.GfxName(file) ?? $"GFX{file:X3}",
                                     VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center },
                 },
             };
@@ -2028,7 +2182,7 @@ public partial class MainWindow : Window
             card.PointerPressed += (_, _) =>
             {
                 gfxSlot = bypWord;
-                EditGfxFile(file, palRow);
+                EditGfxFile(openFile, palRow);
             };
             gfxBins.Children.Add(card);
         }
@@ -2140,23 +2294,25 @@ public partial class MainWindow : Window
 
     private void OnMode(object? sender, RoutedEventArgs e)
     {
-        foreach (var b in new[] { modeLevel, modeMap16, modeGfx })
+        foreach (var b in new[] { modeLevel, modeMap16, modeGfx, modeAnim })
             b.IsChecked = ReferenceEquals(b, sender);
 
         bool map16 = ReferenceEquals(sender, modeMap16);
         bool gfx = ReferenceEquals(sender, modeGfx);
+        bool anim = ReferenceEquals(sender, modeAnim);
         // Leaving the pixel editor with a stroke still open must not leave bytes behind that no
         // undo entry covers, so it is reverted rather than committed. A floating paste is the
         // opposite case — deliberate content not yet in any bytes — so it is dropped first.
         if (!gfx) { CommitGfxFloat(); session.GfxPixels?.AbortStroke(); }
 
-        this.GetControl<DockPanel>("LevelPane").IsVisible = !map16 && !gfx;
+        this.GetControl<DockPanel>("LevelPane").IsVisible = !map16 && !gfx && !anim;
         this.GetControl<DockPanel>("Map16Pane").IsVisible = map16;
         gfxScroll.IsVisible = gfx;
+        animPane.IsVisible = anim;
         edit?.Selection.Clear();
         map16Canvas.ClearSelection();
         ApplyZoomTarget();             // the gutter control follows the canvas it is driving
-        ApplyDrawerPane(gfx ? Pane.Graphics : map16 ? Pane.Map16 : Pane.Level);
+        ApplyDrawerPane(anim ? Pane.Animations : gfx ? Pane.Graphics : map16 ? Pane.Map16 : Pane.Level);
 
         RefreshDrawer();
         if (map16)
@@ -2180,6 +2336,8 @@ public partial class MainWindow : Window
             RefreshGfx();
             FocusWhenLaidOut(gfxCanvas);
         }
+        else if (anim) RefreshAnim();
+        if (!anim) { animPreview?.Stop(); animPreview = null; }   // no ticking behind another mode
 
         canvas.InvalidateVisual();
         // ...and again once layout has caught up: the repaint above can land while the canvas is
@@ -2188,7 +2346,363 @@ public partial class MainWindow : Window
         Dispatcher.UIThread.Post(canvas.InvalidateVisual);
     }
 
-    // ---- Map16 properties inspector ----
+    // ---- Animations canvas mode ----
+
+    /// <summary>Which list the timeline shows (the level's or the global one) and which of its
+    /// slots is open on the right.</summary>
+    private bool animGlobal = true;          // the global list opens first; Level is the toggle
+    private int animSelected = -1;
+    private DispatcherTimer? animPreview;
+    private bool loadingAnimHeader;
+
+    private void OnAnimList(object? sender, RoutedEventArgs e)
+    {
+        animGlobal = ReferenceEquals(sender, animGlobalBtn);
+        animLevelBtn.IsChecked = !animGlobal;
+        animGlobalBtn.IsChecked = animGlobal;
+        animSelected = -1;
+        RefreshAnim();
+    }
+
+    /// <summary>Add a slot NOW, decide later: it comes into being as one 8x8 with one frame, and
+    /// every decision — type, trigger, destination, which tiles, how many frames — is made on the
+    /// timeline it opens into.</summary>
+    private void OnAnimAdd(object? sender, RoutedEventArgs e)
+    {
+        if (session.AddExAnimSlot(animGlobal) is not { } slot) return;
+        animSelected = slot.Index;
+        RefreshAnim();
+    }
+
+    /// <summary>Header button: drop the open slot from the list (the record is rewritten without it).</summary>
+    private void OnAnimDelete(object? sender, RoutedEventArgs e)
+    {
+        if (animSelected < 0) return;
+        session.SetExAnim(animGlobal, session.ExAnimSlots(animGlobal).Where(x => x.Index != animSelected).ToList(), session.ExAnimAltFile(animGlobal));
+        animSelected = -1;
+        RefreshAnim();
+    }
+
+    /// <summary>The gutter's sixteen swatches for the preview row — the Map16 bar's logic.</summary>
+    private void RefreshAnimColors(int row)
+    {
+        var colors = new uint[16];
+        if (row >= 0 && session.PaletteRgba is { } pal && pal.Length >= (row + 1) * 16)
+            for (int i = 0; i < 16; i++)
+                colors[i] = i == 0 ? 0xFF303030u : pal[row * 16 + i];
+        animColors.Cols = 16;
+        animColors.Colors = colors;
+        animColors.InvalidateVisual();
+    }
+
+    /// <summary>Write one slot back and redraw.</summary>
+    private void PutSlot(ExAnimation.Slot slot)
+    {
+        animSelected = slot.Index;
+        if (session.SetExAnimSlot(animGlobal, slot)) RefreshAnim();
+    }
+
+    /// <summary>
+    /// The timeline: the left lists the list's slots in slot order (click one to open it), the
+    /// right is the open slot's editor — type, trigger and destination inline, an animated preview
+    /// at the game's 7.5 fps, and the frame strip: click a frame to pick its tiles on the source
+    /// sheet, × to drop it, + at the end to add one. The header picks the list, adds slots, and
+    /// sets the list's source file and the preview palette row.
+    /// </summary>
+    private void RefreshAnim()
+    {
+        animPreview?.Stop(); animPreview = null;
+        animBody.Children.Clear(); animPreviewBody.Children.Clear();
+        animGfx.Children.Clear();
+        if (session.Rom is not { } rom) return;
+        bool ready = rom.LmExAnimBase >= 0;
+        animTitle.Text = !ready ? "no ExAnimation engine — File → Upgrade base (prep v11)"
+                       : animGlobal ? "global list — runs in every level" : $"level {session.LevelNum:X3}";
+        animListTitle.Text = animGlobal ? "Global slots" : $"Level {session.LevelNum:X3} slots";
+        if (!ready) return;
+
+        var slots = session.ExAnimSlots(animGlobal).OrderBy(s => s.Index).ToList();
+        int alt = session.ExAnimAltFile(animGlobal);
+        loadingAnimHeader = true;
+        animFile.SelectedIndex = alt;
+        loadingAnimHeader = false;
+        int palRow = Math.Max(0, animPalRow.SelectedIndex);
+        RefreshAnimColors(palRow);
+        if (slots.All(s => s.Index != animSelected)) animSelected = slots.Count > 0 ? slots[0].Index : -1;
+
+        // ---- left: the slots, in slot order ----
+        if (slots.Count == 0)
+            animGfx.Children.Add(Dim("No slots yet — Add slot in the bar above."));
+        foreach (var s in slots)
+        {
+            bool open = s.Index == animSelected;
+            var head = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 6 };
+            head.Children.Add(new TextBlock { Text = $"[{s.Index:X2}]", Width = 34, FontWeight = FontWeight.Bold, Foreground = (IBrush)this.FindResource("TextDimBrush")! });
+            head.Children.Add(new TextBlock { Text = SlotTitle(s), TextTrimming = TextTrimming.CharacterEllipsis });
+            var block = new StackPanel();
+            block.Children.Add(new Border { Child = head, Padding = new Thickness(8, 6), Background = (IBrush)this.FindResource("SurfaceBrush")!, CornerRadius = new CornerRadius(4, 4, 0, 0) });
+            var (px, w, h) = session.ExAnimFramePixels(s, 0, palRow);
+            block.Children.Add(px.Length > 0
+                ? new PixelImage { Source = LevelBitmap.FromPixels(px, w, h), Width = w * 4, Height = h * 4, Stretch = true, Margin = new Thickness(8, 6), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left }
+                : Mono(s.IsPalette ? $"palette {s.DestColor:X2} x{s.Colors}" : "(source not loaded)"));
+            var card = new Border
+            {
+                Child = block, CornerRadius = new CornerRadius(5), BorderThickness = new Thickness(2),
+                BorderBrush = open ? UiColors.Accent : this.FindResource("BorderBrush") as IBrush,
+                Background = open ? UiColors.SelectionFill : Brushes.Transparent, Cursor = new Cursor(StandardCursorType.Hand),
+            };
+            int idx = s.Index;
+            card.PointerPressed += (_, _) => { animSelected = idx; RefreshAnim(); };
+            animGfx.Children.Add(card);
+        }
+
+        // ---- right: the open slot's editor ----
+        animDelete.IsEnabled = slots.Any(s => s.Index == animSelected);   // the header's Delete acts on the open slot
+        if (slots.FirstOrDefault(s => s.Index == animSelected) is not { Frames: not null } sel) return;
+
+        // The decisions, inline. Each change writes the slot straight back — there is no OK.
+        var row = new WrapPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+        var type = new ComboBox { ItemsSource = ExAnimSlotWindow.Types.Select(t => t.Name).ToList(), Width = 250,
+                                  SelectedIndex = Math.Max(0, Array.FindIndex(ExAnimSlotWindow.Types, t => t.Code == sel.Type)) };
+        type.SelectionChanged += (_, _) =>
+        {
+            int code = ExAnimSlotWindow.Types[type.SelectedIndex].Code;
+            if (code == sel.Type) return;
+            // Tile ↔ palette keep nothing in common: a palette slot starts on colour 00 with its
+            // frame words as colours; a tile slot goes back to tile 600. Tile ↔ tile keeps the frames.
+            var s2 = sel with { Type = code };
+            bool wasPal = sel.IsPalette, isPal = code >= ExAnimation.TypePalette;
+            if (wasPal != isPal) s2 = s2 with { DestWord = 0, Frames = [.. Enumerable.Repeat((ushort)(isPal ? 0x7FFF : 0x7D00), sel.Frames.Length)] };
+            PutSlot(s2);
+        };
+        var trig = new ComboBox { ItemsSource = ExAnimSlotWindow.Triggers.Select(t => t.Name).ToList(), Width = 210,
+                                  SelectedIndex = Math.Max(0, Array.FindIndex(ExAnimSlotWindow.Triggers, t => t.Code == sel.Trigger)) };
+        trig.SelectionChanged += (_, _) =>
+        {
+            int code = ExAnimSlotWindow.Triggers[trig.SelectedIndex].Code;
+            if (code == sel.Trigger) return;
+            // Going stateful doubles the list (the triggered half starts as a copy); going back keeps the first half.
+            bool was = ExAnimation.TriggerDoubles(sel.Trigger), now = ExAnimation.TriggerDoubles(code);
+            ushort[] frames = sel.Frames;
+            if (!was && now) frames = [.. frames, .. frames];
+            else if (was && !now) frames = frames[..Math.Min(sel.FrameCount, frames.Length)];
+            PutSlot(sel with { Trigger = code, Frames = frames });
+        };
+        row.Children.Add(Labelled("type", type));
+        row.Children.Add(Labelled("trigger", trig));
+        if (sel.IsPalette)
+        {
+            var color = HexBox(sel.DestColor.ToString("X2"), 2, v => PutSlot(sel with { DestWord = (sel.DestWord & 0xFF00) | (v & 0xFF) }));
+            var count = HexBox(sel.Colors.ToString(), 3, v => PutSlot(sel with { DestWord = (sel.DestWord & 0x80FF) | ((Math.Clamp(v, 1, 0x80) - 1) << 8) }), hex: false);
+            row.Children.Add(Labelled("first colour", color));
+            row.Children.Add(Labelled("colours", count));
+        }
+        else
+        {
+            // The destination is picked on the level's VRAM sheet; the button shows what sits there
+            // now — the tiles the animation will overwrite — in the slot's own footprint.
+            var (dpx, dw, dh) = session.ExAnimDestPixels(sel, palRow);
+            var destFace = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 8 };
+            if (dpx.Length > 0) destFace.Children.Add(new PixelImage { Source = LevelBitmap.FromPixels(dpx, dw, dh), Width = dw * 3, Height = dh * 3, Stretch = true, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center });
+            destFace.Children.Add(Mono($"{sel.DestTile:X3}"));
+            var dest = new Button { Content = destFace, Padding = new Thickness(8, 4) };
+            ToolTip.SetTip(dest, "click to pick the destination on the level's VRAM sheet");
+            dest.Click += async (_, _) =>
+            {
+                var pick = new TilePickerWindow(session, sel, palRow);
+                await pick.ShowDialog(this);
+                if (pick.Picked is { } t) PutSlot(sel with { DestWord = (sel.DestWord & 0x8000) | ((t & 0x7FF) << 4) });
+            };
+            row.Children.Add(Labelled("destination", dest));
+        }
+        animBody.Children.Add(row);
+        animBody.Children.Add(Mono(sel.Describe()));
+        string note = sel.Doubled ? "Stateful trigger: the first half of the frames plays untriggered, the second half once triggered."
+                    : sel.Trigger >= ExAnimation.TriggerOneShot0 ? "One shot: plays through once when triggered, then stops."
+                    : sel.Trigger >= ExAnimation.TriggerManual0 ? "Manual: shows whichever frame a custom block writes to $7FC070+n." : "";
+        if (note.Length > 0) animBody.Children.Add(Dim(note));
+        if (sel.IsPalette)
+        {
+            animBody.Children.Add(Dim(ExAnimation.HasFrameWords(sel.Type)
+                ? "Palette slot: each frame is an SNES colour word (BGR555). Click a frame to type one."
+                : "Palette rotation: no frame data — the frame count is the delay between steps."));
+        }
+
+        // ---- the frame strip ----
+        var frames = new List<Avalonia.Media.Imaging.Bitmap>();
+        var strip = new WrapPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+        int total = ExAnimation.HasFrameWords(sel.Type) ? sel.Frames.Length : 0;
+        for (int f = 0; f < total; f++)
+        {
+            int fi = f;
+            bool triggered = sel.Doubled && f >= sel.FrameCount;
+            var col = new StackPanel { Spacing = 4, Margin = new Thickness(0, 0, 10, 10) };
+            var top = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 4 };
+            top.Children.Add(Mono((triggered ? "triggered " : "frame ") + $"{(f % sel.FrameCount) + 1}"));
+            if (sel.FrameCount > 1 && !triggered)
+            {
+                var x = new Button { Content = "×", Padding = new Thickness(5, 0), FontSize = 11 };
+                ToolTip.SetTip(x, "remove this frame");
+                x.Click += (_, _) => PutSlot(WithoutFrame(sel, fi));
+                top.Children.Add(x);
+            }
+            col.Children.Add(top);
+
+            Control face;
+            if (sel.IsPalette)
+            {
+                int bgr = sel.Frames[f];
+                var sw = new Border { Width = 48, Height = 32, CornerRadius = new CornerRadius(3),
+                                      Background = new SolidColorBrush(Color.FromRgb((byte)((bgr & 31) * 8), (byte)(((bgr >> 5) & 31) * 8), (byte)(((bgr >> 10) & 31) * 8))) };
+                face = sw;
+                col.Children.Add(face);
+                col.Children.Add(Mono($"{bgr:X4}"));
+            }
+            else
+            {
+                var (px, w, h) = session.ExAnimFramePixels(sel, f, palRow);
+                Avalonia.Media.Imaging.Bitmap? bmp = px.Length > 0 ? LevelBitmap.FromPixels(px, w, h) : null;
+                if (bmp is not null && !triggered) frames.Add(bmp);
+                face = bmp is not null
+                    ? new PixelImage { Source = bmp, Width = w * 4, Height = h * 4, Stretch = true }
+                    : new Border { Width = 64, Height = 32, Background = (IBrush)this.FindResource("SurfaceBrush")!, Child = Mono("pick…") };
+                col.Children.Add(face);
+                col.Children.Add(Mono($"tile {sel.SrcTile(f):X3}"));
+            }
+            var cardF = new Border { Child = col, Padding = new Thickness(6), CornerRadius = new CornerRadius(5), BorderThickness = new Thickness(1),
+                                     BorderBrush = this.FindResource("BorderBrush") as IBrush, Cursor = new Cursor(StandardCursorType.Hand), Background = Brushes.Transparent };
+            ToolTip.SetTip(cardF, sel.IsPalette ? "click to set this frame's colour" : "click to pick this frame's tiles on the source sheet");
+            cardF.PointerPressed += async (_, _) => await PickFrame(sel, fi, palRow);
+            strip.Children.Add(cardF);
+        }
+        if (total > 0 && sel.FrameCount < 0x100)
+        {
+            // The + at the end of the timeline: a new frame, a copy of the last, in both halves
+            // when the trigger keeps two.
+            var plus = new Button { Content = "+", Width = 48, Height = 48, FontSize = 20, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, Margin = new Thickness(0, 18, 0, 0) };
+            ToolTip.SetTip(plus, "add a frame");
+            plus.Click += (_, _) => PutSlot(WithAddedFrame(sel));
+            strip.Children.Add(plus);
+        }
+
+        if (frames.Count > 0)
+        {
+            // The animated preview lives in the right drawer, scaled to fit its width.
+            int scale = Math.Clamp(200 / frames[0].PixelSize.Width, 2, 8);
+            var preview = new PixelImage { Source = frames[0], Width = frames[0].PixelSize.Width * scale, Height = frames[0].PixelSize.Height * scale, Stretch = true,
+                                           HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center };
+            animPreviewBody.Children.Add(new Border { Child = preview, Padding = new Thickness(8), Background = (IBrush)this.FindResource("SurfaceBrush")!, CornerRadius = new CornerRadius(5),
+                                                      HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center });
+            animPreviewBody.Children.Add(Dim($"{frames.Count} frame(s) at the game's rate (7.5 fps) → destination tile {sel.DestTile:X3}."));
+            int at = 0;
+            animPreview = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1000.0 / 7.5) };
+            animPreview.Tick += (_, _) => { at = (at + 1) % frames.Count; preview.Source = frames[at]; };
+            animPreview.Start();
+        }
+        animBody.Children.Add(strip);
+
+        TextBlock Dim(string t) { var b = new TextBlock { Text = t, TextWrapping = TextWrapping.Wrap }; b.Classes.Add("dim"); return b; }
+        TextBlock Mono(string t) { var b = new TextBlock { Text = t }; b.Classes.Add("mono"); return b; }
+        Control Labelled(string label, Control c)
+        {
+            var l = new TextBlock { Text = label, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
+            l.Classes.Add("dim");
+            return new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 6, Margin = new Thickness(0, 0, 14, 6), Children = { l, c } };
+        }
+        // A small hex (or decimal) box that commits on Enter or focus loss, so typing does not rewrite the ROM per keystroke.
+        TextBox HexBox(string text, int width, Action<int> commit, bool hex = true)
+        {
+            var box = new TextBox { Text = text, Width = 26 + width * 12 };
+            box.Classes.Add("mono");
+            void Commit()
+            {
+                try { int v = hex ? Convert.ToInt32(box.Text?.Trim(), 16) : int.Parse(box.Text?.Trim() ?? ""); if ((box.Text ?? "").Trim() != text) commit(v); }
+                catch (Exception e) when (e is FormatException or OverflowException or ArgumentException) { box.Text = text; }
+            }
+            box.KeyDown += (_, e) => { if (e.Key == Key.Enter) Commit(); };
+            box.LostFocus += (_, _) => Commit();
+            return box;
+        }
+        static string SlotTitle(ExAnimation.Slot s)
+        {
+            string type = ExAnimSlotWindow.Types.FirstOrDefault(t => t.Code == s.Type).Name ?? $"type {s.Type:X2}";
+            string trig = s.Trigger == 0 ? "" : " · " + (ExAnimSlotWindow.Triggers.FirstOrDefault(t => t.Code == s.Trigger).Name ?? $"trigger {s.Trigger:X2}");
+            return s.IsPalette ? $"{type} → colour {s.DestColor:X2}{trig}" : $"{type} → {s.DestTile:X3}{trig}";
+        }
+    }
+
+    /// <summary>A frame's tiles are chosen on the source sheet; a palette frame's colour is typed.
+    /// Picking from the alternate file flips the slot to alt-file sourcing (and back), since that is
+    /// a slot-wide switch in the record — the other frames keep their words and get re-picked.</summary>
+    private async Task PickFrame(ExAnimation.Slot sel, int f, int palRow)
+    {
+        if (sel.IsPalette)
+        {
+            var dlg = new TextPromptWindow("Frame colour — SNES colour word (BGR555, hex; 7FFF is white)", sel.Frames[f].ToString("X4"));
+            await dlg.ShowDialog(this);
+            if (dlg.Result is not { } txt) return;
+            try { var fr = (ushort[])sel.Frames.Clone(); fr[f] = (ushort)Convert.ToInt32(txt.Trim(), 16); PutSlot(sel with { Frames = fr }); }
+            catch (Exception e) when (e is FormatException or OverflowException or ArgumentException) { animTitle.Text = "not a hex colour"; }
+            return;
+        }
+        // The footprint on the SHEET is always a consecutive run of the slot's tiles: the engine
+        // DMAs a frame as one line from the source, so that is where the tiles live — a 16x16 is
+        // drawn as four tiles in a row (TL TR BL BR), exactly as Lunar Magic asks. Nothing is
+        // copied or packed; the frame word names the run directly.
+        int alt = session.ExAnimAltFile(animGlobal);
+        int[] footprint = Enumerable.Range(0, Math.Max(1, sel.TileCount)).ToArray();
+        var pick = new TilePickerWindow(session, footprint, alt, palRow, sel.AltFile)
+        {
+            // "Edit…" on the alternate file: straight to the Graphics editor on that file, the
+            // way clicking its E6x card there would.
+            EditRequested = file => { gfxSlot = file; EditGfxFile(file, palRow); },
+        };
+        await pick.ShowDialog(this);
+        if (pick.Picked is not { } tile) return;
+
+        int word = ExAnimSlotWindow.TileToWord(tile, pick.PickedAlt, alt);
+        if (word < 0) return;
+        bool useAlt = pick.PickedAlt;
+        var frames = (ushort[])sel.Frames.Clone();
+        frames[f] = (ushort)word;
+        int destWord = useAlt ? sel.DestWord | 0x8000 : sel.DestWord & 0x7FFF;
+        PutSlot(sel with { Frames = frames, DestWord = destWord });
+    }
+
+    /// <summary>One more frame, a copy of the last — added to both halves of a doubled list.</summary>
+    private static ExAnimation.Slot WithAddedFrame(ExAnimation.Slot s)
+    {
+        int n = s.FrameCount;
+        var a = s.Frames.Take(n).ToList();
+        a.Add(a.Count > 0 ? a[^1] : (ushort)0x7D00);
+        if (s.Doubled)
+        {
+            var b = s.Frames.Skip(n).Take(n).ToList();
+            b.Add(b.Count > 0 ? b[^1] : a[^1]);
+            a.AddRange(b);
+        }
+        return s with { FrameCount = n + 1, Frames = [.. a] };
+    }
+
+    private static ExAnimation.Slot WithoutFrame(ExAnimation.Slot s, int f)
+    {
+        int n = s.FrameCount;
+        if (n <= 1) return s;
+        var a = s.Frames.Take(n).ToList(); a.RemoveAt(f);
+        if (s.Doubled)
+        {
+            var b = s.Frames.Skip(n).Take(n).ToList();
+            if (f < b.Count) b.RemoveAt(f);
+            a.AddRange(b);
+        }
+        return s with { FrameCount = n - 1, Frames = [.. a] };
+    }
+
+
+
+
+
+        // ---- Map16 properties inspector ----
 
     /// <summary>Guard so filling the fields from the selection does not read back as edits.</summary>
     private bool loadingM16Props;
@@ -2302,6 +2816,7 @@ public partial class MainWindow : Window
         if (!session.HasLevel) return;
         var (px, w, h) = session.SheetPhases();
         map16Canvas.SetSheet(px, w, h, session.Map16TileCount);
+        map16Canvas.SetPlaceholder(session.PlaceholderPhases());
         map16Canvas.Bank = Math.Max(0, bankBox.SelectedIndex);
         RebuildChrSheet();
     }

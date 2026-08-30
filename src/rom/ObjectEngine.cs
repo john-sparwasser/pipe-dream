@@ -19,19 +19,21 @@ public static class ObjectEngine
     /// </summary>
     public static Map16Grid Render(Rom rom, Level level)
     {
-        try { return RenderEmulated(rom, level.Header, level.DataPointer, layer: 0); }
-        catch { return PortedObjectEngine.Render(rom, level.Header, level.Objects); }
+        int rows = rom.LevelHeightRows(level.Number);
+        try { return RenderEmulated(rom, level.Header, level.DataPointer, layer: 0, rows); }
+        catch { return PortedObjectEngine.Render(rom, level.Header, level.Objects, rows); }
     }
 
     /// <summary>Layer-2 object stream via the same emulation ($1933 = 1).</summary>
     public static Map16Grid? RenderLayer2(Rom rom, LevelHeader header, int levelNum)
     {
         if (rom.Layer2IsBackground(levelNum)) return null;
-        try { return RenderEmulated(rom, header, rom.Layer2Pointer(levelNum), layer: 1); }
+        int rows = rom.LevelHeightRows(levelNum);
+        try { return RenderEmulated(rom, header, rom.Layer2Pointer(levelNum), layer: 1, rows); }
         catch
         {
             var objs = LevelParser.ParseLayer2(rom, levelNum);
-            return objs is null ? null : PortedObjectEngine.Render(rom, header, objs);
+            return objs is null ? null : PortedObjectEngine.Render(rom, header, objs, rows);
         }
     }
 
@@ -51,8 +53,12 @@ public static class ObjectEngine
     public const int SoloBudget = 2_000_000;
 
     public static Map16Grid RenderEmulatedStream(Rom rom, LevelHeader header, byte[] encoded, int layer,
-                                                 int maxInstructions = 30_000_000)
-        => RenderEmulatedStream(rom, header, encoded, layer, null, out _, out _, maxInstructions);
+                                                 int maxInstructions = 30_000_000, int heightRows = VanillaRows)
+        => RenderEmulatedStream(rom, header, encoded, layer, null, out _, out _, maxInstructions, heightRows);
+
+    /// <summary>Rows per horizontal screen column in a vanilla level: 27 (0x1B0 bytes). LM's
+    /// level height makes this per level (<see cref="LunarMagic.LevelHeightRows"/>).</summary>
+    public const int VanillaRows = 27;
 
     public static Map16Grid RenderEmulatedStream(Rom rom, LevelHeader header, byte[] encoded, int layer,
                                                  ushort[]? streamOwner, out Map16Grid? owners)
@@ -69,7 +75,7 @@ public static class ObjectEngine
     public static Map16Grid RenderEmulatedStream(Rom rom, LevelHeader header, byte[] encoded, int layer,
                                                  ushort[]? streamOwner, out Map16Grid? owners,
                                                  out Dictionary<int, ushort[]>? stacks,
-                                                 int maxInstructions = 30_000_000)
+                                                 int maxInstructions = 30_000_000, int heightRows = VanillaRows)
     {
         var cpu = new Cpu65816(rom);
         LastCpu = cpu;
@@ -82,16 +88,16 @@ public static class ObjectEngine
             cpu.Owner7F = new ushort[0x10000];
             cpu.WriteLog = new();
         }
-        return RenderEmulatedCore(rom, cpu, header, 0x7F0000, layer, out owners, out stacks, maxInstructions);
+        return RenderEmulatedCore(rom, cpu, header, 0x7F0000, layer, out owners, out stacks, maxInstructions, heightRows);
     }
 
-    public static Map16Grid RenderEmulated(Rom rom, LevelHeader header, int dataPtrSnes, int layer)
+    public static Map16Grid RenderEmulated(Rom rom, LevelHeader header, int dataPtrSnes, int layer, int heightRows = VanillaRows)
     {
         var cpu = new Cpu65816(rom);
         LastCpu = cpu;
         // Tilemap init as at $058074: low planes 0x25, high planes 0x00.
         Array.Fill(cpu.Ram7E, (byte)0x25, 0xC800, 0x3800);
-        return RenderEmulatedCore(rom, cpu, header, dataPtrSnes, layer, out _, out _, 30_000_000);
+        return RenderEmulatedCore(rom, cpu, header, dataPtrSnes, layer, out _, out _, 30_000_000, heightRows);
     }
 
     // Vanilla mode → per-screen plane-table address (bank 00), per layer. LM-saved ROMs
@@ -116,8 +122,12 @@ public static class ObjectEngine
 
     private static Map16Grid RenderEmulatedCore(Rom rom, Cpu65816 cpu, LevelHeader header, int dataPtrSnes, int layer,
                                                 out Map16Grid? owners, out Dictionary<int, ushort[]>? stacks,
-                                                int maxInstructions)
+                                                int maxInstructions, int heightRows)
     {
+        // A horizontal level is `columns` screens of `stride` bytes each, carved out of the
+        // 0x3800-byte tilemap: 32 x 0x1B0 in vanilla, fewer-but-taller with LM's level height.
+        int stride = heightRows * 16;
+        int columns = Math.Min(0x20, 0x3800 / stride);
         byte RomOrRam(int snes)     // $65 pointer may target ROM (real level) or $7F RAM (edited stream)
             => (snes >> 16) == 0x7F ? cpu.Ram7F[snes & 0xFFFF] : rom.ReadByte(snes);
 
@@ -141,14 +151,28 @@ public static class ObjectEngine
             int scr = rom.ReadValue(map + hdrMode * 2, 2);
             int van = (pl == 0 ? VanillaLoMap : VanillaHiMap)[layer][hdrMode];
             if (scr == 0 || scr >= 0x8000 || van == 0) continue;   // ROM table: loader reads it fine
-            for (int i = 0; i < 0x20 * 3; i++)
-                cpu.Ram7E[(scr + i) & 0xFFFF] = rom.ReadByte(van + i);
+            if (stride == 0x1B0)
+            {
+                for (int i = 0; i < 0x20 * 3; i++)
+                    cpu.Ram7E[(scr + i) & 0xFFFF] = rom.ReadByte(van + i);
+                continue;
+            }
+            // A taller level: what LM's init ($8E65 in block B) computes — the vanilla table's
+            // first pointer, then one column stride per screen.
+            int first = rom.ReadValue(van, 3);
+            for (int s = 0; s < 0x20; s++)
+            {
+                int p = first + s * stride;
+                cpu.Ram7E[(scr + s * 3) & 0xFFFF] = (byte)p;
+                cpu.Ram7E[(scr + s * 3 + 1) & 0xFFFF] = (byte)(p >> 8);
+                cpu.Ram7E[(scr + s * 3 + 2) & 0xFFFF] = (byte)(p >> 16);
+            }
         }
 
         // LM also patches the screen-step primitives (CODE_0DA95B / $0DA9D6 / $0DA9EF)
         // to add a stride from its RAM word $13D7 instead of the hardcoded vanilla +$1B0
-        // (again built by LM's init). Seed the vanilla stride; harmless on clean ROMs.
-        W(0x13D7, 0xB0); W(0x13D8, 0x01);
+        // (again built by LM's init). Seed the stride; harmless on clean ROMs.
+        W(0x13D7, (byte)stride); W(0x13D8, (byte)(stride >> 8));
 
         if (RomOrRam(data) != 0xFF)                       // empty level: nothing to run
             cpu.CallNear(0x05_85FF, maxInstructions);
@@ -156,7 +180,7 @@ public static class ObjectEngine
         bool vertical = rom.IsVerticalMode(header.LevelMode);
         // Full canvas (LM parity): content can sit past header.Screens. The loader filled
         // untouched RAM with blank sky ($25). Vertical caps at $1C bands ($C800+$1C*$200 = RAM end).
-        int screens = vertical ? 0x1C : 0x20;
+        int screens = vertical ? 0x1C : columns;
 
         // Per-screen plane-pointer tables (24-bit addresses, 3 bytes/screen), from the
         // static tables at $00BEA8/$00BEAC (vanilla). If those are dead (a LM-patched
@@ -182,7 +206,7 @@ public static class ObjectEngine
             if (!ValidTbl(lowScr, screens) || !ValidTbl(highScr, screens))
                 throw new InvalidOperationException("no valid plane tables (vanilla static + loader scratch both dead)");
         }
-        var g = new Map16Grid(vertical ? 32 : screens * 16, vertical ? screens * 16 : 32);
+        var g = new Map16Grid(vertical ? 32 : screens * 16, vertical ? screens * 16 : heightRows);
         owners = cpu.Owner7E is not null ? new Map16Grid(g.Width, g.Height) : null;
 
         // Full writer history per low-plane address (consecutive duplicates collapsed).
@@ -205,7 +229,10 @@ public static class ObjectEngine
         {
             int lo = Mem24(lowScr + s * 3);        // tables may live in RAM on LM ROMs
             int hi = Mem24(highScr + s * 3);
-            for (int i = 0; i < 0x200; i++)
+            // A vertical screen is 2 x 0x100 bytes (left/right halves); a horizontal column is
+            // `stride` bytes read linearly, 16 per row.
+            int bytes = vertical ? 0x200 : stride;
+            for (int i = 0; i < bytes; i++)
             {
                 int half = i >> 8, pos = i & 0xFF;
                 int rx = pos & 0x0F, ry = pos >> 4;
@@ -219,9 +246,7 @@ public static class ObjectEngine
                 }
                 else
                 {
-                    int y = half * 16 + ry;
-                    if (y >= 27) continue;                 // screens are 16x27
-                    cx = s * 16 + rx; cy = y;
+                    cx = s * 16 + (i & 0x0F); cy = i >> 4;
                 }
                 int tile = Ram(lo >> 16, lo + (half << 8) + pos)
                          | (Ram(hi >> 16, hi + (half << 8) + pos) << 8);

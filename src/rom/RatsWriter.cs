@@ -78,10 +78,26 @@ public static class RatsWriter
             }
             bool ok = true;
             for (int i = 0; i < need; i++)
-                if (rom.Data[fo + i] != 0) { ok = false; p += i + 1; break; }
+                // Stop ON the byte, not past it: it may be the 'S' of a RATS tag, and the top of
+                // the loop must see the whole tag to skip the block it protects. Stepping past it
+                // walked INTO tags and handed out the zero runs inside protected data.
+                if (rom.Data[fo + i] != 0) { ok = false; p += Math.Max(i, 1); break; }
             if (ok) return p;
         }
         throw new InvalidOperationException("no free space (expand the ROM first)");
+    }
+
+    /// <summary>Release the RATS block whose DATA starts at <paramref name="dataSnes"/>: tag and
+    /// payload are zeroed, so FindFreeSpace can hand the run out again. A no-op when there is no
+    /// valid tag 8 bytes before — a pointer into something that is not ours is left alone.</summary>
+    public static void Release(Rom rom, int dataSnes)
+    {
+        int fo = rom.FileOffset(dataSnes) - 8;
+        if (fo < 0 || fo + 8 > rom.Data.Length) return;
+        if (rom.Data[fo] != 0x53 || rom.Data[fo + 1] != 0x54 || rom.Data[fo + 2] != 0x41 || rom.Data[fo + 3] != 0x52) return;
+        int sz = rom.Data[fo + 4] | (rom.Data[fo + 5] << 8), inv = rom.Data[fo + 6] | (rom.Data[fo + 7] << 8);
+        if ((sz ^ inv) != 0xFFFF) return;
+        Array.Clear(rom.Data, fo, Math.Min(8 + sz + 1, rom.Data.Length - fo));
     }
 
     /// <summary>Write a RATS-protected block and return the SNES address of the data (after the tag).</summary>

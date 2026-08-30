@@ -189,7 +189,7 @@ public class ProjectPrepTests : IDisposable
 
         var (status, outPath) = RomBuilder.Build(p);
         Assert.NotNull(outPath);
-        Assert.Contains("BG2/BG3", status);                        // warning surfaced
+        Assert.DoesNotContain("BG2/BG3", status);                  // v10 carries LM's VRAM patch: no warning
 
         var built = Rom.Load(outPath!);
         var rec = built.LmGfxBypass(0x105);

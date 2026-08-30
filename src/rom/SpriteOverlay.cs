@@ -34,7 +34,7 @@ public sealed class SpriteOverlay
                 if (s.Extra < 2 && SpriteDisplay.TryGet(s.Number, out var rel))
                     oam = rel.Select(o => o with { X = o.X + cx * 16, Y = o.Y + cy * 16 }).ToList();
                 else
-                    oam = SpriteRender.Capture(rom, s, cx, cy, vert);
+                    oam = SpriteRender.Capture(rom, s, cx, cy, vert, rom.LevelHeightRows(level));
             }
             items[i] = (s, oam);
         }

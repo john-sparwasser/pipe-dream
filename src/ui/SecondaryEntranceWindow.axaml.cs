@@ -67,6 +67,10 @@ public partial class SecondaryEntranceWindow : Window
         spec.Add(("Screen boundary Y", e => e.ScreenBoundaryY, (e, v) => e with { ScreenBoundaryY = v }, 3));
         spec.Add(("Vertical scroll", e => e.VerticalScroll, (e, v) => e with { VerticalScroll = v }, 3));
         spec.Add(("Entrance action", e => e.EntranceAction, (e, v) => e with { EntranceAction = v }, 7));
+        spec.Add(("FG/BG relative to player", e => e.FgBg >> 7, (e, v) => e with { FgBg = (e.FgBg & 0x7F) | (v << 7) }, 1));
+        spec.Add(("Face left", e => (e.FgBg >> 6) & 1, (e, v) => e with { FgBg = (e.FgBg & 0xBF) | (v << 6) }, 1));
+        spec.Add(("Slippery level", e => e.ActionHigh, (e, v) => e with { ActionHigh = v }, 1));
+        spec.Add(("Water level", e => (e.FgBg >> 5) & 1, (e, v) => e with { FgBg = (e.FgBg & 0xDF) | (v << 5) }, 1));
 
         for (int i = 0; i < spec.Count; i++)
         {

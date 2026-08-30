@@ -123,9 +123,10 @@ public static class Map16
     {
         var cache = ComposeAll(rom, h, level, animPhase);
         uint backdrop = Palette.Load(rom, h, level).Rgba[0];
-        // Horizontal modes show 27 rows (16x27 screens); rows 27-31 exist in the object
-        // grid but the game never displays them. Vertical modes keep the full grid.
-        int rows = rom.IsVerticalMode(h.LevelMode) ? grid.Height : Math.Min(27, grid.Height);
+        // The engine sizes the grid to the level's height (27 rows vanilla, LM's LUT height
+        // otherwise, a vertical level's full extent), so every row is shown. A 32-row grid from
+        // the ported fallback still shows only the 27 the game draws.
+        int rows = rom.IsVerticalMode(h.LevelMode) || grid.Height != 32 ? grid.Height : 27;
         int W = grid.Width * 16, H = rows * 16;
         var img = new uint[W * H];
         Array.Fill(img, backdrop);

@@ -27,7 +27,7 @@ public static class SpriteRender
     public static List<(int Pc, int X, int Y)>? LastStepLog;
 
     public static List<Oam>? Capture(Rom rom, Sprite s, int cellX = -1, int cellY = -1,
-                                     bool vertical = false)
+                                     bool vertical = false, int heightRows = ObjectEngine.VanillaRows)
     {
         // Sprite-list number classes ($02A866-$02A8D8): C9-CA shooters, CB-D9 generators,
         // DE/E0-E6 multi-sprite specials, E7+ scroll commands — none spawn a regular slot.
@@ -74,15 +74,16 @@ public static class SpriteRender
             // screen*$1B0, rows 16+ at +$100) and BA80/BABC (vertical: band*$200, right
             // half at +$100).
             r[0x5D] = 0x20;
+            int stride = heightRows * 16;                              // a horizontal column's bytes
             int cy2 = wy / 16;
             for (int gy = cy2 + 1; gy <= cy2 + 4; gy++)
             {
-                if (!vertical && gy > 26) break;
+                if (!vertical && gy >= heightRows) break;
                 for (int gx = 0; gx < (vertical ? 32 : 512); gx++)
                 {
                     int a = vertical
                         ? 0xC800 + (gy >> 4) * 0x200 + (gy & 15) * 16 + (gx & 15) + (gx >= 16 ? 0x100 : 0)
-                        : 0xC800 + (gx >> 4) * 0x1B0 + (gy < 16 ? gy * 16 : 0x100 + (gy - 16) * 16) + (gx & 15);
+                        : 0xC800 + (gx >> 4) * stride + gy * 16 + (gx & 15);
                     if (a >= 0xC800 && a < 0x10000) { r[a] = 0x30; cpu.Ram7F[a] = 0x01; }
                 }
             }
@@ -97,14 +98,21 @@ public static class SpriteRender
             int fScr = vertical ? cy / 16 : cx / 16;
             int fXn = vertical ? cy % 16 : cx % 16;
             int fY = vertical ? cx : cy;
-            cpu.Ram7F[0x0100] = 0;                                     // stream header byte
-            cpu.Ram7F[0x0101] = (byte)(((fY & 0x0F) << 4) | ((s.Extra & 3) << 2)
+            // Past row 31 on a horizontal level the record needs LM's 32-row band: an extended
+            // list (header bit 5) opening with `FF band`, and $0A = band*2, which its loader keeps
+            // for the Y high byte ($108F49) and which the skipped list head would have set.
+            int band = vertical ? 0 : fY >> 5;
+            int sl = 0;
+            cpu.Ram7F[0x0100 + sl++] = (byte)(band != 0 ? 0x20 : 0);   // stream header byte
+            if (band != 0) { cpu.Ram7F[0x0100 + sl++] = 0xFF; cpu.Ram7F[0x0100 + sl++] = (byte)band; }
+            int rec = sl;
+            cpu.Ram7F[0x0100 + sl++] = (byte)(((fY & 0x0F) << 4) | ((s.Extra & 3) << 2)
                                        | ((fScr & 0x10) >> 3) | ((fY & 0x10) >> 4));
-            cpu.Ram7F[0x0102] = (byte)((fXn << 4) | (fScr & 0x0F));
-            cpu.Ram7F[0x0103] = (byte)s.Number;
-            int sl = 4;
+            cpu.Ram7F[0x0100 + sl++] = (byte)((fXn << 4) | (fScr & 0x0F));
+            cpu.Ram7F[0x0100 + sl++] = (byte)s.Number;
             if (s.ExtraBytes is { } eb) foreach (var b in eb) cpu.Ram7F[0x0100 + sl++] = b;
             cpu.Ram7F[0x0100 + sl] = 0xFF;                             // terminator
+            if (band != 0) cpu.Ram7F[0x0100 + sl + 1] = 0xFE;
             r[0xCE] = 0x00; r[0xCF] = 0x01; r[0xD0] = 0x7F;            // stream ptr -> $7F0100
 
             // Enter the loop at the record-spawn BODY ($02A84E: column check → spawned
@@ -116,11 +124,29 @@ public static class SpriteRender
             // DBR=2: the loader's slot-range tables ($02A773+) are read DBR-relative.
             // $00/$01 = load column + screen, normally computed by the skipped loop head;
             // CreateSprite takes the spawn position's high bytes from $01.
+            // LM's level-entry engine (prep v10 / any LM save) checks sprites against the level
+            // height in $13D7 and a spawn window in $0BF0/$0BF2 every frame — state its sprite
+            // init (hooked at $02ACA4) computes at level load. Seed the vanilla height and run
+            // that init so the engine sees the level it expects; a vanilla ROM has neither. It
+            // uses $00-$0F as scratch, so the column bytes below are set after it.
+            r[0x13D7] = (byte)stride; r[0x13D8] = (byte)(stride >> 8);
+            // ...and the block probe's per-screen pointer tables, which the engine moves from ROM
+            // ($00BA60/$00BA9C) into RAM ($0CB6 low bytes, $0CD6 high) and block B fills at level
+            // load: one column stride per screen from $C800 (vanilla's own numbers at 0x1B0).
+            for (int sc = 0; sc < 0x20; sc++)
+            {
+                int p = 0xC800 + sc * stride;
+                if (p > 0xFFFF) break;
+                r[0x0CB6 + sc] = (byte)p; r[0x0CD6 + sc] = (byte)(p >> 8);
+            }
+            cpu.PresetDbr(2);
+            if (rom.ReadByte(0x02ACA4) == 0x22)
+                try { cpu.CallLong(rom.ReadValue(0x02ACA5, 3), 400_000); } catch (InvalidOperationException) { }
             r[0x00] = (byte)((vertical ? wy : wx) & 0xF0);
             r[0x01] = (byte)((vertical ? wy : wx) >> 8);
+            r[0x0A] = (byte)(band * 2);                                // LM's band, after the init's scratch use
             r[0x13] = 0;
-            cpu.PresetDbr(2);
-            try { cpu.PresetX(0); cpu.PresetY(2); cpu.CallNear(0x02A84E, 400_000); }
+            try { cpu.PresetX(0); cpu.PresetY(rec + 1); cpu.CallNear(0x02A84E, 400_000); }
             catch (InvalidOperationException) { }
             cpu.PresetDbr(1);                                          // sprite engine runs with DBR=1
             if (Trace) LastSlots = r.AsSpan(0x14C8, 12).ToArray();

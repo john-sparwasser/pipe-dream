@@ -1,3 +1,4 @@
+using System.Linq;
 using PipeDream;
 using Xunit;
 
@@ -55,5 +56,75 @@ public class ExAnimationTests
         var s = ExAnimation.ParseSlots(rec)[0];
         Assert.Equal(4, s.FrameCount);
         Assert.Equal(0x633, s.SrcTile(3));
+    }
+
+    /// <summary>The fields pinned by the exanim_a..t controlled saves (CONTRACT §12e), on their real
+    /// record bytes: slot placement through the offset table (k), a stateful trigger doubling the
+    /// list (r, Custom 5), a palette rotation with no frame words and the colour count in the dest
+    /// high byte (q), and the alternate-file flag turning frames into file offsets (h).</summary>
+    [Fact]
+    public void PinnedFields_SlotTable_Doubling_Palette_AltFile()
+    {
+        // k: six entries, only slot 5 used, its block at section+0x0C.
+        byte[] k = [0x06, 0x00, 0xFF, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x0C, 0x00,
+                    0x01, 0x00, 0x02, 0x00, 0x0A, 0x20, 0x7D, 0xA0, 0x87, 0x40, 0x92];
+        var ks = Assert.Single(ExAnimation.ParseSlots(k));
+        Assert.Equal(5, ks.Index);
+        Assert.Equal(0xA0, ks.DestTile);
+
+        // r: Custom 5 → 2×3 words.
+        byte[] r = [0x01, 0x00, 0xFF, 0xFF, 0, 0, 0, 0, 0x02, 0x00,
+                    0x01, 0x25, 0x02, 0x00, 0x0A, 0x20, 0x7D, 0xA0, 0x87, 0x40, 0x92, 0, 0, 0, 0, 0, 0];
+        var rs = Assert.Single(ExAnimation.ParseSlots(r));
+        Assert.Equal(ExAnimation.TriggerCustom0 + 5, rs.Trigger);
+        Assert.True(rs.Doubled);
+        Assert.Equal(6, rs.Frames.Length);
+        Assert.Equal(3, rs.FrameCount);
+
+        // q: Palette Rotate Right, 4 colours from 0x85, no frame data.
+        byte[] q = [0x01, 0x00, 0xFF, 0xFF, 0, 0, 0, 0, 0x02, 0x00, 0x18, 0x00, 0x02, 0x85, 0x03];
+        var qs = Assert.Single(ExAnimation.ParseSlots(q));
+        Assert.True(qs.IsPalette);
+        Assert.Equal(0x85, qs.DestColor);
+        Assert.Equal(4, qs.Colors);
+        Assert.Empty(qs.Frames);
+
+        // h: alt file (record index 0 → 60), frames are byte offsets: C01/C05/C0A.
+        byte[] h = [0x01, 0x00, 0xFF, 0xFF, 0, 0, 0, 0, 0x02, 0x00,
+                    0x01, 0x00, 0x02, 0x00, 0x8A, 0x20, 0x00, 0xA0, 0x00, 0x40, 0x01];
+        var hs = Assert.Single(ExAnimation.ParseSlots(h));
+        Assert.True(hs.AltFile);
+        Assert.Equal(0xA0, hs.DestTile);
+        Assert.Equal(new[] { 0xC01, 0xC05, 0xC0A }, Enumerable.Range(0, 3).Select(hs.SrcTile).ToArray());
+
+        // Line codes are list indices: 0E moves 32 tiles.
+        Assert.Equal(32, ExAnimation.LineTiles[0x0E]);
+    }
+
+    /// <summary>Encode is ParseSlots' inverse: real records come back byte-identical (baseline,
+    /// slot 5 placement, doubled trigger, rotate), and a slot handed over with only its untriggered
+    /// half is padded to the doubled length LM expects.</summary>
+    [Fact]
+    public void EncodeRoundTripsRealRecords()
+    {
+        byte[] k = [0x06, 0x00, 0xFF, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x0C, 0x00,
+                    0x01, 0x00, 0x02, 0x00, 0x0A, 0x20, 0x7D, 0xA0, 0x87, 0x40, 0x92];
+        byte[] r = [0x01, 0x00, 0xFF, 0xFF, 0, 0, 0, 0, 0x02, 0x00,
+                    0x01, 0x25, 0x02, 0x00, 0x0A, 0x20, 0x7D, 0xA0, 0x87, 0x40, 0x92, 0, 0, 0, 0, 0, 0];
+        byte[] q = [0x01, 0x00, 0xFF, 0xFF, 0, 0, 0, 0, 0x02, 0x00, 0x18, 0x00, 0x02, 0x85, 0x03];
+        foreach (var rec in new[] { Exanim1, k, r, q })
+            Assert.Equal(rec, ExAnimation.Encode(ExAnimation.ParseSlots(rec)));
+
+        // Two slots, the second with only 3 of its 6 words given: the record grows to 6 and reparses.
+        var a = new ExAnimation.Slot(0, 4, ExAnimation.TriggerNone, 2, 0x0A00, [0x7D20, 0x7D40], 0);
+        var b = new ExAnimation.Slot(3, 1, ExAnimation.TriggerPow, 3, 0x8B00, [0x20, 0xA0, 0x140], 1);
+        var back = ExAnimation.ParseSlots(ExAnimation.Encode([b, a], altFileIndex: 1));
+        Assert.Equal(2, back.Count);
+        Assert.Equal(0, back[0].Index);
+        Assert.Equal(3, back[1].Index);
+        Assert.Equal(6, back[1].Frames.Length);
+        Assert.True(back[1].AltFile);
+        Assert.Equal(1, back[1].AltFileIndex);
+        Assert.Equal(0xC01, back[1].SrcTile(0) - 0x400);   // file index 1 → tiles from 0x1000
     }
 }

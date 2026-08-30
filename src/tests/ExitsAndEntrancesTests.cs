@@ -299,13 +299,12 @@ public class ExitsAndEntrancesTests(ITestOutputHelper log) : IDisposable
     }
 
     /// <summary>
-    /// On a v10 base the two vanilla limits are gone: a marker lands exactly where it was
-    /// dropped, and the midway is its own entrance rather than the main one's screen. Both are
-    /// checked against the SAME level on a prepped base, so the difference is the prep and not
-    /// the level.
+    /// On a v10 base — Lunar Magic's method 2 plus its separate midway settings — every marker
+    /// lands on the 16px step it was dropped on rather than one of vanilla's eight offsets. Checked against the SAME level on a
+    /// prepped base, so the difference is the prep and not the level.
     /// </summary>
     [AvaloniaFact]
-    public void a_prepped_base_places_entrances_exactly_and_frees_the_midway()
+    public void a_prepped_base_places_every_entrance_in_sixteen_pixel_steps()
     {
         if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
         Directory.CreateDirectory(dir);
@@ -324,15 +323,26 @@ public class ExitsAndEntrancesTests(ITestOutputHelper log) : IDisposable
         // 0x0A9 is not on the grid at all — the eight offsets are 00/10/70/80/E0.
         Assert.True(s.MoveEntrance(EntranceKind.Main, main.Index, 0x0A9, 0x0157));
         var moved = s.Entrances().First(e => e.Kind == EntranceKind.Main);
-        Assert.Equal((0x0A9, 0x0157), (moved.X, moved.Y));       // exactly there, no snap
-
-        // The midway moves on its own now, in both axes.
-        Assert.True(s.MoveEntrance(EntranceKind.Midway, main.Index, 0x0777, 0x0088));
-        Assert.Equal((0x0777, 0x0088),
-                     s.Entrances().First(e => e.Kind == EntranceKind.Midway) is var m ? (m.X, m.Y) : default);
-        Assert.Equal((0x0A9, 0x0157),
-                     s.Entrances().First(e => e.Kind == EntranceKind.Main) is var k ? (k.X, k.Y) : default);
+        Assert.Equal((0x0A0, 0x0150), (moved.X, moved.Y));       // the 16px step, not the table
+        Assert.Equal(1, s.MainEntrance!.Value.Method2);
         Assert.False(s.MoveEntrance(EntranceKind.Main, main.Index, 0x0A9, 0x0157));   // idempotent
+
+        // The midway follows the main's spot until it is placed, then it is its own — in both axes.
+        var mid = s.Entrances().First(e => e.Kind == EntranceKind.Midway);
+        Assert.Equal((0x0A0 + (mid.X & 0x1F00), 0x0150), (mid.X, mid.Y));
+        Assert.True(s.MoveEntrance(EntranceKind.Midway, mid.Index, 0x1234, 0x0088));
+        mid = s.Entrances().First(e => e.Kind == EntranceKind.Midway);
+        Assert.Equal((0x1230, 0x0080), (mid.X, mid.Y));
+        Assert.Equal((0x0A0, 0x0150), s.Entrances().First(e => e.Kind == EntranceKind.Main) is var k ? (k.X, k.Y) : default);
+        Assert.Equal(main.Index, s.MainEntrance!.Value.MidwaySeparate == 1 ? main.Index : -1);
+
+        // A secondary entrance too, and it is written back through its own record.
+        var sec = s.Entrances().First(e => e.Kind == EntranceKind.Secondary);
+        Assert.True(sec.Free);
+        Assert.True(s.MoveEntrance(EntranceKind.Secondary, sec.Index, 0x0777, 0x0088));
+        var secMoved = s.Entrances().First(e => e.Kind == EntranceKind.Secondary && e.Index == sec.Index);
+        Assert.Equal((0x0770, 0x0080), (secMoved.X, secMoved.Y));
+        Assert.Equal(1, s.ReadEntrance(sec.Index)!.Value.Method2);
     }
 
     /// <summary>Vanilla's midway entrance stores ONLY a screen — its position inside that screen

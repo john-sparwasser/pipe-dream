@@ -547,15 +547,18 @@ public static class RomSelfCheck
 
             Console.WriteLine("LM global ExAnimation list (ShaoBase, CONTRACT §12f):");
             Check("global list located by engine signature", sh.LmGlobalExAnimPtr == 0x10F331);
-            var gslots = ExAnimation.ReadGlobalRaw(sh);
-            Console.WriteLine($"    {gslots.Count} used slots; sizes [{string.Join(",", gslots.Select(s => s.Raw.Length))}]");
+            var gslots = ExAnimation.ReadGlobal(sh);
+            Console.WriteLine($"    {gslots.Count} used slots; types [{string.Join(",", gslots.Select(s => s.Type.ToString("X2")))}]");
             Check("13 used slots (RATS-bounded, no bleed into next block)", gslots.Count == 13);
-            Check("all slots are 9 or 13 bytes (7B header + 1 or 3 frame words)",
-                  gslots.All(s => s.Raw.Length is 9 or 13));
-            var s6 = gslots.FirstOrDefault(s => s.Index == 6);
-            Check("slot 6 = 3 frames 0x680/0x700/0x780 (last → $AD00 custom source)",
-                  s6.FrameCount == 3 && s6.FrameTile(0) == 0x680 && s6.FrameTile(1) == 0x700 &&
-                  s6.FrameTile(2) == 0x780 && s6.FrameSrcAddr(2) == 0xAD00);
+            Check("every slot reads the alt ExGFX file 60 (record header index 0, dest bit 15)",
+                  gslots.All(s => s.AltFile && s.AltFileIndex == 0) && sh.LmAltExGfx(0) == 0x209EE4);
+            var s6 = gslots.First(s => s.Index == 6);
+            Check("slot 6 = 4 8x8s line, 4 frames at file offsets 600/680/700/780 (tiles C30..C3C)",
+                  s6.Type == 4 && s6.Trigger == 0 && s6.FrameCount == 4 && s6.Frames[0] == 0x600 &&
+                  s6.Frames[3] == 0x780 && s6.SrcTile(3) == 0xC3C && s6.DestTile == 0x38);
+            var s0 = gslots.First(s => s.Index == 0);
+            Check("slot 0 = ON/OFF trigger doubles the frame list (1 frame → 2 words)",
+                  s0.Trigger == ExAnimation.TriggerOnOff && s0.FrameCount == 1 && s0.Frames.Length == 2);
             Check("clean ROM has no global ExAnimation list", Rom.Load(CleanRom).LmGlobalExAnimPtr == -1);
 
             Console.WriteLine("LM global ExAnimation resolved by emulation (CONTRACT §12f):");

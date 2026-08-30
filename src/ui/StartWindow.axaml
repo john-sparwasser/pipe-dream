@@ -10,6 +10,7 @@
     <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource TextDimBrush}"
                Text="Editing happens inside a project — a folder holding your work and a private copy of its base ROM. Create one, or pick up where you left off."/>
     <StackPanel x:Name="RecentList" Spacing="2"/>
+    <TextBlock x:Name="Problem" TextWrapping="Wrap" IsVisible="False" Foreground="{DynamicResource AccentBrush}"/>
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
       <Button Content="Open Project…" Click="OnOpen"/>
       <Button Content="New Project…" Click="OnNew" IsDefault="True"/>

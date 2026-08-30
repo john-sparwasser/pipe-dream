@@ -125,6 +125,32 @@ public class Map16ModeTests(ITestOutputHelper log)
         Assert.Equal(0x1234, edit.ReadDef(tile)![0].Raw);
     }
 
+    /// <summary>Painting past the allocated pages grows the ROM, and the picker has to grow with
+    /// it: the scene's tile caches were sized at open, ComposeInto skips tiles past their end, and
+    /// a page that was created by the stroke stayed black — which read as "cannot paint here".</summary>
+    [Fact]
+    public void painting_a_new_page_grows_the_scene_caches_and_the_sheet()
+    {
+        if (Prepped is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new EditorSession();
+        Assert.True(s.OpenRom(p), s.Status);
+        s.ShowLevel(0x105);
+        var m16 = s.Map16!;
+        int before = s.Map16TileCount;
+        int tile = before + 0x105;                     // a page past everything allocated
+        Assert.Null(m16.ReadDef(tile));
+
+        Assert.Null(m16.EnsurePage(tile));
+        Assert.True(m16.StampQuad(tile, 0, 0x1234));
+        m16.EndStroke();
+        s.RecomposeAfterMap16();
+
+        Assert.True(s.Map16TileCount > before);
+        var (px, _, h) = s.SheetPhases();
+        Assert.Equal(s.Map16TileCount / 16 * 16, h);   // the sheet covers the new pages
+        Assert.All(s.PlaceholderPhases(), ph => Assert.NotNull(ph));
+    }
+
     /// <summary>The BG bank is a fixed table, so it explains itself rather than allocating.</summary>
     [Fact]
     public void the_bg_bank_is_not_allocatable()
@@ -715,5 +741,28 @@ public class Map16ModeTests(ITestOutputHelper log)
         // Bank 1 offsets every tile by 0x2000.
         v.Bank = 1;
         Assert.Equal(0x2000, v.At(new Point(4, 4))!.Value.Tile);
+    }
+
+    /// <summary>Files 60-63 land in a RATS block with their $03BCC0 pointer; replacing one frees the
+    /// old block; LmAltExGfx reads it back.</summary>
+    [Fact]
+    public void alt_exgfx_install_and_replace()
+    {
+        if (Prepped is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        var rom = Rom.Load(p);
+        Assert.Equal(-1, rom.LmAltExGfx(0));
+        var g1 = Enumerable.Range(0, 0x1000).Select(i => (byte)i).ToArray();
+        rom.SetLmAltExGfx(0, g1);
+        int a1 = rom.LmAltExGfx(0);
+        Assert.True(a1 > 0);
+        Assert.Equal(g1, rom.Data.AsSpan(rom.FileOffset(a1), g1.Length).ToArray());
+        Assert.Equal("STAR", System.Text.Encoding.ASCII.GetString(rom.Data, rom.FileOffset(a1) - 8, 4));
+
+        rom.SetLmAltExGfx(0, new byte[0x2000]);
+        int a2 = rom.LmAltExGfx(0);
+        Assert.Equal(a1, a2);                                  // old block released, run reused
+        Assert.Equal(0x1FFF, rom.Data[rom.FileOffset(a2) - 4] | rom.Data[rom.FileOffset(a2) - 3] << 8);
+        Assert.Equal(0, rom.Data[rom.FileOffset(a2) + 0x10]); // g1's 0x10 is gone
+        Assert.Equal(-1, rom.LmAltExGfx(1));
     }
 }

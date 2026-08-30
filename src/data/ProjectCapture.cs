@@ -67,10 +67,6 @@ internal static class ProjectCapture
             int level = Convert.ToInt32(levelHex, 16);
             if (state.MainEntrance is not null)
                 state.MainEntrance = Convert.ToHexString(rom.ReadMainEntrance(level).ToBytes());
-            // Free positions live in prep v10's own table, so they are captured as its bytes
-            // rather than being derived from the vanilla record they override.
-            if (state.FreeEntrances is not null)
-                state.FreeEntrances = Convert.ToHexString(FreeEntrance.Bytes(rom, level));
         }
     }
 }

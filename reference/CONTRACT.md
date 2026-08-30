@@ -30,8 +30,9 @@ seductive and has recurred: find LM in the way (a site it overwrites, a table at
 address, a decode half-finished), and route around it. Every time, the right move was to finish
 reading what LM does. Prep v7's exit flags and v8's 4bpp upload are what agreement looks like —
 byte-identical, asserted against LM's own ROMs. `reference/LM_PARITY.md` is the standing
-inventory of where we have not managed it yet, and **v10's entrance positions are the current
-debt**: our own hook sites and our own table, decided by scope rather than necessity.
+inventory of where we have not managed it yet. v10's entrance positions WERE the standing debt —
+private hook sites and a private table — until LM's GUI was driven over a prepped base and wiped
+them (below); v10 now stamps LM's own method-2 routines byte for byte (§9d-3).
 
 Where it stands today: **LM can now READ a prepped base (v5+); it still cannot WRITE to one.**
 Tested against the real `Lunar Magic.exe` via its command line (`info_command_line.htm`),
@@ -46,8 +47,31 @@ base this editor ever produced was unopenable in LM, from v1 onward.** LM's own 
 respects it: in ShaoBase the surrounding block ends at `$0DF0F8` and leaves the byte `$FF`.
 V5 branches around it; `-ExportAllMap16` then succeeds (exit 0) where v4 fails (exit 1).
 
-**The write path still blocks — but NOT because the base is ours. [OPEN, re-attributed
-2026-08-27]** The dialog was captured: it is not a warning at all but LM's **"Open" file
+**LM CAN write to a prepped base, and the result does not boot. [OPEN — the round trip's real
+state, 2026-08-27]** Driven through the GUI rather than the CLI: open a v10 base, change the
+main/midway entrance, Ctrl+S. Two things happen.
+
+First, LM asks **"Restore System Issue — the restore system cannot locate a copy of the original
+unmodified ROM with header, which is required for an operation about to be performed. Would you
+like to browse to a copy of this file now?"** That is almost certainly the dialog behind the
+headless `-ImportLevel` hang: the "Open" picker captured below is what it puts up. Cancel and
+the save proceeds.
+
+Second, it proceeds: **375 changed runs** — LM installs its whole hack suite on save — and the
+resulting ROM **black-screens on boot in Mesen**. Not attributed to a specific stamp yet;
+restoring v10's hijacked `JMP` alone does not fix it, so the cause is elsewhere in the overlap.
+That is the round trip's real state: not "LM cannot write to ours" but "LM writes, and the ROM
+dies". Everything downstream of §0 should be read in that light.
+
+What survived is as informative as what did not. `$05DC50` — prep v7's exit routine — came back
+**byte-identical**, because we match LM there and LM simply rewrote the same bytes over it, and
+`$05D7CE` still points at it. That is parity working. `$05DC90` — the PREVIOUS v10's entrance stubs,
+which matched nothing of LM's — was wiped to `$FF` while `$05D9FE` still jumped to it. A private
+mechanism does not merely get ignored by LM; it gets left as a jump into cleared space. v10 was
+redone on LM's rails the same day (§9d-3); the black screen is not yet re-tested against it.
+
+**The write path blocks headlessly — but NOT because the base is ours. [SUPERSEDED in part by
+the above]** The dialog was captured: it is not a warning at all but LM's **"Open" file
 picker, filtered to SNES ROM images** — LM declining the target and asking for another. It
 appears identically on:
 
@@ -389,6 +413,17 @@ addresses are vanilla SMW; Lunar Magic relocates/expands most of this into RATS-
 expanded ROM for edited ROMs (see per-item notes), but the vanilla layout is the baseline
 and what a clean ROM uses.
 
+### 6a-13. The decompression buffer and the overworld's reader — prep v13  [CONFIRMED in Mesen, 2026-08-29]
+
+The buffer is at vanilla's and LM's `$7EAD00` again (v4-v12 had `$7FA000`). The overworld
+reads its animated tiles (water, clouds) out of that buffer with its own bank-04 reader —
+offset table `$048000` (67 words), bank `$7E` hard-coded, 3bpp expander `$0480B9` — every
+frame, from whatever file was decompressed last. V13 stamps LM's 4bpp-mode bytes for exactly
+that: table rescaled to 32 B/tile, expander `$0480BD=$10` / `$0480D0=RTS`, and the OW sprite
+tables moved `$7EB9xx/$7EBAxx → $7FC5xx/$7FC6xx` (21 operands, `$04F2B8-$04F3D0`) so the
+4bpp file's overrun to `$7EBCFF` hits nothing. Byte-compared against ShaoBase. What of LM's
+4bpp mode we still do NOT carry is listed in `LM_PARITY.md` §2 "4bpp graphics".
+
 ### 6a. GFX files + decompression
 - **Pointer tables** (indexed by GFX file number, 0x00–0x33), three parallel byte tables in
   bank $00: low `$00B992`, high `$00B9C4`, bank `$00B9F6`. File N's source address =
@@ -460,6 +495,21 @@ the 8-byte-def table + its index; then read GFX via LM's per-level GFX/ExGFX lis
 relocates/adds those). The vanilla-path renderer already works for clean ROMs.
 
 ### 7a-rev. LM extended Map16 defs — CORRECTED CONTRACT  [CONFIRMED on 7 ROMs]
+
+**LADDER = LM'S BYTES (prep v12, 2026-08-29) and the range-2/3 carry.** Mesen showed every prep
+v10/v11 level as one repeated filler tile (the intro level, bisected by v10 stamp group: only the
+LmLevelRender group reproduces it; v9 fine). Cause: LM's render engine (the bank-$1F block) JSLs
+LM's ladder ENTRY `$06F540` ~150 times and reads the bank from `$0B`; our v3 ladder had the same
+SLOT addresses but its own dispatcher (mid-code at `$06F540`) and `STY $05`. v12 restamps
+`$06F538-$06F5E3` with after.smc's bytes (entry `CMP #$0400`, `$06F5D0` wrapper `LDY $0B : STY $05`
+for the vanilla hook, high-range dispatcher), keeping only our slot immediates; LM's second
+wrapper at `$06F5E4` (its per-site acts path, not taken) is excluded — our acts stub is at
+`$06F5F0`. IsPrepped v12 = `$06F540 == C9 00 04`. Golden V12 pinned.
+CARRY: LM's ladder reaches the `ADC #imm` of ranges 2/3 (and 6/7) with C=1 — the second `ASL`
+shifts tile bit 13 out and nothing clears it — so those slots store **imm − 1** (LM's defaults
+`FFFF`/`7FFF`), and the pointer is imm + tile*8 + 1. `LmMap16DefAddr` and `GrowRange` now do this
+(`SlotCarry`); before, tiles ≥ 0x2000 read/wrote one byte off. Emulated-ladder test covers all
+ranges; the intro level renders like vanilla in Mesen on v12 and on a rebuilt project.
 
 **The §7a formula below ($02C2E1 → RATS block, linear (tile-0x200)*8) is a coincidence that
 holds only for map16_after.smc** — in ShaoBase the $02C2E1 block is a stale FF-filled
@@ -770,33 +820,53 @@ screen**, so a drag snaps; and a **midway entrance carries only a screen** — i
 that screen is the main entrance's — so it moves a screen at a time and not vertically at all.
 Both are in `EntrancePlacement` and pinned by `EntrancePlacementTests`.
 
-**Lunar Magic lifts both**, and its help says so in as many words: the tables are "method 1",
+**Lunar Magic lifts the first**, and its help says so in as many words: the tables are "method 1",
 while "Method 2 does not use table-based coordinates, and is an enhancement inserted by Lunar
-Magic", and "Lunar Magic adds an option to use separate settings for the midway entrance"
-(`level_main_entrance.htm`). LM's version is hooked at `$05D979` and gated by `$192A` bit 6 —
-see `reference/LM_PARITY.md`.
+Magic" (`level_main_entrance.htm`). Method 2 is not a second table: it reinterprets the SAME two
+index nibbles as 16px steps and adds a flags byte and a Y-high byte — `$05DE00`/`$06FC00` per
+level for the main entrance (routine `$05DD30`, hooked at `$05D97D`), the spare bits of `$05FE00`
+plus a fifth table for secondary ones (routine `$03BCE0`, hooked at `$05D833`). Every LM save
+installs both, byte-identical across after.smc and every reference hack.
 
-**Prep v10 lifts both here**, by a different route. Every path through the decode ends
-`JMP $05DA17`, and the two that matter arrive from different branches — `$05D9FE` having placed
-the main entrance, `$05D9E9` the midway. Each three-byte jump is repointed at a stub that writes
-`$94`/`$96` straight from a table (8 bytes per level: main X/Y, midway X/Y, bit 15 of a Y word =
-"placed freely"), then jumps where it always went. A record with that bit clear leaves vanilla's
-answer untouched, so an unplaced level plays identically. The main stub stands down when `$1B93`
-is set — that is a secondary entry, whose position belongs to the record; **secondary entrances
-are still on the grid**. Proven in Mesen: a level entered at `$0A8` instead of `$080`, which the
-eight-offset table cannot express, starts Mario 40px right of where vanilla puts him.
+**Prep v10 stamps exactly those bytes** (`RomPrep.AppendV10Stamps`), so a ROM saved by either
+tool reads the same here: `X = screen << 8 | xHigh << 7 | xIndex << 4`, `Y = yHigh << 8 |
+yIndex << 4` (`EntrancePlacement.Method2X/Y`), main and secondary markers land on the 16px step
+they were dropped on, and `Rom.HasFreeEntrancePositions`/`HasFreeSecondaryPositions` are LM's own
+hooks. Two things come with the routines and are stamped too: LM's `$1A` in `$06FE00` (it lands in
+`$13CD`, which the midway tape at `$00F2D8` tests for zero — vanilla kept the midway screen there,
+so `$05D9C3` becomes a load), and the migration of every secondary record `$100-$1FF` to carry
+destination bit 8 in `$05FE00` bit 3, because `$03BCE0` takes the ninth bit from the record where
+vanilla took it from the submap. Pinned byte-for-byte against after.smc in
+`EntrancePlacementTests`, and run as code under `Cpu65816` there. LM_PARITY has the full decode.
 
-Two caveats. The FG/BG initial scroll is still vanilla's, so a position far from the original can
-put the camera somewhere unhelpful — LM solves this with a separate "set FG/BG relative to
-player" option we do not have. And LM's "method 2" turns out to be a DIFFERENT feature rather than a rival
-layout: its table has exactly one reader, gated on `$141A != 0` — arrived from inside a level —
-so it supplies arrival positions for extended screen exits, keyed by destination level. It never
-touches the overworld entrance this section is about (LM_PARITY).
+**The midway has a position of its own too**, via LM's "separate midway settings": a 0xC4-byte
+blob hooked at `$05D9E3` (and at `$05D979`, for exits that target the midway) reading four
+per-level tables — flags, position, FG/BG, Y high. LM installs it on demand (juz, ShaoBase,
+DogsOfWar have it; a plain save does not); prep v10 installs it always, byte-identical apart from
+the table operands. The midway's X is a whole nibble (`screen << 8 | nibble << 4`) and it gains a
+fifth screen bit; until a level opts in, the blob hands back the screen and the midway borrows the
+main's spot as before. `Rom.HasFreeMidwayPosition` follows the hook, so on a base without it the
+editor still reports `ScreenOnly` and says so when a drag has nowhere to go.
 
-One site does collide. Every LM hack NOPs `$05D9E9`, the midway branch's jump, which is the site
-v10's midway stub uses; `$05D9FE` is untouched in all of them. So a base that has been through
-Lunar Magic keeps its free MAIN entrance and loses the midway one, and
-`Rom.HasFreeMidwayPosition` detects exactly that rather than letting the marker lie.
+**The camera follows, via LM's level-entry engine.** A free position is only half of it: vanilla
+starts the camera at one of four fixed offsets, and an entrance far from them puts Mario off
+screen. LM's "set FG/BG relative to player" (`$06FE00` bit 7 for the main entrance, the FG/BG byte
+for midway and secondary ones) starts the FG at Mario's Y plus the entrance's offset nibble x16;
+it lives in a two-block engine every LM save installs, which v10 transplants verbatim with only
+bank bytes changed (`LmLevelEntry`, LM_PARITY "Level entry"). At vanilla height the engine's RAM
+comes out equal to vanilla's, asserted in
+`RomPrepTests.level_pointer_chain_leaves_identical_ram_except_the_level_word`.
+
+**Variable level height, LM's way** (LM_PARITY "Level entry"). A horizontal level trades width for
+height: the header's screen count is the width, and the entrance record's `HeightIndex` — LM's
+per-level height byte, block B of the engine — picks one of 32 LUT heights with `columns × height
+≤ 0x3800`. Objects reach rows past 31 through LM's 32-row BANDS: ext 01 carries a band in its X
+nibble and ext 03 a band in Y, the loader adds `band × 0x200` to every plane pointer, and the parser
+tracks it (`LevelObject.Band`, `AbsoluteY`) while the encoder re-derives the jumps like screen
+jumps. The whole of LM's level engine is on the base — entry (blocks A/B), height (block C and the
+loader/sprite/object edits) and render (LM's bank-$1F block with its VRAM patch, `LmLevelRender`) —
+so a tall level built here loads, scrolls and draws as it does under LM. Byte-parity with after.smc
+is asserted for every block and edit; the in-game run is the check that remains.
 
 ### 9e. Level connections  [CONFIRMED in-game, two-room hack in Mesen]
 
@@ -901,15 +971,38 @@ entry     3 bytes  b1 = YYYYEEsy  (Y = (y<<4)|YYYY, EE = extra bits, s = screen 
                    b3 = sprite number (>= 0xE7 → scroll command, $02A866)
 0xFF      terminator (lead byte)
 ```
+**Extended list (Lunar Magic)  [CONFIRMED, DogsOfWar $109/$10F/$11F + block C decode].** Header
+bit 5 — LM narrows the memory field to bits 4-0 (`$05D8FC: AND #$3F → #$1F`) to free it — marks
+the list as extended, and LM's loader (block C of the level engine, `$0BF5` bit 5) then reads
+`FF nn` as "the 32-row BAND for the entries that follow" (`nn` < $FE; Y high byte = band×2 |
+Y bit 4, so row = band × 32 + Y, exactly the object stream's ext 01/03 bands) and `FF FE` (or
+`FF FF`) as the end. A vanilla list is the degenerate case: no bit 5, a lone `FF` ends it. LM
+writes the list as groups per band with a marker before each change, first group unmarked when
+it is band 0 — `$109` is `20 | FF 18 | 3 entries | FF 19 | … | FF FE`. `Sprite.Band`/`AbsoluteY`
+carry it; `SpriteData.Parse/Encode` are the exact inverse of those bytes (`LevelHeightTests`), and
+the OAM capture opens its synthetic list with the marker (and `$0A` = band×2, which the loader's
+skipped head would have set) so a sprite past row 31 draws at its row.
+
 **LM/PIXI extra bytes**: LM hijacks the sprite-advance (vanilla `INY INY INX` at $02A846 →
 JML into LM's relocatable code bank). Entry size = byte table at
 **sizeBase + (EE<<8 | sprite#)** (0x400 bytes, per-ROM; includes the 3 base bytes; vanilla
 entries = 3, customs 4-13). Locate per-ROM via signature
 `4A 4A 29 03 EB C8 C8 B7 CE 88 88 08 C2 10 DA AA 98 18 7F <base:3>` (Rom.LmSpriteSizeBase;
 absent in clean/juz ROMs → fixed 3). Sizes MUST be honored or the stream desyncs (DoW).
+**Registration [CONFIRMED DoW/ShaoBase]**: LM's help ("Custom Sprite List Sizes") puts the
+table's SNES address at PC 0x7750C and 0x42 at 0x7750F — headered offsets, i.e. **$0EF30C /
+$0EF30F**, which is exactly what block C of LM's level engine reads (`LDA $0EF30C..0E → $0C-$0E`,
+`$0EF30F + $BE → $0F`, zero = enabled). DoW registers `$909F52`, ShaoBase `$928F4B`; after.smc
+none (`FF`). `LmSpriteSizeBase` reads the registration first, the signature second. We AUTHOR the
+table the same way (`Rom.SetSpriteEntrySize`): 0x400 bytes of 3 in a RATS block, pointer + 0x42,
+one entry per (extra bits, number) — written by `RomBuilder` for every sprite carrying extra
+bytes; `SpriteEdit.Place` zero-fills a placed sprite to the table's size so a record never
+comes up short. Editor entry: Level ▸ Sprite data… (`SpriteDataWindow`).
 Readers: SpriteData.Parse/Encode (byte-identical round-trip incl. extra bytes);
 SpriteData.DrawOverlay renders badge markers (green = sprite, orange = scroll command).
 Sprite GFX rendering (real tiles per sprite) is out of scope for now.
+
+**Entrance flags (LM dialog) [CONFIRMED]**: `$192A` bit 7 = slippery (`$86=$80`), bit 6 = water (`$85=1`), consumed and cleared by LM's `$05DD00` (hooked from `$00A6CC`); main record: `$05DE00` bits 6-7 → those bits (`TSB $192A` at `$05DD48`), secondary: `$05FE00` bit 7 → bit 7 and sixth-table bit 5 → bit 6. **Face left** = `$06FE00` bit 6 (→ `$13CD`; block A `$1083C1`: `BIT $13CD : BVC : STZ $76`) — previously mis-read here as "BG relative to FG only". Vanilla actions 5/7 still set the flags by themselves (`$00A6D5`). Editor: the entrance marker's edit badge → `EntranceWindow` (main/midway), `SecondaryEntranceWindow`.
 
 **11a. PIXI custom sprites + spawn emulation  [CONFIRMED on ShaoBase/DogsOfWar]**
 - Custom-ness is per PLACEMENT, not per number: the spawn hijack stores `b1 & $0C`
@@ -1067,6 +1160,35 @@ ENGINE MAP (traced with --disasm on ShaoBase, global ExAnimation):
 
 ### 12e. LM ExAnimation slot record  [DECODED via controlled diff]
 
+**SLOT FORMAT PINNED (exanim_a..n controlled saves, 2026-08-29; supersedes the TENTATIVE fields
+below and the "7-byte opaque header" of §12f — per-level and global records share ONE format):**
+  record +0 word   low = slot-entry count, high = alt-ExGFX file index (0-3 → files 60-63 via $03BCC0)
+  record +2/+4     AND / OR masks ($7FC0FC);  +6 selector word, one trailing byte per set bit
+  section          `count` offset words (slot-number order, relative to section start, 0 = unused),
+                   then the slot blocks
+  slot +0 byte     TYPE: 01-08 = 1-8 8x8s line, 09-0E = 12/16/20/24/28/32 8x8s line (engine oracle,
+                   --exanimtypes; o = "20 8x8s" saved as 0E); 0F = 1 8x8 2bpp (DMA 0x10 bytes); 10 = 2 stacked;
+                   11 = 4 as 16x16; 12 = 8 as 32x16 (p); 13 = Palette (l); 18 = Palette Rotate Right (q) —
+                   LM's list order gives 14 +Working, 15 +Working stop, 16 back area, 17 back area stop,
+                   19 rotate R reverse, 1A rotate L, 1B rotate L reverse [by order, unsaved]
+  slot +1 byte     TRIGGER: 00 none, 01 POW, 02 Silver POW (s), 03 ON/OFF, 04 Have Star (t), 10+n Manual n,
+                   20+n Custom n (r), 30+n One-Shot n; 05-0F = Timer/Yoshi variants by list order [unsaved]
+  slot +2 byte     frames − 1
+  slot +3 word     DEST: VRAM word (tile = word/16); palette types: low byte = first colour, high byte =
+                   Colors−1 (q: 0385 = 4 colours at 85); BIT 15 = "use alternate ExGFX file" — frame words
+                   then are BYTE OFFSETS into that file, else $7E RAM addresses
+  slot +5 ..       frame words: `frames` of them, ×2 for a stateful trigger (01-0F and Custom 20-2F; POW,
+                   Silver POW, Star, Custom confirmed; Manual/One-Shot do not) — second half = triggered
+                   animation, LM zero-fills the unset half. Palette ROTATE types (18-1B) store NO frame
+                   words: frames is the delay.
+  slot placement   k: count 6, offsets 0000×5 then 000C → slot 5's block at section+0x0C (verified)
+Alt file: h/n → dest word $8A00, frames 0020/00A0/0140 = (C01/C05/C0A − C00)×20; $03BCC0 = 00 80 20 →
+ExGFX60 at $20:8000. Palette (l): type 13, dest word 0085, frames = raw SNES colours 7FFF 001F 06AA.
+16 frames (j) = 16 words; 1 frame (i) = 1 word. Implemented: ExAnimation.ParseSlots (shared),
+ReadLevel/ReadGlobal, Slot.Describe, Rom.LmAltExGfx; per-level overlay draws N tiles in the block
+shape and alt-file sources from ROM (Gfx.cs). Not saved (inferred from LM's list order only): types 14-17, 19-1B; triggers 05-0F.
+
+
 Decoded from exanim_0..3 in .resources (one 8x8-tile animation on level 0x105; dest and
 frame-count varied one at a time). Each ExAnimation slot is a variable-length record inside
 a small RATS block (LM relocates it on every save):
@@ -1184,11 +1306,40 @@ Verified: ShaoBase levels 105/106/10A visibly cycle across phases (decorative ca
 asserts the overlay changes a tile between phases. (Magenta squares in those renders are unrelated
 object-engine markers, not ExAnimation.)
 
-REMAINING (minor): (1) confirm ctrl's exact DMA-size/bit-depth semantics on a 2bpp-source hack.
+ALT-EXGFX FILES 60-63 [CONFIRMED, 2026-08-29]: the "stride-3 table at $03BCC0" indexed by the record's
+word0 HIGH byte is the pointer table of LM's uncompressed ExAnimation source files 60-63 (4 x 24-bit,
+FF FF FF = absent; vanilla all FF, zeroed once LM installs the ExAnimation ASM). ShaoBase: $03BCC0 =
+E4 9E 20 -> file 60 at $20:9EE4 inside a STAR block, bytes identical to ExGraphics/ExGFX60.bin
+(0x1000); global record word0 = 0x0019 -> 25 slots, file index 0 = 60. That is why the emulated
+global sources are ROM addresses: they are alt-file DMAs. Per-slot alt flag vs RAM source (slot 6 =
+0x680/700/780 RAM) coexist in one list. Full model + editor plan: reference/EXANIMATION.md.
+
+PER-SLOT FORMAT NOW DECODED — see §12e "SLOT FORMAT PINNED". ShaoBase's 13 global slots all read alt file
+60 (dest bit 15; frames = file offsets, e.g. slot 6 = 4-line, offsets 600/680/700/780 → $209EE4+600 =
+$20A4E4, exactly the source the emulation reported for dest 038). The emulation stays as the timing
+oracle. REMAINING (minor): (1) confirm ctrl's exact DMA-size/bit-depth semantics on a 2bpp-source hack.
 (2) multiple per-level slots via the same emulation (per-level path already resolves; not yet run
 through GlobalStates). (3) animation timing is approximated as 8 frames/phase; real per-slot periods
 vary (some > 8) so fast/slow anims may look slightly off-cadence. Tooling: --disasm, --diff, --exanim,
 --globalexanim.
+
+### 12g. ExAnimation WRITE side  [IMPLEMENTED — prep v11]
+
+PREP V11 transplants LM's ExAnimation engine (LmExAnimEngine; RomPrep.AppendV11Stamps): the 0xC30
+engine block from exanim_1 ($108640) relocated to $1E:9400 — all 269 bytes that differ from
+ShaoBase's copy ($138000) are relocations: 12 in-bank 16-bit operands, the 108-word handler table at
++B4A, 6 in-block long operands, the per-level table longs (+DF = table+1, +EA = table), the global
+immediates (+5B bankword, +65 low16). Helpers $1E:A040 (MVN, hook $00A5E1) and $1E:A068 ($7FC0C0
+clear, hook $008A4E); empty per-level table (0x600, FF 00 00) at $1E:A0A0; hooks $0583AD → setup,
+$00A390 → NMI DMA (+RTS), $0095B6/$00A2A6/$00A5FE JSL $05BB39 → processor (+4B0); $03BCC0-CF zeroed.
+LM's own footprint (exanim_0 saved-in-LM vs exanim_1) is exactly these plus relocations of its other
+bank-$10 blocks. IsPrepped v11 = LmExAnimBase >= 0. Golden V11 pinned. The emulated engine resolves a
+slot written by our writer (RomPrepTests.v11_exanimation_engine_runs_a_written_slot).
+WRITERS: Rom.WriteLevelExAnim / WriteGlobalExAnim (ExAnimation.Encode = ParseSlots⁻¹, RATS
+allocate/release, table entry / setup immediates); Rom.SetLmAltExGfx for files 60-63 ($03BCC0).
+PROJECT: ProjectFile.ExAnimation (record hex per level + global), files 60-63 in Gfx["060".."063"];
+RomBuilder.ReplayExAnimation shared by build and hydrate. UI: Animations mode (slot lists +
+ExAnimSlotWindow). NOT transplanted: LM's $0FEFDB metadata bytes (LM bookkeeping, unknown meaning).
 
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 

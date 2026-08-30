@@ -11,10 +11,10 @@ public class MainEntranceTests
     public void every_possible_record_survives_decode_then_encode()
     {
         foreach (byte fill in new byte[] { 0x00, 0xFF, 0x5A })
-            for (int b = 0; b < 4; b++)
+            for (int b = 0; b < 12; b++)
                 for (int v = 0; v < 256; v++)
                 {
-                    byte[] bytes = [fill, fill, fill, fill];
+                    byte[] bytes = [fill, fill, fill, fill, fill, fill, fill, fill, fill, fill, fill, fill];
                     bytes[b] = (byte)v;
                     Assert.Equal(bytes, new MainEntrance(bytes).ToBytes());
                 }
@@ -32,7 +32,7 @@ public class MainEntranceTests
             MarioY = 0x0B, Layer2Scroll = 5, MarioX = 3, EntranceAction = 6, Layer2Setting = 2,
             VerticalScroll = 1, ScreenBoundaryY = 2, VerticalLevel = 1, SkipEntranceWalk = 1,
         };
-        Assert.Equal([0x5B, 0xB3, 0x09, 0xA0], e.ToBytes());
+        Assert.Equal([0x5B, 0xB3, 0x09, 0xA0, 0, 0, 0, 0, 0, 0, 0, 0], e.ToBytes());
         Assert.Equal(e, new MainEntrance(e.ToBytes()));
     }
 
@@ -54,7 +54,7 @@ public class MainEntranceTests
         var e = new MainEntrance([0, 0, 0xF0, 0x1F]);
         Assert.Equal(0x0F, e.ReservedBoundary);
         Assert.Equal(0x1F, e.ReservedMode);
-        Assert.Equal([0, 0, 0xF0, 0x1F], (e with { ScreenBoundaryY = 0 }).ToBytes());
+        Assert.Equal([0, 0, 0xF0, 0x1F, 0, 0, 0, 0, 0, 0, 0, 0], (e with { ScreenBoundaryY = 0 }).ToBytes());
     }
 
     [RealRomFact]

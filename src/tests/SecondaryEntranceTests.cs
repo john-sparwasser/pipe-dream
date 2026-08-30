@@ -11,10 +11,10 @@ public class SecondaryEntranceTests
     public void every_possible_record_survives_decode_then_encode()
     {
         foreach (byte fill in new byte[] { 0x00, 0xFF, 0x5A })
-            for (int b = 0; b < 4; b++)
+            for (int b = 0; b < 6; b++)
                 for (int v = 0; v < 256; v++)
                 {
-                    byte[] bytes = [fill, fill, fill, fill];
+                    byte[] bytes = [fill, fill, fill, fill, fill, fill];
                     bytes[b] = (byte)v;
                     Assert.Equal(bytes, new SecondaryEntrance(bytes).ToBytes());
                 }
@@ -29,20 +29,20 @@ public class SecondaryEntranceTests
         {
             MarioY = 0x0B, ScreenBoundaryY = 2, VerticalScroll = 3, MarioX = 5, EntranceAction = 6,
         };
-        Assert.Equal([0xC5, 0xEB, 0xA0, 0x06], e.ToBytes());
+        Assert.Equal([0xC5, 0xEB, 0xA0, 0x06, 0, 0], e.ToBytes());
         Assert.Equal(e, new SecondaryEntrance(e.ToBytes()));
     }
 
     [Fact]
     public void bits_the_vanilla_decode_ignores_are_carried_through()
     {
-        // $05FC00 bits0-4 and $05FE00 bits3-7 are unread by vanilla; LM and patches may use
-        // them, so editing an unrelated field must not clear them.
+        // $05FC00 bits0-4 (the screen) and $05FE00 bits3-7 (Lunar Magic's) are unread by
+        // vanilla, so editing an unrelated field must not clear them.
         var e = new SecondaryEntrance([0, 0, 0x1F, 0xF8]);
         Assert.Equal(0x1F, e.ReservedX);
-        Assert.Equal(0x1F, e.ReservedMisc);
-        Assert.Equal([0, 0, 0x1F, 0xF8], (e with { MarioX = 0 }).ToBytes());
-        Assert.Equal([0, 0, 0x3F, 0xF9], (e with { MarioX = 1, EntranceAction = 1 }).ToBytes());
+        Assert.Equal((1, 3, 1, 1), (e.DestinationHigh, e.XHigh, e.Method2, e.ActionHigh));
+        Assert.Equal([0, 0, 0x1F, 0xF8, 0, 0], (e with { MarioX = 0 }).ToBytes());
+        Assert.Equal([0, 0, 0x3F, 0xF9, 0, 0], (e with { MarioX = 1, EntranceAction = 1 }).ToBytes());
     }
 
     [RealRomFact]

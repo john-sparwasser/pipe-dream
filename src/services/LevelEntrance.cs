@@ -9,8 +9,8 @@ public enum EntranceKind { Main, Midway, Secondary }
 /// where <see cref="LevelExit"/> is the other.
 ///
 /// The position is DERIVED (see <see cref="EntrancePlacement"/>): the ROM stores a screen and
-/// two small indices, so a marker can only sit at one of 8 x 16 spots per screen. Moving one
-/// snaps, and the snapped position is what comes back.
+/// two small indices — 16px steps with method 2, one of 8 x 16 table spots without. Moving
+/// one snaps, and the snapped position is what comes back.
 /// </summary>
 public sealed record LevelEntrance(EntranceKind Kind, int Index, int X, int Y)
 {
@@ -23,23 +23,17 @@ public sealed record LevelEntrance(EntranceKind Kind, int Index, int X, int Y)
         _ => $"{Index:X3}",
     };
 
-    /// <summary>Whether this base can place the entrance freely (prep v10). When it can, a drag
-    /// lands where it was dropped and the midway has a position of its own; when it cannot, both
-    /// fall back to vanilla's grid.</summary>
+    /// <summary>Whether this base can place the entrance in 16px steps — Lunar Magic's "method 2"
+    /// for the main and secondary ones, its "separate midway settings" for the midway; prep v10
+    /// installs all three. When it cannot, a drag snaps to vanilla's 8 x 16 grid (or, for the
+    /// midway, to a screen).</summary>
     public bool Free { get; init; }
 
     /// <summary>
-    /// Vanilla's midway entrance carries ONLY a screen — its position within that screen is the
-    /// main entrance's ($05D9E1 overrides just the X high byte). So a midway marker moves
-    /// sideways a screen at a time and cannot move vertically at all.
-    ///
-    /// This is a limit of the DATA, not of the idea: Lunar Magic ships an enhancement that gives
-    /// the midway its own settings, and another that drops the position tables entirely
-    /// (reference/LM_PARITY.md). Neither is installed in a vanilla or prepped ROM, so until one
-    /// is, this is the truth and the UI should say so rather than pretend otherwise.
-    ///
-    /// Prep v10 is that enhancement here: with it the midway has its own position and this is
-    /// false.
+    /// Without LM's separate midway settings the midway entrance carries ONLY a screen — its
+    /// position within that screen is the main entrance's ($05D9E1 supplies just the screen). So
+    /// a midway marker moves sideways a screen at a time and cannot move vertically at all, and
+    /// the UI says so rather than pretend otherwise.
     /// </summary>
     public bool ScreenOnly => Kind == EntranceKind.Midway && !Free;
 }

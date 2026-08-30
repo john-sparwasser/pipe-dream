@@ -52,78 +52,264 @@ public class EntrancePlacementTests(ITestOutputHelper log)
     }
 
     /// <summary>
-    /// V10 hooks two sites and Lunar Magic takes one of them: every LM hack NOPs `$05D9E9`, the
-    /// midway branch's `JMP $05DA17`, while `$05D9FE` is untouched in all of them. So the two
-    /// halves are detected separately — a base that has been through LM keeps its freely placed
-    /// main entrance and loses the midway one, and the editor has to know which.
+    /// Prep v10 IS Lunar Magic's entrance format: the hooks and routines it stamps are the
+    /// bytes every LM save installs, so after.smc (a plain LM save) and ShaoBase (a real hack)
+    /// both read as having free positions, and our stamp is byte-identical to theirs.
     /// </summary>
     [LmRefRomFact]
-    public void the_midway_hook_is_a_site_lunar_magic_takes_and_the_main_one_is_not()
+    public void v10_stamps_exactly_the_routines_lunar_magic_installs()
     {
         var ours = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(ours, 10);
-        Assert.True(ours.HasFreeEntrancePositions);
-        Assert.True(ours.HasFreeMidwayPosition);
-
+        var lm = Rom.Load(ReferenceRoms.LmAfter);
         var shao = Rom.Load(ReferenceRoms.ShaoBase);
-        Assert.Equal(0xEA, shao.ReadByte(RomPrep.MidwayJmpSite));      // LM NOPped it
-        Assert.Equal(0x4C, shao.ReadByte(RomPrep.MainJmpSite));        // ...and left this one
-        Assert.False(shao.HasFreeEntrancePositions);                   // neither half is ours
 
-        // Our stamp with LM's NOPs over the midway site: main survives, midway does not.
-        var mixed = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(mixed, 10);
-        for (int i = 0; i < 3; i++) mixed.Data[mixed.FileOffset(RomPrep.MidwayJmpSite) + i] = 0xEA;
-        Assert.True(mixed.HasFreeEntrancePositions);
-        Assert.False(mixed.HasFreeMidwayPosition);
+        foreach (var rom in new[] { ours, lm, shao })
+        {
+            Assert.True(rom.HasFreeEntrancePositions);
+            Assert.True(rom.HasFreeSecondaryPositions);
+        }
+        Assert.False(Rom.Load(TestRom.RealRomPath).HasFreeEntrancePositions);
+
+        byte[] Bytes(Rom r, int snes, int n) => r.Data.AsSpan(r.FileOffset(snes), n).ToArray();
+        foreach (var (snes, n) in new[] { (RomPrep.LmMainEntranceHook, 4), (RomPrep.LmMainEntranceRoutine, 0x46),
+                                          (RomPrep.LmSecondaryHook, 8), (RomPrep.LmSecondaryRoutine, 0xB6),
+                                          (RomPrep.LmSecondaryReaders, 5), (RomPrep.LmMidwayStore, 5), (0x05D9C3, 1) })
+        {
+            Assert.Equal(Bytes(lm, snes, n), Bytes(ours, snes, n));
+            Assert.Equal(Bytes(lm, snes, n), Bytes(shao, snes, n));
+        }
+        // The two secondary tables are the one per-ROM thing, and each ROM names its own.
+        Assert.Equal(RomPrep.SecondaryYHighSnes, ours.LmSecondaryYHighTable);
+        Assert.Equal(0x1086C9, lm.LmSecondaryYHighTable);
+        Assert.Equal(0x10F0C5, shao.LmSecondaryYHighTable);
+        // ...the migrated ninth bit on every submap record, byte for byte...
+        for (int i = 0x100; i < 0x200; i++)
+            Assert.Equal(lm.ReadByte(0x05FE00 + i), ours.ReadByte(0x05FE00 + i));
+        // ...and LM's initial values for the three per-level tables.
+        for (int i = 0; i < 0x200; i++)
+        {
+            Assert.Equal(lm.ReadByte(Rom.LmEntranceFlags + i), ours.ReadByte(Rom.LmEntranceFlags + i));
+            Assert.Equal(lm.ReadByte(Rom.LmEntranceYHigh + i), ours.ReadByte(Rom.LmEntranceYHigh + i));
+            Assert.Equal(lm.ReadByte(Rom.LmEntranceFgBg + i), ours.ReadByte(Rom.LmEntranceFgBg + i));
+        }
     }
 
     /// <summary>
-    /// V10's stub, run as code. It has to do two things and no more: put the table's position
-    /// into $94/$96 when the record is active, and leave vanilla's answer completely alone when
-    /// it is not — a stamp that runs on every level entry has no business changing an untouched
-    /// level.
+    /// LM's two routines, run as code over records this editor wrote, land Mario where
+    /// <see cref="EntrancePlacement.Method2X"/>/<see cref="EntrancePlacement.Method2Y"/> say —
+    /// so the decode in the editor and the code in the game agree, on the prepped base.
     /// </summary>
     [RealRomFact]
-    public void v10_places_mario_from_the_table_and_otherwise_keeps_out_of_the_way()
+    public void lunar_magics_routines_put_mario_where_the_editor_says()
     {
         var rom = Rom.Load(TestRom.RealRomPath);
         RomPrep.Apply(rom, 10);
-        Assert.True(rom.HasFreeEntrancePositions);
-        Assert.True(FreeEntrance.Supported(rom));
 
-        // The stub ends by jumping where vanilla went; for the test it returns instead, so what
-        // is being measured is the stub and not the whole level load.
-        foreach (int site in new[] { 0x05DCB3, 0x05DCD4 })
-            rom.Data[rom.FileOffset(site)] = 0x60;                  // JMP -> RTS
+        // Main: $05DD30 is entered with A = $F200 byte (the action bits already shifted) and
+        // Y = level; it writes $94-$97 and returns. The shared tail then puts the SCREEN into
+        // $95 for a horizontal level, which is what Method2X does too.
+        var main = rom.ReadMainEntrance(0x105) with { Method2 = 1, ReservedMode = 3, MarioX = 5, XHigh = 1, MarioY = 0xA, YHigh = 1 };
+        rom.WriteMainEntrance(0x105, main);
+        var cpu = new Cpu65816(rom);
+        cpu.PresetWidths(m8: true, x8: false);
+        cpu.PresetDbr(0x05);                                    // bank-05 code runs with DBR = $05
+        cpu.PresetRegs(a: 0, x: 0, y: 0x105);
+        cpu.CallLong(RomPrep.LmMainEntranceRoutine);
+        int y = cpu.Ram7E[0x96] | (cpu.Ram7E[0x97] << 8);
+        Assert.Equal(EntrancePlacement.Method2Y(0xA, 1), y);
+        Assert.Equal(EntrancePlacement.Method2X(3, 5, 1) & 0xFF, cpu.Ram7E[0x94]);       // X low: half + step
 
-        (int X, int Y) Run(int entry, int level, int secondary)
+        // Secondary: $03BCE0 is entered with A = the $FE00 byte, X = Y = record, $00 = $FA00
+        // byte and $01 = $FC00 byte (the decode's stashes).
+        var sec = rom.ReadSecondaryEntrance(0x0D4) with { Method2 = 1, ReservedX = 7, MarioX = 2, XHigh = 0, MarioY = 3, YHigh = 1 };
+        rom.WriteSecondaryEntrance(0x0D4, sec);
+        Assert.Equal(sec, rom.ReadSecondaryEntrance(0x0D4));                             // fifth byte round-trips
+        var b = sec.ToBytes();
+        cpu = new Cpu65816(rom);
+        cpu.PresetWidths(m8: true, x8: false);
+        cpu.Ram7E[0x00] = b[1]; cpu.Ram7E[0x01] = b[2]; cpu.Ram7E[0x0E] = 0xD4;
+        cpu.PresetRegs(a: b[3], x: 0x0D4, y: 0x0D4);
+        cpu.CallLong(RomPrep.LmSecondaryRoutine);
+        y = cpu.Ram7E[0x96] | (cpu.Ram7E[0x97] << 8);
+        Assert.Equal(EntrancePlacement.Method2Y(3, 1), y);
+        Assert.Equal(EntrancePlacement.Method2X(7, 2, 0) & 0xFF, cpu.Ram7E[0x94]);
+        Assert.Equal(0, cpu.Ram7E[0x0F]);                                                // destination high bit
+    }
+    /// <summary>
+    /// The separate-midway routine is the same story one level up: LM installs it on demand
+    /// (juz and ShaoBase have it, a plain save does not), byte-identical apart from four table
+    /// operands and its own address — so ours is theirs with the operands repointed.
+    /// </summary>
+    [LmRefRomFact]
+    public void v10_stamps_lunar_magics_separate_midway_routine()
+    {
+        var ours = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(ours, 10);
+        var shao = Rom.Load(ReferenceRoms.ShaoBase);
+        var juz = Rom.Load(ReferenceRoms.InProject("juz", "SMW.smc"));
+
+        Assert.True(ours.HasFreeMidwayPosition);
+        Assert.True(shao.HasFreeMidwayPosition);
+        Assert.True(juz.HasFreeMidwayPosition);
+        Assert.False(Rom.Load(ReferenceRoms.LmAfter).HasFreeMidwayPosition);       // a plain save
+        Assert.Equal(RomPrep.MidwayTablesSnes, ours.LmMidwayTable);
+        Assert.Equal(0x128008, shao.LmMidwayTable);
+        Assert.Equal(0x138008, juz.LmMidwayTable);
+
+        // Byte-identical outside the five operand triples.
+        int[] operands = [0x0A, 0x27, 0x48, 0x57, 0xAF];
+        foreach (var other in new[] { shao, juz })
+        {
+            int theirs = other.ReadValue(RomPrep.LmMidwayHook + 1, 3);
+            for (int i = 0; i < 0xC4; i++)
+            {
+                if (operands.Any(o => i >= o && i < o + 3)) continue;
+                Assert.True(ours.ReadByte(RomPrep.MidwayRoutineSnes + i) == other.ReadByte(theirs + i), $"+{i:X2}");
+            }
+            // ...and the exit-arrival hook at $05D979 points 0xA0 into the same blob.
+            Assert.Equal(theirs + 0xA0, other.ReadValue(RomPrep.LmExitArrivalHook + 1, 3));
+        }
+        Assert.Equal(RomPrep.MidwayRoutineSnes + 0xA0, ours.ReadValue(RomPrep.LmExitArrivalHook + 1, 3));
+    }
+
+    /// <summary>The midway routine, run as code: without the separate flag it hands back the
+    /// screen (plus the fifth bit) and touches nothing; with it, Mario's position is the
+    /// record's, where <see cref="EntrancePlacement"/> says.</summary>
+    [RealRomFact]
+    public void the_midway_routine_places_mario_from_its_own_record()
+    {
+        var rom = Rom.Load(TestRom.RealRomPath);
+        RomPrep.Apply(rom, 10);
+        var main = rom.ReadMainEntrance(0x105);
+
+        int Run(out (int X, int Y) at)
         {
             var cpu = new Cpu65816(rom);
-            cpu.PresetWidths(m8: true, x8: false);                  // 8-bit A, 16-bit index
-            cpu.Ram7E[0x0E] = (byte)level; cpu.Ram7E[0x0F] = (byte)(level >> 8);
-            cpu.Ram7E[0x1B93] = (byte)secondary;
-            cpu.Ram7E[0x94] = 0x11; cpu.Ram7E[0x95] = 0x22;         // vanilla's answer, to spot
-            cpu.Ram7E[0x96] = 0x33; cpu.Ram7E[0x97] = 0x44;
-            cpu.CallNear(entry);
-            return (cpu.Ram7E[0x94] | (cpu.Ram7E[0x95] << 8), cpu.Ram7E[0x96] | (cpu.Ram7E[0x97] << 8));
+            cpu.PresetWidths(m8: true, x8: false);
+            cpu.PresetDbr(0x05);
+            cpu.Ram7E[0x0E] = 0x05; cpu.Ram7E[0x0F] = 0x01;
+            cpu.Ram7E[0x94] = 0x11; cpu.Ram7E[0x96] = 0x33; cpu.Ram7E[0x97] = 0x44;
+            cpu.PresetRegs(a: rom.ReadMainEntrance(0x105).ToBytes()[2], x: 0, y: 0x105);   // $F400 byte
+            cpu.CallLong(RomPrep.MidwayRoutineSnes);
+            at = (cpu.Ram7E[0x94], cpu.Ram7E[0x96] | (cpu.Ram7E[0x97] << 8));
+            return cpu.Acc & 0xFF;
         }
 
-        // Nothing placed: vanilla's position survives untouched.
-        Assert.Equal((0x2211, 0x4433), Run(0x05DC90, 0x105, 0));
-        Assert.Equal((0x2211, 0x4433), Run(0x05DCB6, 0x105, 0));
+        rom.WriteMainEntrance(0x105, main with { ReservedBoundary = 3, MidwayScreenHigh = 1 });
+        Assert.Equal(0x13, Run(out var untouched));                     // screen, five bits
+        Assert.Equal((0x11, 0x4433), untouched);                          // vanilla's answer kept
 
-        Assert.True(FreeEntrance.Write(rom, 0x105, midway: false, 0x0345, 0x0123));
-        Assert.True(FreeEntrance.Write(rom, 0x105, midway: true, 0x1EE0, 0x0210));
-        Assert.Equal((0x0345, 0x0123), Run(0x05DC90, 0x105, 0));    // main
-        Assert.Equal((0x1EE0, 0x0210), Run(0x05DCB6, 0x105, 0));    // midway, independently
+        rom.WriteMainEntrance(0x105, main with { ReservedBoundary = 3, MidwaySeparate = 1, MidwayX = 0xF, MidwayY = 8, MidwayYHigh = 0x41 });
+        Assert.Equal(0x03, Run(out var placed));
+        Assert.Equal(0xF0, placed.X);                                     // the whole nibble is X bits 4-7
+        Assert.Equal(EntrancePlacement.Method2Y(8, 1), placed.Y);
+    }
+    /// <summary>
+    /// LM's level-entry engine is transplanted whole: both blocks byte-identical to after.smc's
+    /// apart from the four bank bytes, the fourteen hooks the same bytes with the bank changed,
+    /// and $06FA00 at LM's initial value. Detection follows the $05DA17 hook, so after.smc and
+    /// ShaoBase read as having it too.
+    /// </summary>
+    [LmRefRomFact]
+    public void v10_transplants_lunar_magics_level_entry_engine()
+    {
+        var ours = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(ours, 10);
+        var lm = Rom.Load(ReferenceRoms.LmAfter);
+        Assert.True(ours.HasLmFgBgRelative);
+        Assert.True(lm.HasLmFgBgRelative);
+        Assert.True(Rom.Load(ReferenceRoms.ShaoBase).HasLmFgBgRelative);
+        Assert.False(Rom.Load(TestRom.RealRomPath).HasLmFgBgRelative);
 
-        // A secondary entry keeps its own record's position: the main stub stands down.
-        Assert.Equal((0x2211, 0x4433), Run(0x05DC90, 0x105, 1));
-        // ...and another level is unaffected by this one being placed.
-        Assert.Equal((0x2211, 0x4433), Run(0x05DC90, 0x106, 0));
+        foreach (var (oursAt, lmAt, size, bankBytes) in new[]
+        {
+            (LmLevelEntry.BlockASnes, 0x108141, 0x510, new[] { 0x035, 0x049 }),
+            (LmLevelEntry.BlockBSnes, 0x108AD5, 0x3C0, new[] { 0x325, 0x333 }),
+        })
+            for (int i = 0; i < size; i++)
+            {
+                int want = bankBytes.Contains(i) ? LmLevelEntry.Bank : lm.ReadByte(lmAt + i);
+                Assert.True(want == ours.ReadByte(oursAt + i), $"{oursAt:X6}+{i:X3}");
+            }
+        foreach (var (site, bytes) in LmLevelEntry.Hooks())
+            for (int i = 0; i < bytes.Length; i++)
+            {
+                Assert.Equal(bytes[i], ours.ReadByte(site + i));
+                Assert.Equal(i == 3 ? 0x10 : bytes[i], lm.ReadByte(site + i));
+            }
+        for (int i = 0; i < 0x200; i++)
+            Assert.Equal(lm.ReadByte(Rom.LmEntranceLayer2 + i), ours.ReadByte(Rom.LmEntranceLayer2 + i));
+        // ...and the level-height half: block C with its five bank bytes, the three small blocks
+        // unchanged, every hook with its JSL/JML banks rewritten, and the in-place edits verbatim.
+        foreach (var (oursAt, lmAt, size, bankBytes) in new[]
+        {
+            (LmLevelEntry.BlockCSnes, 0x108EED, 0x370, new[] { 0x086, 0x0AE, 0x0B8, 0x1CF, 0x1DA }),
+            (LmLevelEntry.BlockDSnes, 0x108E9D, 0x20, Array.Empty<int>()),
+            (LmLevelEntry.BlockESnes, 0x108EC5, 0x20, Array.Empty<int>()),
+            (LmLevelEntry.BlockFSnes, 0x1092AD, 0x110, Array.Empty<int>()),
+        })
+            for (int i = 0; i < size; i++)
+            {
+                int want = bankBytes.Contains(i) ? LmLevelEntry.Bank : lm.ReadByte(lmAt + i);
+                Assert.True(want == ours.ReadByte(oursAt + i), $"{oursAt:X6}+{i:X3}");
+            }
+        foreach (var (site, bytes) in LmLevelEntry.HeightHooks())
+            for (int i = 0; i < bytes.Length; i++)
+            {
+                Assert.Equal(bytes[i], ours.ReadByte(site + i));
+                Assert.Equal(bytes[i] == LmLevelEntry.Bank ? 0x10 : bytes[i], lm.ReadByte(site + i));
+            }
+        foreach (var (site, bytes) in LmLevelEntry.InPlacePatches())
+            for (int i = 0; i < bytes.Length; i++)
+            {
+                Assert.Equal(bytes[i], ours.ReadByte(site + i));
+                Assert.Equal(bytes[i], lm.ReadByte(site + i));
+            }
+        Assert.True(ours.HasLmLevelHeight);
+        Assert.True(lm.HasLmLevelHeight);
+        Assert.Equal(0x108AD5, lm.LmLevelHeightTable);
+        Assert.Equal(LmLevelEntry.BlockBSnes, ours.LmLevelHeightTable);
+        Assert.Equal(0x1B0, ours.LevelHeightPx(0x105));
+        Assert.Equal(0x3800, Rom.Load(ReferenceRoms.InProject("DogsOfWar", "dogs_of_war.smc")).LevelHeightPx(0x109));
+        // ...and LM's render engine (LmLevelRender): the bank-$1F block at LM's own address,
+        // every fixed block and in-place edit byte-for-byte after.smc's.
+        for (int i = 0; i < LmLevelRender.Bank1FSize; i++)
+            Assert.True(lm.ReadByte(LmLevelRender.Bank1FSnes + i) == ours.ReadByte(LmLevelRender.Bank1FSnes + i), $"1F+{i:X4}");
+        foreach (var (site, bytes) in LmLevelRender.Blocks().Concat(LmLevelRender.InPlace()))
+            for (int i = 0; i < bytes.Length; i++)
+            {
+                Assert.Equal(bytes[i], ours.ReadByte(site + i));
+                Assert.Equal(bytes[i], lm.ReadByte(site + i));
+            }
+        Assert.True(ours.HasLmVramPatch);
+    }
 
-        Assert.Equal((0x0345, 0x0123), FreeEntrance.Read(rom, 0x105, midway: false));
-        Assert.True(FreeEntrance.Clear(rom, 0x105, midway: false));
-        Assert.Null(FreeEntrance.Read(rom, 0x105, midway: false));
-        Assert.Equal((0x2211, 0x4433), Run(0x05DC90, 0x105, 0));    // back to vanilla's
+    /// <summary>
+    /// The $05DA17 tail, run as code on the prepped base. Without the relative bit it leaves the
+    /// FG/BG position vanilla set; with it, the FG position becomes Mario's Y plus the entrance's
+    /// offset nibble x16 — signed by $06FC00 bit 6 — which is what LM's help describes.
+    /// </summary>
+    [RealRomFact]
+    public void the_tail_hook_sets_the_camera_relative_to_mario_when_asked()
+    {
+        var rom = Rom.Load(TestRom.RealRomPath);
+        RomPrep.Apply(rom, 10);
+
+        (int Fg, int Bg) Run(int fgbgByte, int f400, int fc00)
+        {
+            var cpu = new Cpu65816(rom);
+            cpu.PresetWidths(m8: true, x8: true);
+            cpu.PresetDbr(0x05);
+            cpu.Ram7E[0x0E] = 0x05; cpu.Ram7E[0x0F] = 0x01;                 // level $105, horizontal
+            cpu.Ram7E[0x96] = 0x50; cpu.Ram7E[0x97] = 0x01;                 // Mario Y = $0150
+            cpu.Ram7E[0x1C] = 0xC0; cpu.Ram7E[0x20] = 0xC0;                 // vanilla's answer, to spot
+            cpu.Ram7E[0x13CD] = (byte)fgbgByte;                             // what $05DD30 left there
+            cpu.Ram7E[0x02] = (byte)f400; cpu.Ram7E[0x04] = (byte)fc00;     // ...and its scratch
+            cpu.Ram7E[0x13D7] = 0xB0; cpu.Ram7E[0x13D8] = 0x01;             // level height, from the $05D9A1 hook
+            cpu.CallLong(LmLevelEntry.BlockASnes);
+            return (cpu.Ram7E[0x1C] | (cpu.Ram7E[0x1D] << 8), cpu.Ram7E[0x20] | (cpu.Ram7E[0x21] << 8));
+        }
+
+        Assert.Equal(0x00C0, Run(0x1A, 0x04, 0x00).Fg);                     // LM's default byte: untouched
+        Assert.Equal(0x0150 + 0x40, Run(0x9A, 0x04, 0x00).Fg);              // relative, +4 x 16
+        Assert.Equal(0x0150 - 0x40, Run(0x9A, 0x0C, 0x40).Fg);              // nibble $C with the sign bit: -4 x 16
     }
 }

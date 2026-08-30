@@ -4,12 +4,13 @@ namespace PipeDream;
 // engine bails (LM-patched loaders); see ObjectEngine.Render.
 public static class PortedObjectEngine
 {
-    public static Map16Grid Render(Rom rom, LevelHeader header, IReadOnlyList<LevelObject> objects)
+    public static Map16Grid Render(Rom rom, LevelHeader header, IReadOnlyList<LevelObject> objects, int heightRows = ObjectEngine.VanillaRows)
     {
         // Full 32-screen canvas (LM parity): objects and sprites can sit on screens past
-        // header.Screens (e.g. ShaoBase 105 declares 4 screens, sprites live on 9-18).
+        // header.Screens (e.g. ShaoBase 105 declares 4 screens, sprites live on 9-18). Rows are
+        // the level's height (LM's LUT, or vanilla's 27) — never fewer than the 32 a Y field spans.
         int w = 0x20 * 16;
-        var g = new Map16Grid(w, 32);
+        var g = new Map16Grid(w, Math.Max(heightRows, 32));
 
         // Tile tables read from bank 0D (unchanged by Lunar Magic).
         int[] rect = ReadTable(rom, 0x0DA8B4, 15);     // rectangle fill tiles, obj 1-0x0E
@@ -44,7 +45,7 @@ public static class PortedObjectEngine
         foreach (var o in objects)
         {
             if (o.IsScreenExit) continue;                       // no tiles
-            int ax = o.AbsoluteX, ay = o.Y;
+            int ax = o.AbsoluteX, ay = o.AbsoluteY;
 
             if (o.IsDm16)                                       // LM Direct Map16: w×h of one tile
             {

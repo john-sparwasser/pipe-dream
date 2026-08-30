@@ -21,6 +21,7 @@ public sealed class LevelBitmap : IDisposable
 {
     private readonly WriteableBitmap?[] bmps = new WriteableBitmap?[4];
     private readonly bool[] stale = new bool[4];
+    private readonly List<WriteableBitmap> retired = [];
     private uint[]?[] imgs = new uint[4][];
 
     public int PxW { get; private set; }
@@ -49,10 +50,23 @@ public sealed class LevelBitmap : IDisposable
     public void Refresh(int p)
     {
         if (!stale[p] || imgs[p] is not { } img || PxW <= 0 || PxH <= 0) return;
+        // The phase arrays belong to the session and can be reallocated under us (a rebuild the
+        // window has not adopted yet). Copying PxW*PxH out of a smaller array is a heap overrun
+        // that shows up as a Skia access violation a frame later — refuse it and keep the old
+        // frame until SetImages catches up.
+        if (img.Length < PxW * PxH)
+        {
+            Console.Error.WriteLine($"LevelBitmap: phase {p} image is {img.Length} px, bitmap wants {PxW}x{PxH} — skipped");
+            return;
+        }
+        // The compositor executes last frame's draw of the old bitmap after this runs, so a
+        // replaced bitmap is parked for one frame and freed here on the next push, never at once.
+        foreach (var old in retired) old.Dispose();
+        retired.Clear();
         var bmp = bmps[p];
         if (bmp is null || bmp.PixelSize.Width != PxW || bmp.PixelSize.Height != PxH)
         {
-            bmp?.Dispose();
+            if (bmp is not null) retired.Add(bmp);
             bmp = bmps[p] = new WriteableBitmap(new PixelSize(PxW, PxH), new Vector(96, 96),
                                                 PixelFormat.Rgba8888, AlphaFormat.Premul);
         }

@@ -92,10 +92,38 @@ public class LevelView : Control
     /// <summary>Which entrance is under the cursor, and the grab offset while dragging one.</summary>
     private (LevelEntrance E, Point Grab)? dragEntrance;
 
-    /// <summary>Mario stands ON the spot, so the marker hangs above it rather than centring on
-    /// it — the same way the sprite overlay marks a spawn.</summary>
+    /// <summary>The marker the cursor is over (or whose edit badge it is over). Hovering is what
+    /// makes the badge appear: the settings behind an entrance are a dialog's worth, and a
+    /// button on every marker all the time would bury the level under chrome.</summary>
+    private LevelEntrance? hoverEntrance;
+    private readonly List<(Rect Box, LevelEntrance E)> editBadges = [];
+    private readonly List<(Rect Box, LevelEntrance E)> labelBoxes = [];      // the label pill keeps the hover alive on the way to the badge
+    internal IReadOnlyList<(Rect Box, LevelEntrance E)> EditBadges => editBadges;
+
+    /// <summary>The hovered marker's edit badge was clicked, or the marker double-clicked: open
+    /// that entrance's settings.</summary>
+    public event EventHandler<LevelEntrance>? EntranceEditRequested;
+
+    private LevelEntrance? EditBadgeAt(Point p)
+    {
+        foreach (var (box, e) in editBadges) if (box.Contains(p)) return e;
+        return null;
+    }
+
+    private LevelEntrance? LabelAt(Point p)
+    {
+        foreach (var (box, e) in labelBoxes) if (box.Contains(p)) return e;
+        return null;
+    }
+
+    /// <summary>Big Mario standing, out of the ROM's own player graphics (16x32 RGBA, see
+    /// <see cref="PlayerGfx"/>); null falls back to the drawn cap.</summary>
+    public IImage? MarioIcon { get; set; }
+
+    /// <summary>The entrance position IS Mario's top-left as the game draws him big: a 16x32 box
+    /// in level pixels, so the marker is the cell he stands in and the one above it.</summary>
     private Rect MarkerRect(LevelEntrance e, double z)
-        => new(e.X * z - Origin.X - 9, e.Y * z - Origin.Y - 20, 18, 22);
+        => new(e.X * z - Origin.X, e.Y * z - Origin.Y, 16 * z, 32 * z);
 
     private LevelEntrance? EntranceAt(Point p, double z)
     {
@@ -282,10 +310,16 @@ public class LevelView : Control
         if (Mode == EditMode.Entrances)
         {
             var p = e.GetPosition(this);
-            if (props.IsLeftButtonPressed && EntranceAt(p, Zoom) is { } hit)
+            if (props.IsLeftButtonPressed && EditBadgeAt(p) is { } badge)
+                EntranceEditRequested?.Invoke(this, badge);
+            else if (props.IsLeftButtonPressed && EntranceAt(p, Zoom) is { } hit)
             {
-                dragEntrance = (hit, p - new Point(hit.X * Zoom - Origin.X, hit.Y * Zoom - Origin.Y));
-                e.Pointer.Capture(this);
+                if (e.ClickCount == 2) EntranceEditRequested?.Invoke(this, hit);
+                else
+                {
+                    dragEntrance = (hit, p - new Point(hit.X * Zoom - Origin.X, hit.Y * Zoom - Origin.Y));
+                    e.Pointer.Capture(this);
+                }
             }
             e.Handled = true;
             return;
@@ -385,7 +419,7 @@ public class LevelView : Control
     /// <summary>The hover ends with the pointer: a highlight left painted where the cursor no longer
     /// is claims to be tracking something, and the gutter readout would go stale with it.</summary>
     protected override void OnPointerExited(PointerEventArgs e)
-    { base.OnPointerExited(e); HoverCell = null; InvalidateVisual(); }
+    { base.OnPointerExited(e); HoverCell = null; hoverEntrance = null; InvalidateVisual(); }
 
     protected override void OnPointerMoved(PointerEventArgs e)
     {
@@ -399,14 +433,20 @@ public class LevelView : Control
         if (Mode == EditMode.Entrances)
         {
             var p = e.GetPosition(this);
-            Cursor = new Cursor(dragEntrance is not null || EntranceAt(p, Zoom) is not null
-                ? StandardCursorType.SizeAll : StandardCursorType.Arrow);
+            var badge = EditBadgeAt(p);
+            var over = EntranceAt(p, Zoom);
+            Cursor = new Cursor(badge is not null ? StandardCursorType.Hand
+                              : dragEntrance is not null || over is not null ? StandardCursorType.SizeAll
+                              : StandardCursorType.Arrow);
+            var hov = over ?? badge ?? LabelAt(p);
+            if (hov != hoverEntrance) { hoverEntrance = hov; InvalidateVisual(); }
             // The drag PREVIEWS by moving the marker: the drop snaps to what the ROM can store,
             // and seeing that happen is how the 8x16 grid explains itself.
             if (dragEntrance is { } d)
             {
                 var at = p - d.Grab;
-                dragEntrance = (d.E with { X = (int)((at.X + Origin.X) / Zoom), Y = (int)((at.Y + Origin.Y) / Zoom) },
+                static int Snap(double v) => (int)Math.Round(v / 16) * 16;    // the 16px cell Mario lands in
+                dragEntrance = (d.E with { X = Snap((at.X + Origin.X) / Zoom), Y = Snap((at.Y + Origin.Y) / Zoom) },
                                 d.Grab);
                 InvalidateVisual();
             }
@@ -602,6 +642,7 @@ public class LevelView : Control
     /// <summary>Pixel-art drawing, the same rule every other pixel surface uses. Also the source of
     /// the diagnostics below, which are what a test can pin when it cannot time a frame.</summary>
     private readonly PixelBlit blit = new();
+    private readonly PixelBlit iconBlit = new();   // its own intermediate: the level's is sized to the level
 
     internal PixelSize ScalerSize => blit.MidSize;
     internal int ScalerBuilds => blit.Builds;
@@ -766,33 +807,51 @@ public class LevelView : Control
     /// <summary>
     /// Entrances mode: a marker per place this level puts Mario, standing ON the spot with its
     /// kind written beside it. The one being dragged is drawn at the cursor rather than at its
-    /// stored position — the drop snaps, and watching it snap is what teaches the grid.
+    /// stored position, snapped to the 16px cell as it moves — cells are what the ROM stores.
     /// </summary>
     private void DrawEntrances(DrawingContext ctx, double z)
     {
         if (Source is not { HasImages: true }) return;
 
+        editBadges.Clear();
+        labelBoxes.Clear();
         foreach (var e in Entrances)
         {
             // The dragged one is drawn from the drag's own copy, so it follows the cursor.
             var shown = dragEntrance is { } d && d.E.Kind == e.Kind && d.E.Index == e.Index ? d.E : e;
             var r = MarkerRect(shown, z);
 
-            // Mario's cap: a red disc with a white M, which reads at any zoom and needs no
-            // graphics out of the ROM. The stem points at the exact pixel he stands on.
-            ctx.DrawLine(new Pen(Brushes.White, 1), new Point(r.Center.X, r.Bottom),
-                         new Point(r.Center.X, r.Bottom + 4));
-            var cap = new Rect(r.X, r.Y, 18, 18);
-            ctx.DrawEllipse(MarioRed, new Pen(Brushes.White, 1.5), cap.Center, 9, 9);
-            var m = new FormattedText("M", System.Globalization.CultureInfo.InvariantCulture,
-                                      FlowDirection.LeftToRight, Typeface.Default, 11, Brushes.White);
-            ctx.DrawText(m, new Point(cap.Center.X - m.Width / 2, cap.Center.Y + 11 * 0.72 / 2 - m.Baseline));
+            // Mario himself, standing where the game will put him, drawn cell-sharp at the zoom.
+            // Without the ROM's graphics (blob failed to decode) a red cap with a white M stands in.
+            if (MarioIcon is { } icon)
+                iconBlit.Draw(this, ctx, icon, new Rect(0, 0, 16, 32), r, VisualRoot?.RenderScaling ?? 1);
+            else
+            {
+                var cap = new Rect(r.Center.X - 9, r.Y, 18, 18);
+                ctx.DrawEllipse(MarioRed, new Pen(Brushes.White, 1.5), cap.Center, 9, 9);
+                var m = new FormattedText("M", System.Globalization.CultureInfo.InvariantCulture,
+                                          FlowDirection.LeftToRight, Typeface.Default, 11, Brushes.White);
+                ctx.DrawText(m, new Point(cap.Center.X - m.Width / 2, cap.Center.Y + 11 * 0.72 / 2 - m.Baseline));
+            }
+            ctx.DrawRectangle(null, new Pen(Brushes.White, 1), r);
 
             var label = new FormattedText(shown.Label, System.Globalization.CultureInfo.InvariantCulture,
                                           FlowDirection.LeftToRight, Typeface.Default, 11, Brushes.White);
-            var box = new Rect(cap.Right + 3, cap.Center.Y - 8, label.Width + 11, 16);
+            var box = new Rect(r.Right + 3, r.Y + 1, label.Width + 11, 16);
             ctx.DrawRectangle(UiColors.SelectionFill, new Pen(UiColors.Selection, 1), box, 3, 3);
             ctx.DrawText(label, new Point(box.X + 5, box.Center.Y + 11 * 0.72 / 2 - label.Baseline));
+            labelBoxes.Add((box.Inflate(new Thickness(6)), e));   // generous: crossing a 3px gap must not drop the badge
+
+            // Hovered: an edit badge after the label, the way into the entrance's settings.
+            if (hoverEntrance is { } h && h.Kind == e.Kind && h.Index == e.Index && dragEntrance is null)
+            {
+                var pencil = new FormattedText("edit", System.Globalization.CultureInfo.InvariantCulture,
+                                               FlowDirection.LeftToRight, Typeface.Default, 11, Brushes.White);
+                var bb = new Rect(box.Right + 3, box.Y, pencil.Width + 11, 16);
+                ctx.DrawRectangle(UiColors.SelectionFill, new Pen(UiColors.Selection, 1), bb, 3, 3);
+                ctx.DrawText(pencil, new Point(bb.Center.X - pencil.Width / 2, bb.Center.Y + 11 * 0.72 / 2 - pencil.Baseline));
+                editBadges.Add((bb.Inflate(new Thickness(4)), e));
+            }
         }
     }
 

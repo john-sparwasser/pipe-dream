@@ -1,0 +1,42 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PipeDream.Ui.SpriteDataWindow"
+        Title="Sprite data" Width="400" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+
+  <Window.Styles>
+    <Style Selector="TextBlock.dim">
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+    <Style Selector="TextBlock.mono">
+      <Setter Property="FontFamily" Value="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+    <Style Selector="TextBlock.label">
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+  </Window.Styles>
+
+  <StackPanel Margin="16" Spacing="10">
+    <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6">
+      <TextBlock Classes="label" Text="Sprite number"/>
+      <TextBox x:Name="NumberBox" Grid.Column="1" Width="70" HorizontalAlignment="Left"/>
+      <TextBlock Classes="label" Grid.Row="1" Text="Extra bits"/>
+      <TextBox x:Name="ExtraBox" Grid.Row="1" Grid.Column="1" Width="70" HorizontalAlignment="Left"/>
+      <TextBlock Classes="label" Grid.Row="2" Text="Extra bytes"/>
+      <TextBox x:Name="BytesBox" Grid.Row="2" Grid.Column="1" Watermark="hex, e.g. 00 1F"/>
+    </Grid>
+    <TextBlock Classes="dim" TextWrapping="Wrap"
+               Text="Extra bytes are Lunar Magic's per-sprite data (PIXI reads them). Their count is fixed per sprite number and extra bits — the build writes it to LM's size table, and every placement of that sprite carries the same count. Up to 12."/>
+    <TextBlock x:Name="Bytes" Classes="mono"/>
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="Cancel" Click="OnCancel" IsCancel="True"/>
+      <Button Content="Apply" Click="OnApply" IsDefault="True"/>
+    </StackPanel>
+  </StackPanel>
+</Window>

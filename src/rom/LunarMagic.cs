@@ -84,8 +84,14 @@ public static class LunarMagic
             if (tile is < 0x200 or >= 0x8000) return -1;
             var (imm, bank) = rom.LmMap16Slot(tile >> 12);
             if (bank == 0) return -1;
-            return (bank << 16) | ((imm + tile * 8) & 0xFFFF);
+            // LM's ladder reaches the range-2/3 (and 6/7) ADC with the carry SET — the second ASL
+            // shifts tile bit 13 out and nothing clears it — so those slots store imm − 1 (LM's
+            // own defaults are FFFF/7FFF). The pointer the game forms is imm + tile*8 + C.
+            return (bank << 16) | ((imm + tile * 8 + SlotCarry(tile >> 12)) & 0xFFFF);
         }
+
+        /// <summary>1 for the ranges whose slot is entered with the carry set (2, 3, 6, 7).</summary>
+        private static int SlotCarry(int range) => (range & 2) != 0 ? 1 : 0;
 
         /// <summary>Kept for callers that just need a presence check: >= 0 when extended defs exist.</summary>
         public int LmMap16Base => rom.LmMap16Defs.Bank == 0 ? -1 : (rom.LmMap16Defs.Bank << 16) | rom.LmMap16Defs.Imm;
@@ -149,6 +155,9 @@ public static class LunarMagic
         public bool HasMap16Range(int range)
         {
             if (rom.ReadByte(0x00C17A) != 0x22 || rom.ReadValue(0x00C17B, 3) != 0x06F5D0) return false;
+            // LM's ladder (v12) carries slots for tiles 0x4000-0x7FFF too, but nothing of ours
+            // allocates there (Map16Layout: 0x3FFF is the ceiling), so they are not "ranges".
+            if (range < 0 || !Map16Layout.CanAllocate(RangeStart(range))) return false;
             int at = SlotAddr(range);
             return at >= 0 && rom.ReadByte(at) == 0x69 && rom.ReadByte(at + 3) == 0xA0;
         }
@@ -214,7 +223,7 @@ public static class LunarMagic
             { rom.Data[dataFo + i] = 0x04; rom.Data[dataFo + i + 1] = 0x10; }
 
             int dataSnes = Rom.PcToSnes(tagPc + 8);                          // bankaddr $8008 or $8000
-            int newImm = ((dataSnes & 0xFFFF) - startTile * 8) & 0xFFFF;     // range 0: $7008
+            int newImm = ((dataSnes & 0xFFFF) - startTile * 8 - SlotCarry(range)) & 0xFFFF;   // range 0: $7008; 2/3 store imm − 1 (see LmMap16DefAddr)
             int slot = rom.FileOffset(SlotAddr(range) + 1);
             rom.Data[slot] = (byte)newImm; rom.Data[slot + 1] = (byte)(newImm >> 8);
             rom.Data[slot + 3] = 0x00; rom.Data[slot + 4] = (byte)(dataSnes >> 16); // LDY #bank<<8
@@ -235,6 +244,31 @@ public static class LunarMagic
         /// </summary>
         public int LmGlobalExAnimPtr => rom.lmGlobalExAnimPtr != -2 ? rom.lmGlobalExAnimPtr
             : rom.lmGlobalExAnimPtr = ScanGlobalExAnim(rom);
+
+        /// <summary>SNES address of LM's uncompressed ExAnimation source file 60+<paramref name="index"/>
+        /// (0-3), from the fixed 4x3-byte table at $03BCC0 (reference/EXANIMATION.md §2); -1 when the
+        /// file is not inserted (FF FF FF, or 00 00 00 once LM's ExAnimation ASM zeroed the table).</summary>
+        public int LmAltExGfx(int index)
+        {
+            if (index is < 0 or > 3) return -1;
+            int p = rom.ReadValue(Rom.LmAltExGfxTable + index * 3, 3);
+            return p is 0 or 0xFFFFFF ? -1 : p;
+        }
+
+        /// <summary>Install (or replace) ExAnimation source file 60+<paramref name="index"/>: the raw
+        /// 4bpp bytes go into a fresh RATS block, the old one is released, and the $03BCC0 entry is
+        /// repointed — exactly what LM's Insert ExGFX does for these four files. Up to 32KB, kept
+        /// in one bank because the engine addresses frames as bank:offset.</summary>
+        public void SetLmAltExGfx(int index, byte[] data)
+        {
+            if (index is < 0 or > 3) throw new ArgumentOutOfRangeException(nameof(index));
+            if (data.Length is 0 or > 0x8000) throw new ArgumentException("ExGFX 60-63 are 1..32768 bytes", nameof(data));
+            int old = rom.LmAltExGfx(index);
+            if (old >= 0) RatsWriter.Release(rom, old);
+            int snes = RatsWriter.Allocate(rom, data, avoidBankCross: true);
+            int fo = rom.FileOffset(Rom.LmAltExGfxTable + index * 3);
+            rom.Data[fo] = (byte)snes; rom.Data[fo + 1] = (byte)(snes >> 8); rom.Data[fo + 2] = (byte)(snes >> 16);
+        }
 
         /// <summary>True if a PIXI-family sprite tool hijacked the sprite main hook ($0185C3 is a
         /// JSL into an inserted bank instead of the vanilla `STZ $1491`). Init ($018172) is hijacked
@@ -288,8 +322,33 @@ public static class LunarMagic
         /// operand in LM's sprite-advance hijack (CONTRACT §11).
         /// </summary>
         public int LmSpriteSizeBase => rom.lmSpriteSizeBase != -2 ? rom.lmSpriteSizeBase
-            : rom.lmSpriteSizeBase = ScanOperand(rom, [0x4A, 0x4A, 0x29, 0x03, 0xEB, 0xC8, 0xC8, 0xB7, 0xCE, 0x88, 0x88,
-                                                       0x08, 0xC2, 0x10, 0xDA, 0xAA, 0x98, 0x18, 0x7F], []);
+            : rom.lmSpriteSizeBase = rom.ReadByte(Rom.LmSpriteSizeFlag) == 0x42 ? rom.ReadValue(Rom.LmSpriteSizePtr, 3)
+            : ScanOperand(rom, [0x4A, 0x4A, 0x29, 0x03, 0xEB, 0xC8, 0xC8, 0xB7, 0xCE, 0x88, 0x88,
+                                0x08, 0xC2, 0x10, 0xDA, 0xAA, 0x98, 0x18, 0x7F], []);
+
+        /// <summary>Bytes one sprite record takes in the list, base bytes included: the table's
+        /// entry for (extra bits, number), or 3 without a table.</summary>
+        public int SpriteEntrySize(int extra, int number)
+            => rom.LmSpriteSizeBase is var b && b > 0 ? Math.Max(3, (int)rom.ReadByte(b + ((extra & 3) << 8) + (number & 0xFF))) : 3;
+
+        /// <summary>Author the size table the way LM's help says to: a 0x400-byte table of 3s in
+        /// free space, its address at <see cref="LmSpriteSizePtr"/> and 0x42 at
+        /// <see cref="LmSpriteSizeFlag"/>, then this one entry. Sizes are per (extra bits, number),
+        /// so every placement of that sprite reads the same length — max 0xF (LM's cap).</summary>
+        public void SetSpriteEntrySize(int extra, int number, int size)
+        {
+            if (rom.LmSpriteSizeBase <= 0)
+            {
+                var table = new byte[0x400];
+                Array.Fill(table, (byte)3);
+                int snes = RatsWriter.Allocate(rom, table, avoidBankCross: true);
+                int p = rom.FileOffset(Rom.LmSpriteSizePtr);
+                rom.Data[p] = (byte)snes; rom.Data[p + 1] = (byte)(snes >> 8); rom.Data[p + 2] = (byte)(snes >> 16);
+                rom.Data[p + 3] = 0x42;                                            // LmSpriteSizeFlag
+                rom.lmSpriteSizeBase = -2;
+            }
+            rom.Data[rom.FileOffset(rom.LmSpriteSizeBase + ((extra & 3) << 8) + (number & 0xFF))] = (byte)Math.Clamp(size, 3, 0xF);
+        }
 
         /// <summary>Base of LM's acts-like table, or -1 (from the remap reader in LM's $06F5D0 code).</summary>
         public int LmActsAsBase => rom.lmActsAsBase != -2 ? rom.lmActsAsBase
@@ -346,35 +405,84 @@ public static class LunarMagic
         public bool HasGfx4bppUpload => rom.ReadByte(0x00AAE5) == 0xEB;
 
         /// <summary>
-        /// True when the main and midway entrances can stand anywhere rather than on vanilla's
-        /// 8 x 16 grid — i.e. prep v10's stubs are in, detected by both `JMP $05DA17` sites
-        /// having been repointed into the bank-05 tail where they live.
-        ///
-        /// Deliberately does NOT report true for Lunar Magic's own "method 2": that solves the
-        /// same problem with its own tables at per-ROM addresses (LM_PARITY), which we can
-        /// neither read nor write, so claiming the capability would promise positions this
-        /// editor cannot actually see.
+        /// True when the MAIN entrance can use Lunar Magic's "method 2" — a 16px-step position
+        /// from $05DE00/$06FC00 instead of an index into vanilla's 8 x 16 grid. The tell is LM's
+        /// hook `JSL $05DD30` at $05D97D, which every LM save installs and prep v10 stamps
+        /// byte-for-byte (reference/LM_PARITY.md). Same rails, so a ROM saved by either tool
+        /// reads the same here.
         /// </summary>
         public bool HasFreeEntrancePositions
-            => rom.ReadByte(RomPrep.MainJmpSite) == 0x4C
-            && rom.ReadValue(RomPrep.MainJmpSite + 1, 2) is var m && m >= 0xDC90 && m < 0xDD00;
+            => rom.ReadValue(RomPrep.LmMainEntranceHook, 4) == 0x05DD3022;
 
         /// <summary>
-        /// Whether the MIDWAY half of v10 is still standing. It is a separate question because
-        /// Lunar Magic takes that site: every LM hack examined (ShaoBase, juz, DogsOfWar,
-        /// BigEye) NOPs `$05D9E9`, the midway branch's `JMP $05DA17`, so the branch falls
-        /// through into the shared horizontal path instead. `$05D9FE` — the main entrance's
-        /// jump, which v10 also uses — is untouched in all four.
-        ///
-        /// So a base that has been through LM keeps its freely-placed MAIN entrance and loses
-        /// the midway one. Saying that out loud beats a midway marker that quietly stops
-        /// meaning anything.
+        /// The same question for SECONDARY entrances: LM's `JSL $03BCE0` at $05D837, plus the
+        /// reader at $05DC85 that names where the fifth (Y-high) table lives. The routine is
+        /// fixed; the table address is per ROM, read from the reader's operand the way
+        /// <see cref="LmMap16Slot"/> reads its slot.
+        /// </summary>
+        public bool HasFreeSecondaryPositions
+            => rom.ReadValue(RomPrep.LmSecondaryHook + 4, 4) == 0x03BCE022
+            && rom.ReadByte(RomPrep.LmSecondaryReaders + 5) == 0xBF;
+
+        /// <summary>
+        /// True when the MIDWAY entrance can have a position of its own: LM's separate-midway
+        /// routine is hooked from $05D9E3 (`JSL`, its first bytes `LSR x4 : REP #$11`). Installed by
+        /// LM on demand, not by every save; prep v10 installs it. Per-ROM address, so the hook
+        /// operand is followed rather than compared.
         /// </summary>
         public bool HasFreeMidwayPosition
-            => rom.HasFreeEntrancePositions
-            && rom.ReadByte(RomPrep.MidwayJmpSite) == 0x4C
-            && rom.ReadValue(RomPrep.MidwayJmpSite + 1, 2) >= 0xDC90
-            && rom.ReadValue(RomPrep.MidwayJmpSite + 1, 2) < 0xDD00;
+            => rom.ReadByte(RomPrep.LmMidwayHook) == 0x22
+            && rom.ReadValue(rom.ReadValue(RomPrep.LmMidwayHook + 1, 3), 4) == 0x4A4A4A4A;
+
+        /// <summary>SNES address of LM's midway flags table (the routine's `LDA long,X` operand at
+        /// +0x0A); position, FG/BG and Y-high follow at +0x200/+0x400/+0x600. Only meaningful when
+        /// <see cref="HasFreeMidwayPosition"/>.</summary>
+        public int LmMidwayTable => rom.ReadValue(rom.ReadValue(RomPrep.LmMidwayHook + 1, 3) + 0x0A, 3);
+
+        /// <summary>SNES address of LM's per-record Y-high table for secondary entrances (the
+        /// operand of `LDA long,X` at $05DC85). Only meaningful when
+        /// <see cref="HasFreeSecondaryPositions"/>.</summary>
+        public int LmSecondaryYHighTable => rom.ReadValue(RomPrep.LmSecondaryReaders + 6, 3);
+        /// <summary>...and its FG/BG table (the reader at $05DC8A): bit 7 = FG/BG relative to player.</summary>
+        public int LmSecondaryFgBgTable => rom.ReadValue(RomPrep.LmSecondaryReaders + 11, 3);
+
+        /// <summary>
+        /// True when LM's level-entry engine is in — the `JSL` at $05DA17 into a routine that opens
+        /// `SEP #$30 : REP #$11 : LDX $0E` — so a "FG/BG relative to player" bit in an entrance record
+        /// actually moves the camera. Every LM save installs it; prep v10 transplants it (LmLevelEntry).
+        /// </summary>
+        public bool HasLmFgBgRelative
+            => rom.ReadByte(0x05DA17) == 0x22
+            && rom.ReadValue(rom.ReadValue(0x05DA18, 3), 4) == 0x11C230E2;
+
+        /// <summary>
+        /// True when LM's level-height half of the engine is in — the `JSL` at $05D9A1 into block
+        /// B's vertical check (`LDA [$CE] : AND #$20 : STA $0BF5`). It reads a per-level height byte
+        /// and a 32-entry LUT; both live in block B, which LM relocates per ROM.
+        /// </summary>
+        public bool HasLmLevelHeight
+            => rom.ReadByte(0x05D9A1) == 0x22
+            && rom.ReadValue(rom.ReadValue(0x05D9A2, 3), 4) == 0x2029CEA7;
+
+        /// <summary>SNES address of LM's per-level height byte table — the operand of the
+        /// `LDA long,X` 0x5B bytes into the vertical check (after.smc `$108DF7`, operand at +0x5C). The height LUT
+        /// (32 words) follows 0x200 bytes later. Only meaningful when <see cref="HasLmLevelHeight"/>.</summary>
+        public int LmLevelHeightTable => rom.ReadValue(rom.ReadValue(0x05D9A2, 3) + 0x5C, 3);
+
+        /// <summary>The level's height byte: bits 0-4 index the LUT, bit 5 = extended sprite
+        /// stream, bit 7 = "vertical positioning". Zero on a base without the engine.</summary>
+        public int LmLevelHeightByte(int level)
+            => rom.HasLmLevelHeight ? rom.ReadByte(rom.LmLevelHeightTable + (level & 0x1FF)) : 0;
+
+        /// <summary>Height of a horizontal level in pixels, from LM's LUT: 0x1B0 (27 rows) for a
+        /// vanilla base or an unset level, up to 0x3800 for a one-column level.</summary>
+        public int LevelHeightPx(int level)
+            => rom.HasLmLevelHeight
+               ? rom.ReadValue(rom.LmLevelHeightTable + 0x200 + (rom.LmLevelHeightByte(level) & 0x1F) * 2, 2)
+               : 0x1B0;
+
+        /// <summary>Map16 rows in a horizontal level's column: <see cref="LevelHeightPx"/> / 16.</summary>
+        public int LevelHeightRows(int level) => rom.LevelHeightPx(level) >> 4;
 
         /// <summary>
         /// True when the GFX upload is the one Lunar Magic recognizes as its 4bpp hack: the
@@ -513,20 +621,66 @@ public static class LunarMagic
 
     private static int ScanGlobalExAnim(Rom rom)
     {
-        int[] pat = [0x85, 0x01, 0x8D, 0x17, 0xC0, 0xA9]; // STA $01 / STA $C017 / LDA #low16
+        int i = GlobalExAnimAnchor(rom);
+        if (i < 0) return -1;
+        int bank = rom.Data[i - 3];                            // high byte of #bankword = record bank
+        int low16 = rom.Data[i + 6] | rom.Data[i + 7] << 8;    // #low16 operand after the LDA
+        return bank == 0 ? -1 : (bank << 16) | low16;          // zero bankword = no global list
+    }
+
+    /// <summary>File offset of the `STA $01 : STA $C017 : LDA #low16` that follows the engine's
+    /// `LDA #bankword : BEQ` — the two immediates that name the global list live at i-4/i-3
+    /// (bankword) and i+6/i+7 (low16). -1 when the ROM has no ExAnimation engine.</summary>
+    private static int GlobalExAnimAnchor(Rom rom)
+    {
+        int[] pat = [0x85, 0x01, 0x8D, 0x17, 0xC0, 0xA9];
         int end = rom.Data.Length - pat.Length - 2;
         for (int i = rom.HeaderOffset + 5; i <= end; i++)
         {
             bool ok = true;
             for (int j = 0; j < pat.Length && ok; j++) ok = rom.Data[i + j] == pat[j];
             // preceding `A9 <blo> <bhi> F0 <rel>`: LDA opcode at i-5, BEQ opcode at i-2
-            if (!ok || rom.Data[i - 5] != 0xA9 || rom.Data[i - 2] != 0xF0) continue;
-            int bank = rom.Data[i - 3];                            // high byte of #bankword = record bank
-            int low16 = rom.Data[i + 6] | rom.Data[i + 7] << 8;    // #low16 operand after the LDA
-            if (bank == 0) return -1;                              // zero bankword = no global list
-            return (bank << 16) | low16;
+            if (ok && rom.Data[i - 5] == 0xA9 && rom.Data[i - 2] == 0xF0) return i;
         }
         return -1;
+    }
+
+    extension(Rom rom)
+    {
+        /// <summary>
+        /// Give <paramref name="level"/> these ExAnimation slots (none = remove its record): the
+        /// old record's RATS block is released, the new one allocated, and the per-level table
+        /// entry repointed — what LM does on every save. Error text when the base has no
+        /// ExAnimation engine (prep v11 / an LM-saved ROM).
+        /// </summary>
+        public string? WriteLevelExAnim(int level, IReadOnlyList<ExAnimation.Slot> slots, int altFileIndex = 0)
+        {
+            int table = rom.LmExAnimBase;
+            if (table < 0) return "this base has no ExAnimation engine — File → Upgrade base to prep v" + RomPrep.Version;
+            int entry = rom.FileOffset(table + level * 3);
+            int old = rom.ReadValue(table + level * 3, 3);
+            if ((old >> 16) != 0) RatsWriter.Release(rom, old);
+            int ptr = 0x0000FF;                                                   // FF 00 00 = none
+            if (slots.Count > 0) ptr = RatsWriter.Allocate(rom, ExAnimation.Encode(slots, altFileIndex), avoidBankCross: true);
+            rom.Data[entry] = (byte)ptr; rom.Data[entry + 1] = (byte)(ptr >> 8); rom.Data[entry + 2] = (byte)(ptr >> 16);
+            return null;
+        }
+
+        /// <summary>The global list (runs in every level): same record shape, pointed at by the
+        /// two immediates LM baked into the engine's setup routine. None = zero bankword.</summary>
+        public string? WriteGlobalExAnim(IReadOnlyList<ExAnimation.Slot> slots, int altFileIndex = 0)
+        {
+            int i = GlobalExAnimAnchor(rom);
+            if (i < 0) return "this base has no ExAnimation engine — File → Upgrade base to prep v" + RomPrep.Version;
+            int old = rom.LmGlobalExAnimPtr;
+            if (old >= 0) RatsWriter.Release(rom, old);
+            int ptr = slots.Count > 0 ? RatsWriter.Allocate(rom, ExAnimation.Encode(slots, altFileIndex), avoidBankCross: true) : 0;
+            rom.Data[i - 4] = 0; rom.Data[i - 3] = (byte)(ptr >> 16);            // #bankword = bank << 8
+            rom.Data[i + 6] = (byte)ptr; rom.Data[i + 7] = (byte)(ptr >> 8);     // #low16
+            rom.lmGlobalExAnimPtr = -2;
+            ExAnimation.InvalidateGlobal(rom);
+            return null;
+        }
     }
 
     private static int ScanExAnimBase(Rom rom)

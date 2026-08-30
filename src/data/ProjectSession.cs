@@ -30,6 +30,7 @@ public static class ProjectSession
             rom.ImportedGfx[Convert.ToInt32(id, 16)] = Convert.FromBase64String(b64);
         foreach (var (id, name) in data.GfxNames)
             rom.ImportedGfxNames[Convert.ToInt32(id, 16)] = name;
+        RomBuilder.ReplayExAnimation(rom, data, null);   // records + files 60-63 into the session ROM, as the build does
 
         foreach (var (key, state) in data.Levels)
         {

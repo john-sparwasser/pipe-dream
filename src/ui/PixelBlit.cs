@@ -72,6 +72,7 @@ public sealed class PixelBlit
     /// </summary>
     public void Draw(Visual owner, DrawingContext ctx, IImage bmp, Rect src, Rect dst, double scaling)
     {
+        FreeRetired();                 // last frame's replaced intermediates are safe to drop now
         if (src.Width < 1 || src.Height < 1 || dst.Width < 1 || dst.Height < 1) { LastDraw = "blank"; return; }
         double z = dst.Width / src.Width;
 
@@ -144,11 +145,27 @@ public sealed class PixelBlit
     private static RenderOptions Options(BitmapInterpolationMode mode)
         => new() { BitmapInterpolationMode = mode };
 
+    /// <summary>Intermediates outlive the frame that drew them: the on-screen DrawImage of a
+    /// target is recorded now and executed by the compositor thread a little later, and in
+    /// Avalonia.Skia a RenderTargetBitmap IS a WriteableBitmapImpl — disposing it on the resize
+    /// that follows a mode switch (the drawer changes width, the viewport with it) is a
+    /// use-after-free in sk_canvas_draw_image_rect. So a replaced target is only parked here,
+    /// and freed on the NEXT draw, by which time its frame has been presented.</summary>
+    private readonly List<RenderTargetBitmap> retired = [];
+
+    private void Retire(RenderTargetBitmap? t) { if (t is not null) retired.Add(t); }
+
+    private void FreeRetired()
+    {
+        foreach (var t in retired) t.Dispose();
+        retired.Clear();
+    }
+
     private RenderTargetBitmap? Mid(PixelSize size)
     {
         if (size.Width < 1 || size.Height < 1) return null;
         if (mid is not null && midSize == size) return mid;
-        mid?.Dispose();
+        Retire(mid);
         mid = null;
         try { mid = new RenderTargetBitmap(size, new Vector(96, 96)); midSize = size; Builds++; }
         catch { mid = null; }
@@ -176,7 +193,7 @@ public sealed class PixelBlit
         if (size.Width < 1 || size.Height < 1) return null;
         if (finSize != size)
         {
-            for (int i = 0; i < fin.Length; i++) { fin[i]?.Dispose(); fin[i] = null; }
+            for (int i = 0; i < fin.Length; i++) { Retire(fin[i]); fin[i] = null; }
             finSize = size;
         }
         finIx ^= 1;
