@@ -901,7 +901,7 @@ public class RomPrepTests
     /// tables → $8A, buffer → $00, LC_LZ2 core) under emulation, equals what our decoder reads.
     /// The editor only ever uses our decoder, so a compressor quirk vanilla's decoder disagrees
     /// with shows up in the game alone — as a file whose tail tiles are garbage.</summary>
-    [Fact]
+    [RealRomFact]
     public void vanilla_decompressor_agrees_with_ours_on_every_converted_file()
     {
         var rom = PreppedReal();
@@ -1462,7 +1462,7 @@ public class RomPrepTests
     /// LM's own processor (emulated) to the DMA records the game would perform — dest tile A0,
     /// one 0x20-byte tile per frame, source inside our file-60 block. And the per-level table
     /// round-trips a record through the same writer LM's layout implies.</summary>
-    [Fact]
+    [RealRomFact]
     public void v11_exanimation_engine_runs_a_written_slot()
     {
         var rom = PreppedReal();
