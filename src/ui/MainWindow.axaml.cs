@@ -1121,12 +1121,27 @@ public partial class MainWindow : Window
 
     private async Task<string?> PickFile(string title, FilePickerFileType type)
     {
+        await SettleBeforeNativeDialog();
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = title, AllowMultiple = false, FileTypeFilter = [type],
         });
         return files.Count > 0 ? files[0].TryGetLocalPath() : null;
     }
+
+    /// <summary>
+    /// Let the input event that asked for a native dialog finish before the dialog's nested
+    /// message loop starts. A file picker opened straight from a MenuItem click FROZE the app
+    /// on Windows: the menu popup is still tearing down (capture held, popup closing) when the
+    /// picker's modal loop takes over the thread, and neither side can finish — the picker
+    /// window is never shown and the main window stops answering input. Yielding to Background
+    /// priority runs everything the click queued (popup close, capture release, layout) first.
+    /// Reproduced with File → New Project…; a picker from a plain Button never hangs, which is
+    /// why the startup chooser and the first-run Browse were immune.
+    /// </summary>
+    private static async Task SettleBeforeNativeDialog()
+        => await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(
+               static () => { }, Avalonia.Threading.DispatcherPriority.Background);
 
     private async void OnOpenProject(object? sender, RoutedEventArgs e) => await OpenProjectFlow();
 
@@ -1169,6 +1184,7 @@ public partial class MainWindow : Window
     /// vanilla base is prepped automatically, which is why no "prep?" question is asked.</summary>
     private async Task NewProjectFlow()
     {
+        await SettleBeforeNativeDialog();
         var dirs = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
         {
             Title = "Choose a folder for the new project", AllowMultiple = false,
