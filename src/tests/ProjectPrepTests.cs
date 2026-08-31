@@ -335,4 +335,22 @@ public class ProjectPrepTests : IDisposable
         Assert.Equal(0, p.Data.BaseRom.PrepVersion);
         Assert.Equal(RomHash.HeaderlessSha256File(src), p.Data.BaseRom.Sha256);
     }
+
+    /// <summary>File.Copy preserves attributes, and users' ROMs are often read-only — the copied
+    /// base.smc then refused the in-place prep with UnauthorizedAccessException and the project
+    /// came out half-built. The copy must be made writable; the user's file stays read-only.</summary>
+    [Fact]
+    public void a_read_only_source_rom_still_creates_a_project()
+    {
+        string src = Path.Combine(dir, "readonly.smc");
+        File.WriteAllBytes(src, TestRom.Image(dm16: true));
+        new FileInfo(src).IsReadOnly = true;
+        try
+        {
+            var p = Project.Create(Path.Combine(dir, "proj3"), src);
+            Assert.False(new FileInfo(p.BaseRomPath).IsReadOnly, "the project's copy must be writable");
+            Assert.True(new FileInfo(src).IsReadOnly, "the user's file must be left alone");
+        }
+        finally { new FileInfo(src).IsReadOnly = false; }
+    }
 }

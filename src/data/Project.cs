@@ -38,7 +38,7 @@ internal sealed class Project
     {
         Directory.CreateDirectory(folder);
         string dest = Path.Combine(folder, RomName);
-        File.Copy(baseRomSource, dest, overwrite: false);
+        CopyRomIn(baseRomSource, dest, overwrite: false);
         int prepVersion = 0;
         if (RomHash.HeaderlessSha256File(dest) == RomHash.VanillaUsSha256 &&
             RomPrep.PrepInPlace(dest) is null)
@@ -57,6 +57,19 @@ internal sealed class Project
         var p = new Project(folder, data);
         p.Save();
         return p;
+    }
+
+    /// <summary>
+    /// Copy a ROM into the project and make the copy WRITABLE. File.Copy preserves the source's
+    /// attributes, and users' ROMs are often marked read-only (archives, backups) — a read-only
+    /// base.smc made the very next step, prepping it in place, throw UnauthorizedAccessException
+    /// and the project came out half-built. The copy is ours; the caller's file is left alone.
+    /// </summary>
+    private static void CopyRomIn(string source, string dest, bool overwrite)
+    {
+        if (overwrite && File.Exists(dest)) new FileInfo(dest).IsReadOnly = false;
+        File.Copy(source, dest, overwrite);
+        new FileInfo(dest).IsReadOnly = false;
     }
 
     /// <summary>Open an existing project by its .pdp path. Throws with a user-facing
@@ -88,14 +101,14 @@ internal sealed class Project
         string hash = RomHash.HeaderlessSha256File(romPath);
         if (hash == Data.BaseRom.Sha256)
         {
-            File.Copy(romPath, BaseRomPath, overwrite: true);
+            CopyRomIn(romPath, BaseRomPath, overwrite: true);
             return null;
         }
         if (Data.BaseRom.PrepVersion > 0 && hash == RomHash.VanillaUsSha256)
         {
             if (Data.BaseRom.PrepVersion > RomPrep.Version)
                 return $"this project's base was prepared by a newer editor (prep v{Data.BaseRom.PrepVersion}) — update pipe-dream.";
-            File.Copy(romPath, BaseRomPath, overwrite: true);
+            CopyRomIn(romPath, BaseRomPath, overwrite: true);
             // Prep with the PROJECT'S version — released stamp lists are byte-frozen, so
             // a v1 pin reproduces exactly even after the editor moves to v2.
             if (RomPrep.PrepInPlace(BaseRomPath, Data.BaseRom.PrepVersion) is { } err) { File.Delete(BaseRomPath); return err; }
@@ -152,7 +165,7 @@ internal sealed class Project
         if (source is null)
             return "no verified vanilla SMW ROM configured — set one first (first-run prompt / config).";
         string tmp = BaseRomPath + ".upgrade";
-        File.Copy(source, tmp, overwrite: true);
+        CopyRomIn(source, tmp, overwrite: true);
         if (RomPrep.PrepInPlace(tmp) is { } err) { File.Delete(tmp); return err; }
         File.Move(tmp, BaseRomPath, overwrite: true);
         byte[] bytes = File.ReadAllBytes(BaseRomPath);
