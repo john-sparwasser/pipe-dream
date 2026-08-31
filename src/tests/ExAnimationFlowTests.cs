@@ -59,4 +59,25 @@ public class ExAnimationFlowTests(ITestOutputHelper log) : IDisposable
         Assert.Single(s2.ExAnimSlots(global: false));
         Assert.Single(s2.ExAnimSlots(global: true));
     }
+
+    /// <summary>Reassigning moves the whole record to the new number; a taken number refuses.</summary>
+    [Fact]
+    public void reassigning_a_slot_moves_it_and_refuses_a_taken_number()
+    {
+        if (!File.Exists(Vanilla)) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), Vanilla), s.Status);
+        s.ShowLevel(0x105);
+        var a = s.AddExAnimSlot(global: false);
+        var b = s.AddExAnimSlot(global: false);
+        Assert.Equal((0, 1), (a!.Value.Index, b!.Value.Index));
+
+        Assert.True(s.ReassignExAnimSlot(global: false, from: 0, to: 5), s.Status);
+        var back = s.ExAnimSlots(global: false).OrderBy(x => x.Index).ToList();
+        Assert.Equal([1, 5], back.Select(x => x.Index));
+        Assert.Equal(a.Value.Frames, back[1].Frames);
+
+        Assert.False(s.ReassignExAnimSlot(global: false, from: 5, to: 1));   // 1 is taken
+        Assert.False(s.ReassignExAnimSlot(global: false, from: 5, to: 0x20)); // out of range
+    }
 }

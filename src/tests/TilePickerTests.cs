@@ -49,8 +49,10 @@ public class TilePickerTests(ITestOutputHelper log)
     public void clicking_a_tile_low_on_the_source_sheet_picks_that_tile()
     {
         if (Open() is not { } s) { log.WriteLine("SKIP: no ROM"); return; }
-        var w = new TilePickerWindow(s, [0, 1, 2, 3], altIndex: 0, palRow: 2, preferAlt: false);   // AN1, a row of 4
+        var w = new TilePickerWindow(s, [0, 1, 2, 3], altIndex: 0, palRow: 2, preferAlt: false, global: false);   // a row of 4
         w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ComboBox>("Source").SelectedIndex = 0;      // this test clicks on the AN1 sheet
         Dispatcher.UIThread.RunJobs();
 
         var at = TileCentre(w, 4, 10);                          // row 10: well below the first screenful
@@ -89,7 +91,7 @@ public class TilePickerTests(ITestOutputHelper log)
     public void alt_file_source_offers_edit_and_mario_is_not_listed()
     {
         if (Open() is not { } s) { log.WriteLine("SKIP: no ROM"); return; }
-        var w = new TilePickerWindow(s, [0], altIndex: 0, palRow: 2, preferAlt: true);
+        var w = new TilePickerWindow(s, [0], altIndex: 0, palRow: 2, preferAlt: true, global: false);
         int asked = -1;
         w.EditRequested = f => asked = f;
         w.Show();
@@ -110,5 +112,25 @@ public class TilePickerTests(ITestOutputHelper log)
         var edit = w.GetControl<Button>("EditFile");
         edit.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));   // Click fires on release; the window closes on it
         Assert.Equal(0x60, asked);
+    }
+
+    /// <summary>The source dropdown opens where custom animations live: a global list's own
+    /// file 60-63; a level list falls back there too when no AN2 bypass file is set. AN1 (the
+    /// remapped vanilla sheet) is never the default.</summary>
+    [AvaloniaFact]
+    public void frame_source_defaults_to_the_custom_file_not_an1()
+    {
+        if (Open() is not { } s) { log.WriteLine("SKIP: no ROM"); return; }
+        var g = new TilePickerWindow(s, [0], altIndex: 1, palRow: 2, preferAlt: false, global: true);
+        g.Show(); Dispatcher.UIThread.RunJobs();
+        Assert.Contains("file 61", (string)g.GetControl<ComboBox>("Source").SelectedItem!);
+        g.Close();
+
+        var l = new TilePickerWindow(s, [0], altIndex: 0, palRow: 2, preferAlt: false, global: false);
+        l.Show(); Dispatcher.UIThread.RunJobs();
+        var picked = (string)l.GetControl<ComboBox>("Source").SelectedItem!;
+        Assert.True(picked.Contains("AN2") || picked.Contains("file 60"), picked);   // AN2 when set, else the 60-63 file
+        Assert.DoesNotContain("AN1", picked);
+        l.Close();
     }
 }

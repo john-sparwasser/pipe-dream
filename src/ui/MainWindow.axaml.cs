@@ -86,7 +86,8 @@ public partial class MainWindow : Window
     private DockPanel animPane = null!, animToolPanel = null!;
     private StackPanel animGfx = null!, animBody = null!;
     private TextBlock animTitle = null!, animListTitle = null!;
-    private Button animDelete = null!;
+    private Button animDelete = null!, animReassign = null!, animEmptyAdd = null!;
+    private CheckBox animAdvanced = null!;
     private StackPanel animPreviewBody = null!;
     private ToggleButton animLevelBtn = null!, animGlobalBtn = null!;
     private ComboBox animFile = null!, animPalRow = null!;
@@ -130,12 +131,16 @@ public partial class MainWindow : Window
         animBody = this.GetControl<StackPanel>("AnimBody");
         animTitle = this.GetControl<TextBlock>("AnimTitle");
         animDelete = this.GetControl<Button>("AnimDelete");
+        animReassign = this.GetControl<Button>("AnimReassign");
+        animEmptyAdd = this.GetControl<Button>("AnimEmptyAdd");
         animPreviewBody = this.GetControl<StackPanel>("AnimPreviewBody");
         this.GetControl<ScrollViewer>("AnimBodyScroll").Background = UiColors.DeskPattern;   // the timeline on the desk
         animListTitle = this.GetControl<TextBlock>("AnimListTitle");
         animLevelBtn = this.GetControl<ToggleButton>("AnimLevel");
         animGlobalBtn = this.GetControl<ToggleButton>("AnimGlobal");
         animFile = this.GetControl<ComboBox>("AnimFile");
+        animAdvanced = this.GetControl<CheckBox>("AnimAdvanced");
+        animAdvanced.IsCheckedChanged += (_, _) => RefreshAnim();
         animPalRow = this.GetControl<ComboBox>("AnimPalRow");
         for (int i = 0; i < 16; i++) animPalRow.Items.Add($"{i}");   // all sixteen: a destination can be sprite VRAM too
         animPalRow.SelectedIndex = 2;
@@ -868,6 +873,14 @@ public partial class MainWindow : Window
                 RefreshGfxSheet();
                 gfxSave.IsEnabled = session.GfxDirty;
             }
+            e.Handled = true;
+        }
+        // Delete on a Map16 selection resets the tiles to the base ROM's definitions. A focused
+        // TextBox (the acts-like field) keeps its own Delete.
+        else if (e.Key == Key.Delete && modeMap16.IsChecked == true
+                 && FocusManager?.GetFocusedElement() is not TextBox)
+        {
+            if (session.ResetMap16Tiles(map16Canvas.SelectedTiles())) RefreshMap16Props();
             e.Handled = true;
         }
         // Browser bindings, and the same keys the GFX canvas's [ ] do for its own sheet: the
@@ -2399,6 +2412,24 @@ public partial class MainWindow : Window
         RefreshAnim();
     }
 
+    /// <summary>Header button: move the open slot to another slot number, picked in a modal
+    /// from the numbers this list still has free.</summary>
+    private async void OnAnimReassign(object? sender, RoutedEventArgs e)
+    {
+        var slots = session.ExAnimSlots(animGlobal);
+        if (slots.All(s => s.Index != animSelected)) return;
+        var free = Enumerable.Range(0, 0x20).Where(i => slots.All(s => s.Index != i)).ToList();
+        if (free.Count == 0) return;                          // all 32 in use: nowhere to go
+        var dlg = new SlotNumberWindow(animSelected, free);
+        await dlg.ShowDialog(this);
+        if (dlg.Result is not { } to) return;
+        if (session.ReassignExAnimSlot(animGlobal, animSelected, to))
+        {
+            animSelected = to;
+            RefreshAnim();
+        }
+    }
+
     /// <summary>The gutter's sixteen swatches for the preview row — the Map16 bar's logic.</summary>
     private void RefreshAnimColors(int row)
     {
@@ -2430,10 +2461,10 @@ public partial class MainWindow : Window
         animPreview?.Stop(); animPreview = null;
         animBody.Children.Clear(); animPreviewBody.Children.Clear();
         animGfx.Children.Clear();
+        animEmptyAdd.IsVisible = false;
         if (session.Rom is not { } rom) return;
         bool ready = rom.LmExAnimBase >= 0;
-        animTitle.Text = !ready ? "no ExAnimation engine — File → Upgrade base (prep v11)"
-                       : animGlobal ? "global list — runs in every level" : $"level {session.LevelNum:X3}";
+        animTitle.Text = !ready ? "no ExAnimation engine — File → Upgrade base (prep v11)" : "";
         animListTitle.Text = animGlobal ? "Global slots" : $"Level {session.LevelNum:X3} slots";
         if (!ready) return;
 
@@ -2448,7 +2479,10 @@ public partial class MainWindow : Window
 
         // ---- left: the slots, in slot order ----
         if (slots.Count == 0)
+        {
             animGfx.Children.Add(Dim("No slots yet — Add slot in the bar above."));
+            animEmptyAdd.IsVisible = true;                    // ...or right here, centred on the desk
+        }
         foreach (var s in slots)
         {
             bool open = s.Index == animSelected;
@@ -2474,15 +2508,24 @@ public partial class MainWindow : Window
 
         // ---- right: the open slot's editor ----
         animDelete.IsEnabled = slots.Any(s => s.Index == animSelected);   // the header's Delete acts on the open slot
+        animReassign.IsEnabled = animDelete.IsEnabled;                    // ...and so does Reassign
         if (slots.FirstOrDefault(s => s.Index == animSelected) is not { Frames: not null } sel) return;
 
         // The decisions, inline. Each change writes the slot straight back — there is no OK.
         var row = new WrapPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
-        var type = new ComboBox { ItemsSource = ExAnimSlotWindow.Types.Select(t => t.Name).ToList(), Width = 250,
-                                  SelectedIndex = Math.Max(0, Array.FindIndex(ExAnimSlotWindow.Types, t => t.Code == sel.Type)) };
+        // Simple mode culls both dropdowns to the everyday choices; Advanced shows the engine's
+        // full catalog. A slot already using a culled value keeps it in the list — filtering the
+        // DISPLAY must never rewrite the slot.
+        bool adv = animAdvanced.IsChecked == true;
+        var types = (adv ? ExAnimSlotWindow.Types
+                         : ExAnimSlotWindow.Types.Where(t => t.Code is <= 0x08 or 0x0F or 0x11)).ToList();
+        if (types.All(t => t.Code != sel.Type))
+            types.Add(ExAnimSlotWindow.Types.First(t => t.Code == sel.Type));
+        var type = new ComboBox { ItemsSource = types.Select(t => t.Name).ToList(), Width = 250,
+                                  SelectedIndex = Math.Max(0, types.FindIndex(t => t.Code == sel.Type)) };
         type.SelectionChanged += (_, _) =>
         {
-            int code = ExAnimSlotWindow.Types[type.SelectedIndex].Code;
+            int code = types[type.SelectedIndex].Code;
             if (code == sel.Type) return;
             // Tile ↔ palette keep nothing in common: a palette slot starts on colour 00 with its
             // frame words as colours; a tile slot goes back to tile 600. Tile ↔ tile keeps the frames.
@@ -2491,11 +2534,15 @@ public partial class MainWindow : Window
             if (wasPal != isPal) s2 = s2 with { DestWord = 0, Frames = [.. Enumerable.Repeat((ushort)(isPal ? 0x7FFF : 0x7D00), sel.Frames.Length)] };
             PutSlot(s2);
         };
-        var trig = new ComboBox { ItemsSource = ExAnimSlotWindow.Triggers.Select(t => t.Name).ToList(), Width = 210,
-                                  SelectedIndex = Math.Max(0, Array.FindIndex(ExAnimSlotWindow.Triggers, t => t.Code == sel.Trigger)) };
+        var trigs = (adv ? ExAnimSlotWindow.Triggers
+                         : ExAnimSlotWindow.Triggers.Where(t => t.Code <= 0x04)).ToList();   // None..Have Star
+        if (trigs.All(t => t.Code != sel.Trigger))
+            trigs.Add(ExAnimSlotWindow.Triggers.First(t => t.Code == sel.Trigger));
+        var trig = new ComboBox { ItemsSource = trigs.Select(t => t.Name).ToList(), Width = 210,
+                                  SelectedIndex = Math.Max(0, trigs.FindIndex(t => t.Code == sel.Trigger)) };
         trig.SelectionChanged += (_, _) =>
         {
-            int code = ExAnimSlotWindow.Triggers[trig.SelectedIndex].Code;
+            int code = trigs[trig.SelectedIndex].Code;
             if (code == sel.Trigger) return;
             // Going stateful doubles the list (the triggered half starts as a copy); going back keeps the first half.
             bool was = ExAnimation.TriggerDoubles(sel.Trigger), now = ExAnimation.TriggerDoubles(code);
@@ -2532,7 +2579,6 @@ public partial class MainWindow : Window
             row.Children.Add(Labelled("destination", dest));
         }
         animBody.Children.Add(row);
-        animBody.Children.Add(Mono(sel.Describe()));
         string note = sel.Doubled ? "Stateful trigger: the first half of the frames plays untriggered, the second half once triggered."
                     : sel.Trigger >= ExAnimation.TriggerOneShot0 ? "One shot: plays through once when triggered, then stops."
                     : sel.Trigger >= ExAnimation.TriggerManual0 ? "Manual: shows whichever frame a custom block writes to $7FC070+n." : "";
@@ -2552,17 +2598,24 @@ public partial class MainWindow : Window
         {
             int fi = f;
             bool triggered = sel.Doubled && f >= sel.FrameCount;
-            var col = new StackPanel { Spacing = 4, Margin = new Thickness(0, 0, 10, 10) };
-            var top = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 4 };
-            top.Children.Add(Mono((triggered ? "triggered " : "frame ") + $"{(f % sel.FrameCount) + 1}"));
+            var col = new StackPanel { Spacing = 6, Margin = new Thickness(10, 8, 10, 10) };
+            // Label on the left, × pinned to the right — a full-width header band across the
+            // card's top, the same treatment as the slot listing's card headers.
+            var top = new DockPanel();
             if (sel.FrameCount > 1 && !triggered)
             {
-                var x = new Button { Content = "×", Padding = new Thickness(5, 0), FontSize = 11 };
+                var x = new Button { Content = "×", Padding = new Thickness(5, 0), FontSize = 11,
+                                     HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right };
                 ToolTip.SetTip(x, "remove this frame");
                 x.Click += (_, _) => PutSlot(WithoutFrame(sel, fi));
+                DockPanel.SetDock(x, Avalonia.Controls.Dock.Right);
                 top.Children.Add(x);
             }
-            col.Children.Add(top);
+            var label = Mono((triggered ? "Triggered " : "Frame ") + $"{(f % sel.FrameCount) + 1}");
+            label.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center;
+            label.Margin = new Thickness(0, 0, 10, 0);           // room before the ×, two digits included
+            label.Foreground = Brushes.White;                    // a header, not a dim annotation
+            top.Children.Add(label);
 
             Control face;
             if (sel.IsPalette)
@@ -2571,7 +2624,7 @@ public partial class MainWindow : Window
                 var sw = new Border { Width = 48, Height = 32, CornerRadius = new CornerRadius(3),
                                       Background = new SolidColorBrush(Color.FromRgb((byte)((bgr & 31) * 8), (byte)(((bgr >> 5) & 31) * 8), (byte)(((bgr >> 10) & 31) * 8))) };
                 face = sw;
-                col.Children.Add(face);
+                col.Children.Add(FrameMat(face));
                 col.Children.Add(Mono($"{bgr:X4}"));
             }
             else
@@ -2582,20 +2635,43 @@ public partial class MainWindow : Window
                 face = bmp is not null
                     ? new PixelImage { Source = bmp, Width = w * 4, Height = h * 4, Stretch = true }
                     : new Border { Width = 64, Height = 32, Background = (IBrush)this.FindResource("SurfaceBrush")!, Child = Mono("pick…") };
-                col.Children.Add(face);
+                col.Children.Add(FrameMat(face));
                 col.Children.Add(Mono($"tile {sel.SrcTile(f):X3}"));
             }
-            var cardF = new Border { Child = col, Padding = new Thickness(6), CornerRadius = new CornerRadius(5), BorderThickness = new Thickness(1),
-                                     BorderBrush = this.FindResource("BorderBrush") as IBrush, Cursor = new Cursor(StandardCursorType.Hand), Background = Brushes.Transparent };
+            // Lighter than the card body: the Surface tone sank into the desk pattern behind it.
+            var head = new Border { Child = top, Padding = new Thickness(10, 5),
+                                    CornerRadius = new CornerRadius(5, 5, 0, 0),
+                                    Background = (IBrush)this.FindResource("BorderBrush")! };
+            var stack = new StackPanel();
+            stack.Children.Add(head);
+            stack.Children.Add(col);
+            var cardF = new Border { Child = stack, Margin = new Thickness(0, 0, 8, 8), MinWidth = 104,
+                                     CornerRadius = new CornerRadius(5),
+                                     Cursor = new Cursor(StandardCursorType.Hand),
+                                     Background = this.FindResource("RaisedBrush") as IBrush };
             ToolTip.SetTip(cardF, sel.IsPalette ? "click to set this frame's colour" : "click to pick this frame's tiles on the source sheet");
             cardF.PointerPressed += async (_, _) => await PickFrame(sel, fi, palRow);
+            // The whole card — band included — lightens under the pointer, so it reads as one button.
+            var headBg = head.Background;
+            cardF.PointerEntered += (_, _) => { cardF.Background = FrameCardHover; head.Background = FrameHeadHover; };
+            cardF.PointerExited += (_, _) => { cardF.Background = this.FindResource("RaisedBrush") as IBrush; head.Background = headBg; };
             strip.Children.Add(cardF);
         }
         if (total > 0 && sel.FrameCount < 0x100)
         {
             // The + at the end of the timeline: a new frame, a copy of the last, in both halves
             // when the trigger keeps two.
-            var plus = new Button { Content = "+", Width = 48, Height = 48, FontSize = 20, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, Margin = new Thickness(0, 18, 0, 0) };
+            // The cta class carries the accent fill AND its lighter-blue hover — an inline
+            // Background would win the base state but lose :pointerover to the template's brush,
+            // which showed as a translucent grey on hover.
+            var plus = new Button
+            {
+                Content = "Add Frame", Height = 48, Padding = new Thickness(14, 0),
+                HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalContentAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, Margin = new Thickness(0, 0, 0, 6),
+            };
+            plus.Classes.Add("cta");
             ToolTip.SetTip(plus, "add a frame");
             plus.Click += (_, _) => PutSlot(WithAddedFrame(sel));
             strip.Children.Add(plus);
@@ -2667,7 +2743,7 @@ public partial class MainWindow : Window
         // copied or packed; the frame word names the run directly.
         int alt = session.ExAnimAltFile(animGlobal);
         int[] footprint = Enumerable.Range(0, Math.Max(1, sel.TileCount)).ToArray();
-        var pick = new TilePickerWindow(session, footprint, alt, palRow, sel.AltFile)
+        var pick = new TilePickerWindow(session, footprint, alt, palRow, sel.AltFile, animGlobal)
         {
             // "Edit…" on the alternate file: straight to the Graphics editor on that file, the
             // way clicking its E6x card there would.
@@ -2684,6 +2760,19 @@ public partial class MainWindow : Window
         int destWord = useAlt ? sel.DestWord | 0x8000 : sel.DestWord & 0x7FFF;
         PutSlot(sel with { Frames = frames, DestWord = destWord });
     }
+
+    /// <summary>Hover tones for the frame cards: one step lighter than RaisedColor/BorderColor.</summary>
+    private static readonly IBrush FrameCardHover = new SolidColorBrush(Color.Parse("#323947"));
+    private static readonly IBrush FrameHeadHover = new SolidColorBrush(Color.Parse("#404757"));
+
+    /// <summary>The 4px mat around a frame card's preview, so the pixels read as a framed
+    /// thumbnail rather than art floating on the card.</summary>
+    private Border FrameMat(Control face) => new()
+    {
+        Child = face, BorderThickness = new Thickness(4),
+        BorderBrush = this.FindResource("BorderBrush") as IBrush,
+        HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+    };
 
     /// <summary>One more frame, a copy of the last — added to both halves of a doubled list.</summary>
     private static ExAnimation.Slot WithAddedFrame(ExAnimation.Slot s)

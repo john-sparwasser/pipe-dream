@@ -765,4 +765,31 @@ public class Map16ModeTests(ITestOutputHelper log)
         Assert.Equal(0, rom.Data[rom.FileOffset(a2) + 0x10]); // g1's 0x10 is gone
         Assert.Equal(-1, rom.LmAltExGfx(1));
     }
+
+    /// <summary>Delete on a selection: every tile goes back to the base ROM's definition (one
+    /// undo entry), and a tile on a page the base does not have resets to LM's empty word.</summary>
+    [Fact]
+    public void reset_puts_tiles_back_to_the_base_definition_and_is_one_undo_entry()
+    {
+        if (Edit() is not { } e) { log.WriteLine("SKIP: no ROM"); return; }
+        var (rom, edit) = e;
+        var baseRom = Rom.Load(Prepped!);
+        var was130 = edit.ReadDef(0x130)!.Select(w => w.Raw).ToArray();
+        var was131 = edit.ReadDef(0x131)!.Select(w => w.Raw).ToArray();
+
+        for (int q = 0; q < 4; q++) { edit.StampQuad(0x130, q, 0x2222); edit.StampQuad(0x131, q, 0x3333); }
+        edit.EndStroke();
+        Assert.Null(edit.EnsurePage(0x200));                    // a page the BASE does not have
+        for (int q = 0; q < 4; q++) edit.StampQuad(0x200, q, 0x4444);
+        edit.EndStroke();
+
+        edit.Reset([0x130, 0x131, 0x200], baseRom);
+        Assert.Equal(was130, edit.ReadDef(0x130)!.Select(w => w.Raw).ToArray());
+        Assert.Equal(was131, edit.ReadDef(0x131)!.Select(w => w.Raw).ToArray());
+        Assert.Equal(Enumerable.Repeat(Map16Edit.Empty, 4), edit.ReadDef(0x200)!.Select(w => w.Raw));
+
+        Assert.True(edit.Undo());                               // ONE entry takes the reset back
+        Assert.Equal(Enumerable.Repeat((ushort)0x2222, 4), edit.ReadDef(0x130)!.Select(w => w.Raw));
+        Assert.Equal(Enumerable.Repeat((ushort)0x4444, 4), edit.ReadDef(0x200)!.Select(w => w.Raw));
+    }
 }

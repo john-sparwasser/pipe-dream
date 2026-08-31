@@ -43,8 +43,10 @@ public partial class TilePickerWindow : Window
     public TilePickerWindow() => AvaloniaXamlLoader.Load(this);
 
     /// <summary>Frame SOURCE: the footprint is a consecutive run of the slot's N tiles on the sheet —
-    /// the line the engine DMAs, so a 16x16 frame is drawn and picked as four tiles in a row.</summary>
-    public TilePickerWindow(EditorSession session, int[] footprint, int altIndex, int palRow, bool preferAlt)
+    /// the line the engine DMAs, so a 16x16 frame is drawn and picked as four tiles in a row.
+    /// The dropdown opens on where custom animations actually live — the global list's own file
+    /// 60-63, a level list's AN2 bypass file — not on AN1, which is the remapped vanilla sheet.</summary>
+    public TilePickerWindow(EditorSession session, int[] footprint, int altIndex, int palRow, bool preferAlt, bool global)
         : this(footprint, "Pick source tiles")
     {
         sources.Add(new("AN1 — animated tiles (GFX33)", () => session.GfxFileSheet(0x33, palRow), 0x600, int.MaxValue, false, 0x33));
@@ -55,7 +57,10 @@ public partial class TilePickerWindow : Window
         sources.Add(new($"file {0x60 + altIndex:X2} — the list's alternate file", () => session.GfxFileSheet(0x60 + altIndex, palRow),
                         0xC00 + altIndex * 0x400, int.MaxValue, true, 0x60 + altIndex));
         editFileId = 0x60 + altIndex;
-        Start(preferAlt ? sources.Count - 1 : 0);
+        int def = preferAlt || global ? sources.Count - 1        // the slot already reads it, or global: its 60-63 file
+                : an2 is not (0 or 0x7F) ? 1                     // level list: the level's AN2 bypass file
+                : sources.Count - 1;                             // no AN2 set: the 60-63 file is still the custom home
+        Start(def);
     }
 
     /// <summary>DESTINATION: the level's VRAM sheet, footprint = the slot's tiles relative to its

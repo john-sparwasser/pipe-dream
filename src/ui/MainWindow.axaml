@@ -768,19 +768,32 @@
               <Button x:Name="AnimDelete" Click="OnAnimDelete" IsEnabled="False" ToolTip.Tip="Delete the open slot">
                 <TextBlock Text="Delete slot" VerticalAlignment="Center"/>
               </Button>
+              <Button x:Name="AnimReassign" Click="OnAnimReassign" IsEnabled="False"
+                      ToolTip.Tip="Move the open slot to another slot number">
+                <TextBlock Text="Reassign slot" VerticalAlignment="Center"/>
+              </Button>
               <TextBlock Classes="dim" Text="source file" VerticalAlignment="Center" Margin="8,0,0,0"/>
               <ComboBox x:Name="AnimFile" Width="96" SelectedIndex="0"
                         ToolTip.Tip="Which uncompressed file (ExGFX 60-63) this list's alternate-file slots read">
                 <ComboBoxItem Content="file 60"/><ComboBoxItem Content="file 61"/>
                 <ComboBoxItem Content="file 62"/><ComboBoxItem Content="file 63"/>
               </ComboBox>
+              <CheckBox x:Name="AnimAdvanced" Content="Advanced" Margin="8,0,0,0"
+                        ToolTip.Tip="Show every slot type and trigger the engine supports"/>
               <TextBlock x:Name="AnimTitle" Classes="dim" VerticalAlignment="Center" Margin="12,0,0,0"/>
             </StackPanel>
           </Border>
-          <!-- The timeline sits on the desk pattern (set in code: UiColors.DeskPattern). -->
-          <ScrollViewer x:Name="AnimBodyScroll">
-            <StackPanel x:Name="AnimBody" Margin="16" Spacing="6"/>
-          </ScrollViewer>
+          <!-- The timeline sits on the desk pattern (set in code: UiColors.DeskPattern). The Grid
+               lets the empty-list Add Slot button sit truly centred over the desk. -->
+          <Grid>
+            <ScrollViewer x:Name="AnimBodyScroll">
+              <StackPanel x:Name="AnimBody" Margin="16" Spacing="6"/>
+            </ScrollViewer>
+            <Button x:Name="AnimEmptyAdd" Classes="cta" Click="OnAnimAdd" IsVisible="False"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                    Content="Add Slot" ToolTip.Tip="Add a slot to this list"/>
+          </Grid>
         </DockPanel>
         <DockPanel x:Name="GfxScroll" IsVisible="False" Background="{DynamicResource VoidBrush}">
           <Border x:Name="GfxEditorBar" DockPanel.Dock="Top" Classes="panel bar"

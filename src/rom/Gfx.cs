@@ -249,10 +249,20 @@ public static class Gfx
             // converts it too. Fixed 3bpp garbles ShaoBase's munchers; the ROM's depth garbles
             // every animated tile on a v6 base.
             int a1bpp = FileBpp(rom, 0x33), a1tb = TileBytes(a1bpp);
+            // AN2 ($7E:AD00+): the level's bypass file (record word 0), loaded at runtime right
+            // after AN1's region. Without this branch an AN2-sourced frame fell through both
+            // bounds checks and the slot silently showed the static tile in the editor.
+            var byp = level >= 0 ? rom.LmGfxBypass(level) : null;
+            int an2File = byp is not null && (byp[0] & 0xFFF) != 0x7F ? byp[0] & 0xFFF : -1;
+            byte[]? an2Data = an2File >= 0 ? Cached(rom, an2File) : null;
+            int a2bpp = an2File >= 0 ? FileBpp(rom, an2File) : 4, a2tb = TileBytes(a2bpp);
             void Overlay(int vramTile, int srcAddr)
             {
                 byte[]? px =
-                    srcAddr >= 0x7D00 && (srcAddr - 0x7D00) / 0x20 * a1tb + a1tb <= anim1.Length
+                    srcAddr >= 0xAD00 && an2Data is not null
+                            && (srcAddr - 0xAD00) / 0x20 * a2tb + a2tb <= an2Data.Length
+                        ? DecodeTile(an2Data, (srcAddr - 0xAD00) / 0x20 * a2tb, a2bpp)
+                    : srcAddr >= 0x7D00 && (srcAddr - 0x7D00) / 0x20 * a1tb + a1tb <= anim1.Length
                         ? DecodeTile(anim1, (srcAddr - 0x7D00) / 0x20 * a1tb, a1bpp)
                     : srcAddr >= 0x2000 && srcAddr - 0x2000 + 0x20 <= anim2.Length
                         ? DecodeTile(anim2, srcAddr - 0x2000, 4)
@@ -323,6 +333,15 @@ public static class Gfx
                 int gbpp = RomBpp(rom), gtb = TileBytes(gbpp);
                 foreach (var (destTile, anim) in ExAnimation.GlobalStates(rom)[phase & 3])
                 {
+                    // A RAM source (AN1's $7E:7D00 region, AN2's $7E:AD00, Mario's $7E:2000):
+                    // the engine DMAs from bank $7E, so the manifest's address is not a ROM
+                    // offset — route it through the same RAM model the level slots use.
+                    if (anim.SrcSnes >> 16 == 0x7E)
+                    {
+                        for (int k = 0; k < anim.TileCount; k++)
+                            Overlay(destTile + k, (anim.SrcSnes & 0xFFFF) + k * 0x20);
+                        continue;
+                    }
                     int gfo = rom.FileOffset(anim.SrcSnes);
                     for (int k = 0; k < anim.TileCount; k++)
                     {

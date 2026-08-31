@@ -1185,6 +1185,17 @@ public sealed class EditorSession
         Map16.Committed += () => Map16Committed?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>Delete on a Map16 selection: put the tiles back to the base ROM's definitions.
+    /// The pristine base is its on-disk copy — the session ROM is that plus the hydrated edits —
+    /// so this needs a project. Undoable as one stroke, like any other Map16 edit.</summary>
+    public bool ResetMap16Tiles(IEnumerable<int> tiles)
+    {
+        if (Map16 is not { } m) return false;
+        if (Project is not { } p) { Report("no project — nothing to reset to"); return false; }
+        m.Reset(tiles, Rom.Load(p.BaseRomPath));
+        return true;
+    }
+
     /// <summary>
     /// Recompose the current level from the ROM, keeping the object edits. Needed after a
     /// Map16 definition changes: the tile caches are built from the defs, so every tile that
@@ -1409,6 +1420,17 @@ public sealed class EditorSession
         if (index < 0) { Report("all 32 slots of this list are used"); return null; }
         var slot = new ExAnimation.Slot(index, 1, ExAnimation.TriggerNone, 1, 0x0000, [0x7D00], ExAnimAltFile(global));
         return SetExAnimSlot(global, slot) ? slot : null;
+    }
+
+    /// <summary>Move a slot to a free slot number, keeping everything else about it.</summary>
+    public bool ReassignExAnimSlot(bool global, int from, int to)
+    {
+        var list = ExAnimSlots(global).ToList();
+        int i = list.FindIndex(s => s.Index == from);
+        if (i < 0 || from == to || to is < 0 or >= 0x20) return false;
+        if (list.Any(s => s.Index == to)) { Report($"slot {to:X2} is already used"); return false; }
+        list[i] = list[i] with { Index = to };
+        return SetExAnim(global, list, ExAnimAltFile(global));
     }
 
     /// <summary>Replace (or add) one slot in a list, keeping the list's source file.</summary>

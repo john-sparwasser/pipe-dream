@@ -189,6 +189,27 @@ public sealed class Map16Edit
         EndStroke();
     }
 
+    /// <summary>
+    /// Put each tile back to what <paramref name="baseRom"/> holds for it — Delete on a
+    /// selection. A tile whose page does not exist in the base (a freshly allocated extended
+    /// page) resets to LM's empty word instead. One stroke, so a swept-up selection is one undo
+    /// entry; unallocated tiles in the SESSION are skipped, there is nothing to reset there.
+    /// </summary>
+    public void Reset(IEnumerable<int> tiles, Rom baseRom)
+    {
+        foreach (int t in tiles)
+        {
+            int fo = Map16.DefFileOffset(baseRom, tileset, t);
+            for (int q = 0; q < 4; q++)
+            {
+                int raw = fo < 0 ? -1 : fo + RawOfVisual[q] * 2;
+                ushort v = raw < 0 ? Empty : (ushort)(baseRom.Data[raw] | (baseRom.Data[raw + 1] << 8));
+                StampQuad(t, q, v);
+            }
+        }
+        EndStroke();
+    }
+
     /// <summary>Mirror each selected tile in place: swap the quadrant pairs AND toggle the flip
     /// flag. Doing only one of the two mirrors the arrangement but not the art, or the art but
     /// not the arrangement — either way the tile comes out wrong.</summary>
