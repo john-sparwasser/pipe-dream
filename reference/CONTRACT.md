@@ -1200,16 +1200,29 @@ moved; every other run in that diff was the level's own data block relocating.
                **Per-ROM — never hardcode it**; follow the hack's hook operand the way
                `LmMidwayTable` / `LmExAnimBase` do.
 
-**Still NOT located**: the *Change Layer 3 Settings* record (blank / tides / tileset-specific,
-tides-act-as, priority, advanced scroll group). Four attempts to isolate it all produced
-byte-identical ROMs; the last two were swallowed by LM modals (the settings dialog stays open
-behind a still-focused combo, so the save clicks never land) rather than by the install gate.
-Worth retrying with the dialog dismissed explicitly and a full-screen verification shot between
-every step — LM puts up confirm dialogs (tides warn destructively) that a status-bar-only
-screenshot cannot see.
+**The Layer 3 Options field  [CONFIRMED for 0 and 3; 1/2 by dropdown order]** — isolated by
+`l3_c` (Blank Layer 3) → `l3_e` (Tileset Specific), with the hack installed on both. Changing
+only that dropdown moved exactly TWO semantic bytes, and LM writes the value to both:
+
+  `$05F200 + level` **bits 6-7** — the VANILLA per-level byte this repo already parses and
+  round-trips as `MainEntrance.Layer2Setting` (`MainEntrance.cs:48`). **That name is wrong**:
+  LM's *Change Layer 3 Settings* dialog is what writes it, so the field is the layer-3 option,
+  not a layer-2 setting. `LevelPropertiesWindow` currently labels it "Layer 2 BG setting".
+  bypass record **+3, bits 5-6** — the same value mirrored into LM's own 0x20-byte record.
+
+  value  0 = Blank Layer 3 [CONFIRMED]   1 = Water, high and low tides   2 = Water, low tide
+  only (smasher if tileset is 1)   3 = Tileset Specific [CONFIRMED]
+  Readback: Blank → `$05F200+105` = `00`, rec+3 = `00`; Tileset Specific → `C0` / `60`.
+  1 and 2 are INFERRED from the dropdown's order. Both are tides options, and selecting either
+  raises LM's destructive "Max Screens Mode Change Alert" — tides halve the screen count and
+  LM deletes objects and sprites past the new limit — so pinning them wants a throwaway level.
+
+Still not located: "Make tides act as", the priority flag, and the advanced bypass group
+(CGADSUB / subscreen / scroll-sync / V+H scroll / X+Y offset) — most likely the remaining
+unmapped words of the same 0x20-byte record.
 
 Evidence: `.resources/layer3/l3_0.smc` (pre-hack baseline), `l3_b.smc` (hack + GFX bypass,
-LG1=29), `l3_c.smc` (LG1=30).
+LG1=29), `l3_c.smc` (LG1=30), `l3_e.smc` (+ Tileset Specific).
 
 ## 13. Object expansion via emulation  [IMPLEMENTED — vanilla-layout ROMs]
 
