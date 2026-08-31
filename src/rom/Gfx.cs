@@ -274,6 +274,9 @@ public static class Gfx
 
             void OverlayPx(int vramTile, byte[] px)
             {
+                // The FG sheet is tiles 000-3FF; a sprite (400-5FF) or layer-3 (1C00+) dest
+                // must not wrap onto an FG page through the &7 below.
+                if (vramTile is < 0 or >= 0x400) return;
                 int s = (vramTile >> 7) & 7, t = vramTile & 0x7F;
                 if (slots[s] is { } arr && t < arr.Length) slots[s][t] = px;
             }

@@ -127,4 +127,23 @@ public class ExAnimationTests
         Assert.Equal(1, back[1].AltFileIndex);
         Assert.Equal(0xC01, back[1].SrcTile(0) - 0x400);   // file index 1 → tiles from 0x1000
     }
+
+    /// <summary>LM's dest numbering ↔ the record's raw VRAM word: layer 1/2 at word $0000
+    /// (word/16), sprites 400-5FF at $6000 (OBSEL=3), layer-3 2bpp 1C00-1DFF at $4000
+    /// (BG34NBA=4, 8 words per tile). Vanilla CHR bases, which LM keeps.</summary>
+    [Theory]
+    [InlineData(0x0A0, 0x0A00)]     // exanim_4's pinned FG dest
+    [InlineData(0x2FF, 0x2FF0)]     // last layer-1/2 tile
+    [InlineData(0x400, 0x6000)]     // first sprite tile
+    [InlineData(0x5FF, 0x7FF0)]     // last sprite tile
+    [InlineData(0x1C00, 0x4000)]    // first layer-3 tile
+    [InlineData(0x1DFF, 0x4FF8)]    // last layer-3 tile
+    public void dest_numbering_round_trips_through_the_vram_word(int tile, int word)
+    {
+        Assert.Equal(word, ExAnimation.LmTileToWord(tile));
+        Assert.Equal(tile, ExAnimation.WordToLmTile(word));
+        // The alt-file flag rides bit 15 and never collides with an encoded dest.
+        Assert.Equal(tile, ExAnimation.WordToLmTile(word | 0x8000));
+        Assert.True(word < 0x8000);
+    }
 }

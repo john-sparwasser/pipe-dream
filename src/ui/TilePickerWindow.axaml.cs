@@ -69,11 +69,24 @@ public partial class TilePickerWindow : Window
         : this(Enumerable.Range(0, Math.Max(1, slot.TileCount)).Select(k => slot.DestTileAt(k) - slot.DestTile).ToArray(),
                "Pick the destination tile")
     {
-        sources.Add(new("VRAM — layer 1/2 graphics (tiles 000-2FF)", () =>
+        sources.Add(new("Layer 1", () =>
         {
             var (px, w, h) = session.ChrPhases(palRow);
-            return px[0] is { } p ? (p, w, h) : ([], 0, 0);
+            if (px[0] is not { } p || w == 0) return ([], 0, 0);
+            // Crop to the pickable range: past 2FF is the animated-tile region the game
+            // streams into every frame — never a destination, so it is not shown at all.
+            int ch = Math.Min(h, 0x300 / (w / 8) * 8);
+            return (p[..(w * ch)], w, ch);
         }, 0x000, 0x300, false));
+        sources.Add(new("Layer 3", () =>
+        {
+            // The editor does not compose the layer-3 VRAM region (vanilla loads it per
+            // level mode), so this is a flat sheet — the tile is picked by position.
+            var px = new uint[128 * 0x20 * 8];
+            Array.Fill(px, 0xFF303030u);
+            return (px, 128, 0x20 * 8);
+        }, 0x1C00, 0x200, false));
+        sources.Add(new("Sprites", () => session.SpriteSheet(palRow), 0x400, 0x200, false));
         Start(0);
     }
 

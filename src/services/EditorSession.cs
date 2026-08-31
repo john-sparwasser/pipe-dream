@@ -170,6 +170,14 @@ public sealed class EditorSession
 
     /// <summary>The level's 8x8 GFX sheet in one palette row, for the Map16 editor's picker —
     /// again one per phase, off the scene's own per-phase graphics.</summary>
+    /// <summary>The level's composed sprite 8x8s (SP1-SP4, bypass honored) as one sheet,
+    /// for the destination picker's sprite range (LM dest tiles 400-5FF).</summary>
+    public (uint[] Px, int W, int H) SpriteSheet(int palRow)
+    {
+        if (Rom is not { } r || Scene is not { } s || s.Palettes[0] is not { } pal) return ([], 0, 0);
+        return GfxSheets.Tiles(SpriteRender.LoadSpTiles(r, s.Level.Header, LevelNum), pal, palRow);
+    }
+
     public (uint[]?[] Px, int W, int H) ChrPhases(int palRow)
     {
         if (Rom is not { } r || Scene is not { } s) return (new uint[4][], 0, 0);
@@ -1462,11 +1470,16 @@ public sealed class EditorSession
         int cols = s.Type switch { ExAnimation.TypeStacked => 1, ExAnimation.Type16x16 => 2, ExAnimation.Type32x16 => 4, _ => s.TileCount };
         int rows = (s.TileCount + cols - 1) / cols, w = cols * 8, h = rows * 8, baseColor = (palRow & 0x0F) * 16;
         var px = new uint[w * h];
+        byte[][]? sp = null;   // loaded on first sprite-range dest tile
         for (int k = 0; k < s.TileCount; k++)
         {
             int tile = s.DestTileAt(k);
-            if (tile is < 0 or >= 0x400) continue;
-            var t = fg.Fetch(tile);
+            byte[]? t;
+            if (tile is >= 0x400 and < 0x600)
+                t = (sp ??= SpriteRender.LoadSpTiles(Rom, Scene.Level.Header, LevelNum))[tile - 0x400];
+            else if (tile is < 0 or >= 0x400) continue;   // layer 3: not composed, stays blank
+            else t = fg.Fetch(tile);
+            if (t is null) continue;
             int ox = (k % cols) * 8, oy = (k / cols) * 8;
             for (int y = 0; y < 8; y++)
                 for (int x = 0; x < 8; x++)

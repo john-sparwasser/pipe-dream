@@ -39,6 +39,30 @@ public sealed class ExAnimation
     /// <summary>Stateful triggers store 2×frames words (second half = triggered): the standard game
     /// events 01-0F and the Custom flags 20-2F; Manual and One-Shot do not.</summary>
     public static bool TriggerDoubles(int trigger) => trigger is (> 0 and < TriggerManual0) or (>= TriggerCustom0 and < TriggerOneShot0);
+
+    /// <summary>
+    /// The record's dest word is a raw VRAM word address (pinned by exanim_4; the engine passes
+    /// it through unchanged for every type — oracle-verified). LM's dialog numbers destinations
+    /// by the 8x8 editor instead: layer 1/2 tiles 000-3FF at word $0000 (word/16, BG12NBA=0),
+    /// sprite tiles 400-5FF at $6000 (OBSEL=3), layer-3 2bpp tiles 1C00-1DFF at $4000
+    /// (BG34NBA=4, 8 words per 2bpp tile) — vanilla's CHR bases, which LM keeps. Words outside
+    /// those regions fall back to word/16 (LM's advanced raw-offset entry).
+    /// </summary>
+    public static int WordToLmTile(int word)
+    {
+        int w = word & 0x7FFF;
+        return w >= 0x6000 ? 0x400 + (w - 0x6000) / 0x10
+             : w is >= 0x4000 and < 0x5000 ? 0x1C00 + (w - 0x4000) / 8
+             : w >> 4;
+    }
+
+    /// <summary>Inverse of <see cref="WordToLmTile"/>: LM dest tile number → raw VRAM word.</summary>
+    public static int LmTileToWord(int tile) => tile switch
+    {
+        >= 0x1C00 and < 0x1E00 => 0x4000 + (tile - 0x1C00) * 8,
+        >= 0x400 and < 0x600 => 0x6000 + (tile - 0x400) * 0x10,
+        _ => (tile & 0x3FF) << 4,
+    };
     /// <summary>Palette rotation types carry no frame data — the frame count is a delay.</summary>
     public static bool HasFrameWords(int type) => type < TypePaletteRotateRight;
 
@@ -50,8 +74,9 @@ public sealed class ExAnimation
     {
         public bool AltFile => (DestWord & 0x8000) != 0;
         public bool IsPalette => Type >= TypePalette;
-        /// <summary>Destination FG 8x8 tile (VRAM word / 16); the colour index for palette types.</summary>
-        public int DestTile => (DestWord & 0x7FFF) >> 4;
+        /// <summary>Destination in LM's dest numbering (see <see cref="WordToLmTile"/>);
+        /// the colour index for palette types.</summary>
+        public int DestTile => WordToLmTile(DestWord);
         /// <summary>Palette types: first colour index (low byte) and how many (high byte + 1).</summary>
         public int DestColor => DestWord & 0xFF;
         public int Colors => ((DestWord >> 8) & 0x7F) + 1;

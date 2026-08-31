@@ -16,7 +16,9 @@ namespace PipeDream.Ui;
 /// </summary>
 public class ChrPaletteView : Control
 {
-    public const int Cols = GfxSheets.ChrCols, Count = GfxSheets.ChrCount;
+    // Count stops at 0x300: tiles 300-3FF are the animated region the game streams into every
+    // frame — LM's 8x8 editor hides them by default too, so the picker does not offer them.
+    public const int Cols = GfxSheets.ChrCols, Count = 0x300;
 
     /// <summary>Set by <see cref="MeasureOverride"/> from the width the drawer gives it — the grid
     /// is always 16 tiles across, so the tile size is whatever divides the space, not a fixed 2x
@@ -134,7 +136,8 @@ public class ChrPaletteView : Control
         // Same pixel rule as every other surface — at 125% or 150% display scaling even this whole
         // 2x grid is a fractional number of device pixels per source pixel.
         if (sheet.For(Phase) is { } bmp)
-            blit.Draw(this, ctx, bmp, new Rect(0, 0, sheetW, sheetH), full, VisualRoot?.RenderScaling ?? 1);
+            blit.Draw(this, ctx, bmp, new Rect(0, 0, sheetW, Math.Min(sheetH, Count / Cols * 8)),
+                      full, VisualRoot?.RenderScaling ?? 1);
 
         if (HasSelection)
             ctx.DrawRectangle(null, new Pen(UiColors.Accent, 2),

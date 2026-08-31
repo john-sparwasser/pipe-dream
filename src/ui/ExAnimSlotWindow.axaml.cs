@@ -110,7 +110,7 @@ public partial class ExAnimSlotWindow : Window
             else
             {
                 if (dest is < 0 or > 0x1DFF) return (null, "destination tile 000-1DFF");
-                destWord = dest << 4;
+                destWord = ExAnimation.LmTileToWord(dest);
             }
             if (alt) destWord |= 0x8000;
 

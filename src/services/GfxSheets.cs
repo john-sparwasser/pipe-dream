@@ -21,6 +21,25 @@ public static class GfxSheets
                                                Palette palette, int palRow)
         => Chr(Gfx.FgTiles.Load(rom, header.Tileset, level, phase), palette, palRow);
 
+    /// <summary>Decoded 8x8 tiles as one sheet, 16 per row (a null tile draws blank).</summary>
+    public static (uint[] Px, int W, int H) Tiles(byte[]?[] tiles, Palette palette, int palRow)
+    {
+        int w = ChrCols * 8, h = (tiles.Length + ChrCols - 1) / ChrCols * 8;
+        var px = new uint[w * h];
+        for (int t = 0; t < tiles.Length; t++)
+        {
+            var src = tiles[t];
+            int ox = t % ChrCols * 8, oy = t / ChrCols * 8;
+            for (int y = 0; y < 8; y++)
+                for (int x = 0; x < 8; x++)
+                {
+                    int idx = src is null ? 0 : src[y * 8 + x];
+                    px[(oy + y) * w + ox + x] = idx == 0 ? 0xFF303030u : palette.Rgba[palRow * 16 + idx];
+                }
+        }
+        return (px, w, h);
+    }
+
     /// <summary>The same, from graphics already loaded — the scene keeps one set per animation
     /// phase, and the picker animates with the level off exactly those.</summary>
     public static (uint[] Px, int W, int H) Chr(Gfx.FgTiles fg, Palette palette, int palRow)

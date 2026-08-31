@@ -1174,7 +1174,10 @@ below and the "7-byte opaque header" of §12f — per-level and global records s
   slot +1 byte     TRIGGER: 00 none, 01 POW, 02 Silver POW (s), 03 ON/OFF, 04 Have Star (t), 10+n Manual n,
                    20+n Custom n (r), 30+n One-Shot n; 05-0F = Timer/Yoshi variants by list order [unsaved]
   slot +2 byte     frames − 1
-  slot +3 word     DEST: VRAM word (tile = word/16); palette types: low byte = first colour, high byte =
+  slot +3 word     DEST: raw VRAM word, passed to VMADD unchanged for every type (engine oracle).
+                   LM's dialog numbering: layer 1/2 tile = word/16 (BG12NBA=0); sprite 400-5FF =
+                   $6000 + (t−400)×10 (OBSEL=3); layer-3 2bpp 1C00-1DFF = $4000 + (t−1C00)×8
+                   (BG34NBA=4). ExAnimation.WordToLmTile/LmTileToWord. Palette types: low byte = first colour, high byte =
                    Colors−1 (q: 0385 = 4 colours at 85); BIT 15 = "use alternate ExGFX file" — frame words
                    then are BYTE OFFSETS into that file, else $7E RAM addresses
   slot +5 ..       frame words: `frames` of them, ×2 for a stateful trigger (01-0F and Custom 20-2F; POW,

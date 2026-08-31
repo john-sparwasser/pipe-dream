@@ -2597,7 +2597,7 @@ public partial class MainWindow : Window
             {
                 var pick = new TilePickerWindow(session, sel, palRow);
                 await pick.ShowDialog(this);
-                if (pick.Picked is { } t) PutSlot(sel with { DestWord = (sel.DestWord & 0x8000) | ((t & 0x7FF) << 4) });
+                if (pick.Picked is { } t) PutSlot(sel with { DestWord = (sel.DestWord & 0x8000) | ExAnimation.LmTileToWord(t) });
             };
             row.Children.Add(Labelled("destination", dest));
         }

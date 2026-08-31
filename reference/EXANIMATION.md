@@ -54,6 +54,12 @@ graphics), `0x1C00-0x1DFF` (layer 3), or a palette colour index (`0x00-0xFF`) fo
 types; advanced: raw VRAM word. The user then builds Map16 tiles out of the destination 8x8s
 exactly as with any other tile — that is the only link between the animation and the level.
 
+Encoding (`ExAnimation.WordToLmTile`/`LmTileToWord`): the record's dest word is the raw VRAM
+word for every range — layer 1/2 tile × $10 (BG12NBA=0), sprite $6000 + (tile − $400) × $10
+(OBSEL=3), layer 3 $4000 + (tile − $1C00) × 8 (BG34NBA=4, 2bpp tile = 8 words). Vanilla's CHR
+bases, which LM keeps; the engine passes the word to VMADD unchanged (oracle-verified). All
+three ranges stay below $8000, so bit 15 remains free for the alt-file flag.
+
 ## 4. Slot types (what one slot can move per frame)
 
 - `1..0x20 8x8s: line` — N consecutive tiles to N consecutive destination tiles. The
