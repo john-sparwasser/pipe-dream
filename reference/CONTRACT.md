@@ -1136,17 +1136,51 @@ without advancing $00, so blob2 lands over blob1's spent 3bpp source. It is stor
 offset 0x4D80), $7D00-$ACFF converted blob1. Overlay resolves >= $7D00 from blob1 as
 3bpp, else >= $2000 from blob2 as 4bpp.
 
-## 12b. Layer 3  [PARTIAL — vanilla path read; LM records NOT yet located]
+## 12b. Layer 3  [vanilla path CONFIRMED + IMPLEMENTED; LM's own records PARTIAL]
 
-**Vanilla.** Per-LEVEL-MODE dispatch, not per level: `CODE_058955` reads `$1925` and calls
-through `PtrsLong05895E`, 32 long pointers — `CODE_058D7A` (11 modes), `CODE_058B8D` (6),
-`CODE_058C71` (4), `Return058C70` (do nothing, 11). The tilemap data pointers are the
-mode-indexed 3-byte `Layer3Ptr` (~`$058FFD`); vanilla has six distinct blocks in
-`$059087-$05A221`, default `$059549`. `CODE_058D7A` is the tide/mist builder: it reads the
-**layer-2 RAM map** (`$7E:B900`/`$7E:BD00`) and expands it through the **same BG Map16 defs at
-`$0D9100`** (§10) into `$1CE8`/`$1D68`. That is why LM warns you cannot use tides and layer-2
-data in the same level (`view_layer_3.htm`). L3 priority = header byte 2 bit 7
-(`LevelHeader.Layer3Priority`, already decoded).
+**The geometry is fixed by the PPU setup, not by the level**  [CONFIRMED — `SetUpScreen`
+`$008A7F`]. `$2109` (BG3SC) = `$53` → the layer-3 tilemap is **64×64 tiles at VRAM word
+`$5000`**, four 32×32 screens in the order left-top, right-top, left-bottom, right-bottom.
+`$210C` (BG34NBA) = `$04` → its character data starts at **word `$4000`**. `$00A993` uploads
+GFX **28, 29, 2A, 2B** back to back from there, `$400` words each, so the four slots LM calls
+LG1-LG4 fill exactly the **512 2bpp tiles** a tilemap word can name. A layer 3 is therefore
+**512×512 pixels** — which is also where the ExAnimation destination range `1C00-1DFF` comes
+from (§12e) and why LM's tilemap-bypass file size defaults to `0x2000` = 64×64 words.
+
+**The tilemap is picked by (level mode, option), and it is a stripe image**  [CONFIRMED].
+`CODE_009FB8` computes `index = $1931*3 + ($1BE3-1)` — level mode by three, plus the Layer 3
+Options value below, which is why option 0 means no layer 3 at all. That index reads the
+3-byte `Layer3Ptr` at **`$059000`** (not `$058FFD`), and `$00A02F` hands the block to the
+**stripe-image uploader `$00871E`**. The table is exactly **45 entries** — it ends where the
+first tilemap block `DATA_059087` begins, so it covers level modes 0-14 only. Vanilla has six
+distinct blocks in `$059087-$05A221`, default `$059549`.
+
+Stripe-image entry, 4 bytes then data — the format `$00871E` consumes:
+
+  +0,+1  VRAM word address, **big-endian**
+  +2     bit 7 = step DOWN a column (+32 words, one row of a screen) instead of across;
+         bit 6 = RLE; bits 5-0 = high bits of the length
+  +3     low bits of the length. Length is in **BYTES, minus one**.
+  data   the tilemap words, low byte first — or, for RLE, ONE word repeated to fill the length.
+  end    a first header byte with bit 7 set (`$FF`).
+
+Words the script never writes are **not** tile 0: the console still has whatever the last level
+left in that VRAM plus the status bar it redraws every frame, and tile 0 of GFX28 is a font
+glyph, so filling the gaps with it draws a screen of noise the game never shows.
+`Layer3.Tilemap` returns `-1` for those and the renderer leaves them as the back-area colour.
+
+**Not the same thing as the layer-3 SCROLL strips.** `CODE_058955` (`$1925` → `PtrsLong05895E`
+→ `CODE_058D7A` / `CODE_058B8D` / `CODE_058C71` / `Return058C70`) does NOT read `Layer3Ptr`. It
+builds the per-column/row strips in `$1CE8`/`$1D68` by expanding the **layer-2 RAM map**
+(`$7E:B900`/`$7E:BD00`) through the **same BG Map16 defs at `$0D9100`** (§10) — which is why LM
+warns you cannot use tides and layer-2 data in the same level (`view_layer_3.htm`). L3 priority
+= header byte 2 bit 7 (`LevelHeader.Layer3Priority`, already decoded).
+
+**Implemented** in `src/rom/Layer3.cs` (option, tiles, tilemap, render), surfaced as
+`EditorSession.Layer3Image` / `Layer3Sheet`, drawn by the Background tab's Layer 3 mode, and
+used for the ExAnimation destination picker's layer-3 range (which drew flat grey before).
+`--layer3 <rom> [level] [out.png]` renders one; with no level it lists all 26 vanilla levels
+that carry one. Tests: `Layer3Tests`, `BackgroundModeTests`.
 
 **LM's two dialogs** (field sets confirmed by opening them; Level menu):
 
@@ -1198,16 +1232,21 @@ moved; every other run in that diff was the level's own data block relocating.
                (payload 0x6E00) that also holds the hack code. In this ROM level 000 sits at
                SNES `$12:AD20`, so level `$105` is `$12:CDC0` and its LG1 byte is `$12:CDC6`.
                **Per-ROM — never hardcode it**; follow the hack's hook operand the way
-               `LmMidwayTable` / `LmExAnimBase` do.
+               `LmMidwayTable` / `LmExAnimBase` do. NOT YET DONE, and not reachable the easy
+               way: the bytes `BF nn AD 12` appear nowhere in `l3_e.smc`, so the reader is not
+               a plain `LDA.l base,X` and the `ScanOperand` trick that finds `LmGfxBypassBase`
+               does not reach it. Until it is located, `Layer3.Tiles` uses the vanilla four on
+               every ROM, and a level whose LG slots LM has repointed will draw the wrong tiles.
 
 **The Layer 3 Options field  [CONFIRMED for 0 and 3; 1/2 by dropdown order]** — isolated by
 `l3_c` (Blank Layer 3) → `l3_e` (Tileset Specific), with the hack installed on both. Changing
 only that dropdown moved exactly TWO semantic bytes, and LM writes the value to both:
 
-  `$05F200 + level` **bits 6-7** — the VANILLA per-level byte this repo already parses and
-  round-trips as `MainEntrance.Layer2Setting` (`MainEntrance.cs:48`). **That name is wrong**:
-  LM's *Change Layer 3 Settings* dialog is what writes it, so the field is the layer-3 option,
-  not a layer-2 setting. `LevelPropertiesWindow` currently labels it "Layer 2 BG setting".
+  `$05F200 + level` **bits 6-7** — the VANILLA per-level byte, read into `$1BE3` at `$05D928`
+  and indexed straight into `Layer3Ptr` above. This repo parses and round-trips it as
+  `MainEntrance.Layer3Option` (`MainEntrance.cs:48`) — renamed from `Layer2Setting`, which was
+  wrong: LM's *Change Layer 3 Settings* dialog is what writes it, and it selects the layer-3
+  tilemap, nothing on layer 2. `LevelPropertiesWindow` labels it "Layer 3 option".
   bypass record **+3, bits 5-6** — the same value mirrored into LM's own 0x20-byte record.
 
   value  0 = Blank Layer 3 [CONFIRMED]   1 = Water, high and low tides   2 = Water, low tide

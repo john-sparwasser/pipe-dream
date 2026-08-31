@@ -21,8 +21,10 @@ public static class GfxSheets
                                                Palette palette, int palRow)
         => Chr(Gfx.FgTiles.Load(rom, header.Tileset, level, phase), palette, palRow);
 
-    /// <summary>Decoded 8x8 tiles as one sheet, 16 per row (a null tile draws blank).</summary>
-    public static (uint[] Px, int W, int H) Tiles(byte[]?[] tiles, Palette palette, int palRow)
+    /// <summary>Decoded 8x8 tiles as one sheet, 16 per row (a null tile draws blank).
+    /// <paramref name="colorOffset"/> shifts off the row's first colour — layer 3's palettes are
+    /// four-colour groups partway into a row (CGRAM 08-0F and 18-1F), not rows of their own.</summary>
+    public static (uint[] Px, int W, int H) Tiles(byte[]?[] tiles, Palette palette, int palRow, int colorOffset = 0)
     {
         int w = ChrCols * 8, h = (tiles.Length + ChrCols - 1) / ChrCols * 8;
         var px = new uint[w * h];
@@ -34,7 +36,7 @@ public static class GfxSheets
                 for (int x = 0; x < 8; x++)
                 {
                     int idx = src is null ? 0 : src[y * 8 + x];
-                    px[(oy + y) * w + ox + x] = idx == 0 ? 0xFF303030u : palette.Rgba[palRow * 16 + idx];
+                    px[(oy + y) * w + ox + x] = idx == 0 ? 0xFF303030u : palette.Rgba[palRow * 16 + colorOffset + idx];
                 }
         }
         return (px, w, h);

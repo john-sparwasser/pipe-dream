@@ -215,6 +215,28 @@ public sealed class EditorSession
         return (px, w, h);
     }
 
+    // ---- Layer 3, reference/CONTRACT.md §12b ----
+
+    /// <summary>The level's Layer 3 Options value, 0-3 — 0 means the level has no layer 3.
+    /// Name it with <see cref="Layer3.OptionNames"/>.</summary>
+    public int Layer3Option => Rom is { } r && HasLevel ? Layer3.Option(r, LevelNum) : 0;
+
+    /// <summary>The level's layer 3 drawn as one 512x512 image, empty when it has none. Not
+    /// per-phase: its GFX are the fixed 2bpp files and its colours sit outside the animated
+    /// ones, so unlike the background it does not move between phases.</summary>
+    public (uint[] Px, int W, int H) Layer3Image()
+    {
+        if (Rom is not { } r || Scene is not { } s || s.Palettes[0] is not { } pal) return ([], 0, 0);
+        return Layer3.Tilemap(r, s.Level.Header.LevelMode, Layer3.Option(r, LevelNum)) is { } map
+            ? Layer3.Render(map, Layer3.Tiles(r), pal) : ([], 0, 0);
+    }
+
+    /// <summary>The 512 layer-3 8x8s as a picker sheet, in BG palette 2 (CGRAM 08-0B) — the
+    /// first of the four groups the layer-3 colours occupy.</summary>
+    public (uint[] Px, int W, int H) Layer3Sheet()
+        => Rom is { } r && Scene?.Palettes[0] is { } pal
+           ? GfxSheets.Tiles(Layer3.Tiles(r), pal, 0, colorOffset: 8) : ([], 0, 0);
+
     /// <summary>The level's composed sprite 8x8s (SP1-SP4, bypass honored) as one sheet,
     /// for the destination picker's sprite range (LM dest tiles 400-5FF).</summary>
     public (uint[] Px, int W, int H) SpriteSheet(int palRow)
@@ -1515,14 +1537,17 @@ public sealed class EditorSession
         int cols = s.Type switch { ExAnimation.TypeStacked => 1, ExAnimation.Type16x16 => 2, ExAnimation.Type32x16 => 4, _ => s.TileCount };
         int rows = (s.TileCount + cols - 1) / cols, w = cols * 8, h = rows * 8, baseColor = (palRow & 0x0F) * 16;
         var px = new uint[w * h];
-        byte[][]? sp = null;   // loaded on first sprite-range dest tile
+        byte[][]? sp = null;        // loaded on first sprite-range dest tile
+        byte[]?[]? l3 = null;       // and likewise the layer-3 window
         for (int k = 0; k < s.TileCount; k++)
         {
             int tile = s.DestTileAt(k);
             byte[]? t;
             if (tile is >= 0x400 and < 0x600)
                 t = (sp ??= SpriteRender.LoadSpTiles(Rom, Scene.Level.Header, LevelNum))[tile - 0x400];
-            else if (tile is < 0 or >= 0x400) continue;   // layer 3: not composed, stays blank
+            else if (tile is >= 0x1C00 and < 0x1C00 + Layer3.TileCount)
+                t = (l3 ??= Layer3.Tiles(Rom))[tile - 0x1C00];
+            else if (tile is < 0 or >= 0x400) continue;
             else t = fg.Fetch(tile);
             if (t is null) continue;
             int ox = (k % cols) * 8, oy = (k / cols) * 8;

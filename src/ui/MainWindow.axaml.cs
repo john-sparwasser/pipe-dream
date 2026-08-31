@@ -1642,8 +1642,9 @@ public partial class MainWindow : Window
         map16Canvas.InvalidateVisual();
         chr.InvalidateVisual();
         // The background draws composed tiles too, so it steps with them — but only while it is
-        // the mode on screen; behind another mode it has nothing to repaint.
-        if (modeBg?.IsChecked == true) RefreshBg();
+        // the mode on screen; behind another mode it has nothing to repaint. Layer 3 is exempt:
+        // its 2bpp GFX and its colours both sit outside anything that animates.
+        if (modeBg?.IsChecked == true && bgLayer3.IsChecked != true) RefreshBg();
     }
 
     private void OnUndo(object? sender, RoutedEventArgs e)
@@ -2459,11 +2460,29 @@ public partial class MainWindow : Window
 
         if (layer3)
         {
-            // Honest empty state: nothing in the ROM layer decodes a layer-3 tile map yet
-            // (reference/CONTRACT.md has no §13), so there is nothing truthful to draw.
-            bgView.Source = null;
-            bgSheet.Source = null;
-            bgNote.Text = "layer 3 is not decoded yet — GFX 28-2B, tile map and bypass still to come";
+            if (!session.HasLevel) { bgView.Source = null; bgSheet.Source = null; bgNote.Text = ""; return; }
+            int opt = session.Layer3Option;
+            var (l3, lw, lh) = session.Layer3Image();
+            if (lw == 0)
+            {
+                // Either the level's option is Blank, or its level mode has no tilemap for the
+                // option it carries — vanilla's table only covers modes 0-14 (CONTRACT §12b).
+                bgView.Source = null;
+                bgSheet.Source = null;
+                bgNote.Text = $"no layer 3 in this level — {Layer3.OptionNames[opt]}";
+                return;
+            }
+            // Layer 3 does not animate, so it is drawn once rather than per phase.
+            bgBitmap.SetImages([l3, l3, l3, l3], lw, lh, 0);
+            bgView.Source = bgBitmap.For(0);
+            bgView.Width = lw * 2; bgView.Height = lh * 2;
+
+            var (l3s, l3w, l3h) = session.Layer3Sheet();
+            bgSheetBitmap.SetImages([l3s, l3s, l3s, l3s], l3w, l3h, 0);
+            bgSheet.Source = bgSheetBitmap.For(0);
+            bgSheet.Width = l3w * 2; bgSheet.Height = l3h * 2;
+
+            bgNote.Text = $"{Layer3.Cols}x{Layer3.Rows} tiles — {Layer3.OptionNames[opt]}, GFX 28-2B";
             return;
         }
 

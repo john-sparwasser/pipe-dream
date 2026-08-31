@@ -9,7 +9,7 @@ namespace PipeDream;
 ///              bits 4-7 → layer-2 scroll (DATA_05D720/10 → $1413 horizontal, $1414 vertical)
 ///   $05F200,Y  bits 0-2 → Mario X index (DATA_05D750/58)
 ///              bits 3-5 → entrance action → $192A
-///              bits 6-7 → layer-2 BG setting → $1BE3
+///              bits 6-7 → LAYER 3 option → $1BE3 (Layer3.Option; §12b)
 ///   $05F400,Y  bits 0-1 → vertical scroll (DATA_05D70C → $20)
 ///              bits 2-3 → screen boundary Y (DATA_05D708 → $1C)
 ///              bits 4-7 → the MIDWAY entrance's screen ($05D9E1)
@@ -45,7 +45,7 @@ public readonly record struct MainEntrance
     public int Layer2Scroll { get; init; }       // $05F000 bits 4-7
     public int MarioX { get; init; }             // $05F200 bits 0-2
     public int EntranceAction { get; init; }     // $05F200 bits 3-5
-    public int Layer2Setting { get; init; }      // $05F200 bits 6-7
+    public int Layer3Option { get; init; }       // $05F200 bits 6-7 — the LAYER 3 option (see $1BE3)
     public int VerticalScroll { get; init; }     // $05F400 bits 0-1
     public int ScreenBoundaryY { get; init; }    // $05F400 bits 2-3
     public int VerticalLevel { get; init; }      // $05F600 bits 5-6
@@ -103,7 +103,7 @@ public readonly record struct MainEntrance
         Layer2Scroll = (b[0] >> 4) & 0x0F;
         MarioX = b[1] & 0x07;
         EntranceAction = (b[1] >> 3) & 0x07;
-        Layer2Setting = (b[1] >> 6) & 0x03;
+        Layer3Option = (b[1] >> 6) & 0x03;
         VerticalScroll = b[2] & 0x03;
         ScreenBoundaryY = (b[2] >> 2) & 0x03;
         ReservedBoundary = (b[2] >> 4) & 0x0F;
@@ -144,7 +144,7 @@ public readonly record struct MainEntrance
     public byte[] ToBytes() =>
     [
         (byte)((MarioY & 0x0F) | ((Layer2Scroll & 0x0F) << 4)),
-        (byte)((MarioX & 0x07) | ((EntranceAction & 0x07) << 3) | ((Layer2Setting & 0x03) << 6)),
+        (byte)((MarioX & 0x07) | ((EntranceAction & 0x07) << 3) | ((Layer3Option & 0x03) << 6)),
         (byte)((VerticalScroll & 0x03) | ((ScreenBoundaryY & 0x03) << 2) | ((ReservedBoundary & 0x0F) << 4)),
         (byte)((ReservedMode & 0x1F) | ((VerticalLevel & 0x03) << 5) | ((SkipEntranceWalk & 0x01) << 7)),
         (byte)((SpriteSpawnRange & 0x03) | ((SmartSpawn & 0x01) << 2) | ((XHigh & 0x03) << 3)

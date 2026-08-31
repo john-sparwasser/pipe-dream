@@ -72,7 +72,10 @@ public partial class LevelPropertiesWindow : Window
             => fields.Children.Add(Row(label, value, min, max, v => { entry = set(v); Refresh(); }));
 
         E("Layer 2 scroll", entry.Layer2Scroll, 0, 15, v => entry with { Layer2Scroll = v });
-        E("Layer 2 BG setting", entry.Layer2Setting, 0, 3, v => entry with { Layer2Setting = v });
+        // Not a layer-2 field despite living beside one: these are the two bits LM's "Change
+        // Layer 3 Settings" dialog writes, and the Background tab reads them back as the option
+        // that picks the level's layer-3 tilemap (CONTRACT §12b).
+        E("Layer 3 option", entry.Layer3Option, 0, 3, v => entry with { Layer3Option = v });
         E("Vertical level", entry.VerticalLevel, 0, 3, v => entry with { VerticalLevel = v });
         E("Skip entrance walk", entry.SkipEntranceWalk, 0, 1, v => entry with { SkipEntranceWalk = v });
         // Where Mario appears and how he arrives (action, slippery, water, face left, camera) is the

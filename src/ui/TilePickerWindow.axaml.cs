@@ -78,14 +78,7 @@ public partial class TilePickerWindow : Window
             int ch = Math.Min(h, 0x300 / (w / 8) * 8);
             return (p[..(w * ch)], w, ch);
         }, 0x000, 0x300, false));
-        sources.Add(new("Layer 3", () =>
-        {
-            // The editor does not compose the layer-3 VRAM region (vanilla loads it per
-            // level mode), so this is a flat sheet — the tile is picked by position.
-            var px = new uint[128 * 0x20 * 8];
-            Array.Fill(px, 0xFF303030u);
-            return (px, 128, 0x20 * 8);
-        }, 0x1C00, 0x200, false));
+        sources.Add(new("Layer 3", session.Layer3Sheet, 0x1C00, 0x200, false));
         sources.Add(new("Sprites", () => session.SpriteSheet(palRow), 0x400, 0x200, false));
         Start(0);
     }

@@ -35,6 +35,7 @@ static class DebugCommands
         ("--sprites",           DumpSprites),
         ("--tilepng",           TilePng),
         ("--map16def",          Map16Def),
+        ("--layer3",            Layer3Png),
         ("--exanim",            (a, i) => DumpExAnim(a[i + 1], Convert.ToInt32(a[i + 2], 16))),
         ("--disasm",            Disassemble),
         ("--gen-spritedisplay", GenSpriteDisplay),
@@ -126,6 +127,41 @@ static class DebugCommands
         return 0;
     }
 
+    // --layer3 <rom> [levelHex] [out.png] : compose a level's layer 3 to PNG (CONTRACT §12b).
+    // With no level, list every level that has one.
+    public static int Layer3Png(string[] args, int ri)
+    {
+        string romPath = args.ElementAtOrDefault(ri + 1) ?? ReferenceRoms.Vanilla;
+        var rom = Rom.Load(romPath);
+        if (args.ElementAtOrDefault(ri + 2) is not { } levelArg)
+        {
+            for (int lv = 0; lv < 0x200; lv++)
+                if (Layer3.Option(rom, lv) is var o && o != 0)
+                {
+                    int mode = LevelParser.Parse(rom, lv).Header.LevelMode;
+                    Console.WriteLine($"{lv:X3}: mode {mode,2}  option {o} {Layer3.OptionNames[o]}"
+                                    + (Layer3.Tilemap(rom, mode, o) is null ? "  (no tilemap)" : ""));
+                }
+            return 0;
+        }
+
+        int level = Convert.ToInt32(levelArg, 16);
+        string outPath = args.ElementAtOrDefault(ri + 3) ?? "layer3.png";
+        var header = LevelParser.Parse(rom, level).Header;
+        int option = Layer3.Option(rom, level);
+        Console.WriteLine($"level {level:X3}: mode {header.LevelMode}, option {option} "
+                        + $"({Layer3.OptionNames[option]}), priority {header.Layer3Priority}");
+        if (Layer3.Tilemap(rom, header.LevelMode, option) is not { } map)
+        {
+            Console.WriteLine("no layer 3 in this level");
+            return 0;
+        }
+        var (px, w, h) = Layer3.Render(map, Layer3.Tiles(rom), Palette.Load(rom, header, level));
+        Png.Write(outPath, px, w, h);
+        Console.WriteLine($"wrote {outPath}: {w}x{h}, {map.Count(v => v >= 0)} tilemap words set");
+        return 0;
+    }
+
     // --exits <rom> [levelHex] : dump a level's screen exits, or every level's when the
     // level is omitted. Prints the raw object fields next to the decoded meaning, so the
     // "Y field is the screen" contract stays checkable against a real ROM.
@@ -186,7 +222,7 @@ static class DebugCommands
             Console.WriteLine($"level {lvl:X3}: bytes {Convert.ToHexString(e.ToBytes())}  " +
                               $"marioX {e.MarioX} marioY {e.MarioY:X}  action {e.EntranceAction}  " +
                               $"bndryY {e.ScreenBoundaryY} vscroll {e.VerticalScroll}  " +
-                              $"l2scroll {e.Layer2Scroll:X} l2set {e.Layer2Setting}  " +
+                              $"l2scroll {e.Layer2Scroll:X} l3opt {e.Layer3Option}  " +
                               $"vert {e.VerticalLevel} skipwalk {e.SkipEntranceWalk}");
         }
         return 0;

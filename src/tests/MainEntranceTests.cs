@@ -29,7 +29,7 @@ public class MainEntranceTests
         // $05F600: bits5-6 vertical level, bit7 skip entrance walk.
         var e = new MainEntrance([0, 0, 0, 0]) with
         {
-            MarioY = 0x0B, Layer2Scroll = 5, MarioX = 3, EntranceAction = 6, Layer2Setting = 2,
+            MarioY = 0x0B, Layer2Scroll = 5, MarioX = 3, EntranceAction = 6, Layer3Option = 2,
             VerticalScroll = 1, ScreenBoundaryY = 2, VerticalLevel = 1, SkipEntranceWalk = 1,
         };
         Assert.Equal([0x5B, 0xB3, 0x09, 0xA0, 0, 0, 0, 0, 0, 0, 0, 0], e.ToBytes());
