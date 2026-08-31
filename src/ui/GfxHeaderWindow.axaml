@@ -1,0 +1,22 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PipeDream.Ui.GfxHeaderWindow"
+        Title="Graphics header"
+        Width="360" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+  <StackPanel Margin="16" Spacing="12">
+    <Grid ColumnDefinitions="80,*" RowDefinitions="Auto,12,Auto">
+      <TextBlock Grid.Row="0" Grid.Column="0" Text="Layer 1" VerticalAlignment="Center"
+                 Foreground="{DynamicResource TextBrush}"/>
+      <ComboBox Grid.Row="0" Grid.Column="1" x:Name="Layer1Box" HorizontalAlignment="Stretch"/>
+      <TextBlock Grid.Row="2" Grid.Column="0" Text="Sprites" VerticalAlignment="Center"
+                 Foreground="{DynamicResource TextBrush}"/>
+      <ComboBox Grid.Row="2" Grid.Column="1" x:Name="SpriteBox" HorizontalAlignment="Stretch"/>
+    </Grid>
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="Cancel" Click="OnCancel" IsCancel="True"/>
+      <Button Content="OK" Click="OnOk" IsDefault="True"/>
+    </StackPanel>
+  </StackPanel>
+</Window>

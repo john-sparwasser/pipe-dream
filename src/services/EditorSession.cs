@@ -441,6 +441,18 @@ public sealed class EditorSession
     public (string Name, int PalRow, int BypWord, int Def, int File)[] GfxBins
         => Rom is { } r && Scene is { } s ? Gfx.LevelSlots(r, s.Level.Header, LevelNum) : [];
 
+    /// <summary>The 16 tileset / sprite-set choices for the graphics-header dialog: the setting
+    /// number plus the GFX files it loads, straight from the ROM's own lists — the lists have
+    /// no prose names, and the files are what actually distinguishes the settings.</summary>
+    public (IReadOnlyList<string> Layer1, IReadOnlyList<string> Sprites) GfxHeaderChoices()
+    {
+        if (Rom is not { } rom) return ([], []);
+        List<string> Items(int listBase) => [.. Enumerable.Range(0, 16).Select(i =>
+            $"{i:X} — GFX " + string.Join(" ", Enumerable.Range(0, 4)
+                .Select(s => $"{rom.Data[rom.FileOffset(listBase) + i * 4 + s]:X2}")))];
+        return (Items(Gfx.ObjectGfxList), Items(Gfx.SpriteGfxList));
+    }
+
     /// <summary>How a bin's current file got there, for the drawer's badge. A base file — fork or
     /// not — says nothing: it is the normal case, and a badge on all ten bins is not a badge.</summary>
     public string GfxBinNote(int bypWord, int file, int def)

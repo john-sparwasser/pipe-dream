@@ -27,6 +27,9 @@ public class Map16PaletteView : Control
 
     public double Zoom { get; set; } = 2.0;
     public int Bank { get; set; }
+
+    /// <summary>Draw a square around each Map16 page (16 rows).</summary>
+    public bool ShowPages { get; set; }
     public int TileCount { get; private set; }
 
     /// <summary>Selected Map16 tile number, in the unified numbering the level canvas uses.</summary>
@@ -79,6 +82,16 @@ public class Map16PaletteView : Control
         }
     }
 
+    /// <summary>The empty-page tile per phase, same as the Map16 editor: FG pages without
+    /// defs yet are a field of LM's default tile, not a black hole.</summary>
+    private readonly Bitmap?[] placeholder = new Bitmap?[4];
+
+    public void SetPlaceholder(uint[]?[] px)
+    {
+        for (int p = 0; p < 4; p++) placeholder[p] = px[p] is { } img ? LevelBitmap.FromPixels(img, 16, 16) : null;
+        InvalidateVisual();
+    }
+
     private readonly PixelBlit blit = new();
 
     public override void Render(DrawingContext ctx)
@@ -88,6 +101,12 @@ public class Map16PaletteView : Control
         // Empty pages are ordinary black tiles, not a roped-off region: painting one is what
         // brings it into existence, so the drawer must not make it look unavailable.
         ctx.FillRectangle(Brushes.Black, full);
+        if (Bank < 2 && placeholder[Phase & 3] is { } ph)
+            ctx.FillRectangle(new ImageBrush(ph)
+            {
+                TileMode = TileMode.Tile, Stretch = Stretch.Fill,
+                DestinationRect = new RelativeRect(0, 0, cell, cell, RelativeUnit.Absolute),
+            }, full);
 
         if (sheet.For(Phase) is { } bmp && sheetH > 0)
         {
@@ -104,6 +123,26 @@ public class Map16PaletteView : Control
         var line = new Pen(new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)));
         for (int page = 1; page < Map16Layout.BankTiles / 0x100; page++)
             ctx.DrawLine(line, new Point(0, page * 16 * cell), new Point(16 * cell, page * 16 * cell));
+
+        // "Pages" toggle: a square around each Map16 page plus its number, for when the
+        // subtle lines aren't enough to keep track of which page a tile lands on.
+        if (ShowPages)
+        {
+            var blue = new SolidColorBrush(Color.Parse("#205C99"));
+            var pen = new Pen(blue, 2);
+            int perBank = Map16Layout.BankTiles / 0x100;
+            for (int page = 0; page < perBank; page++)
+            {
+                double y = page * 16 * cell;
+                ctx.DrawRectangle(null, pen, new Rect(1, y + 1, 16 * cell - 2, 16 * cell - 2));
+                var ft = new FormattedText($"{Bank * perBank + page:X2}",
+                    System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+                    new Typeface("Consolas"), 12, Brushes.White);
+                var badge = new Rect(2, y + 2, ft.Width + 10, ft.Height + 6);
+                ctx.FillRectangle(blue, badge);
+                ctx.DrawText(ft, new Point(badge.X + 5, badge.Y + 3));
+            }
+        }
 
         if (Selected / Map16Layout.BankTiles == Bank)
         {

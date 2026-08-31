@@ -202,6 +202,7 @@ public static class Gfx
     }
 
     public const int ObjectGfxList = 0x00A92B;         // FG/BG GFX file list, indexed by tileset*4
+    public const int SpriteGfxList = 0x00A8C3;         // sprite GFX file list, indexed by spriteset*4
 
     /// <summary>
     /// The FG 8×8 tile source for a level's tileset. SMW loads 4 GFX files into VRAM word
@@ -616,10 +617,10 @@ public static class Gfx
             // BG2/BG3 have no vanilla list entry (listBase -1) — only via the bypass (LM VRAM patch).
             ("BG2", -1, 0, 0, 3),
             ("BG3", -1, 0, 0, 2),
-            ("SP1", 0x00A8C3, h.SpriteSet * 4 + 0, 8, 11),
-            ("SP2", 0x00A8C3, h.SpriteSet * 4 + 1, 8, 10),
-            ("SP3", 0x00A8C3, h.SpriteSet * 4 + 2, 8, 9),
-            ("SP4", 0x00A8C3, h.SpriteSet * 4 + 3, 8, 8),
+            ("SP1", SpriteGfxList, h.SpriteSet * 4 + 0, 8, 11),
+            ("SP2", SpriteGfxList, h.SpriteSet * 4 + 1, 8, 10),
+            ("SP3", SpriteGfxList, h.SpriteSet * 4 + 2, 8, 9),
+            ("SP4", SpriteGfxList, h.SpriteSet * 4 + 3, 8, 8),
             // The animated-tile slots (reference/EXANIMATION.md §2): AN1 is GFX33 unless bypassed,
             // AN2 (the extended area at $7E:AD00) exists only through the bypass.
             ("AN1", -0x33, 0, 2, 1),

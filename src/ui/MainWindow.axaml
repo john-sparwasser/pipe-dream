@@ -436,6 +436,7 @@
                     <ComboBoxItem Content="1 FG"/>
                     <ComboBoxItem Content="2 BG"/>
                   </ComboBox>
+                  <CheckBox x:Name="PagesBox" Content="Pages" VerticalAlignment="Center"/>
                   <TextBlock x:Name="SelLabel" Classes="mono" Margin="4,0,0,0"
                              VerticalAlignment="Center"/>
                 </StackPanel>
@@ -538,10 +539,15 @@
                    two headers read as one strip. -->
               <Border DockPanel.Dock="Top" Classes="panel bar" BorderThickness="0,0,0,1"
                       Padding="10,0" Height="{Binding #GfxEditorBar.Bounds.Height}">
-                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                  <Path x:Name="GfxKind" Classes="kind"/>
-                  <TextBlock x:Name="GfxFileName" Classes="subject"/>
-                </StackPanel>
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Content="Header" VerticalAlignment="Center"
+                          Click="OnGfxHeader"
+                          ToolTip.Tip="Which FG/BG tileset and sprite set this level's header loads"/>
+                  <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Path x:Name="GfxKind" Classes="kind"/>
+                    <TextBlock x:Name="GfxFileName" Classes="subject"/>
+                  </StackPanel>
+                </DockPanel>
               </Border>
               <ScrollViewer>
                 <StackPanel x:Name="GfxBins" Margin="10,6" Spacing="10"/>

@@ -359,6 +359,12 @@ public partial class MainWindow : Window
             palette.Bank = Math.Max(0, bankBox.SelectedIndex);
             palette.InvalidateVisual();
         };
+        var pagesBox = this.GetControl<CheckBox>("PagesBox");
+        pagesBox.IsCheckedChanged += (_, _) =>
+        {
+            palette.ShowPages = pagesBox.IsChecked == true;
+            palette.InvalidateVisual();
+        };
         palette.SelectionChanged += (_, tile) =>
         {
             selLabel.Text = $"0x{tile:X4}";
@@ -725,6 +731,7 @@ public partial class MainWindow : Window
 
         var (px, w, h) = session.SheetPhases();
         palette.SetSheet(px, w, h, session.Map16TileCount);
+        palette.SetPlaceholder(session.PlaceholderPhases());
 
         // Catalogs are rendered with the level's own GFX and palette, so the session has
         // already dropped them; the list has to let go of the old items too.
@@ -1275,6 +1282,22 @@ public partial class MainWindow : Window
             AdoptSession();
         }
         UpdateTitle();
+    }
+
+    /// <summary>The graphics header off the GFX drawer: the level's tileset ("layer 1") and
+    /// sprite set. Same staged-apply path as the properties dialog — a header change reparses.</summary>
+    private async void OnGfxHeader(object? sender, RoutedEventArgs e)
+    {
+        if (session.Header is not { } h) return;
+        var (layer1, sprites) = session.GfxHeaderChoices();
+        if (layer1.Count == 0) return;
+        var dlg = new GfxHeaderWindow(layer1, h.Tileset, sprites, h.SpriteSet);
+        await dlg.ShowDialog(this);
+        if (dlg.Result is { } r && (r.Tileset != h.Tileset || r.SpriteSet != h.SpriteSet))
+        {
+            session.ApplyHeader(h with { Tileset = r.Tileset, SpriteSet = r.SpriteSet });
+            AdoptSession();
+        }
     }
 
     /// <summary>Course Bot: named entry levels, managed in a modal. Opening one jumps the
