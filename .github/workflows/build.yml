@@ -18,6 +18,21 @@ jobs:
           - os: ubuntu-latest
             rid: linux-x64
     runs-on: ${{ matrix.os }}
+    # Named only so Azure has a stable OIDC subject to trust. A federated credential scoped to
+    # a branch or a tag would need one entry per ref — and Azure does not take wildcards outside
+    # a preview feature — so a tagged release build could not authenticate. An environment
+    # subject is ref-independent: one credential covers main, tags and everything else.
+    # Leave it free of protection rules or every build waits for a review.
+    environment: release
+    permissions:
+      contents: read
+      id-token: write            # the OIDC token azure/login trades for an Azure one
+    # Step-level `if` cannot read the secrets context, so the signing key is lifted into env
+    # here and the steps below test that — the same trick the Discord step in the release job
+    # uses. Unset (a fork, or before signing is set up) means the signing steps skip and the
+    # build still produces an unsigned installer.
+    env:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -54,6 +69,48 @@ jobs:
           -p:Version=${{ env.VERSION }}
           -o bin/publish
 
+      # Signing, in two passes: the binary here, then the installer once ISCC has wrapped it.
+      # Both matter — the installer is what SmartScreen judges on download, and the binary is
+      # what runs afterwards — and the inner one has to be signed BEFORE it is packaged, since
+      # Inno embeds a copy rather than referencing the file.
+      #
+      # One login covers both passes; the az CLI session it leaves behind is what the signing
+      # action's DefaultAzureCredential picks up (see the credential excludes below).
+      - name: Azure login
+        if: matrix.os == 'windows-latest' && env.AZURE_CLIENT_ID != ''
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign the binary
+        if: matrix.os == 'windows-latest' && env.AZURE_CLIENT_ID != ''
+        uses: azure/artifact-signing-action@v2
+        with:
+          # endpoint region, account and profile must match the Artifact Signing account.
+          endpoint: https://eus.codesigning.azure.net/
+          signing-account-name: pipedream-signing
+          certificate-profile-name: PipeDreamRelease
+          files-folder: ${{ github.workspace }}\bin\publish
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          # azure/login leaves an az CLI session, so that is the only credential to try; the
+          # rest are excluded because DefaultAzureCredential would otherwise spend a while
+          # failing over through them first.
+          exclude-environment-credential: true
+          exclude-workload-identity-credential: true
+          exclude-managed-identity-credential: true
+          exclude-shared-token-cache-credential: true
+          exclude-visual-studio-credential: true
+          exclude-visual-studio-code-credential: true
+          exclude-azure-cli-credential: false
+          exclude-azure-powershell-credential: true
+          exclude-azure-developer-cli-credential: true
+          exclude-interactive-browser-credential: true
+
       # The updater's contract (UpdateCheck.WantsAsset): the Linux asset's name contains
       # "linux" and the file IS the binary — Apply() renames the download over the installed
       # exe — so it ships under this name, never zipped.
@@ -74,6 +131,31 @@ jobs:
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           /DAppVersion=${{ env.VERSION }} install\PipeDream.iss
 
+      # The download a user actually clicks — the one SmartScreen forms an opinion about. Signed
+      # before the install check below, so what CI exercises is the artifact that ships.
+      - name: Sign the installer
+        if: matrix.os == 'windows-latest' && env.AZURE_CLIENT_ID != ''
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: https://eus.codesigning.azure.net/
+          signing-account-name: pipedream-signing
+          certificate-profile-name: PipeDreamRelease
+          files-folder: ${{ github.workspace }}\bin\setup
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          exclude-environment-credential: true
+          exclude-workload-identity-credential: true
+          exclude-managed-identity-credential: true
+          exclude-shared-token-cache-credential: true
+          exclude-visual-studio-credential: true
+          exclude-visual-studio-code-credential: true
+          exclude-azure-cli-credential: false
+          exclude-azure-powershell-credential: true
+          exclude-azure-developer-cli-credential: true
+          exclude-interactive-browser-credential: true
+
       # An installer nobody ran is a guess. Install it silently, check the three things it
       # promises, then take it back off and check that too.
       - name: Check the installer installs and uninstalls
@@ -91,6 +173,13 @@ jobs:
           # sets $LASTEXITCODE — Start-Process is the only way to read the code back.
           $check = Start-Process $app '--selfcheck' -Wait -PassThru
           if ($check.ExitCode -ne 0) { throw "installed binary failed --selfcheck ($($check.ExitCode))" }
+          # Catches the ordering trap: sign bin\publish after ISCC has already packaged it and
+          # the installer is signed while the binary it lays down is not, which no other check
+          # here would notice.
+          if ($env:AZURE_CLIENT_ID) {
+            $sig = Get-AuthenticodeSignature $app
+            if ($sig.Status -ne 'Valid') { throw "installed binary signature: $($sig.Status)" }
+          }
           # Inno's uninstaller relaunches itself from a temp copy, so -Wait returns early.
           Start-Process (Get-Item "$env:LOCALAPPDATA\Programs\PipeDream\unins*.exe") '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait
           $deadline = (Get-Date).AddSeconds(60)
