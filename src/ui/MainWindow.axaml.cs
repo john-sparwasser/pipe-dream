@@ -69,7 +69,7 @@ public partial class MainWindow : Window
     private PaletteGridView gfxColors = null!;
     private MenuItem recentMenu = null!, upgradePrepItem = null!, spriteOverlayItem = null!,
                      animateItem = null!, runEmulatorItem = null!;
-    private PaletteGridView paletteGrid = null!;
+    private PaletteGridView paletteGrid = null!, paletteBg = null!;
     private TextBlock paletteNote = null!, paletteIndex = null!;
 
     /// <summary>The colour picker and the flyout that shows it over the clicked swatch. The
@@ -82,8 +82,13 @@ public partial class MainWindow : Window
     private TextBlock spFilesLabel = null!, objectHint = null!;
     private Grid split = null!;
     private ToggleButton modeLevel = null!, modeMap16 = null!, modeGfx = null!;
-    private ToggleButton modeAnim = null!;
+    private ToggleButton modeAnim = null!, modeBg = null!;
     private DockPanel animPane = null!, animToolPanel = null!;
+    private DockPanel bgPane = null!, bgToolPanel = null!;
+    private ToggleButton bgLayer2 = null!, bgLayer3 = null!;
+    private PixelImage bgView = null!, bgSheet = null!;
+    private TextBlock bgNote = null!, bgDrawerTitle = null!;
+    private readonly LevelBitmap bgBitmap = new(), bgSheetBitmap = new();
     private StackPanel animGfx = null!, animBody = null!;
     private TextBlock animTitle = null!, animListTitle = null!;
     private Button animDelete = null!, animReassign = null!, animEmptyAdd = null!;
@@ -125,6 +130,15 @@ public partial class MainWindow : Window
         modeMap16 = this.GetControl<ToggleButton>("ModeMap16");
         modeGfx = this.GetControl<ToggleButton>("ModeGfx");
         modeAnim = this.GetControl<ToggleButton>("ModeAnim");
+        modeBg = this.GetControl<ToggleButton>("ModeBg");
+        bgPane = this.GetControl<DockPanel>("BgPane");
+        bgToolPanel = this.GetControl<DockPanel>("BgToolPanel");
+        bgLayer2 = this.GetControl<ToggleButton>("BgLayer2");
+        bgLayer3 = this.GetControl<ToggleButton>("BgLayer3");
+        bgView = this.GetControl<PixelImage>("BgView");
+        bgSheet = this.GetControl<PixelImage>("BgSheet");
+        bgNote = this.GetControl<TextBlock>("BgNote");
+        bgDrawerTitle = this.GetControl<TextBlock>("BgDrawerTitle");
         animPane = this.GetControl<DockPanel>("AnimPane");
         animToolPanel = this.GetControl<DockPanel>("AnimToolPanel");
         animGfx = this.GetControl<StackPanel>("AnimGfx");
@@ -241,6 +255,7 @@ public partial class MainWindow : Window
             // Land the user where they can act on it: the Palette tab, that swatch selected.
             paletteTabs.SelectedIndex = PaletteTabIndex;
             paletteGrid.Select(idx);
+            paletteBg.Select(idx == 0 ? 0 : -1);
             ShowPaletteColor(idx);
         };
         // A sprite edit changes what the overlay draws, so the level has to recompose. The
@@ -388,7 +403,14 @@ public partial class MainWindow : Window
 
         paletteGrid.IsEdited = session.IsPaletteEdited;
         paletteGrid.Describe = DescribeSwatch;
-        paletteGrid.SelectionChanged += (_, i) => { ShowPaletteColor(i); OpenPicker(); };
+        paletteGrid.SelectionChanged += (_, i) => { paletteBg.Select(-1); ShowPaletteColor(i); OpenPicker(); };
+        // The background colour (CGRAM 0) lives in its own swatch above the grid; selection is
+        // still paletteGrid.Selected — the swatch just points it at index 0.
+        paletteBg = this.GetControl<PaletteGridView>("PaletteBg");
+        paletteGrid.HideFirst = true;
+        paletteBg.IsEdited = _ => session.IsPaletteEdited(0);
+        paletteBg.Describe = _ => DescribeSwatch(0);
+        paletteBg.SelectionChanged += (_, _) => { paletteGrid.Select(0); ShowPaletteColor(0); OpenPicker(); };
         picker.ColorChanged += (_, c) => OnPickerColor(c);
         pickerFlyout.Content = picker;
         // The open picker IS the undo boundary, as it was in the ImGui editor: everything done
@@ -754,6 +776,7 @@ public partial class MainWindow : Window
             RefreshGfx();
         }
         if (modeAnim?.IsChecked == true) RefreshAnim();
+        if (modeBg?.IsChecked == true) RefreshBg();
         UpdateTitle();
     }
 
@@ -1618,6 +1641,9 @@ public partial class MainWindow : Window
         palette.InvalidateVisual();
         map16Canvas.InvalidateVisual();
         chr.InvalidateVisual();
+        // The background draws composed tiles too, so it steps with them — but only while it is
+        // the mode on screen; behind another mode it has nothing to repaint.
+        if (modeBg?.IsChecked == true) RefreshBg();
     }
 
     private void OnUndo(object? sender, RoutedEventArgs e)
@@ -1671,7 +1697,7 @@ public partial class MainWindow : Window
 
     /// <summary>Which thing the drawer is holding. Not the same as the canvas mode by accident —
     /// each mode's drawer shows different content, and they are nowhere near the same width.</summary>
-    private enum Pane { Level, Map16, Graphics, Animations }
+    private enum Pane { Level, Map16, Graphics, Background, Animations }
 
     private Pane drawerPane = Pane.Level;
 
@@ -1688,6 +1714,7 @@ public partial class MainWindow : Window
         Pane.Map16 => Map16BarWidth,
         Pane.Graphics => Math.Max(GfxBinCardWidth, Map16BarWidth),
         Pane.Animations => Math.Max(GfxBinCardWidth, Map16BarWidth),
+        Pane.Background => Map16BarWidth,      // a whole BG Map16 row, like the Map16 drawer
         _ => Map16PaletteView.ContentWidth(palette.Zoom),
     };
 
@@ -1758,7 +1785,8 @@ public partial class MainWindow : Window
         bool map16Mode = modeMap16.IsChecked == true;
         bool gfxMode = modeGfx.IsChecked == true;
         bool animMode = modeAnim.IsChecked == true;
-        bool modal = map16Mode || gfxMode || animMode;         // a canvas mode that owns the drawer
+        bool bgMode = modeBg.IsChecked == true;
+        bool modal = map16Mode || gfxMode || animMode || bgMode;   // a canvas mode owning the drawer
         int tab = modal ? -1 : Math.Max(0, paletteTabs.SelectedIndex);
 
         // The tabs choose what the drawer shows FOR THE LEVEL. Map16 and GFX modes own the
@@ -1770,6 +1798,7 @@ public partial class MainWindow : Window
         this.GetControl<DockPanel>("ChrPanel").IsVisible = map16Mode;
         gfxToolPanel.IsVisible = gfxMode;
         animToolPanel.IsVisible = animMode;
+        bgToolPanel.IsVisible = bgMode;
         animPaletteBar.IsVisible = animMode;    // its gutter palette, like the Map16 and GFX ones
         gfxPaletteBar.IsVisible = gfxMode;      // canvas-side, but the same mode decides it
         m16PaletteBar.IsVisible = map16Mode;    // its opposite number, same gutter
@@ -2266,6 +2295,8 @@ public partial class MainWindow : Window
     {
         paletteGrid.Colors = session.PaletteRgba;
         paletteGrid.InvalidateVisual();
+        paletteBg.Colors = session.PaletteRgba is { Length: > 0 } pr ? [pr[0]] : [0xFF000000u];
+        paletteBg.InvalidateVisual();
         paletteNote.Text = "CGRAM — rows 0-7 background and foreground, 8-F sprites.  "
                          + (session.HasCustomPalette ? "source: LM custom palette"
                                                      : "source: vanilla (header-assembled)")
@@ -2346,25 +2377,28 @@ public partial class MainWindow : Window
 
     private void OnMode(object? sender, RoutedEventArgs e)
     {
-        foreach (var b in new[] { modeLevel, modeMap16, modeGfx, modeAnim })
+        foreach (var b in new[] { modeLevel, modeMap16, modeGfx, modeBg, modeAnim })
             b.IsChecked = ReferenceEquals(b, sender);
 
         bool map16 = ReferenceEquals(sender, modeMap16);
         bool gfx = ReferenceEquals(sender, modeGfx);
         bool anim = ReferenceEquals(sender, modeAnim);
+        bool bg = ReferenceEquals(sender, modeBg);
         // Leaving the pixel editor with a stroke still open must not leave bytes behind that no
         // undo entry covers, so it is reverted rather than committed. A floating paste is the
         // opposite case — deliberate content not yet in any bytes — so it is dropped first.
         if (!gfx) { CommitGfxFloat(); session.GfxPixels?.AbortStroke(); }
 
-        this.GetControl<DockPanel>("LevelPane").IsVisible = !map16 && !gfx && !anim;
+        this.GetControl<DockPanel>("LevelPane").IsVisible = !map16 && !gfx && !anim && !bg;
         this.GetControl<DockPanel>("Map16Pane").IsVisible = map16;
         gfxScroll.IsVisible = gfx;
         animPane.IsVisible = anim;
+        bgPane.IsVisible = bg;
         edit?.Selection.Clear();
         map16Canvas.ClearSelection();
         ApplyZoomTarget();             // the gutter control follows the canvas it is driving
-        ApplyDrawerPane(anim ? Pane.Animations : gfx ? Pane.Graphics : map16 ? Pane.Map16 : Pane.Level);
+        ApplyDrawerPane(bg ? Pane.Background : anim ? Pane.Animations : gfx ? Pane.Graphics
+                      : map16 ? Pane.Map16 : Pane.Level);
 
         RefreshDrawer();
         if (map16)
@@ -2389,6 +2423,7 @@ public partial class MainWindow : Window
             FocusWhenLaidOut(gfxCanvas);
         }
         else if (anim) RefreshAnim();
+        else if (bg) RefreshBg();
         if (!anim) { animPreview?.Stop(); animPreview = null; }   // no ticking behind another mode
 
         canvas.InvalidateVisual();
@@ -2396,6 +2431,63 @@ public partial class MainWindow : Window
         // still marked invisible from the mode it is leaving, and that frame draws with whatever
         // the layout could tell it then.
         Dispatcher.UIThread.Post(canvas.InvalidateVisual);
+    }
+
+    // ---- Background canvas mode ----
+
+    /// <summary>Radio behaviour for the two layers, the same hand-rolled pair the Animations
+    /// bar uses for Global/Level.</summary>
+    private void OnBgLayer(object? sender, RoutedEventArgs e)
+    {
+        bgLayer2.IsChecked = ReferenceEquals(sender, bgLayer2);
+        bgLayer3.IsChecked = ReferenceEquals(sender, bgLayer3);
+        RefreshBg();
+    }
+
+    /// <summary>
+    /// Repaint the Background pane: the level's layer-2 background as a tile map, with the BG
+    /// Map16 tiles it can address in the drawer.
+    ///
+    /// Layer 2 shows something only when this level's layer 2 IS a background image. When it is
+    /// an object stream the pane says so and points at the Level canvas — the same division LM
+    /// draws, and the reason its own Background editor is empty on those levels.
+    /// </summary>
+    private void RefreshBg()
+    {
+        bool layer3 = bgLayer3.IsChecked == true;
+        bgDrawerTitle.Text = layer3 ? "Layer 3 tiles" : "BG Map16 — pages 80-81";
+
+        if (layer3)
+        {
+            // Honest empty state: nothing in the ROM layer decodes a layer-3 tile map yet
+            // (reference/CONTRACT.md has no §13), so there is nothing truthful to draw.
+            bgView.Source = null;
+            bgSheet.Source = null;
+            bgNote.Text = "layer 3 is not decoded yet — GFX 28-2B, tile map and bypass still to come";
+            return;
+        }
+
+        if (!session.HasLevel) { bgView.Source = null; bgSheet.Source = null; bgNote.Text = ""; return; }
+        if (!session.Layer2IsBackgroundImage)
+        {
+            bgView.Source = null;
+            bgSheet.Source = null;
+            bgNote.Text = "this level's layer 2 is an object stream — edit it on the Level canvas";
+            return;
+        }
+
+        int ph = canvas.Phase;
+        var (px, w, h) = session.BgPhases();
+        bgBitmap.SetImages(px, w, h, ph);
+        bgView.Source = bgBitmap.For(ph);
+        bgView.Width = w * 2; bgView.Height = h * 2;
+
+        var (spx, sw, sh) = session.BgSheetPhases();
+        bgSheetBitmap.SetImages(spx, sw, sh, ph);
+        bgSheet.Source = bgSheetBitmap.For(ph);
+        bgSheet.Width = sw * 2; bgSheet.Height = sh * 2;
+
+        bgNote.Text = $"{EditorSession.BgCols}x{EditorSession.BgRows} tiles — two screens, repeats";
     }
 
     // ---- Animations canvas mode ----

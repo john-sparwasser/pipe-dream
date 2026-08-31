@@ -42,6 +42,7 @@
     <StreamGeometry x:Key="IconDoorClosed">M18 20V6a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v14 M2 20h20 M14 12v.01</StreamGeometry>
     <StreamGeometry x:Key="IconDoorOpen">M13 4h3a2 2 0 0 1 2 2v14 M2 20h3 M13 20h9 M10 12v.01 M13 4.562v16.157a1 1 0 0 1-1.242.97L5 20V5.562a2 2 0 0 1 1.515-1.94l4-1A2 2 0 0 1 13 4.562Z</StreamGeometry>
     <StreamGeometry x:Key="IconPalette">M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z M13.5 6.5h.01 M17.5 10.5h.01 M6.5 12.5h.01 M8.5 7.5h.01</StreamGeometry>
+    <StreamGeometry x:Key="IconImage">M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z M21 15l-5-5L5 21</StreamGeometry>
   </Window.Resources>
 
   <Window.Styles>
@@ -325,6 +326,12 @@
             <TextBlock Text="Graphics" VerticalAlignment="Center"/>
           </StackPanel>
         </ToggleButton>
+        <ToggleButton x:Name="ModeBg" Classes="mode" Click="OnMode">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <Path Data="{StaticResource IconImage}"/>
+            <TextBlock Text="Background" VerticalAlignment="Center"/>
+          </StackPanel>
+        </ToggleButton>
         <ToggleButton x:Name="ModeAnim" Classes="mode" Click="OnMode">
           <StackPanel Orientation="Horizontal" Spacing="6">
             <Path Data="{StaticResource IconFilm}"/>
@@ -523,8 +530,31 @@
                              Text="Click a swatch to open the picker.  Alt+click the level to sample a colour."/>
                 </StackPanel>
               </Border>
+              <!-- Colour 0 is the back area colour, broken out on its own: in the grid it reads
+                   as just another swatch, and it is the one people hunt for. -->
+              <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="8,8,8,0">
+                <ui:PaletteGridView x:Name="PaletteBg" Cols="1" Rows="1"/>
+                <TextBlock Classes="dim" Text="Background Color" VerticalAlignment="Center"/>
+              </StackPanel>
               <ScrollViewer HorizontalScrollBarVisibility="Auto">
                 <ui:PaletteGridView x:Name="PaletteGrid" Margin="8"/>
+              </ScrollViewer>
+            </DockPanel>
+
+            <!-- Background mode's drawer: the BG Map16 tiles the background can address. These
+                 are the fixed 0x200 defs at $0D9100 — LM's BG pages 80-81, a different table
+                 from the FG Map16 the level objects use. -->
+            <DockPanel x:Name="BgToolPanel" IsVisible="False">
+              <Border DockPanel.Dock="Top" Classes="panel bar" BorderThickness="0,0,0,1"
+                      Padding="10,0" Height="{Binding #BgEditorBar.Bounds.Height}">
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                  <Path Classes="kind" Data="{StaticResource IconGrid3x3}"/>
+                  <TextBlock x:Name="BgDrawerTitle" Classes="subject" Text="BG Map16"/>
+                </StackPanel>
+              </Border>
+              <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                <ui:PixelImage x:Name="BgSheet" Stretch="True" Margin="8"
+                               HorizontalAlignment="Left" VerticalAlignment="Top"/>
               </ScrollViewer>
             </DockPanel>
 
@@ -800,6 +830,30 @@
                     HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                     Content="Add Slot" ToolTip.Tip="Add a slot to this list"/>
           </Grid>
+        </DockPanel>
+        <!-- Background canvas mode: the level's layer-2 background as a 16x16 tile map, and
+             (later) layer 3. Layer 2 here is the background IMAGE only — an object-mode layer 2
+             is edited on the Level canvas, which is the same split Lunar Magic draws. -->
+        <DockPanel x:Name="BgPane" IsVisible="False" Background="{DynamicResource VoidBrush}">
+          <Border x:Name="BgEditorBar" DockPanel.Dock="Top" Classes="panel bar"
+                  BorderThickness="0,0,0,1" Padding="10,6" MinHeight="40">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <ToggleButton x:Name="BgLayer2" Classes="mode" IsChecked="True" Click="OnBgLayer"
+                            ToolTip.Tip="The level's layer-2 background image">
+                <TextBlock Text="Layer 2" VerticalAlignment="Center"/>
+              </ToggleButton>
+              <ToggleButton x:Name="BgLayer3" Classes="mode" Click="OnBgLayer"
+                            ToolTip.Tip="The level's layer-3 tile map">
+                <TextBlock Text="Layer 3" VerticalAlignment="Center"/>
+              </ToggleButton>
+              <Rectangle Classes="sep"/>
+              <TextBlock x:Name="BgNote" Classes="dim" VerticalAlignment="Center"/>
+            </StackPanel>
+          </Border>
+          <ScrollViewer x:Name="BgScroll" Background="{x:Static ui:UiColors.DeskPattern}">
+            <ui:PixelImage x:Name="BgView" Stretch="True" Margin="16"
+                           HorizontalAlignment="Left" VerticalAlignment="Top"/>
+          </ScrollViewer>
         </DockPanel>
         <DockPanel x:Name="GfxScroll" IsVisible="False" Background="{DynamicResource VoidBrush}">
           <Border x:Name="GfxEditorBar" DockPanel.Dock="Top" Classes="panel bar"

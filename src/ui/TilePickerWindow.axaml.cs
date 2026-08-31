@@ -49,17 +49,17 @@ public partial class TilePickerWindow : Window
     public TilePickerWindow(EditorSession session, int[] footprint, int altIndex, int palRow, bool preferAlt, bool global)
         : this(footprint, "Pick source tiles")
     {
-        sources.Add(new("AN1 — animated tiles (GFX33)", () => session.GfxFileSheet(0x33, palRow), 0x600, int.MaxValue, false, 0x33));
+        sources.Add(new($"File {0x60 + altIndex:X2}", () => session.GfxFileSheet(0x60 + altIndex, palRow),
+                        0xC00 + altIndex * 0x400, int.MaxValue, true, 0x60 + altIndex));
+        sources.Add(new("AN1", () => session.GfxFileSheet(0x33, palRow), 0x600, int.MaxValue, false, 0x33));
         int an2 = session.GfxBins.FirstOrDefault(b => b.Name == "AN2").File;
-        if (an2 is not (0 or 0x7F)) sources.Add(new($"AN2 — GFX{an2:X3}", () => session.GfxFileSheet(an2, palRow), 0x780, int.MaxValue, false, an2));
+        if (an2 is not (0 or 0x7F)) sources.Add(new("AN2", () => session.GfxFileSheet(an2, palRow), 0x780, int.MaxValue, false, an2));
         // Mario's sheet is a legal source too (0x900-0xBE7) but not one anyone animates from
         // on purpose; it stays out of the list until someone asks.
-        sources.Add(new($"file {0x60 + altIndex:X2} — the list's alternate file", () => session.GfxFileSheet(0x60 + altIndex, palRow),
-                        0xC00 + altIndex * 0x400, int.MaxValue, true, 0x60 + altIndex));
         editFileId = 0x60 + altIndex;
-        int def = preferAlt || global ? sources.Count - 1        // the slot already reads it, or global: its 60-63 file
-                : an2 is not (0 or 0x7F) ? 1                     // level list: the level's AN2 bypass file
-                : sources.Count - 1;                             // no AN2 set: the 60-63 file is still the custom home
+        int def = preferAlt || global ? 0                        // the slot already reads it, or global: its 60-63 file
+                : an2 is not (0 or 0x7F) ? 2                     // level list: the level's AN2 bypass file
+                : 0;                                             // no AN2 set: the 60-63 file is still the custom home
         Start(def);
     }
 

@@ -170,6 +170,51 @@ public sealed class EditorSession
 
     /// <summary>The level's 8x8 GFX sheet in one palette row, for the Map16 editor's picker —
     /// again one per phase, off the scene's own per-phase graphics.</summary>
+    // ---- Background (layer 2), reference/CONTRACT.md §10 / §10b ----
+
+    /// <summary>True when this level's layer 2 is a background IMAGE, which is the only case the
+    /// Background tab can edit. An object-mode layer 2 is edited in the Level tab instead — the
+    /// same split LM draws ("if a level is set to have level data on layer 2 instead of an image,
+    /// there will be nothing to edit here").</summary>
+    public bool Layer2IsBackgroundImage => Scene?.BgImage is not null;
+
+    /// <summary>Two screens side by side, which is how the background repeats horizontally
+    /// (<c>within = cx &amp; 0x1F</c>), and vanilla's 27 rows. LM's custom backgrounds carry 32
+    /// (§10b) — that arrives with the writer, not before.</summary>
+    public const int BgCols = 32, BgRows = 27;
+
+    /// <summary>The level's background drawn as pixels, one image per animation phase (BG tiles
+    /// animate like any other). Empty when layer 2 is not a background image.</summary>
+    public (uint[]?[] Px, int W, int H) BgPhases()
+    {
+        var px = new uint[4][];
+        int w = 0, h = 0;
+        if (Scene is not { } s) return (px, 0, 0);
+        for (int p = 0; p < 4; p++)
+        {
+            var (img, iw, ih) = s.BgSurface(BgCols, BgRows, p);
+            if (img.Length == 0) continue;
+            px[p] = img; w = iw; h = ih;
+        }
+        return (px, w, h);
+    }
+
+    /// <summary>The BG Map16 defs as a picker sheet, one per phase. These are the fixed 0x200
+    /// defs at $0D9100 — LM's BG pages 80-81, our virtual tiles 0x4000-0x41FF.</summary>
+    public (uint[]?[] Px, int W, int H) BgSheetPhases()
+    {
+        var px = new uint[4][];
+        int w = 0, h = 0;
+        if (Scene is not { } s) return (px, 0, 0);
+        for (int p = 0; p < 4; p++)
+        {
+            var (img, iw, ih) = s.BgSheet(p);
+            if (img.Length == 0) continue;
+            px[p] = img; w = iw; h = ih;
+        }
+        return (px, w, h);
+    }
+
     /// <summary>The level's composed sprite 8x8s (SP1-SP4, bypass honored) as one sheet,
     /// for the destination picker's sprite range (LM dest tiles 400-5FF).</summary>
     public (uint[] Px, int W, int H) SpriteSheet(int palRow)

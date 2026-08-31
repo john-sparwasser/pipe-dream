@@ -955,6 +955,58 @@ stream — editable from blank. Conversely, background-image levels usually sit 
 never loads layer-2 objects (that is *why* they use a background), so converting one also
 needs a level-mode change or the objects are written and never read (the build warns).
 
+### 10b. LM custom backgrounds  [CONFIRMED — controlled save, .resources/backgrounds]
+
+§10a's "a background cannot move" is true of *vanilla's* loader only. LM does not rewrite a
+shared background in place; per `editor_back.htm` it "will save the current level's background
+as a custom background as soon as you modify it", and that custom background is an ordinary
+relocatable block. Decoded from `bg_0.smc` → `bg_a.smc` (LM 3.33: same ROM saved twice, level
+`$105`, the second with exactly one BG tile deleted in the Background Layer 2 Editor):
+
+  layer-2 ptr    `$05E600 + level*3` holds a REAL 24-bit address, bank != $FF
+                 ($105: `00 D9 FF` → `CC 94 10` = `$10:94CC`)
+  block          RATS: `STAR` + (len-1) word + its inverse, immediately before the stream
+                 (`53 54 41 52 B1 01 4E FE` → 0x1B2 payload bytes). Allocatable anywhere.
+  codec          UNCHANGED from vanilla `$058126` (§10): bit7 set = run of the next byte
+                 ((cmd&0x7F)+1 times); bit7 clear = literal copy of cmd+1 bytes; `FF FF` ends.
+                 Our BgImage.Decode reads LM's stream with no changes.
+  geometry       2 screens x 16 wide x **32 tall, stride 0x200** — LM's 512px backgrounds
+                 (`level_map16_bg.htm`: 432px -> 512px, "5 extra rows"), NOT vanilla's 27-row
+                 0x1B0. Verified: LM's custom screen 1 at stride 0x200 equals the vanilla
+                 background's screen 1 at stride 0x1B0 for all 432 tiles, 0 mismatches; the
+                 one edited tile lands at idx 0x065 = screen 0 row 6 col 5, which is the
+                 position LM's own status bar reported.
+  mode flag      `$0EF310 + level` (the per-level layer-2/3 settings byte LM's `$05803B` hook
+                 reads into `$7FC00B`) goes `00` -> `06`. Bit 1 set = do not fall through to
+                 `$058074`; bit 2 set = skip the layer-2 map fill. Without it a non-$FF bank
+                 would be read as an object stream, so this byte IS what separates "custom
+                 background" from "layer-2 objects".
+  BG Map16 bank  SAME byte, **bits 4-6** = the background's Map16 bank 0-7. Bank N covers BG
+                 pages `0x80 + N*0x10` (LM's "Change BG Map16 Bank" dialog lists exactly
+                 Bank 00 = pages 80-8F ... Bank 07 = pages F0-FF; "1 bank = 0x10 pages or
+                 0x1000 tiles", one bank per background, `editor_back.htm`). Confirmed by two
+                 further saves: bank 01 -> byte `16`, bank 07 -> byte `76`.
+  page byte      No longer derived from the stream address (§10a). The stream stores the low
+                 byte; the page comes from the bank field above plus the high nibble of the
+                 tile within the bank. LM numbers BG tiles 0x8000+i (pages 0x80-0xFF) = our
+                 virtual 0x4000+i; its editor's status bar reported the edited tile as `8002`.
+  relocation     LM allocates a FRESH RATS block on every save (the pointer walked
+                 `$10:94CC` -> `$10:980E` -> `$10:9B50` across three saves); it does not
+                 rewrite the previous block in place.
+
+**We already carry the runtime half**: `LmLevelRender` stamps both the `$05803B` hook
+(`$0EF510`) and the `$0EF310` table (all zeros today, read/written by nothing). So writing a
+custom background needs no new ASM — allocate a RATS block, `BgImage.Encode` the 0x400-entry
+map, point `$05E600` at it, and set `$0EF310[level] |= 0x06`.
+
+Evidence: `.resources/backgrounds/bg_0.smc` (LM save, no edits), `bg_a.smc` (+1 BG tile
+deleted), `bg_b.smc` (+BG Map16 bank 01), `bg_c.smc` (+bank 07). All LM 3.33 on level `$105`.
+
+STILL OPEN (not yet saved/diffed): whether a 32-row edit changes anything beyond the stream
+contents; what LM does when two levels share a vanilla background and only one is edited
+(expected: the edited level gets its own block and the other keeps the `$FF` pointer, since
+the pointer and the settings byte are both per level, but unverified).
+
 ## 11. Sprites  [CONFIRMED from disassembly + LM ASM trace]
 
 Pointer table §3 ($05EC00, 2 B/level, bank fixed $07 — **vanilla only**). LM relocates
@@ -1083,6 +1135,81 @@ without advancing $00, so blob2 lands over blob1's spent 3bpp source. It is stor
 4bpp (0x5D00 bytes): DMA-visible RAM = $2000-$7CFF blob2 (berries at id 5's $6D80 =
 offset 0x4D80), $7D00-$ACFF converted blob1. Overlay resolves >= $7D00 from blob1 as
 3bpp, else >= $2000 from blob2 as 4bpp.
+
+## 12b. Layer 3  [PARTIAL — vanilla path read; LM records NOT yet located]
+
+**Vanilla.** Per-LEVEL-MODE dispatch, not per level: `CODE_058955` reads `$1925` and calls
+through `PtrsLong05895E`, 32 long pointers — `CODE_058D7A` (11 modes), `CODE_058B8D` (6),
+`CODE_058C71` (4), `Return058C70` (do nothing, 11). The tilemap data pointers are the
+mode-indexed 3-byte `Layer3Ptr` (~`$058FFD`); vanilla has six distinct blocks in
+`$059087-$05A221`, default `$059549`. `CODE_058D7A` is the tide/mist builder: it reads the
+**layer-2 RAM map** (`$7E:B900`/`$7E:BD00`) and expands it through the **same BG Map16 defs at
+`$0D9100`** (§10) into `$1CE8`/`$1D68`. That is why LM warns you cannot use tides and layer-2
+data in the same level (`view_layer_3.htm`). L3 priority = header byte 2 bit 7
+(`LevelHeader.Layer3Priority`, already decoded).
+
+**LM's two dialogs** (field sets confirmed by opening them; Level menu):
+
+*Change Layer 3 Settings* — Layer 3 Options, exactly four: `Blank Layer 3`, `Water, high and
+low tides`, `Water, low tide only (smasher if tileset is 1)`, `Tileset Specific (current tileset
+is N:<name>)`. Plus "Make tides act as", a "Force Layer 3 tiles with priority" flag, an "Enable
+advanced bypass settings" flag, and the advanced group: CGADSUB, Move Layer 3 to Subscreen, Fix
+scroll sync, Vertical Scroll, Horizontal Scroll, Initial Y Position/Offset, Initial X
+Position/Offset. Selecting a tides option raises a **destructive** confirm ("will cause Lunar
+Magic to delete objects and sprites beyond the new lower max screens limit") — tides halve the
+screen count.
+
+*Layer 3 GFX/Tilemap Bypass* — "Enable bypass of standard Layer 3 GFX for this level" + four
+slots **LG1-LG4 defaulting to GFX 28/29/2A/2B** (shown with their vanilla source addresses
+`05C26C`/`05C8A3`/`05CD7B`/`05D2F0`); and "Enable bypass of standard Layer 3 tilemap" + GFX
+Tilemap File **LT3** (default `7F Skip File`), Destination for File (default `Under Status
+Bar`), File Size (default `0x2000 bytes 512x512`). Dialog note: standard GFX 0-31, ExGFX 80-FF,
+Super ExGFX 100-FFF.
+
+**The install gate  [CONFIRMED — this is why the first three saves wrote nothing].** LM will
+not install its layer-3 hack until its restore system can find *the original unmodified ROM
+with header*; it prompts "Restore System Issue ... browse to a copy of this file now?" and
+creates an Auto Full Restore Point first. Before that prompt is answered, opening *Change Layer
+3 Settings*, changing the option and saving the level produces a **byte-identical ROM** —
+verified three times (`bg_0` ≡ `l3_0` ≡ `l3_a`), even though the editor re-renders with the new
+tilemap. Any future controlled save for layer 3 must satisfy the restore system first.
+
+Once satisfied, enabling the GFX bypass and saving installs the hack: **~24 KB across 7871
+runs**. Observed hook sites (PC, headered): `0x001671` → `JSL $0FF9C0`, `0x002340` →
+`JSL $0FFAB0`, `0x002C06`/`0x002C47` → `EA EA`, `0x002C50` → `JSL $0FF780`, `0x0285B8` →
+`JSL $0FF7F0`, `0x021FFE` operand → `$0FFAF0`; new code in bank `$0D` free space
+(`0x06F2E0`, `0x06F2F0`) and bank `$0F` (`0x07F1C3`, `0x07F35C` — begins `4C 4D 03 01` = "LM"
++ version, `0x07F3B5`); plus repeated 2-byte `E3 B3` → `E0 F0`/`F0 F0` patches at `0x06A6BE`,
+`0x06C403`, `0x06D003`, `0x06DC03`, `0x06EB03`.
+
+**The GFX/tilemap bypass table  [CONFIRMED]** — isolated by two saves that BOTH have the hack
+installed, differing only in LG1 (`l3_b` LG1=29 → `l3_c` LG1=30). Exactly ONE semantic byte
+moved; every other run in that diff was the level's own data block relocating.
+
+  layout       per level, **0x20 bytes**, 16 little-endian words, level-number indexed
+  slot words   +0 = LG4, +2 = LG3, +4 = LG2, **+6 = LG1** — reverse slot order, the same
+               convention as the Super GFX Bypass record (§7d). `0x007F` = none/default.
+  install      the hack pre-fills EVERY level with the vanilla defaults `2B 2A 29 28`
+               (LG4..LG1) and `0x007F` elsewhere; `+0x18` is `FFFF` in every record.
+  unmapped     +8..+0x16 and +0x1A..+0x1E (all `0x007F` at install). The tilemap file LT3,
+               its destination and size, and the Change-Layer-3-Settings fields presumably
+               live in here — one level in the sample carries `0x407F` at +8.
+  location     LM-allocated in expanded ROM inside the RATS block at file `0x090200`
+               (payload 0x6E00) that also holds the hack code. In this ROM level 000 sits at
+               SNES `$12:AD20`, so level `$105` is `$12:CDC0` and its LG1 byte is `$12:CDC6`.
+               **Per-ROM — never hardcode it**; follow the hack's hook operand the way
+               `LmMidwayTable` / `LmExAnimBase` do.
+
+**Still NOT located**: the *Change Layer 3 Settings* record (blank / tides / tileset-specific,
+tides-act-as, priority, advanced scroll group). Four attempts to isolate it all produced
+byte-identical ROMs; the last two were swallowed by LM modals (the settings dialog stays open
+behind a still-focused combo, so the save clicks never land) rather than by the install gate.
+Worth retrying with the dialog dismissed explicitly and a full-screen verification shot between
+every step — LM puts up confirm dialogs (tides warn destructively) that a status-bar-only
+screenshot cannot see.
+
+Evidence: `.resources/layer3/l3_0.smc` (pre-hack baseline), `l3_b.smc` (hack + GFX bypass,
+LG1=29), `l3_c.smc` (LG1=30).
 
 ## 13. Object expansion via emulation  [IMPLEMENTED — vanilla-layout ROMs]
 

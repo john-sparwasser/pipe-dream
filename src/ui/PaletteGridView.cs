@@ -41,6 +41,11 @@ public class PaletteGridView : Control
     /// "which colour number is this" is the question asked constantly.</summary>
     public bool ShowHoverIndex { get; set; }
 
+    /// <summary>Leave cell 0 empty — the Palette tab breaks the background colour out into its
+    /// own swatch above the grid, so the grid must not offer it twice. Hidden, not shifted:
+    /// every other index keeps its place.</summary>
+    public bool HideFirst { get; set; }
+
     public int Selected { get; private set; } = -1;
 
     /// <summary>False for a grid that only SHOWS a palette — the Map16 gutter, where a tile picks
@@ -61,7 +66,8 @@ public class PaletteGridView : Control
     {
         int col = (int)(p.X / Cell), row = (int)(p.Y / Cell);
         if (col < 0 || col >= Cols || row < 0 || row >= Rows) return null;
-        return row * Cols + col;
+        int i = row * Cols + col;
+        return HideFirst && i == 0 ? null : i;
     }
 
     protected override Size MeasureOverride(Size available) => new(Cols * Cell, Rows * Cell);
@@ -108,6 +114,7 @@ public class PaletteGridView : Control
         var veil = new SolidColorBrush(Color.FromArgb(0xA8, 0x10, 0x12, 0x16));
         for (int i = 0; i < Count; i++)
         {
+            if (HideFirst && i == 0) continue;
             var r = new Rect(i % Cols * c, i / Cols * c, c, c);
             uint v = i < Colors.Length ? Colors[i] : 0xFF000000u;
             // Colours arrive as 0xAABBGGRR from the composer; Avalonia wants them named.
@@ -128,7 +135,7 @@ public class PaletteGridView : Control
                 ctx.DrawText(text, new Point(r.Center.X - text.Width / 2, r.Center.Y - text.Height / 2));
             }
         }
-        if (Selected >= 0 && Selected < Count)
+        if (Selected >= 0 && Selected < Count && !(HideFirst && Selected == 0))
         {
             var sel = new Rect(Selected % Cols * c, Selected / Cols * c, c, c);
             // Black under white: a ring in one colour disappears against a swatch of that colour.

@@ -122,6 +122,25 @@ public sealed class LevelScene
     /// composition the level uses, so a tile looks identical in both places.</summary>
     public (uint[] Px, int W, int H) Sheet(int phase = 0) => Map16.ComposeSheet(TileCaches[phase & 3]);
 
+    /// <summary>The layer-2 background drawn as pixels — <paramref name="cols"/> columns wide
+    /// (two screens side by side is how it repeats) by <paramref name="rows"/> rows. Empty when
+    /// layer 2 is an object stream rather than a background image.</summary>
+    public (uint[] Px, int W, int H) BgSurface(int cols, int rows, int phase)
+    {
+        if (BgImage is not { } bg || BgCaches[phase & 3] is not { } cache) return ([], 0, 0);
+        int w = cols * 16, h = rows * 16;
+        var img = new uint[w * h];
+        // Colour 0 is transparent in a BG tile, and what shows through it in game is the back
+        // area colour — the same backdrop ComposeLevel lays down before layer 2.
+        if (Palettes[phase & 3] is { } pal) Array.Fill(img, pal.Rgba[0]);
+        Map16.DrawBgImage(img, w, h, cols, bg, cache);
+        return (img, w, h);
+    }
+
+    /// <summary>The BG Map16 defs as a picker sheet — the fixed 0x200 at $0D9100.</summary>
+    public (uint[] Px, int W, int H) BgSheet(int phase = 0)
+        => BgCaches[phase & 3] is { } cache ? Map16.ComposeSheet(cache) : ([], 0, 0);
+
     /// <summary>LM's default-empty definition (4 × word 0x1004, the bytes GrowRange fills a new
     /// page with) drawn in this level's graphics: what every FG page that has no defs yet looks
     /// like, so the picker shows the same thing before and after allocation.</summary>
