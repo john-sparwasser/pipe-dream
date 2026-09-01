@@ -301,6 +301,10 @@ public static class Map16
         return w;
     }
 
+    /// <summary>Where this editor's virtual numbering puts the BG Map16 table — LM's pages
+    /// 80-81, which it numbers 0x8000+ and this repo addresses as 0x4000+ (CONTRACT §10).</summary>
+    public const int BgTileBase = 0x4000;
+
     /// <summary>
     /// ROM file offset of a Map16 tile's 8-byte definition (word order TL,BL,TR,BR), or
     /// -1 when the tile has no backing def. FG &lt; 0x200: vanilla per-tileset/shared bank-0D

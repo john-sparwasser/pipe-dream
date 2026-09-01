@@ -307,6 +307,60 @@ public class BackgroundModeTests(ITestOutputHelper log)
         Assert.Null(dlg.Result!.Value.Advanced);
     }
 
+    /// <summary>
+    /// The gutter palette is FOUR swatches on layer 3 and sixteen on layer 2. That is the whole
+    /// reason this mode has a strip of its own: layer 3 is 2bpp, and a sixteen-wide row would
+    /// show twelve colours the layer cannot draw next to the four it can.
+    /// </summary>
+    [AvaloniaFact]
+    public void the_gutter_palette_is_four_colours_wide_on_layer_3_and_sixteen_on_layer_2()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var w = Open(0x009, layer3: true);
+        var colors = w.GetControl<PaletteGridView>("BgColors");
+
+        Assert.True(w.GetControl<Border>("BgPaletteBar").IsVisible);
+        Assert.Equal(Layer3.PaletteColors, colors.Cols);
+        Assert.True(w.GetControl<ComboBox>("BgPalRow").IsEnabled);
+        Assert.Contains("CGRAM", w.GetControl<TextBlock>("BgPalNote").Text);
+
+        Click(w, "BgLayer2");
+        Assert.Equal(16, colors.Cols);
+        // A BG Map16 tile carries its palette in its own definition, so a live picker here would
+        // promise an edit this mode cannot make.
+        Assert.False(w.GetControl<ComboBox>("BgPalRow").IsEnabled);
+    }
+
+    /// <summary>
+    /// Choosing a group rewrites bits 10-12 of the brush and nothing else, and "Apply" puts it on
+    /// cells that ALREADY have tiles — the only sane way to recolour an imported tilemap, which
+    /// is 4096 cells somebody else authored. Tiles, flips and the priority bit all survive it.
+    /// </summary>
+    [AvaloniaFact]
+    public void applying_a_palette_group_recolours_the_map_without_moving_a_tile()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var w = Open(0x009, layer3: true);
+        var map = SessionOf(w).Layer3Map!;
+
+        // A word with every other attribute bit set, so a sloppy mask shows up as a lost flip.
+        int word = 0xE000 | 3 << 10 | 0x123;
+        map.Stamp(4, 5, word);
+        map.EndStroke();
+
+        w.GetControl<ComboBox>("BgPalRow").SelectedIndex = 6;
+        Click(w, "OnApplyBgPalette", null);
+
+        int now = map.At(4, 5);
+        Assert.Equal(6, Layer3.PaletteOf(now));
+        Assert.Equal(word & ~0x1C00, now & ~0x1C00);      // tile, both flips, priority: untouched
+    }
+
+    /// <summary>Fire a Click handler the way the button would, with the sender it checks.</summary>
+    private static void Click(MainWindow w, string method, object? sender) => typeof(MainWindow)
+        .GetMethod(method, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+        .Invoke(w, [sender, new Avalonia.Interactivity.RoutedEventArgs()]);
+
     private static void InvokeOn(Window w, string method) => w.GetType()
         .GetMethod(method, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
         .Invoke(w, null);

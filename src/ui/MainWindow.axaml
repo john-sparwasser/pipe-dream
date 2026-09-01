@@ -657,6 +657,28 @@
         </StackPanel>
       </Border>
 
+      <!-- The Background gutter palette. Its shape is the point: layer 3 is 2bpp, so a palette
+           there is FOUR colours, not sixteen, and a sixteen-wide strip would show twelve
+           swatches the layer can never draw. On Layer 3 the picker is live — a tilemap word
+           carries its own palette group, so choosing one here is choosing what the next stamp
+           paints with. On Layer 2 it is inert for the Map16 reason: a BG tile carries its
+           palette inside its own definition. -->
+      <Border x:Name="BgPaletteBar" DockPanel.Dock="Bottom" Classes="panel bar" IsVisible="False"
+              BorderThickness="0,1,0,0" Padding="10,6">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Path Classes="kind" Data="{StaticResource IconPalette}"/>
+          <ComboBox x:Name="BgPalRow" Classes="palrow"
+                    ToolTip.Tip="The palette group the next stamp uses — bits 10-12 of the tilemap word"/>
+          <ui:PaletteGridView x:Name="BgColors" VerticalAlignment="Center"/>
+          <!-- Repainting 4096 cells by hand is not a way to recolour an imported tilemap, and
+               changing the group is the one edit that leaves every tile where it is. -->
+          <Button x:Name="BgApplyPal" Click="OnApplyBgPalette" IsVisible="False"
+                  ToolTip.Tip="Write this palette group into cells that already have tiles, leaving the tiles alone"/>
+          <TextBlock x:Name="BgPalNote" Classes="dim" VerticalAlignment="Center"
+                     TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
+      </Border>
+
       <!-- Canvas modes share the region: exactly one is visible, and the drawer keeps
            feeding whichever it is. -->
       <Panel>

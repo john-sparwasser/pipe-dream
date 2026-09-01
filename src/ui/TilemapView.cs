@@ -103,6 +103,10 @@ public sealed class TilemapView : Control
         => new(Cols * Step, Rows * Step);
 
     /// <summary>Screen point → the cell under it, or null past the grid.</summary>
+    /// <summary>The cell under the pointer, or null when it is off the grid — what the gutter
+    /// readout asks for.</summary>
+    public (int Col, int Row)? Hover => hover;
+
     public (int Col, int Row)? At(Point p)
     {
         int col = (int)(p.X / Step), row = (int)(p.Y / Step);

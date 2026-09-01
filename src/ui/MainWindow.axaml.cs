@@ -92,7 +92,12 @@ public partial class MainWindow : Window
     /// <summary>What a stamp writes: a BG Map16 tile on layer 2, a whole BG3 word on layer 3
     /// (palette group 2 by default — the eyedropper is how any other one is picked up).</summary>
     private int bgBrush = 0x100, bgBrushL3 = 2 << 10;
-    private TextBlock bgNote = null!, bgDrawerTitle = null!;
+    private TextBlock bgNote = null!, bgDrawerTitle = null!, bgPalNote = null!;
+    private Border bgPaletteBar = null!;
+    private Button bgApplyPal = null!;
+    private ComboBox bgPalRow = null!;
+    private PaletteGridView bgColors = null!;
+    private bool loadingBgPalRow;
     private StackPanel animGfx = null!, animBody = null!;
     private TextBlock animTitle = null!, animListTitle = null!;
     private Button animDelete = null!, animReassign = null!, animEmptyAdd = null!;
@@ -152,6 +157,25 @@ public partial class MainWindow : Window
         bgSheet.Picked += (_, c) => BgBrushPicked(c.Col, c.Row);
         bgNote = this.GetControl<TextBlock>("BgNote");
         bgDrawerTitle = this.GetControl<TextBlock>("BgDrawerTitle");
+        bgPaletteBar = this.GetControl<Border>("BgPaletteBar");
+        bgApplyPal = this.GetControl<Button>("BgApplyPal");
+        bgPalNote = this.GetControl<TextBlock>("BgPalNote");
+        bgColors = this.GetControl<PaletteGridView>("BgColors");
+        bgColors.Rows = 1;
+        bgColors.Cell = 20;
+        bgColors.Selectable = false;       // a tilemap word picks a GROUP, not a colour in it
+        bgColors.ShowHoverIndex = false;
+        bgPalRow = this.GetControl<ComboBox>("BgPalRow");
+        for (int i = 0; i < Layer3.PaletteGroups; i++) bgPalRow.Items.Add($"{i}");
+        bgPalRow.SelectionChanged += (_, _) =>
+        {
+            if (loadingBgPalRow || bgPalRow.SelectedIndex < 0) return;
+            bgBrushL3 = bgBrushL3 & ~0x1C00 | bgPalRow.SelectedIndex << 10;
+            RefreshBg();                   // the drawer sheet draws in the brush's group
+        };
+        // The gutter answers "what palette is this cell using", so it has to follow the cursor.
+        bgView.PointerMoved += (_, _) => UpdateReadout();
+        bgView.PointerExited += (_, _) => UpdateReadout();
         animPane = this.GetControl<DockPanel>("AnimPane");
         animToolPanel = this.GetControl<DockPanel>("AnimToolPanel");
         animGfx = this.GetControl<StackPanel>("AnimGfx");
@@ -1065,6 +1089,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void UpdateReadout()
         => readout.Text = modeGfx.IsChecked == true ? GfxReadout()
+                        : modeBg.IsChecked == true ? BgReadout()
                         : modeMap16.IsChecked == true ? Map16Readout()
                         : LevelReadout();
 
@@ -1862,6 +1887,7 @@ public partial class MainWindow : Window
         animPaletteBar.IsVisible = animMode;    // its gutter palette, like the Map16 and GFX ones
         gfxPaletteBar.IsVisible = gfxMode;      // canvas-side, but the same mode decides it
         m16PaletteBar.IsVisible = map16Mode;    // its opposite number, same gutter
+        bgPaletteBar.IsVisible = bgMode;        // four swatches wide there, not sixteen
         spritePanel.IsVisible = tab == 1;
         objectPanel.IsVisible = tab == 2;
         palettePanel.IsVisible = tab == 3;
@@ -2596,6 +2622,8 @@ public partial class MainWindow : Window
                         : "no layer 3 — give this level one with Layer 3 Options");
                 return;
             }
+            var palCounts = Layer3PaletteCounts(map);
+            SeedBgBrushPalette(map, palCounts);
             bgView.CellAt = map.At;
             bgView.CellPixels = session.Layer3CellPixels;
             bgView.Zoom = 2;
@@ -2611,6 +2639,7 @@ public partial class MainWindow : Window
             bgSheet.Reshape(SheetCols, Layer3.TileCount / SheetCols, 8);
 
             bgNoteBase = $"{Layer3.Cols}x{Layer3.Rows} tiles — {Layer3.OptionNames[opt]}"
+                       + $", palettes {Layer3PalettesInUse(palCounts)}"
                        + (session.Layer3TilemapImported ? ", custom tilemap" : "")
                        + (session.Layer3Advanced is { } a3
                           ? $", scroll {Layer3.VScrollNames[a3.VScroll]}/{Layer3.HScrollNames[a3.HScroll]}"
@@ -2640,6 +2669,134 @@ public partial class MainWindow : Window
         RefreshBgNote();
     }
 
+    /// <summary>
+    /// Which palette groups the level's tilemap ACTUALLY names, for the note. An imported map
+    /// is somebody else's file and the answer is not guessable from the level: this one turned
+    /// out to be group 3 alone, and nothing on screen said so. Cells the map never wrote (-1)
+    /// are not counted — they are the blank the build pads with, not a choice.
+    /// </summary>
+    private static int[] Layer3PaletteCounts(TilemapEdit map)
+    {
+        var counts = new int[Layer3.PaletteGroups];
+        for (int r = 0; r < map.Rows; r++)
+            for (int c = 0; c < map.Cols; c++)
+                if (map.At(c, r) is >= 0 and var w) counts[Layer3.PaletteOf(w)]++;
+        return counts;
+    }
+
+    private static string Layer3PalettesInUse(int[] counts)
+    {
+        var used = Enumerable.Range(0, counts.Length).Where(g => counts[g] > 0).ToArray();
+        return used.Length == 0 ? "none" : string.Join("/", used);
+    }
+
+    /// <summary>
+    /// Start the brush on the palette the level's map actually uses, once per level. The drawer
+    /// sheet draws every tile in the BRUSH's group, so a brush left on the default showed the
+    /// whole sheet in the status bar's font colours while the canvas next to it was drawn in
+    /// another — two pictures of the same tiles, disagreeing, with nothing saying why.
+    ///
+    /// Once per level, not per refresh: after that the group is the user's to pick, and
+    /// re-seeding it would undo their choice on the next repaint.
+    /// </summary>
+    private int bgBrushSeededFor = -1;
+
+    private void SeedBgBrushPalette(TilemapEdit map, int[] counts)
+    {
+        if (bgBrushSeededFor == session.LevelNum) return;
+        bgBrushSeededFor = session.LevelNum;
+        int best = 0;
+        for (int g = 1; g < counts.Length; g++) if (counts[g] > counts[best]) best = g;
+        if (counts[best] > 0) bgBrushL3 = bgBrushL3 & ~0x1C00 | best << 10;
+    }
+
+    /// <summary>
+    /// The Background gutter palette. Layer 3 is 2bpp, so this shows FOUR colours — the whole
+    /// point of giving the mode its own strip rather than reusing the sixteen-wide one, which
+    /// would show twelve swatches the layer cannot draw and invite picking one.
+    ///
+    /// On layer 3 the picker is live: a tilemap word carries its own palette group, so this is
+    /// what the next stamp writes into bits 10-12. On layer 2 it is inert and shows the BRUSH
+    /// TILE's row instead — a BG Map16 tile carries its palette in its own definition, so the
+    /// place to change it is the Map16 editor, and a live picker here would promise otherwise.
+    /// </summary>
+    private void RefreshBgPalette()
+    {
+        bool layer3 = bgLayer3.IsChecked == true;
+        var pal = session.PaletteRgba;
+        int group = layer3 ? Layer3.PaletteOf(bgBrushL3)
+                  : map16?.BgTilePalette(bgBrush) ?? -1;
+        int count = layer3 ? Layer3.PaletteColors : 16;
+        int at = layer3 ? Layer3.PaletteBase(group) : group * 16;
+
+        loadingBgPalRow = true;
+        bgPalRow.SelectedIndex = layer3 ? group : -1;
+        loadingBgPalRow = false;
+        bgPalRow.IsEnabled = layer3;
+
+        var colors = new uint[count];
+        if (group >= 0 && pal.Length >= at + count)
+            for (int i = 0; i < count; i++)
+                // Colour 0 keeps the sheet's grey convention: in a tile it means transparent,
+                // and a black swatch would read as a black you could paint with.
+                colors[i] = i == 0 ? 0xFF303030u : pal[at + i];
+        bgColors.Cols = count;
+        bgColors.Colors = colors;
+        bgColors.Describe = i => $"CGRAM {at + i:X2}" + (i == 0 ? " — transparent" : "");
+        bgColors.InvalidateVisual();
+
+        // The label says WHICH cells, because the two cases are a rectangle and the whole map and
+        // the difference is not recoverable once pressed.
+        bgApplyPal.IsVisible = layer3 && session.Layer3Map is not null;
+        bgApplyPal.Content = bgView.Selection is { } s ? $"Apply to {s.W}x{s.H}" : "Apply to all";
+
+        bgPalNote.Text = group < 0 ? ""
+            : !layer3 ? $"CGRAM {at:X2}-{at + count - 1:X2} — the tile's own row; change it in Map16"
+            : $"CGRAM {at:X2}-{at + count - 1:X2}"
+              + (Layer3.IsLayer3Palette(group) ? "" : " — not one of the four the game fills for layer 3");
+    }
+
+    /// <summary>
+    /// Put the picked palette group on cells that already have tiles — the lasso's, or the whole
+    /// map when there is no lasso. Only the group moves: the tile number, both flips and the
+    /// priority bit stay, which is what makes this a recolour rather than a repaint.
+    ///
+    /// Cells the map never wrote (-1) are LEFT ALONE. Writing a group into one would turn the
+    /// gaps into real words, and a flat file's gaps are exactly what <see cref="Layer3.ToBytes"/>
+    /// pads with the blank tile — filling them here would put a tile everywhere the level meant
+    /// to show nothing.
+    /// </summary>
+    private void OnApplyBgPalette(object? sender, RoutedEventArgs e)
+    {
+        if (session.Layer3Map is not { } map) return;
+        var (x, y, w, h) = bgView.Selection ?? (0, 0, map.Cols, map.Rows);
+        int group = Layer3.PaletteOf(bgBrushL3);
+        bool changed = false;
+        for (int r = y; r < y + h && r < map.Rows; r++)
+            for (int c = x; c < x + w && c < map.Cols; c++)
+                if (map.At(c, r) is >= 0 and var word)
+                    changed |= map.Stamp(c, r, word & ~0x1C00 | group << 10);
+        if (!changed || !map.EndStroke()) return;
+        bgView.Invalidate();
+        RefreshBg();
+        UpdateTitle();
+    }
+
+    /// <summary>The Background gutter readout. "Which palette is this cell using" has no other
+    /// answer in this mode — every cell carries its own group, so a single figure in the header
+    /// could only ever be the brush's.</summary>
+    private string BgReadout()
+    {
+        if (bgView.Hover is not { } h || BgLayerEdit is not { } map) return "";
+        if (h.Col >= map.Cols || h.Row >= map.Rows) return "";
+        int w = map.At(h.Col, h.Row);
+        if (bgLayer3.IsChecked != true) return $"({h.Col,2},{h.Row,2})  tile 0x{w & 0x1FF:X3}";
+        string flags = ((w & 0x2000) != 0 ? " pri" : "") + ((w & 0x4000) != 0 ? " flipX" : "")
+                     + ((w & 0x8000) != 0 ? " flipY" : "");
+        return $"({h.Col,2},{h.Row,2})  tile 0x{w & 0x3FF:X3}  pal {Layer3.PaletteOf(w)} "
+             + $"(CGRAM {Layer3.PaletteBase(Layer3.PaletteOf(w)):X2})" + flags;
+    }
+
     /// <summary>The drawer sheets are sixteen tiles to a row, as every other sheet here is.</summary>
     private const int SheetCols = 16;
 
@@ -2649,8 +2806,13 @@ public partial class MainWindow : Window
     private string bgNoteBase = "";
 
     private void RefreshBgNote()
-        => bgNote.Text = bgNoteBase
-                       + (bgView.Selection is { } s ? $"  —  {s.W}x{s.H} selected, right-click to stamp" : "");
+    {
+        bgNote.Text = bgNoteBase
+                    + (bgView.Selection is { } s ? $"  —  {s.W}x{s.H} selected, right-click to stamp" : "");
+        // Every exit from RefreshBg lands here, and so does a lasso drag — which is what the
+        // Apply button's label reads, so the gutter has to follow both.
+        RefreshBgPalette();
+    }
 
     // ---- painting a background ----
     // Left paints, right is the eyedropper, and the drawer's left click arms the brush. The

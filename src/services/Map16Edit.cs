@@ -65,6 +65,17 @@ public sealed class Map16Edit
         return [W(0), W(2), W(1), W(3)];
     }
 
+    /// <summary>
+    /// The palette row a BG Map16 tile draws with, by its number within the BG table (0-0x1FF)
+    /// rather than the virtual 0x4000+ one — the Background canvas thinks in the former, and
+    /// having it add the base itself would put the ROM layer's numbering in the UI.
+    ///
+    /// The TOP-LEFT quadrant's row: a Map16 tile's four 8x8s can each name a different one, and
+    /// the gutter has room for a palette, not four. Null when the tile has no definition.
+    /// </summary>
+    public int? BgTilePalette(int bgTile)
+        => ReadDef(Map16.BgTileBase + (bgTile & 0x1FF)) is { } def ? def[0].Palette : null;
+
     /// <summary>File offset of one visual quadrant's word, or -1 when unbacked.</summary>
     public int QuadOffset(int tile, int visualQuad)
     {

@@ -194,6 +194,29 @@ public static class Layer3
     public static int CellIndex(int col, int row)
         => (row / ScreenRows << 11) | (col / ScreenCols << 10) | (row % ScreenRows) << 5 | col % ScreenCols;
 
+    /// <summary>How many palette groups a tilemap word can name: bits 10-12, so eight.</summary>
+    public const int PaletteGroups = 8;
+
+    /// <summary>Colours in one of them. Layer 3 is 2bpp, so FOUR — not the sixteen every other
+    /// palette strip in this editor shows. Colour 0 is transparent, as everywhere else.</summary>
+    public const int PaletteColors = 1 << Bpp;
+
+    /// <summary>Where group <paramref name="group"/>'s colours start in CGRAM. A 2bpp BG reads
+    /// four entries per group, so the groups tile CGRAM 00-1F four at a time.</summary>
+    public static int PaletteBase(int group) => (group & (PaletteGroups - 1)) * PaletteColors;
+
+    /// <summary>
+    /// Whether SMW actually loads LAYER-3 colours into this group. The tilemap's palette field
+    /// can name all eight, but the game's $00B170 block fills CGRAM 08-0F and 18-1F for layer 3
+    /// — groups 2, 3, 6 and 7. The other four hold layer-1/2 colours: a tile drawn with one of
+    /// them renders, just in someone else's palette, and it will change when the level's
+    /// background does. Worth SAYING rather than forbidding — LM offers all eight too.
+    /// </summary>
+    public static bool IsLayer3Palette(int group) => group is 2 or 3 or 6 or 7;
+
+    /// <summary>The palette group a tilemap word names.</summary>
+    public static int PaletteOf(int word) => word >> 10 & (PaletteGroups - 1);
+
     /// <summary>
     /// One tilemap word drawn: its tile from the level's 512, in the palette group its bits
     /// name, flipped as they say. Null when it names no tile the window holds. Colour 0 comes
