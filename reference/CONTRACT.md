@@ -1250,7 +1250,14 @@ and `gfx_after.smc` (which predates the layer-3 hack entirely) already carries i
                enable. No controlled save has enabled it yet.
 
 Read by `Rom.LmLayer3Gfx(level)` (null = not bypassed) via `Rom.LmGfxRecord`, which returns
-the raw 16 words so each feature applies its own gate. `--layer3` prints the resolved LG1-4.
+the raw 16 words so each feature applies its own gate. `--layer3` prints the resolved LG1-4 and
+dumps LG1's sheet. WRITTEN as session overrides: LG1-LG4 are ordinary bins in `Gfx.LevelSlots`
+(words 15-12, below SP4 in the GFX drawer under a "Layer 3" heading), so `SetGfxSlot` repoints
+them and `ProjectFile` round-trips them exactly like the FG/BG/SP slots. Setting one turns the
+layer-3 bypass on and leaves the other three at 0x7F = their vanilla file; it does NOT turn on
+the bit-15 bypass, which is why `LmGfxBypass` now ignores words 12-15 and `LmLayer3Gfx` owns
+them. Nothing writes the record back into an LM ROM's own table yet — the override lives in the
+project and is applied on build, the same as every other slot.
 
 **The Layer 3 Options field  [CONFIRMED for 0 and 3; 1/2 by dropdown order]** — isolated by
 `l3_c` (Blank Layer 3) → `l3_e` (Tileset Specific), with the hack installed on both. Changing

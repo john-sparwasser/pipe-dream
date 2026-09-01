@@ -192,6 +192,44 @@ public class Layer3Tests(ITestOutputHelper log)
         Assert.Equal(Gfx.DecodeTile(file30, 0, 2), bypassed[0]);
     }
 
+    /// <summary>
+    /// Building writes the LG slots into the record and lights bit 14 — WITHOUT lighting bit 15,
+    /// which belongs to the unrelated FG/BG/SP bypass. And it says out loud that a base with no
+    /// layer-3 GFX loader will ignore them, because a slot that silently does nothing in game is
+    /// worse than one the build refuses.
+    /// </summary>
+    [Fact]
+    public void building_a_layer_3_override_lights_bit_14_and_warns_when_the_base_cannot_use_it()
+    {
+        if (!File.Exists(Vanilla)) { log.WriteLine("SKIP: no ROM"); return; }
+        string dir = Path.Combine(Path.GetTempPath(), "pdl3-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            var s = new EditorSession();
+            Assert.True(s.NewProject(Path.Combine(dir, "proj"), Vanilla), s.Status);
+            s.ShowLevel(0x105);
+            s.SetGfxSlot(15, 0x30);                       // LG1 → GFX 30
+            s.Save();
+
+            string status = s.Build();
+            log.WriteLine(status);
+            string built = Path.Combine(s.Project!.Folder, "build", s.Project.Name + ".smc");
+            Assert.True(File.Exists(built), status);
+
+            var rom = Rom.Load(built);
+            var rec = rom.LmGfxRecord(0x105);
+            Assert.NotNull(rec);
+            Assert.Equal(0x4000, rec![0] & 0xC000);       // layer 3 on, FG/BG/SP untouched
+            Assert.Equal(0x30, rec[15] & 0xFFF);          // w15 is LG1
+            Assert.Equal([0x30, 0x29, 0x2A, 0x2B], Layer3.GfxFiles(rom, 0x105));
+
+            // Prep does not install LM's layer-3 GFX loader, so the build has to say so.
+            Assert.False(rom.HasLmLayer3Gfx);
+            Assert.Contains("LG1-LG4", status);
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
+    }
+
     [Fact]
     public void rendering_covers_the_written_words_and_leaves_the_rest_as_backdrop()
     {

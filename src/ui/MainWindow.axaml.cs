@@ -2052,6 +2052,9 @@ public partial class MainWindow : Window
         {
             null => (0, 16),
             var n when n.StartsWith("SP") => (8, 8),
+            // Layer 3 is 2bpp and its colours are the $00B170 block: CGRAM 08-0F and 18-1F,
+            // i.e. rows 0-1 offset by 8 — two rows, not eight.
+            var n when n.StartsWith("LG") => (0, 2),
             _ => (0, 8),
         };
 
@@ -2173,7 +2176,8 @@ public partial class MainWindow : Window
     private void RefreshGfxBins()
     {
         gfxBins.Children.Clear();
-        // The level's ten VRAM bins, then — under their own heading — the animation slots: AN1/AN2
+        // The ten VRAM bins, then two headed groups: the layer-3 window (LG1-LG4), and the
+        // animation slots — AN1/AN2
         // (real bypass words) and the four ExAnimation source files 60-63, which are not bins at
         // all (nothing points a level at them; ExAnimation slots read them by offset) but ARE
         // graphics files the pixel editor can paint. Their "bypass word" is the file id itself
@@ -2181,15 +2185,19 @@ public partial class MainWindow : Window
         // imports a .bin into it. An absent one still opens — as a blank file to create.
         var bins = session.GfxBins.ToList();
         for (int i = 0; i < 4; i++)
-            bins.Add(($"E{0x60 + i:X2}", 2, 0x60 + i, 0x7F, session.Rom is { } r && (r.ImportedGfx.ContainsKey(0x60 + i) || r.LmAltExGfx(i) > 0) ? 0x60 + i : 0x7F));
+            bins.Add(($"E{0x60 + i:X2}", 2, 0x60 + i, 0x7F, session.Rom is { } r && (r.ImportedGfx.ContainsKey(0x60 + i) || r.LmAltExGfx(i) > 0) ? 0x60 + i : 0x7F, 0));
         foreach (var bin in bins)
         {
             int bypWord = bin.BypWord, palRow = bin.PalRow, file = bin.File;
             bool altFile = bypWord >= 0x60;
             int openFile = altFile ? Convert.ToInt32(bin.Name[1..], 16) : file;   // "E60" → 0x60
-            if (bin.Name == "AN1")
+            // Two headed groups after the ten VRAM bins: the level's layer-3 window, then the
+            // animation slots. LG1-LG4 are real bins with a real bypass — LM's Layer 3
+            // GFX/Tilemap Bypass — they just live behind their own enable bit (CONTRACT §12b).
+            if (bin.Name is "LG1" or "AN1")
             {
-                var sep = new TextBlock { Text = "Animation slots", Margin = new Thickness(0, 8, 0, 0) };
+                var sep = new TextBlock { Text = bin.Name == "LG1" ? "Layer 3" : "Animation slots",
+                                          Margin = new Thickness(0, 8, 0, 0) };
                 sep.Classes.Add("subject");
                 gfxBins.Children.Add(sep);
                 gfxBins.Children.Add(new Border { Height = 1, Background = (IBrush)this.FindResource("BorderBrush")!, Margin = new Thickness(0, 0, 0, 2) });
@@ -2237,7 +2245,7 @@ public partial class MainWindow : Window
             // show the same colours; the others keep the row the level actually loads them under.
             int previewRow = bin.BypWord == gfxSlot && session.GfxPixels is { } sel
                 ? sel.PalRow : bin.PalRow;
-            var (px, w, h) = session.GfxFileSheet(bin.File, previewRow);
+            var (px, w, h) = session.GfxFileSheet(bin.File, previewRow, bin.ColorOffset);
             if (px.Length > 0)
                 block.Children.Add(new PixelImage
                 {

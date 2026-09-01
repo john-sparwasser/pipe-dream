@@ -403,14 +403,14 @@ public static class Gfx
     /// palette row. Color index 0 is transparent (shown as dark grey so tiles are visible).
     /// Returns pixels (row-major RGBA) and dimensions.
     /// </summary>
-    public static (uint[] px, int w, int h) TileSheet(byte[] gfx, int bpp, Palette pal, int palRow, int cols = 16)
+    public static (uint[] px, int w, int h) TileSheet(byte[] gfx, int bpp, Palette pal, int palRow, int cols = 16, int colorOffset = 0)
     {
         int tb = TileBytes(bpp);
         int tiles = Math.Max(1, gfx.Length / tb);
         int rows = (tiles + cols - 1) / cols;
         int w = cols * 8, h = rows * 8;
         var px = new uint[w * h];
-        int baseColor = (palRow & 0x0F) * 16;
+        int baseColor = (palRow & 0x0F) * 16 + colorOffset;
         for (int t = 0; t < tiles; t++)
         {
             var tile = DecodeTile(gfx, t * tb, bpp);
@@ -601,11 +601,14 @@ public static class Gfx
          : RomBpp(rom) == 3 ? "4 bits per pixel (colours 0-7)" : "4 bits per pixel";
 
     /// <summary>
-    /// The level's 10 VRAM GFX bins (FG/BG/SP), resolved through the tileset lists and the Super
-    /// GFX Bypass (session overrides ride along inside LmGfxBypass). Def is the vanilla list
-    /// entry (0x7F for the bypass-only BG2/BG3 bins) — File != Def means the bypass repointed it.
+    /// The level's VRAM GFX bins in drawer order: the ten FG/BG/SP ones resolved through the
+    /// tileset lists and the Super GFX Bypass (session overrides ride along inside LmGfxBypass),
+    /// then LG1-LG4 — the layer-3 window, in the same record behind its own enable bit (§12b) —
+    /// then the two animation slots. Def is the vanilla list entry (0x7F for the bypass-only
+    /// BG2/BG3 bins); File != Def means something repointed it. ColorOffset shifts a preview off
+    /// its palette row's first colour, which only layer 3 needs.
     /// </summary>
-    public static (string Name, int PalRow, int BypWord, int Def, int File)[] LevelSlots(
+    public static (string Name, int PalRow, int BypWord, int Def, int File, int ColorOffset)[] LevelSlots(
         Rom rom, LevelHeader h, int levelNum)
     {
         var byp = rom.LmGfxBypass(levelNum);
@@ -629,13 +632,28 @@ public static class Gfx
             ("AN1", -0x33, 0, 2, 1),
             ("AN2", -1, 0, 2, 0),
         };
-        return slots.Select(s =>
+        // LG1-LG4 (record words 15..12) close the list: the layer-3 window at VRAM $4000, 2bpp,
+        // 128 tiles each. They ride in the SAME record as the slots above but behind their own
+        // enable bit, so they resolve through Layer3 rather than through `byp` (CONTRACT §12b).
+        // Their colours are not a palette row: SMW loads layer 3 under CGRAM 08-0F and 18-1F,
+        // hence row 0-1 plus an offset of 8.
+        var lg = Layer3.GfxFiles(rom, levelNum);
+        var l3 = Enumerable.Range(0, 4).Select(i =>
+            ($"LG{i + 1}", 0, 15 - i, Layer3.VanillaGfx[i], lg[i], 8));
+        var main = slots.Select(s =>
         {
             int def = s.listBase < -1 ? -s.listBase : s.listBase < 0 ? 0x7F : rom.Data[rom.FileOffset(s.listBase) + s.idx];
             bool bypassed = byp is not null && (byp[s.bypWord] & 0xFFF) != 0x7F;
-            return (s.name, s.palRow, s.bypWord, def, bypassed ? byp![s.bypWord] & 0xFFF : def);
+            return (s.name, s.palRow, s.bypWord, def, bypassed ? byp![s.bypWord] & 0xFFF : def, 0);
         }).ToArray();
+        // The layer-3 four sit after SP4 and before the animation slots, which is where they
+        // belong on screen: they are VRAM the level loads, not a slot the animation engine reads.
+        return [.. main[..VramBinCount], .. l3, .. main[VramBinCount..]];
     }
+
+    /// <summary>How many of <see cref="LevelSlots"/>'s entries are the FG/BG/SP bins, before the
+    /// layer-3 four and the animation slots.</summary>
+    public const int VramBinCount = 10;
 
     /// <summary>
     /// Compress bytes as LC_LZ2 (the exact inverse consumer is <see cref="Lz2Decompress"/>

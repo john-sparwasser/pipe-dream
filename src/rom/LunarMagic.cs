@@ -367,7 +367,9 @@ public static class LunarMagic
         /// record is disabled. w0=AN2 (bit15 = bypass enabled), w1=AN1, w2=BG3, w3=BG2, w4=FG3,
         /// w5=BG1, w6=FG2, w7=FG1, w8-11=SP4..SP1. Slot value &amp; 0xFFF = GFX/ExGFX file#,
         /// 0x7F = slot uses the tileset default. Session overrides from Rom.GfxSlotOverrides
-        /// are overlaid on the record.
+        /// are overlaid on the record. Words 12-15 are the LAYER-3 slots and belong to
+        /// <see cref="LmLayer3Gfx"/>: they have their own enable bit, so an override on one of
+        /// them must not turn this bypass on.
         /// </summary>
         public ushort[]? LmGfxBypass(int level)
         {
@@ -375,7 +377,7 @@ public static class LunarMagic
             ushort[]? w = r is not null && (r[0] & 0x8000) != 0 ? r : null;
             foreach (var ((lvl, word), file) in rom.GfxSlotOverrides)
             {
-                if (lvl != level || word is < 0 or > 15) continue;
+                if (lvl != level || word is < 0 or > 11) continue;
                 if (w is null) { w = new ushort[16]; Array.Fill(w, (ushort)0x7F); w[0] = 0x807F; }   // all slots "default"
                 w[word] = (ushort)((w[word] & ~0xFFF) | (file & 0xFFF));
             }
@@ -406,12 +408,32 @@ public static class LunarMagic
         /// loader at $0FF9E0 does exactly this: `LDA [record] : ASL : BPL default`, and its
         /// "default" is a fixed record at $0FFA6F whose tail is the vanilla `2B 2A 29 28`. A slot
         /// left at 0x7F keeps its vanilla file, the same convention as every other slot here.
+        ///
+        /// Session overrides from Rom.GfxSlotOverrides are overlaid the same way the FG/BG/SP
+        /// bypass overlays its own words — pointing one LG slot somewhere is enough to turn the
+        /// bypass on, with the other three left at 0x7F meaning "still the vanilla file".
         /// </summary>
         public int[]? LmLayer3Gfx(int level)
         {
-            if (rom.LmGfxRecord(level) is not { } r || (r[0] & 0x4000) == 0) return null;
-            return [.. Enumerable.Range(0, 4).Select(i => r[15 - i] & 0xFFF)];
+            var r = rom.LmGfxRecord(level);
+            int[]? lg = r is not null && (r[0] & 0x4000) != 0
+                ? [.. Enumerable.Range(0, 4).Select(i => r[15 - i] & 0xFFF)] : null;
+            foreach (var ((lvl, word), file) in rom.GfxSlotOverrides)
+            {
+                if (lvl != level || word is < 12 or > 15) continue;
+                lg ??= [0x7F, 0x7F, 0x7F, 0x7F];
+                lg[15 - word] = file & 0xFFF;      // w15 = LG1, so the word counts back down
+            }
+            return lg;
         }
+
+        /// <summary>True when LM's LAYER-3 GFX loader is installed — the code that reads the
+        /// record's bit 14 and its words 12-15 at all (CONTRACT §12b). Probed by its VRAM
+        /// destination table at the fixed $0FFA7F inside LM's $0FF780 block: $4C00 $4800 $4400
+        /// $4000, one per LG slot. Without it, vanilla's $00A993 streams GFX 28-2B whatever the
+        /// record says, so an LG override is an editor-only preview.</summary>
+        public bool HasLmLayer3Gfx
+            => rom.ReadValue(0x0FFA7F, 4) == 0x48004C00 && rom.ReadValue(0x0FFA83, 4) == 0x40004400;
 
         /// <summary>True if LM's GFX bypass loader is installed: `JSL $0FF780` (22 80 F7 0F) at
         /// $00AA50 replaces the vanilla level-GFX loader (CONTRACT §7d). Gates the fixed ExGFX

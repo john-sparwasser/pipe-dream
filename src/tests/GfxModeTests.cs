@@ -589,8 +589,50 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         Assert.True(w.GetControl<DockPanel>("GfxToolPanel").IsVisible);
         Assert.True(w.GetControl<PaletteGridView>("GfxColors").IsVisible);
         var bins = w.GetControl<StackPanel>("GfxBins");
-        // ...plus the "Animation slots" heading + rule and the four ExAnimation source-file cards.
-        Assert.Equal(SessionOf(w).GfxBins.Length + 6, bins.Children.Count);
+        // ...plus two headings with their rules ("Layer 3", "Animation slots") and the four
+        // ExAnimation source-file cards.
+        Assert.Equal(SessionOf(w).GfxBins.Length + 8, bins.Children.Count);
+        Assert.Equal(["Layer 3", "Animation slots"],
+                     bins.Children.OfType<TextBlock>().Select(t => t.Text));
+    }
+
+    /// <summary>
+    /// The layer-3 window is four ordinary bins, below SP4 and above the animation slots. They
+    /// are the ones LM's Layer 3 GFX/Tilemap Bypass sets, and they ride in the same per-level
+    /// record as the rest — behind their own enable bit (CONTRACT §12b).
+    /// </summary>
+    [AvaloniaFact]
+    public void the_layer_3_bins_sit_below_sp4_and_default_to_gfx_28_2b()
+    {
+        if (Open() is not { } s) { log.WriteLine("SKIP: no ROM"); return; }
+        s.ShowLevel(0x105);
+        var names = s.GfxBins.Select(b => b.Name).ToArray();
+
+        Assert.Equal(["SP4", "LG1", "LG2", "LG3", "LG4", "AN1"], names[9..15]);
+        Assert.Equal([0x28, 0x29, 0x2A, 0x2B],
+                     s.GfxBins.Where(b => b.Name.StartsWith("LG")).Select(b => b.File));
+        // Record words 15..12, so LG1 is the LAST word, and the colours are the layer-3 block
+        // at CGRAM 08 rather than a palette row of their own.
+        Assert.Equal([15, 14, 13, 12], s.GfxBins.Where(b => b.Name.StartsWith("LG")).Select(b => b.BypWord));
+        Assert.All(s.GfxBins.Where(b => b.Name.StartsWith("LG")), b => Assert.Equal(8, b.ColorOffset));
+    }
+
+    /// <summary>Repointing one turns the bypass on for that level alone, leaves the other three
+    /// on their vanilla files, and does NOT switch on the unrelated FG/BG/SP bypass.</summary>
+    [AvaloniaFact]
+    public void setting_a_layer_3_bin_enables_only_the_layer_3_bypass()
+    {
+        if (Open() is not { } s) { log.WriteLine("SKIP: no ROM"); return; }
+        s.ShowLevel(0x105);
+        Assert.Null(s.Rom!.LmLayer3Gfx(0x105));
+
+        s.SetGfxSlot(15, 0x30);                                   // LG1 → GFX 30
+        Assert.Equal([0x30, 0x7F, 0x7F, 0x7F], s.Rom.LmLayer3Gfx(0x105)!);
+        Assert.Equal([0x30, 0x29, 0x2A, 0x2B], Layer3.GfxFiles(s.Rom, 0x105));
+        Assert.Equal(0x30, s.GfxBins.Single(b => b.Name == "LG1").File);
+
+        Assert.Null(s.Rom.LmGfxBypass(0x105));                    // the other bypass stays off
+        Assert.Null(s.Rom.LmLayer3Gfx(0x104));                    // and it is per level
     }
 
     /// <summary>Clicking a bin opens it in the editor beside it — the selection and the edit are

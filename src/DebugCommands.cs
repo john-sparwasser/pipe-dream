@@ -159,7 +159,15 @@ static class DebugCommands
             Console.WriteLine("no layer 3 in this level");
             return 0;
         }
-        var (px, w, h) = Layer3.Render(map, Layer3.Tiles(rom, level), Palette.Load(rom, header, level));
+        var pal = Palette.Load(rom, header, level);
+        // The LG1 sheet as the GFX drawer's bin card previews it: 2bpp under the layer-3 colour
+        // block (CGRAM 08-0B), which is a colour OFFSET, not a palette row of its own.
+        if (Gfx.Cached(rom, files[0]) is { } lg1)
+        {
+            var (bp, bw, bh) = Gfx.TileSheet(lg1, 2, pal, 0, colorOffset: 8);
+            Png.Write(Path.ChangeExtension(outPath, null) + "-lg1.png", bp, bw, bh);
+        }
+        var (px, w, h) = Layer3.Render(map, Layer3.Tiles(rom, level), pal);
         Png.Write(outPath, px, w, h);
         Console.WriteLine($"wrote {outPath}: {w}x{h}, {map.Count(v => v >= 0)} tilemap words set");
         return 0;

@@ -339,11 +339,23 @@ internal static class RomBuilder
             warnings.Add($"level {key}: GFX slot overrides skipped (base lacks the in-game GFX loader — File → Upgrade base to prep v{RomPrep.Version})");
             return;
         }
+        // The record is two halves with two enable bits (§12b): words 0-11 behind w0 bit 15, and
+        // the layer-3 slots 12-15 behind bit 14. The layer-3 half is carried across on its own,
+        // because LmGfxBypass hands back nothing at all for a base that bypasses layer 3 and
+        // nothing else — and rebuilding from all-defaults would drop its LG slots.
         var w = rom.LmGfxBypass(level);
-        if (w is null) { w = new ushort[16]; Array.Fill(w, (ushort)0x7F); w[0] = 0x807F; }
+        if (w is null) { w = new ushort[16]; Array.Fill(w, (ushort)0x7F); w[0] = 0x007F; }
+        if (rom.LmGfxRecord(level) is { } real && (real[0] & 0x4000) != 0)
+        {
+            Array.Copy(real, 12, w, 12, 4);
+            w[0] |= 0x4000;
+        }
         foreach (var (word, file) in state.GfxOverrides)
             if (word is >= 0 and < 16) w[word] = (ushort)((w[word] & ~0xFFF) | (file & 0xFFF));
-        w[0] |= 0x8000;
+        // Light only the bit for the half that was actually used. Setting bit 15 for a
+        // layer-3-only edit would switch on an FG/BG/SP bypass the project never asked for.
+        if (state.GfxOverrides.Keys.Any(k => k is >= 0 and <= 11)) w[0] |= 0x8000;
+        if (state.GfxOverrides.Keys.Any(k => k is >= 12 and <= 15)) w[0] |= 0x4000;
         int fo = rom.FileOffset(rom.LmGfxBypassBase + level * 0x20);
         for (int i = 0; i < 16; i++) { rom.Data[fo + i * 2] = (byte)w[i]; rom.Data[fo + i * 2 + 1] = (byte)(w[i] >> 8); }
 
@@ -351,6 +363,8 @@ internal static class RomBuilder
             warnings.Add($"level {key}: BG2/BG3 slot overrides stay editor-only (base lacks LM's VRAM patch)");
         if (state.GfxOverrides.Keys.Any(k => k is 0 or 1))
             warnings.Add($"level {key}: AN1/AN2 slot overrides stay editor-only (ExAnimation sources aren't inserted)");
+        if (!rom.HasLmLayer3Gfx && state.GfxOverrides.Keys.Any(k => k is >= 12 and <= 15))
+            warnings.Add($"level {key}: LG1-LG4 slot overrides stay editor-only (base lacks LM's layer-3 GFX loader — it streams GFX 28-2B regardless)");
     }
 
     // Level/sprite streams ride 16-bit runtime pointers — those stay bank-cross-safe;
