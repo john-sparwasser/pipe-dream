@@ -62,6 +62,7 @@ public class RomPrepTests
     private const string GoldenPrepV11Sha256 = "59a429e2b88bcf69635608110e1c8e196d008397b9e5dec759df2f612989e254";
     private const string GoldenPrepV12Sha256 = "37a2fe4e90a8996a6e22a82a801e90f9fd7d9ad1554c265cb15dd89aa0619a92";
     private const string GoldenPrepV13Sha256 = "b509e09cf2fcb6b253a05a15858ea4b587bcd51e3c97531824ebc69c5956972d";
+    private const string GoldenPrepV14Sha256 = "18db2e75e03fd3c053a595aff71a20309e48cd014718b482360e4c2eeaed8105";
 
     private static Rom Prepped()
     {
@@ -520,13 +521,64 @@ public class RomPrepTests
             Assert.Equal(GoldenPrepV12Sha256, RomHash.HeaderlessSha256File(tmp));
 
             File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
-            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V13)
-            string v13 = RomHash.HeaderlessSha256File(tmp);
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 13));     // frozen V13 stamp list
+            Assert.Equal(GoldenPrepV13Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V14)
+            string v14 = RomHash.HeaderlessSha256File(tmp);
             // Spelled out rather than left to the assertion message: xunit truncates a mismatch,
             // and this hash is what the NEXT version bump has to be told.
-            Assert.True(GoldenPrepV13Sha256 == v13, $"V13 golden hash is now {v13}");
+            Assert.True(GoldenPrepV14Sha256 == v14, $"V14 golden hash is now {v14}");
         }
         finally { File.Delete(tmp); }
+    }
+
+    /// <summary>
+    /// V14: the layer-3 pass. Three properties, and the third is the one that is easy to miss —
+    /// a level that does NOT bypass has to get 28-2B put back, or the last bypassed level's
+    /// layer 3 follows the player into the next one. That is why LM re-uploads unconditionally
+    /// and falls back to a default record, and why this runs on every armed load.
+    ///
+    /// Asserted through VramLog rather than the decompression buffer: four slots share that
+    /// buffer, so only the last one is still in it when the routine returns, whereas VRAM is
+    /// where the contract actually lives.
+    /// </summary>
+    [RealRomFact]
+    public void layer_3_slots_upload_to_their_vram_pages_and_fall_back_to_the_vanilla_files()
+    {
+        var rom = Rom.Load(TestRom.RealRomPath);
+        RomPrep.Apply(rom);
+        Assert.True(rom.HasLmLayer3Gfx);
+
+        int rfo = rom.FileOffset(RomPrep.GfxBypassRecords + 5 * 0x20);
+        for (int w = 0; w < 16; w++) { rom.Data[rfo + w * 2] = 0x7F; rom.Data[rfo + w * 2 + 1] = 0; }
+
+        Cpu65816 Run(int w0hi)
+        {
+            rom.Data[rfo + 1] = (byte)w0hi;
+            var cpu = new Cpu65816(rom) { VramLog = [] };
+            cpu.Ram7E[0xFE] = 6;                                   // level 5 + 1
+            cpu.Ram7E[0x1931] = 0;
+            cpu.CallLong(RomPrep.GfxLoaderEntry, 40_000_000);
+            return cpu;
+        }
+
+        // Bypass off: the four vanilla files, in LG1..LG4 order, 0x800 bytes each.
+        var expect = new List<byte>();
+        foreach (int f in Layer3.VanillaGfx) expect.AddRange(Gfx.DecompressFile(rom, f)[..0x800]);
+        Assert.Equal(expect, Run(0x00).VramLog);
+
+        // Bit 14 on with every slot left at 0x7F means the same thing — "this slot keeps its
+        // vanilla file" — so the bytes must not move.
+        Assert.Equal(expect, Run(0x40).VramLog);
+
+        // Repoint LG3 (w13) at a vanilla file of its own; only that quarter changes.
+        rom.Data[rfo + 13 * 2] = 0x00;                             // w13 = GFX 00
+        var moved = Run(0x40).VramLog!;
+        Assert.Equal(expect[..0x1000], moved[..0x1000]);           // LG1, LG2 untouched
+        Assert.Equal(Gfx.DecompressFile(rom, 0)[..0x800], moved[0x1000..0x1800]);
+        Assert.Equal(expect[0x1800..], moved[0x1800..]);           // LG4 untouched
     }
 
     /// <summary>SlotTab must send each record word to the VRAM page vanilla would have used
@@ -602,8 +654,12 @@ public class RomPrepTests
 
         int rfo = rom.FileOffset(RomPrep.GfxBypassRecords + 5 * 0x20);   // level 5 record
         for (int w = 0; w < 16; w++) { rom.Data[rfo + w * 2] = 0x7F; rom.Data[rfo + w * 2 + 1] = 0; }
-        rom.Data[rfo + 1] = 0x80;                                  // w0 = 0x807F (enabled)
+        rom.Data[rfo + 1] = 0xC0;                                  // w0 = 0xC07F: both enables
         rom.Data[rfo + 0x0E] = 0x00; rom.Data[rfo + 0x0F] = 0x01;  // FG1 (w7) = file 0x100
+        // V14's layer-3 pass runs on EVERY armed load and shares the decompression buffer, so
+        // it would overwrite what this test reads there. Point its four slots at a dead id
+        // (0x34-0x7F resolves to "skip") to hold it inert — the layer-3 half has its own test.
+        for (int w = 12; w <= 15; w++) { rom.Data[rfo + w * 2] = 0x40; rom.Data[rfo + w * 2 + 1] = 0x00; }
 
         Cpu65816 Armed()
         {
@@ -636,12 +692,13 @@ public class RomPrepTests
         u.CallLong(RomPrep.GfxLoaderEntry, 20_000_000);
         Assert.Equal(0xEE, Buf(u)[bufAddr]);
 
-        // disabled record (w0 bit15 clear): nothing happens
-        rom.Data[rfo + 1] = 0x00;
+        // disabled record (w0 bit15 clear): nothing happens. Bit 14 stays on so the layer-3
+        // pass keeps taking its dead slots rather than falling back to the vanilla 28-2B.
+        rom.Data[rfo + 1] = 0x40;
         var dis = Armed(); Buf(dis)[bufAddr] = 0xEE;
         dis.CallLong(RomPrep.GfxLoaderEntry, 20_000_000);
         Assert.Equal(0xEE, Buf(dis)[bufAddr]);
-        rom.Data[rfo + 1] = 0x80;
+        rom.Data[rfo + 1] = 0xC0;
 
         // vanilla-file override resolves through the vanilla tables (filters keep working)
         rom.Data[rfo + 0x0E] = 0x02; rom.Data[rfo + 0x0F] = 0x00;  // FG1 = vanilla GFX02

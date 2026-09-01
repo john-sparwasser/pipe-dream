@@ -1411,6 +1411,25 @@ Triggered by ticking "Enable bypass of standard Layer 3 GFX".
           `$0FF8A0`(71) `$0FF900`(111) `$0FF9C0`(11) `$0FF9E0`(175) `$0FFAB0`(36) `$0FFAF0`(17)
           `$0FFB20`(523) `$0FFD80`(332); record table RATS at `$128008` (28160 B)
 
+**Step A is PORTED — prep v14  [CONFIRMED in Mesen, 2026-09-01]**. Not LM's bytes: LM's hook,
+LM's record, LM's table address, our code — the same technique as every other stage here. The
+upload rides the loader we already hook at `$00AA50`, which is where LM does it too, so it cost
+one extra pass rather than a new engine: `L3SlotTab` (4 words, the shape `GfxSlotTab` already
+had), a copy loop that is vanilla's own `$00A9AC` (0x400 words, no 3bpp→4bpp expansion, because
+layer 3 is two bit planes by construction), and `L3DestTable` stamped at LM's fixed `$0FFA7F`
+so `HasLmLayer3Gfx` answers the same on a prepped base as on an LM-saved one.
+
+It runs on EVERY armed level load, bypassed or not, falling back to 28-2B per slot — the same
+thing LM's default record does, and not optional: without it the first bypassed level's layer 3
+follows the player into the next one.
+
+Confirmed two ways. `layer_3_slots_upload_to_their_vram_pages_and_fall_back_to_the_vanilla_files`
+runs the routine on the 65816 emulator and asserts VramLog byte for byte, including that
+repointing LG3 moves only its quarter. Then on the console: a ROM whose LG1 (GFX 28 — the status
+bar's own font) points at 0x800 bytes of `FF`, booted in Mesen, draws the status bar and the
+title logo's layer-3 tiles as solid blocks. LG1 was chosen because it is the one slot that draws
+on every level, so a hit is unmissable and a miss is unambiguous.
+
 *Step B — layer-3 TILEMAP bypass*  [`l3_e` → `l3_k`, 1 MB, **11 runs — a clean isolate**].
 Triggered by ticking "Enable bypass of standard Layer 3 tilemap", with LT3 left at 7F Skip File.
 

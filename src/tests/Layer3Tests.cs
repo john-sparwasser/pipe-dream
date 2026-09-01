@@ -332,9 +332,10 @@ public class Layer3Tests(ITestOutputHelper log)
             Assert.Equal(0x30, rec[15] & 0xFFF);          // w15 is LG1
             Assert.Equal([0x30, 0x29, 0x2A, 0x2B], Layer3.GfxFiles(rom, 0x105));
 
-            // Prep does not install LM's layer-3 GFX loader, so the build has to say so.
-            Assert.False(rom.HasLmLayer3Gfx);
-            Assert.Contains("LG1-LG4", status);
+            // Prep v14 installs the layer-3 GFX loader, so the slot reaches the game and the
+            // build no longer has to apologise for it.
+            Assert.True(rom.HasLmLayer3Gfx);
+            Assert.DoesNotContain("LG1-LG4", status);
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }

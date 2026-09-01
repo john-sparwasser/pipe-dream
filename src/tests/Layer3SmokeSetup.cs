@@ -78,4 +78,52 @@ public class Layer3SmokeSetup(ITestOutputHelper log)
         log.WriteLine($"option {Layer3.Option(rom, BootLevel)}, "
                     + $"priority {LevelParser.Parse(rom, BootLevel).Header.Layer3Priority}");
     }
+
+    /// <summary>
+    /// Builds the ROM for the prep-v14 layer-3 GFX smoke test, on a PREPPED VANILLA — the case
+    /// that matters, because that is what every project here is built on.
+    ///
+    /// It repoints LG1, which is GFX 28, which is the status bar's own font. Any other slot
+    /// would need a level whose layer 3 draws something; the status bar draws on every level,
+    /// so a hit is unmissable and a miss is unambiguous. The replacement is solid colour 3, so
+    /// the score and coin counters become blocks the instant the upload reaches VRAM.
+    /// </summary>
+    [Fact]
+    public void build_a_rom_whose_status_bar_font_comes_from_a_bypassed_lg1()
+    {
+        if (Environment.GetEnvironmentVariable("PIPEDREAM_L3_SMOKE") is null)
+        { log.WriteLine("SKIP: set PIPEDREAM_L3_SMOKE to build the smoke ROM"); return; }
+
+        string dir = Path.Combine(Path.GetTempPath(), "pd-l3gfx");
+        if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+
+        var s = new EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), Path.Combine(Root, ".resources", "SMW.smc")),
+                    s.Status);
+        Assert.True(s.Rom!.HasLmLayer3Gfx, "base was not prepped to v14");
+        s.ShowLevel(BootLevel);
+
+        string bin = Path.Combine(dir, "solid.bin");
+        File.WriteAllBytes(bin, Enumerable.Repeat((byte)0xFF, 0x800).ToArray());
+        var (id, why) = s.ImportGfx(bin);
+        Assert.True(id >= 0, why);
+        // The bypass is PER LEVEL, and a headless Mesen run cannot yet choose which level it
+        // enters (reference/MESEN.md) — it lands in the title demo's. So every level the probe
+        // might reach gets the same override, and whichever one loads answers the question.
+        foreach (int lvl in (int[])[BootLevel, 0x0C7, 0x105, 0x024])
+        {
+            s.ShowLevel(lvl);
+            log.WriteLine($"{lvl:X3}: {s.SetGfxSlot(15, id)}");   // w15 = LG1 = GFX 28
+            s.Save();                                             // stash this level before moving on
+        }
+
+        string status = s.Build();
+        log.WriteLine(status);
+        string built = Path.Combine(s.Project!.Folder, "build", s.Project.Name + ".smc");
+        Assert.True(File.Exists(built), status);
+        var rom = Rom.Load(built);
+        log.WriteLine($"built: {built}");
+        log.WriteLine($"LG files: {string.Join(" ", Layer3.GfxFiles(rom, BootLevel).Select(f => f.ToString("X")))}");
+        Assert.DoesNotContain("editor-only", status);
+    }
 }

@@ -127,6 +127,7 @@ public sealed class Asm(int orgSnes)
     // ---- transfers/stack/flags ----
     public Asm Tax() => E(0xAA);
     public Asm Tay() => E(0xA8);
+    public Asm Txa() => E(0x8A);
     public Asm Tya() => E(0x98);
     public Asm Xba() => E(0xEB);
     public Asm Pha() => E(0x48);

@@ -51,9 +51,12 @@ public static class RomPrep
     /// V8 uploads 4bpp the way LM does, which is the only thing that makes LM read a prepped
     /// ROM's graphics as 4bpp rather than as noise; V9 reserves the balance that keeps the
     /// ROM's checksum reading as Super Mario World's own, so LM stops calling it tampered with.
+    /// V14 adds the LAYER-3 GFX bypass — LG1-LG4 out of the same per-level record, uploaded on
+    /// every level load the way LM does it, so a repointed layer-3 slot reaches the console
+    /// instead of stopping at the project file (see <see cref="AppendV14Stamps"/>).
     /// Version-keyed stamp lists keep every released version BYTE-FROZEN: a v1 project's
     /// pinned image must reproduce forever (golden-hash tested).</summary>
-    public const int Version = 13;
+    public const int Version = 14;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -171,6 +174,14 @@ public static class RomPrep
     public const int GfxSlotTab = 0x0FF8A0;        // 8 words: record offset | $2117 page &lt;&lt; 8
     public const int GfxResolve = 0x0FF810;        // file# → $8A-$8C src ptr (near JSR)
 
+    // ---- V14: layer-3 GFX bypass (LG1-LG4 = record words 15-12, gated by w0 bit 14) ----
+    public const int L3SlotTab = 0x0FF8B0;         // 4 words, same shape as GfxSlotTab
+    public const int L3Loop = 0x0FF8C0;            // the layer-3 upload pass (near JSR)
+    /// <summary>LM's layer-3 VRAM destination table, at the fixed address our
+    /// <see cref="LunarMagic.HasLmLayer3Gfx"/> probe reads: `$4C00 $4800 $4400 $4000` for
+    /// LG4..LG1, i.e. LG1 at word $4000 and 0x400 words a slot (CONTRACT §12b).</summary>
+    public const int L3DestTable = 0x0FFA7F;
+
     /// <summary>The four vanilla `JSL $00F545` acts-like call sites (banks 00/01/02),
     /// repointed to our remap so gameplay collision resolves extended tiles.</summary>
     public static readonly int[] ActsCallSites = [0x00F4DD, 0x019533, 0x02961A, 0x02A6EB];
@@ -200,7 +211,10 @@ public static class RomPrep
            // V12: LM's ladder entry at $06F540 (CMP #$0400) — what LM's render engine JSLs to.
            && (version < 12 || rom.ReadValue(0x06F540, 3) == 0x0400C9)
            // V13: the overworld's tile reader takes 4bpp (LM's 4bpp-mode byte at $0480BD).
-           && (version < 13 || rom.ReadByte(0x0480BD) == 0x10);
+           && (version < 13 || rom.ReadByte(0x0480BD) == 0x10)
+           // V14: LM's layer-3 VRAM destination table, at LM's own fixed address — the same
+           // property an LM-saved ROM has, not our particular loader (CONTRACT §0).
+           && (version < 14 || rom.HasLmLayer3Gfx);
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying
@@ -352,7 +366,36 @@ public static class RomPrep
         // addresses, so V3's scanner contract holds and EnsureMap16Tiles keeps writing there.
         if (version >= 12) s.Add((Pc(0x06F538), LmMap16Ladder()));
         if (version >= 13) AppendV13Stamps(s);
+        // V14 restamps the whole GFX block, the way V3/V5/V12 restamp theirs: the layer-3 pass
+        // is an extra tail on the same loader, so the earlier versions' bytes stay frozen and
+        // only the v14 image differs.
+        if (version >= 14) AppendV14Stamps(s);
         return s;
+    }
+
+    /// <summary>
+    /// V14: the layer-3 GFX bypass — LG1-LG4, the record's words 15-12 behind w0 bit 14.
+    ///
+    /// Vanilla decompresses GFX 28-2B into VRAM word $4000 exactly once, at $00A993 during boot,
+    /// and never again — which is why layer-3 graphics are global in an unmodified game and why
+    /// LM's help says the bypass only becomes per-level "once you save at least one level or
+    /// submap that bypasses the layer 3 GFX". LM's answer is to redo that upload on every level
+    /// load from inside the loader it already hooks at $00AA50, falling back to a fixed default
+    /// record whose tail is `2B 2A 29 28`. Ours does the same, in the same place, from the same
+    /// record: a level that bypasses gets its own files, and a level that does not gets 28-2B
+    /// put back — without which one bypassed level would leak its layer 3 into the next.
+    ///
+    /// The upload is a STRAIGHT copy, not the 3bpp→4bpp expansion the other slots go through:
+    /// layer 3 is two bit planes by construction ($00A993 streams 0x400 words per slot into a
+    /// 128-tile window), so 0x800 bytes land as they are.
+    ///
+    /// <see cref="L3DestTable"/> goes down at LM's own fixed address, so a prepped base answers
+    /// <see cref="LunarMagic.HasLmLayer3Gfx"/> the same way an LM-saved one does.
+    /// </summary>
+    private static void AppendV14Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        s.Add((Pc(GfxArmStub), GfxCode(14)));
+        s.Add((Pc(L3DestTable), [0x00, 0x4C, 0x00, 0x48, 0x00, 0x44, 0x00, 0x40]));
     }
 
     /// <summary>
@@ -1314,7 +1357,7 @@ public static class RomPrep
          .Bpl("cache")
          .Rep(0x30)
          .LdaDp(0xFE)                        // [SCAN] armed level+1
-         .Beq("exit")                        // [SCAN]
+         .Beq("noL3")                        // [SCAN] not a level load — layer 3 too
          .DecA()                             // [SCAN]
          .Asl().Asl().Asl().Asl().Asl()      // [SCAN] level * 0x20
          .Tax()                              // [SCAN]
@@ -1361,7 +1404,12 @@ public static class RomPrep
          .Inx().Inx()
          .CpxImm16(0x0010)
          .Bcc("slot")
-         .Label("exit")
+         .Label("exit");
+        // The layer-3 pass runs for EVERY armed level, bypassed or not — it is what puts 28-2B
+        // back after a level that repointed them. Only reachable when $FE is armed, so it can
+        // recompute the record base from it.
+        if (version >= 14) a.Jsr(L3Loop);
+        a.Label("noL3")
          .Sep(0x30)
          .Rtl();
 
@@ -1430,6 +1478,71 @@ public static class RomPrep
              0x14, 0x68,                     // SP2 (w10) → $68
              0x12, 0x70,                     // SP3 (w9) → $70
              0x10, 0x78);                    // SP4 (w8) → $78
+        if (version < 14) return a.Bytes();
+
+        a.PadTo(L3SlotTab)
+         .Db(0x1E, 0x40,                     // LG1 (w15) → VRAM page $40 (word $4000)
+             0x1C, 0x44,                     // LG2 (w14) → $44
+             0x1A, 0x48,                     // LG3 (w13) → $48
+             0x18, 0x4C);                    // LG4 (w12) → $4C
+
+        // ---- Layer-3 pass: LG1-LG4 → VRAM $4000, 0x400 words each, no expansion ----
+        a.PadTo(L3Loop)
+         .Rep(0x30)
+         .LdaDp(0xFE)                        // armed level+1 (the caller checked it)
+         .DecA()
+         .Asl().Asl().Asl().Asl().Asl()
+         .Tax()
+         .StxDp(0x03)                        // record byte offset — the bit-15 path may have
+         .LdxImm16(0x0000)                   // branched here without setting it
+         .Label("l3slot")
+         .Phx()                              // X = slot index * 2 (stack-preserved)
+         .LdaLongX(L3SlotTab)
+         .StaDp(0x0E)                        // lo = record offset, hi = $2117 page
+         .LdaDp(0x03).Tax()
+         .LdaLongX(GfxBypassRecords)         // w0
+         .AndImm16(0x4000)
+         .Beq("l3van")                       // layer-3 bypass off: the vanilla file
+         .LdaDp(0x0E)
+         .AndImm16(0x00FF)
+         .Clc().AdcDp(0x03)
+         .Tax()
+         .LdaLongX(GfxBypassRecords)         // slot word
+         .AndImm16(0x0FFF)
+         .CmpImm16(0x007F)
+         .Bne("l3have")                      // 0x7F = this slot keeps its vanilla file
+         .Label("l3van")
+         .Plx().Phx()                        // recover the slot index X clobbered
+         .Txa().Lsr()
+         .Clc().AdcImm16(0x0028)             // LG(n) defaults to GFX 0x28+n
+         .Label("l3have")
+         .StaDp(0x06)
+         .JsrL("resolve")
+         .Bcs("l3skip")                      // not inserted / invalid id
+         .Sep(0x20)
+         .StzDp(0x00)                        // decompress dest: the shared buffer
+         .LdaImm8(GfxBuffer >> 8 & 0xFF).StaDp(0x01)
+         .LdaImm8(GfxBuffer >> 16).StaDp(0x02)
+         .Jsl(GfxThunks)                     // LC_LZ2 core ($8A-$8C → [$00])
+         .LdaImm8(0x80).StaAbs(0x2115)       // word-increment VRAM mode
+         .StzAbs(0x2116)
+         .LdaDp(0x0F).StaAbs(0x2117)         // slot's VRAM page
+         .Rep(0x30)
+         .LdxImm16(0x03FF)                   // 0x400 words — vanilla's own $00A9AC loop, which
+         .LdyImm16(0x0000)                   // copies 2bpp straight through
+         .Label("l3copy")
+         .LdaIndLongY(0x00)
+         .StaAbs(0x2118)
+         .Iny().Iny()
+         .Dex()
+         .Bpl("l3copy")
+         .Label("l3skip")
+         .Rep(0x30)
+         .Plx()
+         .Inx().Inx()
+         .CpxImm16(0x0008)
+         .Bcc("l3slot")
+         .Rts();
         return a.Bytes();
     }
 }
