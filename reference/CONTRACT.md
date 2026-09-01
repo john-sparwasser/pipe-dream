@@ -1296,11 +1296,19 @@ needs a base carrying LM's layer-3 tilemap loader (`Rom.HasLmLayer3Tilemap`: a `
 `LDA $1BE3` at `$00A01F`). Our prep does NOT install it, so on a prepped base the tilemap stays
 editor-only and the build says so.
 
-Two approximations remain, both flagged in code. The file is drawn from word `$5000` and
-stamped with destination 1 ("Start of Layer 3", `Layer3.BuiltTilemapDestination`) because that
-is the destination whose NAME matches — the VRAM offset each of the four implies is undecoded,
-so a built layer 3 coming out shifted means that constant is the thing to question. And nothing
-has yet been run in an emulator to confirm the round trip end to end.
+**Confirmed on the console  [Mesen, level `$0C5`]**. `Layer3SmokeSetup` (gated on
+`PIPEDREAM_L3_SMOKE`) builds a ROM whose layer-3 map fills every row with the FONT GLYPH for its
+own row number mod 10, gives the level option 3 and layer-3 priority, and drops it on `$0C5` —
+the level a new game enters. Booted in Mesen (Start, Start, B) the pattern is on screen, and the
+rows read `5 6 7 8 9 0 1 2 3 4` down the edge of the intro message box: consecutive, wrapping,
+exactly as authored. A custom tilemap built here reaches the SNES.
+
+What that does NOT settle is the DESTINATION. The file is drawn from word `$5000` and stamped
+with destination 1 ("Start of Layer 3", `Layer3.BuiltTilemapDestination`) because that is the
+destination whose NAME matches; the VRAM offset each of the four implies is still undecoded.
+A full 0x2000 file fills the whole window, so every destination would look the same — telling
+them apart needs a PARTIAL file (0x800 or 0x1000) and a marker row, and layer 3's own vertical
+scroll moves the picture independently, so "which row is at screen top" cannot answer it either.
 
 **The Layer 3 Options field  [CONFIRMED for 0 and 3; 1/2 by dropdown order]** — isolated by
 `l3_c` (Blank Layer 3) → `l3_e` (Tileset Specific), with the hack installed on both. Changing
