@@ -111,6 +111,27 @@ public class PaletteGridView : Control
         if (ShowHoverIndex) InvalidateVisual();
     }
 
+    /// <summary>
+    /// Runs of indices to PREVIEW as the survivors of a filter: each is ringed, and everything
+    /// outside every run goes under the same veil a disabled swatch wears. For "here is what
+    /// that toggle will keep" — pointing at a control and reading its effect off the grid beats
+    /// pressing it and comparing two pictures from memory.
+    ///
+    /// Rings per RUN rather than one box round the lot, because the runs are the structure worth
+    /// showing: eight groups of four is what layer 3's palette space is, and a single rectangle
+    /// over rows 0-1 would say only "these thirty-two". Null = draw the grid plainly.
+    /// </summary>
+    public (int Start, int Count)[]? Preview
+    {
+        get => preview;
+        set { preview = value; InvalidateVisual(); }
+    }
+
+    private (int Start, int Count)[]? preview;
+
+    private bool InPreview(int i)
+        => preview is null || preview.Any(p => i >= p.Start && i < p.Start + p.Count);
+
     public override void Render(DrawingContext ctx)
     {
         double c = Cell;
@@ -124,7 +145,7 @@ public class PaletteGridView : Control
             // Colours arrive as 0xAABBGGRR from the composer; Avalonia wants them named.
             var swatch = UiColors.FromRgba(v);
             ctx.FillRectangle(new SolidColorBrush(swatch), r);
-            bool off = IsDisabled?.Invoke(i) == true;
+            bool off = IsDisabled?.Invoke(i) == true || !InPreview(i);
             if (off) ctx.FillRectangle(veil, r);
             ctx.DrawRectangle(null, grid, r);
             if (IsEdited?.Invoke(i) == true)
@@ -139,6 +160,16 @@ public class PaletteGridView : Control
                 ctx.DrawText(text, new Point(r.Center.X - text.Width / 2, r.Center.Y - text.Height / 2));
             }
         }
+        // The rings go over every swatch, so a run that wraps a row still reads as one run.
+        foreach (var (start, count) in preview ?? [])
+            for (int i = start; i < start + count; i += Cols - i % Cols)
+            {
+                int run = Math.Min(count - (i - start), Cols - i % Cols);
+                var box = new Rect(i % Cols * c, i / Cols * c, run * c, c);
+                ctx.DrawRectangle(null, new Pen(Brushes.Black, 3), box);
+                ctx.DrawRectangle(null, new Pen(UiColors.Selection, 1.5), box);
+            }
+
         if (Selected >= 0 && Selected < Count && !(HideFirst && Selected == 0))
         {
             var sel = new Rect(Selected % Cols * c, Selected / Cols * c, c, c);

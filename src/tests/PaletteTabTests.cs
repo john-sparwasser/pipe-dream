@@ -236,6 +236,47 @@ public class PaletteTabTests(ITestOutputHelper log) : IDisposable
     }
 
     /// <summary>
+    /// Pointing at the toggle previews it on the grid: the eight groups it keeps are ringed and
+    /// the 224 it drops go under the veil, so the effect is readable without pressing anything.
+    /// Once the grid IS narrowed there is nothing being filtered out, so the preview goes away —
+    /// otherwise it would ring all eight rows of a view that is only those eight rows.
+    /// </summary>
+    [AvaloniaFact]
+    public void hovering_the_layer_3_toggle_rings_the_colours_it_would_keep()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<TabStrip>("PaletteTabs").SelectedIndex = MainWindow.PaletteTabIndex;
+        Dispatcher.UIThread.RunJobs();
+
+        var grid = w.GetControl<PaletteGridView>("PaletteGrid");
+        Assert.Null(grid.Preview);
+
+        Preview(w, true);
+        var runs = grid.Preview!;
+        Assert.Equal(Layer3.PaletteGroups, runs.Length);
+        Assert.All(runs, r => Assert.Equal(Layer3.PaletteColors, r.Count));
+        // Contiguous from 0, so between them the runs are exactly CGRAM 00-1F.
+        Assert.Equal(Enumerable.Range(0, Layer3.PaletteGroups).Select(g => g * Layer3.PaletteColors),
+                     runs.Select(r => r.Start));
+
+        Preview(w, false);
+        Assert.Null(grid.Preview);
+
+        w.GetControl<CheckBox>("PaletteLayer3").IsChecked = true;
+        Dispatcher.UIThread.RunJobs();
+        Preview(w, true);
+        Assert.Null(grid.Preview);
+    }
+
+    private static void Preview(MainWindow w, bool on) => typeof(MainWindow)
+        .GetMethod("PreviewLayer3Palette", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+        .Invoke(w, [on]);
+
+    /// <summary>
     /// Step-wise undo of palette edits, which the ImGui editor had and the Avalonia port
     /// dropped in favour of a Reset-everything button.
     ///

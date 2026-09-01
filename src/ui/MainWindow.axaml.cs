@@ -436,6 +436,8 @@ public partial class MainWindow : Window
 
         palettePanel = this.GetControl<DockPanel>("PalettePanel");
         paletteLayer3 = this.GetControl<CheckBox>("PaletteLayer3");
+        paletteLayer3.PointerEntered += (_, _) => PreviewLayer3Palette(true);
+        paletteLayer3.PointerExited += (_, _) => PreviewLayer3Palette(false);
         paletteGrid = this.GetControl<PaletteGridView>("PaletteGrid");
         paletteNote = this.GetControl<TextBlock>("PaletteNote");
         paletteIndex = this.GetControl<TextBlock>("PaletteIndex");
@@ -2417,6 +2419,21 @@ public partial class MainWindow : Window
         ShowPaletteColor(paletteGrid.Selected);
     }
 
+    /// <summary>
+    /// Pointing at "Layer 3 only" shows what it would do, on the grid: the eight palette groups
+    /// it keeps get ringed, and the 224 colours it drops go under the disabled veil. Reading the
+    /// effect off the thing it acts on beats pressing the toggle and comparing two pictures from
+    /// memory — and the rings land on the groups, so the shape of the narrowed view is visible
+    /// before you get there.
+    ///
+    /// Nothing to preview once it IS narrowed: at that point nothing is being filtered out.
+    /// </summary>
+    private void PreviewLayer3Palette(bool on)
+        => paletteGrid.Preview = on && paletteLayer3.IsChecked != true
+            ? [.. Enumerable.Range(0, Layer3.PaletteGroups)
+                            .Select(g => (Layer3.PaletteBase(g), Layer3.PaletteColors))]
+            : null;
+
     /// <summary>Narrow the palette page to what layer 3 can reach, and back. A selection outside
     /// the narrowed range is DROPPED rather than clamped: clamping would silently move the picker
     /// to a colour the user never chose, and the next edit would land on it.</summary>
@@ -2424,6 +2441,9 @@ public partial class MainWindow : Window
     {
         if (paletteLayer3.IsChecked == true && paletteGrid.Selected >= Layer3.PaletteSpace)
             paletteGrid.Select(-1);
+        // Pressing it while the pointer is still on it: the preview would otherwise stay up over
+        // a grid that has already been narrowed.
+        PreviewLayer3Palette(false);
         RefreshPaletteTab();
     }
 
