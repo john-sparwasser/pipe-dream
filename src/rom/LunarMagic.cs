@@ -371,17 +371,8 @@ public static class LunarMagic
         /// </summary>
         public ushort[]? LmGfxBypass(int level)
         {
-            ushort[]? w = null;
-            if (rom.LmGfxBypassBase >= 0)
-            {
-                int fo = rom.FileOffset(rom.LmGfxBypassBase + level * 0x20);
-                if (fo >= 0 && fo + 0x20 <= rom.Data.Length)
-                {
-                    var r = new ushort[16];
-                    for (int i = 0; i < 16; i++) r[i] = (ushort)(rom.Data[fo + i * 2] | (rom.Data[fo + i * 2 + 1] << 8));
-                    if ((r[0] & 0x8000) != 0) w = r;
-                }
-            }
+            var r = rom.LmGfxRecord(level);
+            ushort[]? w = r is not null && (r[0] & 0x8000) != 0 ? r : null;
             foreach (var ((lvl, word), file) in rom.GfxSlotOverrides)
             {
                 if (lvl != level || word is < 0 or > 15) continue;
@@ -389,6 +380,37 @@ public static class LunarMagic
                 w[word] = (ushort)((w[word] & ~0xFFF) | (file & 0xFFF));
             }
             return w;
+        }
+
+        /// <summary>The raw 16 words of a level's record, whatever its enable bits say, or null
+        /// when the ROM has no table. Two independent features share it — the FG/BG/SP bypass on
+        /// w0 bit 15 and the layer-3 GFX bypass on w0 bit 14 — so the gate belongs to the caller,
+        /// not to the read.</summary>
+        public ushort[]? LmGfxRecord(int level)
+        {
+            if (rom.LmGfxBypassBase < 0) return null;
+            int fo = rom.FileOffset(rom.LmGfxBypassBase + level * 0x20);
+            if (fo < 0 || fo + 0x20 > rom.Data.Length) return null;
+            var r = new ushort[16];
+            for (int i = 0; i < 16; i++) r[i] = (ushort)(rom.Data[fo + i * 2] | (rom.Data[fo + i * 2 + 1] << 8));
+            return r;
+        }
+
+        /// <summary>
+        /// The level's four layer-3 GFX files, LG1-LG4 in that order, or null when it does not
+        /// bypass them (CONTRACT §12b).
+        ///
+        /// They are **words 12-15 of the same per-level record** as the Super GFX Bypass — the
+        /// "tail (TBD, constant)" §7d left unnamed — in reverse slot order (w15 = LG1), gated by
+        /// **w0 bit 14**, which is a different bit from the FG/BG/SP bypass on bit 15. LM's own
+        /// loader at $0FF9E0 does exactly this: `LDA [record] : ASL : BPL default`, and its
+        /// "default" is a fixed record at $0FFA6F whose tail is the vanilla `2B 2A 29 28`. A slot
+        /// left at 0x7F keeps its vanilla file, the same convention as every other slot here.
+        /// </summary>
+        public int[]? LmLayer3Gfx(int level)
+        {
+            if (rom.LmGfxRecord(level) is not { } r || (r[0] & 0x4000) == 0) return null;
+            return [.. Enumerable.Range(0, 4).Select(i => r[15 - i] & 0xFFF)];
         }
 
         /// <summary>True if LM's GFX bypass loader is installed: `JSL $0FF780` (22 80 F7 0F) at

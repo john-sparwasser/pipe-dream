@@ -634,12 +634,14 @@ LDA $10AD08,X` → **record = tableBase + level\*0x20**, tableBase baked into th
 signature scan: `A5 FE F0 ?? 3A 0A 0A 0A 0A 0A AA BF <base:3>`.
 Record long-ptr cached at $7FC006/8; enabled-flag byte at $7FC009 (0x42 = enabled).
 
-**True record layout** (starts 8 bytes AFTER the §7c-observed offset; the "constant 2B 2A 29 28"
-words are the previous record's tail): 16 words:
+**True record layout** (starts 8 bytes AFTER the §7c-observed offset): 16 words. The
+"constant 2B 2A 29 28" is NOT a previous record's tail and not constant — it is the vanilla
+layer-3 GFX set, decoded in §12b:
 ```
 w0 = AN2 (bit15 = BYPASS ENABLED flag)   w1 = AN1
 w2 = BG3   w3 = BG2   w4 = FG3   w5 = BG1   w6 = FG2   w7 = FG1
-w8 = SP4   w9 = SP3   w10 = SP2   w11 = SP1   w12-15 = tail (TBD, constant)
+w8 = SP4   w9 = SP3   w10 = SP2   w11 = SP1
+w12 = LG4  w13 = LG3   w14 = LG2   w15 = LG1  <- layer-3 GFX, gated by w0 bit 14 (§12b)
 ```
 So level-0x105's record in gfx_after.smc = $10CDA8, not $10CDA0.
 
@@ -1216,27 +1218,39 @@ runs**. Observed hook sites (PC, headered): `0x001671` → `JSL $0FF9C0`, `0x002
 + version, `0x07F3B5`); plus repeated 2-byte `E3 B3` → `E0 F0`/`F0 F0` patches at `0x06A6BE`,
 `0x06C403`, `0x06D003`, `0x06DC03`, `0x06EB03`.
 
-**The GFX/tilemap bypass table  [CONFIRMED]** — isolated by two saves that BOTH have the hack
-installed, differing only in LG1 (`l3_b` LG1=29 → `l3_c` LG1=30). Exactly ONE semantic byte
-moved; every other run in that diff was the level's own data block relocating.
+**The GFX bypass: NOT a new table — the tail of §7d's record  [CONFIRMED + IMPLEMENTED]**
 
-  layout       per level, **0x20 bytes**, 16 little-endian words, level-number indexed
-  slot words   +0 = LG4, +2 = LG3, +4 = LG2, **+6 = LG1** — reverse slot order, the same
-               convention as the Super GFX Bypass record (§7d). `0x007F` = none/default.
-  install      the hack pre-fills EVERY level with the vanilla defaults `2B 2A 29 28`
-               (LG4..LG1) and `0x007F` elsewhere; `+0x18` is `FFFF` in every record.
-  unmapped     +8..+0x16 and +0x1A..+0x1E (all `0x007F` at install). The tilemap file LT3,
-               its destination and size, and the Change-Layer-3-Settings fields presumably
-               live in here — one level in the sample carries `0x407F` at +8.
-  location     LM-allocated in expanded ROM inside the RATS block at file `0x090200`
-               (payload 0x6E00) that also holds the hack code. In this ROM level 000 sits at
-               SNES `$12:AD20`, so level `$105` is `$12:CDC0` and its LG1 byte is `$12:CDC6`.
-               **Per-ROM — never hardcode it**; follow the hack's hook operand the way
-               `LmMidwayTable` / `LmExAnimBase` do. NOT YET DONE, and not reachable the easy
-               way: the bytes `BF nn AD 12` appear nowhere in `l3_e.smc`, so the reader is not
-               a plain `LDA.l base,X` and the `ScanOperand` trick that finds `LmGfxBypassBase`
-               does not reach it. Until it is located, `Layer3.Tiles` uses the vanilla four on
-               every ROM, and a level whose LG slots LM has repointed will draw the wrong tiles.
+The earlier reading of these saves put the record boundary 0x18 bytes too early and concluded
+a second per-level table existed at `$12:AD20` whose reader could not be found. Both halves
+were wrong. Re-aligned to `LmGfxBypassBase + level*0x20`, the LG slots fall exactly on **words
+12-15 of the Super GFX Bypass record** — the four words §7d recorded as "w12-15 = tail (TBD,
+constant)". `2B 2A 29 28` was never a constant; it is the vanilla LG4/LG3/LG2/LG1 default set,
+and `gfx_after.smc` (which predates the layer-3 hack entirely) already carries it.
+
+  words        w12 = LG4, w13 = LG3, w14 = LG2, **w15 = LG1** — reverse slot order, the same
+               convention as the rest of the record. `& 0xFFF` = GFX/ExGFX file, `0x7F` = keep
+               the vanilla file. w13 bits 13-14 additionally carry the Layer 3 Option below.
+  enable       **w0 bit 14**, distinct from the FG/BG/SP bypass on w0 bit 15. LM's loader at
+               `$0FF9E0` is literally `LDA [record] : ASL : BPL default`, and its "default" is
+               a fixed record at `$0FFA6F` whose tail is `2B 2A 29 28`. So `w0 = $407F` means
+               layer-3 bypass only (`l3_e` level 105) and `$8008` means the other one only
+               (`gfx_after` level 105) — reading either bit as "the record is in use" breaks
+               the opposite ROM, which is what `Layer3Tests` pins.
+  location     no new scan: `Rom.LmGfxBypassBase` already finds it. The reader IS a plain
+               `LDA.l base,X` at `$0FF7F0` (`A5 FE F0 ?? 3A 0A×5 AA BF <base>`, §7d) — the
+               earlier `BF nn AD 12` search failed only because it was run against the wrong
+               base. `l3_0` has no such reader at all: LM allocates the table on the save that
+               first needs it, which here was the layer-3 hack's install.
+  VRAM         LM's own destination table at `$0FFA7F` is `$4C00 $4800 $4400 $4000` for slot
+               index 0-3, i.e. **LG1 → word $4000, LG2 → $4400, LG3 → $4800, LG4 → $4C00**,
+               0x400 words each — independently confirming the 128-tile-per-slot layout above.
+  still open   the TILEMAP bypass (LT3 file, destination, size) is not pinned. Its dialog
+               default is "7F Skip File", and w9-w11 sit at `0x007F` in every sampled record,
+               which is where it probably lives; w0 bit 13 is the obvious candidate for its
+               enable. No controlled save has enabled it yet.
+
+Read by `Rom.LmLayer3Gfx(level)` (null = not bypassed) via `Rom.LmGfxRecord`, which returns
+the raw 16 words so each feature applies its own gate. `--layer3` prints the resolved LG1-4.
 
 **The Layer 3 Options field  [CONFIRMED for 0 and 3; 1/2 by dropdown order]** — isolated by
 `l3_c` (Blank Layer 3) → `l3_e` (Tileset Specific), with the hack installed on both. Changing

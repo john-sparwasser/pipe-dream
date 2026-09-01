@@ -228,14 +228,14 @@ public sealed class EditorSession
     {
         if (Rom is not { } r || Scene is not { } s || s.Palettes[0] is not { } pal) return ([], 0, 0);
         return Layer3.Tilemap(r, s.Level.Header.LevelMode, Layer3.Option(r, LevelNum)) is { } map
-            ? Layer3.Render(map, Layer3.Tiles(r), pal) : ([], 0, 0);
+            ? Layer3.Render(map, Layer3.Tiles(r, LevelNum), pal) : ([], 0, 0);
     }
 
     /// <summary>The 512 layer-3 8x8s as a picker sheet, in BG palette 2 (CGRAM 08-0B) — the
     /// first of the four groups the layer-3 colours occupy.</summary>
     public (uint[] Px, int W, int H) Layer3Sheet()
         => Rom is { } r && Scene?.Palettes[0] is { } pal
-           ? GfxSheets.Tiles(Layer3.Tiles(r), pal, 0, colorOffset: 8) : ([], 0, 0);
+           ? GfxSheets.Tiles(Layer3.Tiles(r, LevelNum), pal, 0, colorOffset: 8) : ([], 0, 0);
 
     /// <summary>The level's composed sprite 8x8s (SP1-SP4, bypass honored) as one sheet,
     /// for the destination picker's sprite range (LM dest tiles 400-5FF).</summary>
@@ -1546,7 +1546,7 @@ public sealed class EditorSession
             if (tile is >= 0x400 and < 0x600)
                 t = (sp ??= SpriteRender.LoadSpTiles(Rom, Scene.Level.Header, LevelNum))[tile - 0x400];
             else if (tile is >= 0x1C00 and < 0x1C00 + Layer3.TileCount)
-                t = (l3 ??= Layer3.Tiles(Rom))[tile - 0x1C00];
+                t = (l3 ??= Layer3.Tiles(Rom, LevelNum))[tile - 0x1C00];
             else if (tile is < 0 or >= 0x400) continue;
             else t = fg.Fetch(tile);
             if (t is null) continue;

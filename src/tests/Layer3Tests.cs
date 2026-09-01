@@ -27,6 +27,15 @@ public class Layer3Tests(ITestOutputHelper log)
         return null;
     }
 
+    /// <summary>One of the controlled Lunar Magic saves next to the vanilla ROM.</summary>
+    private Rom? OpenRef(params string[] parts)
+    {
+        string p = Path.Combine([Path.GetDirectoryName(Vanilla)!, .. parts]);
+        if (File.Exists(p)) return Rom.Load(p);
+        log.WriteLine($"SKIP: no {string.Join("/", parts)}");
+        return null;
+    }
+
     [Fact]
     public void the_option_is_the_two_high_bits_of_the_levels_05F200_byte()
     {
@@ -110,6 +119,77 @@ public class Layer3Tests(ITestOutputHelper log)
             Assert.Equal(0x800, file!.Length);
             Assert.Equal(Gfx.DecodeTile(file, 0, 2), tiles[slot * Layer3.SlotTiles]);
         }
+    }
+
+    // ---- Lunar Magic's layer-3 GFX bypass (CONTRACT §12b) ----
+
+    [Fact]
+    public void the_bypass_slots_are_the_tail_of_the_gfx_record_that_7d_left_unnamed()
+    {
+        if (OpenRef("layer3", "l3_e.smc") is not { } rom) return;
+
+        // l3_e was saved with LG1 repointed to GFX 30 on level 105 and nothing else touched.
+        Assert.Equal([0x30, 0x29, 0x2A, 0x2B], rom.LmLayer3Gfx(0x105)!);
+        Assert.Equal([0x30, 0x29, 0x2A, 0x2B], Layer3.GfxFiles(rom, 0x105));
+
+        // ...and only on level 105. Every other record is at LM's install defaults, which is
+        // the same table's tail reading 2B 2A 29 28 with the enable bit clear.
+        for (int level = 0; level < 0x200; level++)
+            if (level != 0x105)
+                Assert.True(rom.LmLayer3Gfx(level) is null, $"level {level:X3} claims a bypass");
+        Assert.Equal(Layer3.VanillaGfx, Layer3.GfxFiles(rom, 0x104));
+    }
+
+    [Fact]
+    public void bit_14_is_the_layer_3_bypass_and_bit_15_is_the_fg_bg_sp_one()
+    {
+        // The two features share one 16-word record, so the bits have to stay apart: l3_e has
+        // ONLY the layer-3 bypass on level 105 (w0 = 407F), gfx_after ONLY the other one
+        // (w0 = 8008). Read either gate as "the record is in use" and both ROMs break.
+        if (OpenRef("layer3", "l3_e.smc") is { } l3)
+        {
+            Assert.Equal(0x407F, l3.LmGfxRecord(0x105)![0]);
+            Assert.NotNull(l3.LmLayer3Gfx(0x105));
+            Assert.Null(l3.LmGfxBypass(0x105));
+        }
+        if (OpenRef("gfx_after.smc") is { } gfx)
+        {
+            Assert.Equal(0x8008, gfx.LmGfxRecord(0x105)![0]);
+            Assert.Null(gfx.LmLayer3Gfx(0x105));
+            Assert.NotNull(gfx.LmGfxBypass(0x105));
+            // Its tail is the vanilla layer-3 set, untouched — this ROM predates the hack.
+            Assert.Equal(Layer3.VanillaGfx, Layer3.GfxFiles(gfx, 0x105));
+        }
+    }
+
+    [Fact]
+    public void a_rom_without_lms_layer_3_hack_keeps_the_vanilla_files()
+    {
+        if (Open() is { } vanilla)                                  // no Lunar Magic at all
+        {
+            Assert.Null(vanilla.LmLayer3Gfx(0x105));
+            Assert.Equal(Layer3.VanillaGfx, Layer3.GfxFiles(vanilla, 0x105));
+        }
+        if (OpenRef("layer3", "l3_0.smc") is { } pre)               // LM, but before the hack
+        {
+            Assert.Null(pre.LmLayer3Gfx(0x105));
+            Assert.Equal(Layer3.VanillaGfx, Layer3.GfxFiles(pre, 0x105));
+        }
+    }
+
+    [Fact]
+    public void a_bypassed_slot_actually_changes_the_tiles_it_loads()
+    {
+        if (OpenRef("layer3", "l3_e.smc") is not { } rom) return;
+
+        var bypassed = Layer3.Tiles(rom, 0x105);                    // LG1 = GFX 30
+        var vanilla = Layer3.Tiles(rom, 0x104);                     // LG1 = GFX 28
+        Assert.NotEqual(vanilla[0], bypassed[0]);                   // slot 1 is repointed...
+        Assert.Equal(vanilla[Layer3.SlotTiles], bypassed[Layer3.SlotTiles]);   // ...LG2 is not
+
+        // Slot 1 is tiles 0-127, which is VRAM word $4000 — LM's own destination table.
+        var file30 = Gfx.Cached(rom, 0x30)!;
+        Assert.Equal(Gfx.DecodeTile(file30, 0, 2), bypassed[0]);
     }
 
     [Fact]

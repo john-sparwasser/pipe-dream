@@ -149,14 +149,17 @@ static class DebugCommands
         string outPath = args.ElementAtOrDefault(ri + 3) ?? "layer3.png";
         var header = LevelParser.Parse(rom, level).Header;
         int option = Layer3.Option(rom, level);
+        var files = Layer3.GfxFiles(rom, level);
         Console.WriteLine($"level {level:X3}: mode {header.LevelMode}, option {option} "
                         + $"({Layer3.OptionNames[option]}), priority {header.Layer3Priority}");
+        Console.WriteLine($"  LG1-4 = {string.Join(" ", files.Select(f => $"{f:X2}"))}"
+                        + (rom.LmLayer3Gfx(level) is null ? "  (vanilla)" : "  (LM bypass, record w0 bit 14)"));
         if (Layer3.Tilemap(rom, header.LevelMode, option) is not { } map)
         {
             Console.WriteLine("no layer 3 in this level");
             return 0;
         }
-        var (px, w, h) = Layer3.Render(map, Layer3.Tiles(rom), Palette.Load(rom, header, level));
+        var (px, w, h) = Layer3.Render(map, Layer3.Tiles(rom, level), Palette.Load(rom, header, level));
         Png.Write(outPath, px, w, h);
         Console.WriteLine($"wrote {outPath}: {w}x{h}, {map.Count(v => v >= 0)} tilemap words set");
         return 0;

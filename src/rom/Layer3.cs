@@ -51,18 +51,29 @@ public static class Layer3
     public static int Option(Rom rom, int level) => (rom.ReadByte(OptionTable + (level & 0x1FF)) >> 6) & 3;
 
     /// <summary>
-    /// The 512 layer-3 8×8 tiles as palette indices (0-3), in VRAM order — slot k holds tiles
-    /// k*128..k*128+127, which is how $00A993's straight-through upload lays them out.
+    /// The four GFX files this level loads into the layer-3 window, LG1-LG4. Vanilla's 28-2B
+    /// unless LM's per-level layer-3 GFX bypass repoints them — and its slots live in the SAME
+    /// per-level record as the Super GFX Bypass, so there is no second table to find. A
+    /// bypassed slot left at 0x7F keeps its vanilla file, as everywhere else in that record.
     /// </summary>
-    // ponytail: always the vanilla four. LM's per-level Layer 3 GFX bypass would repoint them,
-    // but its table cannot be located per-ROM yet (CONTRACT §12b: the reader is not a plain
-    // `LDA.l base,X`, so the ScanOperand trick that finds LmGfxBypassBase does not reach it).
-    public static byte[]?[] Tiles(Rom rom)
+    public static int[] GfxFiles(Rom rom, int level)
+        => level >= 0 && rom.LmLayer3Gfx(level) is { } lg
+           ? [.. lg.Select((f, i) => f == 0x7F ? VanillaGfx[i] : f)]
+           : VanillaGfx;
+
+    /// <summary>
+    /// The 512 layer-3 8×8 tiles as palette indices (0-3), in VRAM order — slot k holds tiles
+    /// k*128..k*128+127. That is how $00A993's straight-through upload lays them out, and LM's
+    /// own destination table at $0FFA7F agrees: LG1 → word $4000, LG2 → $4400, LG3 → $4800,
+    /// LG4 → $4C00.
+    /// </summary>
+    public static byte[]?[] Tiles(Rom rom, int level = -1)
     {
         var tiles = new byte[]?[TileCount];
-        for (int slot = 0; slot < VanillaGfx.Length; slot++)
+        var files = GfxFiles(rom, level);
+        for (int slot = 0; slot < files.Length; slot++)
         {
-            int file = VanillaGfx[slot];
+            int file = files[slot];
             if (Gfx.Cached(rom, file) is not { } data) continue;
             int bpp = Gfx.FileBpp(rom, file), tb = Gfx.TileBytes(bpp);
             for (int t = 0; t < SlotTiles && (t + 1) * tb <= data.Length; t++)
