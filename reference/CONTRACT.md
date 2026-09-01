@@ -988,18 +988,89 @@ relocatable block. Decoded from `bg_0.smc` → `bg_a.smc` (LM 3.33: same ROM sav
                  Bank 00 = pages 80-8F ... Bank 07 = pages F0-FF; "1 bank = 0x10 pages or
                  0x1000 tiles", one bank per background, `editor_back.htm`). Confirmed by two
                  further saves: bank 01 -> byte `16`, bank 07 -> byte `76`.
-  page byte      No longer derived from the stream address (§10a). The stream stores the low
-                 byte; the page comes from the bank field above plus the high nibble of the
-                 tile within the bank. LM numbers BG tiles 0x8000+i (pages 0x80-0xFF) = our
-                 virtual 0x4000+i; its editor's status bar reported the edited tile as `8002`.
+  page byte      No longer derived from the stream address (§10a). **TWO POSITIONAL PLANES in
+                 ONE RLE run** [MEASURED, all three saves]: the 0x1B2 payload decodes to
+                 **0x800 bytes** for a 0x400-tile map — `[0x000..0x3FF]` = low byte per tile,
+                 `[0x400..0x7FF]` = page-within-bank per tile. One continuous run, no `FF FF`
+                 between the planes, so the boundary is positional (0x400), not delimited.
+                 In all three saves plane 2 is entirely `0x00` (whole BG on bank-relative page
+                 0) while plane 1 holds 47 distinct values 0x00-0x2E — an interleaved lo/hi
+                 layout would split into two similar distributions, and it does not.
+                 Not extra screens: `editor_back.htm` fixes the BG at 512x512 px = 32x32 =
+                 0x400 tiles, so 0x800 bytes is 2 bytes per tile and nothing else.
+                 So a background CAN reach all 0x10 pages of its bank; the plane byte selects
+                 the page. Whether the loader masks it to 4 bits is untested (a bank is only
+                 0x10 pages, so only the low nibble can matter).
+                 LM numbers BG tiles 0x8000+i (pages 0x80-0xFF) = our virtual 0x4000+i.
+                 Cross-check: the three streams are **byte-identical**, confirming the bank
+                 lives only in `$0EF310` bits 4-6 and never in the stream.
   relocation     LM allocates a FRESH RATS block on every save (the pointer walked
                  `$10:94CC` -> `$10:980E` -> `$10:9B50` across three saves); it does not
                  rewrite the previous block in place.
 
 **We already carry the runtime half**: `LmLevelRender` stamps both the `$05803B` hook
-(`$0EF510`) and the `$0EF310` table (all zeros today, read/written by nothing). So writing a
-custom background needs no new ASM — allocate a RATS block, `BgImage.Encode` the 0x400-entry
-map, point `$05E600` at it, and set `$0EF310[level] |= 0x06`.
+(`$0EF510`) and the `$0EF310` table. So writing a custom background needs no new ASM — allocate a
+RATS block, encode the map, point `$05E600` at it, and set `$0EF310[level] |= 0x06`.
+
+**WRITING them is IMPLEMENTED  [round-tripped through a real build].** Because the runtime was
+already there from **prep v10**, this cost no ASM at all — it is a writer and a reader:
+
+  encode     `BgImage.ToCustomPlanes` re-lays the editor's vanilla-stride map (27 rows at 0x1B0)
+             into LM's geometry (32 rows at 0x200) and pairs it with a page plane, then
+             `EncodeCustom` RLEs the 0x800 as ONE run with no trailing trim — `Encode`'s trim is
+             right only for vanilla, where the loader pre-fills with `Blank` and the page plane
+             has no such pre-fill to lean on. The page plane is UNIFORM, carrying across the page
+             the vanilla stream's address implied, which is what keeps the colours identical.
+             LM's five extra rows go out blank.
+  write      `RomBuilder.WriteBackground` allocates a RATS block, writes a REAL 24-bit pointer to
+             `$05E600 + level*3`, and sets `$0EF310[level] |= 0x06`. Gated on
+             `Rom.HasLmLayer2Custom` (`$05803B` holding a `JML`/`JSL`); a base without the hook
+             still gets the old in-place write and its size limit.
+  read back  `BgImage.DecodeCustom` reads a 24-bit address and both planes, and returns null
+             rather than a half-blank picture when the stream does not fill them.
+             `Rom.Layer2IsCustomBackground` is what tells a custom background from layer-2 OBJECTS
+             — both have a non-`$FF` bank, and only the settings byte separates them, so
+             `Layer2IsBackground` had to learn it or our own builds would read back as object
+             levels.
+
+Two consequences worth stating plainly. **The size limit is gone**: an edit that re-encodes larger
+than the stream it came from now ships, which is what §10a said needed "a prep-style hijack" — it
+turned out to need only the hijack we already had. And **edits now FORK, as LM's do**: level `$105`
+shares `$D900` with **282 other levels**, so the old in-place write silently edited the background
+of 283 levels at once. Now only the edited level moves and the other 282 keep the vanilla stream —
+which also answers §10b's open question about what happens when two levels share one, from our
+side at least.
+
+Still open on the LM-parity side: LM's `$0EF310` also carries the BG Map16 bank in bits 4-6
+(§10b); we always write bank 0, which is what vanilla content uses.
+
+But **`BgImage` cannot read or write this format yet**, and neither is a live bug today because
+neither path is reachable: `Decode` takes a `lo16` and hardcodes `Bank | lo16` = bank `$0C`, so
+it cannot address a custom block at `$10:94CC` at all; and both `Decode` and `Encode` are
+single-plane (`Tiles = 0x400` caps the decode loop, `Encode` takes only low bytes). Wiring
+custom backgrounds therefore needs: a full 24-bit address in, a 0x800-byte two-plane decode, and
+an `Encode` that takes both planes. Until then the editor only SELECTS vanilla backgrounds
+(§10a) and never sees a two-plane stream.
+
+### 10c. What can go in a background  [LM-DOC — `editor_back.htm`]
+
+The two restrictions are independent, and the help file states both outright:
+
+- **Map16 numbering.** "Each background can only access the tiles within a single bank of tiles
+  within the 16x16 editor (1 bank = 0x10 pages or 0x1000 tiles)." Out-of-bank paste is not an
+  error — "attempting to paste a 16x16 tile that the background cannot access with the current
+  settings **may cause the equivalent tile number of the current bank to be pasted instead**".
+  The bank is switched with Page Up/Page Down in the BG editor (or the Change BG Map16 Bank
+  dialog), and it is per background, not per tile.
+- **8x8 graphics.** FG and BG Map16 are separate namespaces but share one 8x8 pool: "while you
+  cannot access FG Map16 in backgrounds or BG Map16 in level objects, they do have access to the
+  same 8x8 tiles... FG Map16 tiles can be copied into the BG Map16 tile area and vice versa, and
+  they'll still appear using the correct graphics." So the VRAM ceiling is §7d's 10-bit tile
+  number over the 8 pages of 0x80 — including BG2/BG3 (0x200-0x2FF) needing LM's VRAM patch, and
+  pages 6-7 (0x300-0x3FF) being re-DMA'd every frame by the animation engine.
+
+UI consequence: gate the BG page range to the level's bank (`0x80 + bank*0x10` .. `+0x0F`) — all
+0x10 pages, NOT one — and follow LM in remapping an out-of-bank paste rather than rejecting it.
 
 Evidence: `.resources/backgrounds/bg_0.smc` (LM save, no edits), `bg_a.smc` (+1 BG tile
 deleted), `bg_b.smc` (+BG Map16 bank 01), `bg_c.smc` (+bank 07). All LM 3.33 on level `$105`.
@@ -1202,6 +1273,58 @@ Tilemap File **LT3** (default `7F Skip File`), Destination for File (default `Un
 Bar`), File Size (default `0x2000 bytes 512x512`). Dialog note: standard GFX 0-31, ExGFX 80-FF,
 Super ExGFX 100-FFF.
 
+**The tilemap needs its OWN decompression buffer  [MEASURED — this is a real bug fixed in v16].**
+A tilemap file is `0x2000` bytes, **twice any GFX file**, and the shared buffer at `$7E:AD00` has
+room to `$7EBCFF` — which a 4bpp GFX file fills exactly (§V13, where overrunning the layer-2
+buffer at `$7E:B900` is accepted because LM does it too). Decompressing `0x2000` there runs to
+`$7ECCFF` and writes straight through:
+
+| region | |
+|---|---|
+| `$7E:B900` layer-2 Map16 map | clobbered |
+| `$7E:BD00` layer-2 page plane | clobbered |
+| **`$7E:C800` layer-1 Map16 map** | **clobbered** |
+
+The level then comes up with **one Map16 tile repeating in a grid** — the tilemap's own bytes read
+as map entries. Nothing in VRAM is wrong, which is why every VRAM-side layer-3 test passed while
+the level was visibly broken, and why this survived three rounds of looking at the layer-3 code:
+the fault is in RAM, one buffer over. v16 gives the tilemap `$7F:A000` (v4-v12's GFX buffer, free
+since v13 moved that back to `$7E:AD00`); `0x2000` there ends at `$7FBFFF`, clear of LM's record
+cache at `$7FC006` and the Map16 page plane at `$7F:C800`.
+
+`Cpu65816` grew `VramWrites` for this — it models `$2115`/`$2116`/`$2117` and records (word, value)
+per write, so "where did this upload land" is finally an assertable question. `VramLog` only ever
+answered "what bytes did it produce", and an upload that fits and one that overruns produce
+identical bytes. `Layer3VramBoundsTests` pins the VRAM reach of both layer-3 passes (character
+window `$4000-$4FFF`, tilemap `$5000-$5FFF` at all four destinations and all three sizes, never
+`$6000`) and the RAM reach of the decompression.
+
+**The blank tile, and what a flat LT3 file must pad with  [MEASURED on vanilla].** Of the 512
+tiles LG1-LG4 supply, exactly **two** are fully transparent (every pixel on colour 0):
+**`0x0FC`** (in LG2 — the blank SMW's own status bar pads with) and `0x179` (in LG3). LG1 and
+LG4 have none. A flat tilemap file cannot say "untouched", so the gaps have to name one of
+those, in palette 0 with **priority clear** (`Layer3.BlankWord`).
+
+The trap, since it cost a debugging round: **0xFFFF is not a safe filler.** It looks safe from
+inside the editor, which skips a tile number >= the 512 the window holds, so `0x3FF` draws as
+nothing there. On the console every bit of it bites — BG3's character base is word `$4000` and a
+2bpp tile is 8 words, so tile `0x3FF` fetches its graphics from word `$5FF8`, *inside the tilemap
+region itself*, and `0xFFFF` also sets bit 13, the **priority** bit, which draws the result in
+FRONT of layer 1. A built map is stamped "Start of Layer 3" at the full `0x2000`, so every cell
+the user never drew came back as garbage covering the level.
+
+**The advanced group is NOT installed by our prep  [MEASURED across bases].** LM's advanced
+layer-3 reader sits at **`$0FFD9F`** (`5A AF 06 C0 7F ...` = `PHY : LDA.l $7FC006`) in every
+LM ROM that has layer 3 installed (`l3_b`, `l3_e`, `l3_j`, `l3_k`). It is `FF FF` in vanilla and
+`FF FF` in a prep v15 build — prep installs the GFX bypass (v14) and the tilemap bypass (v15)
+and nothing else. So on a prep base the scroll/CGADSUB/subscreen/Y-offset nibbles
+`Layer3.WriteAdvanced` packs into the record are **read by nobody**: the settings are editor-only
+and the build says so (`RomBuilder`, gated on `HasLmLayer3Advanced`). The encoding itself is
+right — it round-trips against real LM saves and through a build on an LM base. Making it reach
+the console needs a prep v16 that ports LM's reader plus the scroll handlers behind it (six rate
+handlers, twelve auto-scroll speeds off LM's table at `$109D3B`, and the three late additions
+`0x18-0x1A`).
+
 **The install gate  [CONFIRMED — this is why the first three saves wrote nothing].** LM will
 not install its layer-3 hack until its restore system can find *the original unmodified ROM
 with header*; it prompts "Restore System Issue ... browse to a copy of this file now?" and
@@ -1230,6 +1353,17 @@ and `gfx_after.smc` (which predates the layer-3 hack entirely) already carries i
   words        w12 = LG4, w13 = LG3, w14 = LG2, **w15 = LG1** — reverse slot order, the same
                convention as the rest of the record. `& 0xFFF` = GFX/ExGFX file, `0x7F` = keep
                the vanilla file. w13 bits 13-14 additionally carry the Layer 3 Option below.
+  file size    An LG slot's file is **0x800 = 128 tiles of 2bpp**, whatever the ROM's depth is.
+               The layer-3 pass copies a fixed `0x400` words straight through (`LDX #$03FF`, no
+               expansion), so padding such a file up to the ROM's 4bpp `0x1000` — which is right
+               for every slot the vanilla expander serves — is 0x800 bytes the slot can never
+               use, and makes the decompressor write that much extra into the shared `$7E:AD00`
+               buffer on every level load. **This is invisible from the slot itself**: the upload
+               takes the first 0x800 either way, so layer 3 renders correctly while the overshoot
+               lands somewhere else. Measured symptom: pointing LG4 at an imported ExGFX
+               corrupted **layer 1** in game (glaringly, on a base whose layer 1 was otherwise
+               fine), and clearing that one override fixed it. `RomBuilder.WriteGfx` therefore
+               pads per CONSUMER, not per ROM depth; `Layer3Tests` pins both halves.
   enable       **w0 bit 14**, distinct from the FG/BG/SP bypass on w0 bit 15. LM's loader at
                `$0FF9E0` is literally `LDA [record] : ASL : BPL default`, and its "default" is
                a fixed record at `$0FFA6F` whose tail is `2B 2A 29 28`. So `w0 = $407F` means
@@ -1311,11 +1445,21 @@ the level a new game enters. Booted in Mesen (Start, Start, B) the pattern is on
 rows read `5 6 7 8 9 0 1 2 3 4` down the edge of the intro message box: consecutive, wrapping,
 exactly as authored. A custom tilemap built here reaches the SNES.
 
-The build stamps destination 1, "Start of Layer 3" = word `$5000`, which is exactly where
-`Layer3.FromBytes` draws an imported map — so the editor's picture and the console's agree.
-That was a guess when the smoke test ran and is now measured, off LM's table above; a screenshot
-could never have settled it, because a full 0x2000 file fills the whole window and all four
-destinations look the same.
+The build stamps destination **0, "Under Status Bar" = word `$50A0`**. It stamped destination 1,
+"Start of Layer 3" = `$5000`, until a real project showed what that costs: the status bar is the
+first 32x5 words of the same window, so a full 0x2000 map at `$5000` copies its own top five rows
+over the score, coins, time and lives — and a custom layer 3 normally sets the tilemap PRIORITY
+bit (that is how mist draws in front of the level), so it covers the HUD rather than blending
+with it. Measured symptom: a mist tilemap turned the whole status bar into mist tiles.
+
+Nothing shifts by moving it, because the offset applies to the SOURCE as well as the destination
+— the file's row 5 still lands on row 5, and only its first `$140` bytes go unuploaded. That is
+the trade LM offers this destination for, and it is why the status bar's own size sits in a table
+(`$0FFEC4`) next to the destinations. The cost is the one place the editor and the console
+deliberately differ: `Layer3.FromBytes` still draws the file from the top, because those rows are
+the user's data and the status bar is not ours to draw over them. A screenshot could never have
+settled any of this — a full 0x2000 file fills the whole window and all four destinations look
+the same.
 
 **The Layer 3 Options field  [CONFIRMED for 0 and 3; 1/2 by dropdown order]** — isolated by
 `l3_c` (Blank Layer 3) → `l3_e` (Tileset Specific), with the hack installed on both. Changing
@@ -1388,6 +1532,52 @@ dialog. Evidence: `.resources/layer3/l3_i.smc` (Fast/Slow, subscreen, sync fix, 
 
 Still not located: "Make tides act as", and LM's mirror of the priority flag.
 
+**The advanced group is PORTED — prep v16  [emulator-verified; console check outstanding]**, in
+three pieces, each in a seat that already existed:
+
+  reader     `$0FFD80` in LM's own block. Builds the record pointer from `$FE` (LM reads its own
+             `$7FC006` cache, which we do not keep) and from `LDY #$17` on is LM's opening
+             instruction for instruction — which is what `HasLmLayer3Advanced` scans for, so a
+             prepped base answers that probe like an LM-saved one. `$0FFE82` is LM's nibble-pair
+             helper, byte for byte. Runs on EVERY armed load, so the four RAM variables always
+             describe the level being entered.
+  engine     `$0FFB20`, near-called from the `$00A01F` seat v15 reserved. Colour math
+             (`$40` bit 2), the subscreen move (`$0D9D` bit 10 + `$212C`/`$212E`), initial X
+             (index*`$40`, index 3 → `$100`) into `$146A`, initial Y (the 14-bit signed Y*8 field
+             sign-extended to Y*16, by LM's own `ASL ASL : CMP #$8000 : ROR`) into `$146C`, and
+             the two 5-bit scroll codes resolved and stashed at `$145F`/`$1460`.
+  dispatcher `$0FFC40`, from vanilla's own per-frame layer-3 scroll site `$05C40C`
+             (`LDA $1403 : BEQ +3`, 5 bytes → `JSL : RTS`) — LM's hook too. Recomputes
+             `$22`/`$24` from layer 1's camera (`$1A`/`$1C`), and mirrors into `$1B78`/`$1B7A`
+             when the scroll-sync-fix bit is set. When the group is OFF it pops the JSL's return
+             address and `JML`s back to `$05C414`/`$05C494`, so an unbypassed level keeps
+             vanilla's exact behaviour rather than an imitation of it.
+
+**The rate ladder, measured from LM's handlers.** They are a shift ladder off layer 1's camera,
+not a table of speeds: `$22 = $146A + ($1A >> n)`. Codes `02 03 18 19 04 1A` are `n = 1..6`,
+which is exactly the dropdown order Medium, Medium 2, Medium 3, Medium 4, Slow, Slow 2 — so
+`Layer3.ScrollCodes` is confirmed from the engine side as well as from controlled saves. Code
+`00` (None) holds at the offset, `01` (Constant) is 1:1, and `05` (Fast) is
+`offset + cam + cam/5` through the hardware divider (`$4204`/`$4206`/`$4214`) = 1.2x. LM's
+unused codes `12-17` fall through to Constant, and ours do too. Our dispatcher replaces LM's two
+27-entry pointer tables (`$109CBB` horizontal, `$109CFB` vertical) with one 27-byte code→kind
+table and a single shared routine — same results, ~100 bytes less.
+
+**NOT ported: the twelve auto-scroll rates (codes `06-11`).** Their one shared handler at
+`$109AB4` is entangled with `$17BD`/`$9D`/`$145A`/`$145C`/`$1403` and a pause interaction that is
+not decoded; the speed table `$109D3B` (±`$40 $80 $100 $200 $300 $400`) is known but the
+accumulator that consumes it is not. The kind table maps those codes to "hold position" and
+`RomBuilder` DOWNGRADES them to None with a warning when the base is ours (`$00A01F` pointing at
+our `L3Opt` is the test) — an LM-saved base has LM's handler and keeps them. Half-porting it
+would move layer 3 at the wrong speed, which is worse than not moving it.
+
+Verified on the 65816 emulator (`Layer3AdvancedPrepTests`, 7 tests): the nine nibbles land in
+LM's four variables (`$145E = FEDC` for nib(w15..w12) = F,E,D,C), the X index gives
+`00/40/80/100`, Y round-trips *16 with its sign across the full -0x400..0x3FF, both flags set and
+clear, the whole shift ladder from a `$800` camera, the sync-fix mirrors, and an unbypassed level
+still gets the vanilla option answer. Not yet covered: "Fast" (the emulator does not model the
+hardware divider) and the disabled path's re-entry into bank 05 — both need the console.
+
 **PORTING LM'S LAYER-3 INSTALL — the measured spec  [ISOLATED, not yet ported]**
 
 Our prep installs LM's GFX loader but none of the layer-3 hooks, so on a prepped vanilla every
@@ -1443,8 +1633,12 @@ Triggered by ticking "Enable bypass of standard Layer 3 tilemap", with LT3 left 
 
 **The advanced group belongs to step B, not step A.** `$109964` — the routine that replaces
 `LDA $1BE3` — opens `LDA $145E : LSR : BCS`, i.e. it returns the layer-3 option when the
-advanced group is off and otherwise applies the whole advanced group and takes the option from
-`$7FC01A` bits 0-1 instead. So the tilemap hook is also the scroll/blend engine. Only the
+advanced group is off and otherwise applies the whole advanced group first. So the tilemap hook
+is also the scroll/blend engine. **CORRECTED**: an earlier reading of this said the advanced path
+"takes the option from `$7FC01A` bits 0-1 instead". It does not — `$1099A4`'s `AND #$0003` is the
+initial-X INDEX (it feeds `XBA : LSR : LSR : STA $146A`), and the option answer is unchanged by
+the group. That matters because the option gates the tilemap upload, so reading it out of the
+X-position bits would blank layer 3 on three levels out of four. Only the
 nibble READER (`$0FFD80`) ships with step A, which is why `HasLmLayer3Advanced` can be true on a
 ROM that has step A and not step B — the settings are gathered into RAM that nothing yet reads.
 
@@ -1455,6 +1649,17 @@ already uses for LM's midway routine. The obstacle is LAYOUT: our own GFX stage 
 block (71 B) land on top of `GfxResolve` and `GfxSlotTab`. LM's addresses are the rails, so the
 prep's own blocks are what move — which a new prep version may do, since only released versions
 are byte-frozen.
+
+**A prep version is a release marker, not a content check  [MEASURED — this bit a real project].**
+Because an unreleased version's stamps are edited freely, a project's `PrepVersion` can match
+`RomPrep.Version` while its `base.smc` carries an OLDER build of that same version. Nothing
+noticed: the upgrade-on-open path compared version numbers, saw equality, and did nothing, so a
+fix that was in the source and green in the tests never reached the ROM the user played — the
+symptom was a layer-3 buffer overrun that had already been found and fixed. `project.pdp` now
+also pins `PrepStamp`, a short hash of the stamp list `BuildStamps` produces at the current
+version (`RomPrep.StampSignature` — pure, no ROM, cheap enough for every open), and the base is
+re-prepped when either differs. An older `.pdp` has no stamp, which reads as unknown and re-preps
+once.
 
 **Step B is PORTED — prep v15  [CONFIRMED in Mesen, 2026-09-01]**, again LM's contract with our
 code. The hook site is NOT one of LM's two, and that was measured rather than assumed:

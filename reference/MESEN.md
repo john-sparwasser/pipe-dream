@@ -48,6 +48,44 @@ probe scripts (the caller knows which it asked for).
 - `emu.setInput(input, port)` — **(input, port)**, not (port, input). The reversed form
   throws, and a throwing frame callback is invisible: the run just never reaches `emu.stop`
   and dies on the timeout.
+- `emu.write(addr, value, memType)` takes **THREE** arguments. The 4-arg form that mirrors
+  `emu.read`'s `disableSideEffects` flag **throws** — and per the note above that is invisible,
+  so it presents as a bare timeout with no clue. Wrap a suspect call in `pcall` and report a
+  sentinel to tell "threw" apart from "never satisfied the exit condition".
+
+## Entering a level — the recipe that works
+
+Boot settles at mode `$07` and **never enters a level on its own**: measured `$7E:0100 == 0x07`
+at frame 1800 both with and without Start pulses, and mode `$14` is never seen by frame 3000.
+Pulsing Start changes nothing (confirming the older note). What works:
+
+```lua
+if f == 1200 then emu.write(0x7E0100, 0x0B, emu.memType.snesMemory) end
+```
+
+At frame 1500 the mode reads `$14` (the gameplay loop) and `$7E:010B` reads `$0C7` — the title
+demo's level, matching the "Selecting a level — UNSOLVED" note below. So *reaching* a level is
+solved; *choosing* which one still is not.
+
+## VRAM sampling is NOT reproducible — do not compare checksums across ROMs
+
+A sum over VRAM at a fixed frame **varies run to run for the same ROM**. Measured on vanilla,
+bytes `$0000-$5FFF` (pages 0-5, deliberately excluding the animated region), three runs each:
+
+| anchor | vanilla | prep v15 |
+|---|---|---|
+| absolute frame 1500 | 98, 235, 94 | 35, 102, 137 |
+| 120 frames after mode `$14` first seen | 149, 106, 216 | 156, 145, 9 |
+
+Anchoring to the mode transition instead of an absolute frame does **not** fix it, so this is not
+level-entry jitter — the run itself is not deterministic (randomized power-on state is the likely
+cause; there is no settings file to turn it off, see above).
+
+**Consequence:** a "ROM A differs from ROM B in VRAM" result from this harness is worthless, and
+an earlier investigation drew a wrong root-cause conclusion from exactly that. Any VRAM claim
+needs a comparison made **inside one run** (sample twice, report the delta), or a different
+channel entirely. Before trusting a new numeric probe, run it 3x on one ROM and assert the
+values agree.
 - `emu.read(addr, emu.memType.snesMemory, false)` takes CPU-bus addresses, so `$7E:0100` is
   written `0x7E0100`. `emu.memType.snesWorkRam` takes WRAM-relative offsets (`0x0100`).
   Both agree; writes via `emu.write` land.

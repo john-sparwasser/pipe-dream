@@ -60,6 +60,12 @@ public sealed class ProjectFile
         /// e.g. an LM-prepared ROM). When &gt; 0 the pinned hash is of the PREPPED image,
         /// and a shared .pdp can be satisfied by prepping any verified-vanilla ROM.</summary>
         public int PrepVersion { get; set; }
+        /// <summary>What <see cref="RomPrep.StampSignature"/> was when this base was stamped.
+        /// The version alone cannot tell a base prepped by today's build from one prepped by
+        /// last week's build of the SAME version, and the difference is a fix that silently
+        /// never reaches the game. Empty on a project written before this existed, which reads
+        /// as "unknown" and re-preps once.</summary>
+        public string PrepStamp { get; set; } = "";
     }
 
     public sealed class Map16State

@@ -63,6 +63,28 @@ public class ProjectLifecycleTests : IDisposable
         Assert.Equal(stamp, File.GetLastWriteTimeUtc(p.BaseRomPath));
     }
 
+    /// <summary>
+    /// A base stamped by an EARLIER BUILD of the current prep version is stale, and only the
+    /// stamp signature can say so. This is not hypothetical: a project pinned "PrepVersion 16"
+    /// kept a v16 base from before a layer-3 buffer fix, the version numbers matched, the
+    /// upgrade did nothing, and a fix that was green in the tests never reached the game.
+    /// </summary>
+    [RealRomFact]
+    public void a_base_stamped_by_an_older_build_of_the_same_version_is_re_prepped()
+    {
+        var p = Project.Create(Path.Combine(dir, "proj"), TestRom.RealRomPath);
+        Assert.Equal(RomPrep.Version, p.Data.BaseRom.PrepVersion);
+        Assert.False(p.CanUpgradeBasePrep);                 // fresh: nothing to do
+
+        p.Data.BaseRom.PrepStamp = "0000000000000000";      // what an earlier build left behind
+        p.Save();
+        var reopened = Project.Open(p.FilePath);
+        Assert.True(reopened.CanUpgradeBasePrep);
+        Assert.Null(reopened.PrepareBaseOnOpen(TestRom.RealRomPath));
+        Assert.Equal(RomPrep.StampSignature, reopened.Data.BaseRom.PrepStamp);
+        Assert.False(reopened.CanUpgradeBasePrep);
+    }
+
     /// <summary>A project whose base is a foreign/LM ROM must be left alone — prepping
     /// replaces base.smc with a prepped vanilla and would discard the hack.</summary>
     [RealRomFact]

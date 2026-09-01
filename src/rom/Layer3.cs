@@ -131,8 +131,8 @@ public static class Layer3
     /// A flat tilemap file as VRAM words. LM's LT3 files are plain little-endian 16-bit maps of
     /// 0x800, 0x1000 or 0x2000 bytes; they land at the start of the window and whatever the file
     /// does not cover stays untouched (-1), exactly as an unwritten stripe-image word does.
-    /// Word $5000 is the top of the window and the destination this editor builds with
-    /// (<see cref="BuiltTilemapDestination"/>); the other three land further in, by the offsets
+    /// Word $5000 is the top of the window; the destination this editor builds with skips the
+    /// status bar's five rows (<see cref="BuiltTilemapDestination"/>), and the four offsets are
     /// in <see cref="TilemapDestinationWords"/>.
     /// </summary>
     public static int[] FromBytes(ReadOnlySpan<byte> raw)
@@ -145,17 +145,44 @@ public static class Layer3
     }
 
     /// <summary>
-    /// The inverse: a word buffer back to a full 0x2000-byte file. An unwritten word (-1) is
-    /// stored as 0xFFFF, which names tile 0x3FF — past the 512 the window holds, so it draws as
-    /// nothing here and would draw as nothing on the console either. A flat file has no way to
-    /// say "untouched", and picking a real tile instead would paint the gaps with GFX28's font.
+    /// The one fully transparent tile in vanilla's layer-3 set — the blank SMW's own status bar
+    /// pads with. MEASURED: of the 512 tiles LG1-LG4 supply, exactly two have every pixel on
+    /// colour 0, this one (in LG2) and 0x179 (in LG3); LG1 and LG4 have none.
+    ///
+    /// ponytail: a constant, not a per-level search of <see cref="Tiles"/>. The ceiling is a
+    /// level that bypasses LG2 with a file whose tile 0xFC is not blank — then the gaps paint
+    /// that tile instead of nothing. Upgrade path is to pick the filler from the level's real
+    /// tiles at build time.
+    /// </summary>
+    public const int BlankTile = 0x0FC;
+
+    /// <summary>
+    /// The word <see cref="ToBytes"/> pads with: <see cref="BlankTile"/> in palette 0, priority
+    /// CLEAR and neither flip. Every bit outside the tile number has to be zero here — see the
+    /// warning in <see cref="ToBytes"/> for what a set priority bit does.
+    /// </summary>
+    public const int BlankWord = BlankTile;
+
+    /// <summary>
+    /// The inverse: a word buffer back to a full 0x2000-byte file. A flat file has no way to say
+    /// "untouched", so an unwritten word (-1) is stored as <see cref="BlankWord"/>.
+    ///
+    /// It must NOT be 0xFFFF, which is what this used to write on the reasoning that tile 0x3FF
+    /// is past the 512 the window holds and so draws as nothing. It draws as nothing in THIS
+    /// editor, because <see cref="Render"/> and <see cref="CellPixels"/> skip a tile number
+    /// >= <see cref="TileCount"/>. The console has no such rule and every bit of 0xFFFF hurts:
+    /// BG3's character base is word $4000 and a 2bpp tile is 8 words, so tile 0x3FF reads its
+    /// graphics from word $5FF8 — inside the tilemap region itself — and 0xFFFF also sets
+    /// palette 7, both flips, and bit 13, the PRIORITY bit, which puts the result in FRONT of
+    /// layer 1. A built map is stamped "Start of Layer 3" at full 0x2000, so every cell the user
+    /// did not draw became a garbage tile covering the level.
     /// </summary>
     public static byte[] ToBytes(int[] map)
     {
         var raw = new byte[MapWords * 2];
         for (int i = 0; i < MapWords; i++)
         {
-            int w = i < map.Length && map[i] >= 0 ? map[i] : 0xFFFF;
+            int w = i < map.Length && map[i] >= 0 ? map[i] : BlankWord;
             raw[i * 2] = (byte)w;
             raw[i * 2 + 1] = (byte)(w >> 8);
         }
@@ -211,12 +238,25 @@ public static class Layer3
     public static readonly int[] TilemapDestinationWords = [0x50A0, 0x5000, 0x5080, 0x5800];
 
     /// <summary>
-    /// The destination a BUILT tilemap is stamped with: "Start of Layer 3", the one that lands
-    /// at word $5000 — the top of the window, which is where <see cref="FromBytes"/> draws an
-    /// imported map. Confirmed against LM's destination table, so the editor's picture and the
-    /// console's agree.
+    /// The destination a BUILT tilemap is stamped with: "Under Status Bar", word $50A0 — five
+    /// rows down, past the 32x5 the status bar occupies.
+    ///
+    /// It used to be "Start of Layer 3" (word $5000) on the reasoning that the editor draws an
+    /// imported map from the top, so the two pictures agree. They do — and the game's HUD is
+    /// part of the picture that got agreed over. A full 0x2000 map at $5000 copies its own rows
+    /// 0-4 across the score, coins, time and lives, and since a custom layer 3 usually sets the
+    /// tilemap's PRIORITY bit (that is how mist draws in front of the level), the result covers
+    /// the status bar rather than blending with it. MEASURED on a real project: a mist tilemap
+    /// turned the whole HUD into mist tiles.
+    ///
+    /// The offset applies to the SOURCE as well as the destination (CONTRACT §12b), so nothing
+    /// shifts: the file's row 5 still lands on row 5. The only difference is that the file's
+    /// first 0x140 bytes are not uploaded, which is exactly the trade LM offers this destination
+    /// for. The editor still DRAWS those rows — they are the user's data and the status bar is
+    /// not ours to render — so the top five rows of the layer-3 view are the one place the
+    /// editor's picture and the console's deliberately differ.
     /// </summary>
-    public const int BuiltTilemapDestination = 1;
+    public const int BuiltTilemapDestination = 0;
 
     // ---- LM's advanced layer-3 bypass (CONTRACT §12b) --------------------------------------
 
@@ -341,6 +381,15 @@ public static class Layer3
         SetNib(r, 14, h & 0xF);
         SetNib(r, 15, v & 0xF);
     }
+
+    /// <summary>
+    /// The twelve auto-scroll entries — the ones that move layer 3 on their own rather than as a
+    /// fraction of layer 1. They are the part of the group prep v16 does NOT implement: their
+    /// single shared handler is entangled with `$17BD`/`$9D`/`$145A`/`$145C` and a pause
+    /// interaction that is not decoded, so the dispatcher holds position for those codes and the
+    /// build downgrades them to None with a warning (CONTRACT §12b). Codes 0x06-0x11.
+    /// </summary>
+    public static bool IsAutoScroll(int dropdownIndex) => dropdownIndex is >= 9 and <= 20;
 
     /// <summary>A stored scroll code back to its place in LM's dropdown. An unknown code falls
     /// back to "None" rather than throwing — the code space has gaps (0x12-0x17) that no list

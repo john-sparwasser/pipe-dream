@@ -36,6 +36,61 @@ public class Layer3Tests(ITestOutputHelper log)
         return null;
     }
 
+    /// <summary>
+    /// A GFX file a LAYER-3 slot points at must be stored at the layer-3 size, 0x800 = 128 tiles
+    /// of 2bpp — NOT zero-padded up to the ROM's 4bpp 0x1000 like the slots the vanilla expander
+    /// serves. The layer-3 pass copies a fixed 0x400 words straight through and never expands, so
+    /// the extra half is bytes the slot can never use, and it makes the decompressor write 0x800
+    /// more than needed into the shared $7E:AD00 buffer on every level load.
+    ///
+    /// This is invisible from the slot itself — the upload takes the first 0x800 either way, so
+    /// layer 3 renders correctly while the overshoot lands elsewhere. Measured symptom: pointing
+    /// LG4 at an imported ExGFX corrupted layer 1 in game, and clearing that one override fixed
+    /// it. The FG assertion below is the other half — those slots still need the full 4bpp size.
+    /// </summary>
+    [Fact]
+    public void a_file_a_layer3_slot_points_at_is_stored_at_the_2bpp_size()
+    {
+        if (!File.Exists(Vanilla)) { log.WriteLine("SKIP: no ROM"); return; }
+        string dir = Path.Combine(Path.GetTempPath(), "pdl3bpp-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            Directory.CreateDirectory(dir);
+            var s = new EditorSession();
+            Assert.True(s.NewProject(Path.Combine(dir, "proj"), Vanilla), s.Status);
+            s.ShowLevel(0x105);
+
+            // 128 tiles of 2bpp — exactly what a layer-3 slot holds.
+            string bin = Path.Combine(dir, "l3art.bin");
+            File.WriteAllBytes(bin, Enumerable.Range(0, 0x80 * 16).Select(i => (byte)(i * 7 % 251)).ToArray());
+            var (id, note) = s.ImportGfx(bin);
+            log.WriteLine(note);
+            Assert.True(id > 0, note);
+
+            int lg4 = s.GfxBins.First(b => b.Name == "LG4").BypWord;
+            Assert.Equal(12, lg4);                        // §7d: w12 = LG4
+            s.SetGfxSlot(lg4, id);
+            s.Save();
+            log.WriteLine(s.Build());
+
+            var built = Rom.Load(Path.Combine(s.Project!.Folder, "build", s.Project.Name + ".smc"));
+            var stored = Gfx.Cached(built, id);
+            Assert.NotNull(stored);
+            Assert.Equal(0x80 * Gfx.TileBytes(Layer3.Bpp), stored!.Length);      // 0x800, not 0x1000
+
+            // The slot still resolves to real tiles, so the smaller file is not a truncation.
+            var tiles = Layer3.Tiles(built, 0x105);
+            Assert.All(Enumerable.Range(0x180, 0x80), t => Assert.NotNull(tiles[t]));
+
+            // ...and the expander-served slots are untouched: still the ROM's full 4bpp file.
+            var h = LevelParser.Parse(built, 0x105).Header;
+            foreach (var slot in Gfx.LevelSlots(built, h, 0x105).Where(x => x.Name.StartsWith("FG")))
+                if (Gfx.Cached(built, slot.File) is { } fg)
+                    Assert.Equal(0x80 * Gfx.TileBytes(Gfx.RomBpp(built)), fg.Length);
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
+    }
+
     [Fact]
     public void the_option_is_the_two_high_bits_of_the_levels_05F200_byte()
     {
@@ -443,6 +498,45 @@ public class Layer3Tests(ITestOutputHelper log)
         Assert.Equal(Layer3.MapWords, map.Length);
         Assert.All(map[..0x400], v => Assert.Equal(0, v));
         Assert.All(map[0x400..], v => Assert.Equal(-1, v));
+    }
+
+    /// <summary>
+    /// The gap filler a built tilemap pads with has to be harmless ON THE CONSOLE, not just in
+    /// this editor. It used to be 0xFFFF, which the editor skips (tile 0x3FF is past the 512 the
+    /// window holds) but the console draws: BG3's character base is word $4000 and a 2bpp tile is
+    /// 8 words, so tile 0x3FF fetches graphics from word $5FF8 — inside the tilemap region — and
+    /// 0xFFFF sets the PRIORITY bit too, putting that garbage in front of layer 1. A built map is
+    /// stamped full-window, so every undrawn cell became garbage over the level.
+    ///
+    /// What this pins is the part an editor-only assertion cannot see: the filler names a tile
+    /// the window really holds, that tile is fully transparent, and no bit above the tile number
+    /// is set.
+    /// </summary>
+    [Fact]
+    public void the_built_tilemaps_gap_filler_draws_nothing_on_the_console()
+    {
+        var raw = Layer3.ToBytes(Enumerable.Repeat(-1, Layer3.MapWords).ToArray());
+        Assert.Equal(Layer3.MapWords * 2, raw.Length);
+
+        var back = Layer3.FromBytes(raw);
+        Assert.All(back, w => Assert.Equal(Layer3.BlankWord, w));
+
+        // Nothing outside the 10-bit tile number: no palette, NO PRIORITY, no flips.
+        Assert.Equal(Layer3.BlankWord & 0x3FF, Layer3.BlankWord);
+        Assert.Equal(0, Layer3.BlankWord & 0x2000);          // the bit that covered layer 1
+        // ...and a tile the 512-tile window actually holds, so it is not fetched from the tilemap.
+        Assert.True(Layer3.BlankTile < Layer3.TileCount);
+
+        // A drawn cell still survives the round trip next to the filler.
+        var map = Enumerable.Repeat(-1, Layer3.MapWords).ToArray();
+        map[0x123] = 0x2456;
+        Assert.Equal(0x2456, Layer3.FromBytes(Layer3.ToBytes(map))[0x123]);
+
+        if (Open() is not { } rom) return;
+        // The filler is transparent in the real graphics, which is the half only the ROM knows.
+        var tiles = Layer3.Tiles(rom);
+        Assert.NotNull(tiles[Layer3.BlankTile]);
+        Assert.All(tiles[Layer3.BlankTile]!, p => Assert.Equal(0, p));
     }
 
     [Fact]

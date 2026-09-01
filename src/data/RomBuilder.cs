@@ -265,8 +265,9 @@ internal static class RomBuilder
 
     /// <summary>
     /// Write the project's imported GFX files into the ROM: zero-pad each blob to a full
-    /// 128-tile file at the ROM's bit depth (the in-game expander always uploads 0x80
-    /// tiles), LC_LZ2-compress, allocate (GFX pointers are 24-bit — bank-crossing is fine,
+    /// 128-tile file at the depth its CONSUMER uploads at — the ROM's bit depth for the slots
+    /// the vanilla expander serves, 2bpp for a layer-3 slot, whose pass copies a fixed 0x800
+    /// bytes and never expands — LC_LZ2-compress, allocate (GFX pointers are 24-bit — bank-crossing is fine,
     /// the decompressor's reads wrap LoROM banks), and point the id's pointer at it:
     /// vanilla ids (&lt;0x34, copy-on-write forks of stock files) through the vanilla three
     /// tables — works on ANY base; 0x80-0xFF through the fixed $0FF600 table; 0x100+
@@ -274,9 +275,22 @@ internal static class RomBuilder
     /// </summary>
     private static void WriteGfx(Rom rom, ProjectFile data, List<string> warnings)
     {
-        int full = 128 * Gfx.TileBytes(Gfx.RomBpp(rom));
+        // A file some level points a LAYER-3 slot at (record words 12-15) is not uploaded by the
+        // vanilla expander — the layer-3 pass copies a FIXED 0x400 words straight through and
+        // never expands (RomPrep's `l3copy`). So it is 128 tiles at 2bpp = 0x800 bytes whatever
+        // the ROM's depth is, and padding it to the ROM's 4bpp 0x1000 makes the decompressor
+        // write 0x800 bytes MORE than the slot can ever use into the shared $7E:AD00 buffer,
+        // for no gain. The upload takes the first 0x800 either way, which is why the slot still
+        // looks right while something further up the buffer does not.
+        var layer3Files = data.Levels.Values
+            .SelectMany(l => l.GfxOverrides.Where(kv => kv.Key is >= 12 and <= 15))
+            .Select(kv => kv.Value)
+            .ToHashSet();
+
         foreach (var (idHex, b64) in data.Gfx.OrderBy(kv => kv.Key, StringComparer.Ordinal))
         {
+            int full = 128 * Gfx.TileBytes(layer3Files.Contains(Convert.ToInt32(idHex, 16))
+                                           ? Layer3.Bpp : Gfx.RomBpp(rom));
             int id = Convert.ToInt32(idHex, 16);
             if (id >= 0x34 && !GfxCapable(rom))
             {
@@ -327,18 +341,21 @@ internal static class RomBuilder
     }
 
     /// <summary>
-    /// Write an edited layer-2 background back over the stream it came from.
+    /// Write an edited layer-2 background.
     ///
-    /// IN PLACE is the only address-safe option (CONTRACT §10a): the page byte is not in the
-    /// data, the loader derives it from the pointer, so moving a stream silently recolours every
-    /// tile in it — and the loader reads bank $0C only, where there is no room to move to. So an
-    /// edit ships when it re-encodes no larger than the stream it replaces, and says so when it
-    /// does not. <see cref="BgImage.Encode"/> beats vanilla's own encoding on all 17 backgrounds,
-    /// which buys the headroom most edits need.
+    /// Two routes, and which one is available is a property of the BASE (CONTRACT §10a/§10b):
     ///
-    /// A background SHARED by several levels is shared in the built ROM too — this writes the
-    /// stream, not a copy of it, so every level pointing there gets the edit. That is the vanilla
-    /// arrangement, and splitting it needs somewhere to put the copy.
+    /// * CUSTOM — what LM does, and what this does whenever the base has the `$05803B` hook (any
+    ///   LM-saved base, ours from prep v10). The background becomes an ordinary relocatable RATS
+    ///   block that a real 24-bit pointer names, the per-level settings byte at `$0EF310` says
+    ///   "custom background, do not fill the map", and the stream carries its own page plane. No
+    ///   size limit, and it FORKS: the level gets its own copy, so editing a background that four
+    ///   other levels share no longer edits theirs. LM forks on any modification for the same
+    ///   reason.
+    /// * IN PLACE — the fallback on a base without the hook. Vanilla derives the page byte from
+    ///   the stream's ADDRESS and reads bank `$0C` only, so the stream cannot move or grow: the
+    ///   edit ships only when it re-encodes no larger than what it replaces, and says so when it
+    ///   does not. A shared stream stays shared, which is the vanilla arrangement.
     /// </summary>
     private static void WriteBackground(Rom rom, int level, string key, ProjectFile.LevelState state,
                                         List<string> warnings)
@@ -350,12 +367,27 @@ internal static class RomBuilder
             return;
         }
         int lo16 = rom.Layer2Pointer(level) & 0xFFFF;
+        var low = Convert.FromBase64String(b64);
+
+        if (rom.HasLmLayer2Custom)
+        {
+            // The page the vanilla stream was authored for rides across, so the colours do not
+            // change; the re-layout is vanilla's 0x1B0 stride to LM's 0x200 (§10b).
+            var planes = BgImage.ToCustomPlanes(low, BgImage.PageFor(lo16));
+            int snes = AllocateAutoExpand(rom, BgImage.EncodeCustom(planes));
+            rom.SetLayer2Pointer(level, snes);
+            int fo = rom.FileOffset(RomPrep.Layer23Settings + level);
+            rom.Data[fo] = (byte)(rom.Data[fo] | RomPrep.Layer23CustomBg);
+            return;
+        }
+
         BgImage.Decode(rom, lo16, out int consumed);
-        var encoded = BgImage.Encode(Convert.FromBase64String(b64));
+        var encoded = BgImage.Encode(low);
         if (encoded.Length > consumed)
         {
             warnings.Add($"level {key}: background edit skipped — it re-encodes to 0x{encoded.Length:X} bytes "
-                       + $"and its stream is 0x{consumed:X}; a longer one cannot move without recolouring it");
+                       + $"and its stream is 0x{consumed:X}, and this base cannot hold a relocatable "
+                       + $"custom background (File → Upgrade base to prep v{RomPrep.Version})");
             return;
         }
         encoded.CopyTo(rom.Data, rom.FileOffset(BgImage.Bank | lo16));
@@ -433,8 +465,33 @@ internal static class RomBuilder
         // is rewritten unconditionally — `w` was rebuilt from all-defaults above and would
         // otherwise drop settings the base ROM already had. No enable bit in w0: its own is the
         // low bit of w12's nibble (§12b).
-        Layer3.WriteAdvanced(w, state.Layer3AdvancedOff ? null
-                              : state.Layer3Advanced ?? Layer3.ReadAdvanced(rom.LmGfxRecord(level) ?? w));
+        var adv = state.Layer3AdvancedOff ? null
+                : state.Layer3Advanced ?? Layer3.ReadAdvanced(rom.LmGfxRecord(level) ?? w);
+        // The twelve auto-scroll rates are the one part of the group prep does not implement
+        // (CONTRACT §12b): their handler is not decoded, and our dispatcher holds position for
+        // those codes. Writing one would look like a setting that does nothing, so drop it to
+        // "None" and say so rather than shipping a silent no-op.
+        // ...but only on a base WE installed: an LM-saved base has LM's own handler and supports
+        // them. `$00A01F` pointing at our L3Opt is what says the engine behind it is ours.
+        if (adv is { } a2 && rom.ReadValue(RomPrep.L3OptHook + 1, 3) == RomPrep.L3Opt)
+        {
+            if (Layer3.IsAutoScroll(a2.VScroll))
+            {
+                warnings.Add($"level {key}: layer-3 vertical scroll \"{Layer3.VScrollNames[a2.VScroll]}\""
+                           + " is not supported on a prepped base (auto-scroll rates are unported)"
+                           + " — written as None");
+                a2 = a2 with { VScroll = 0 };
+            }
+            if (Layer3.IsAutoScroll(a2.HScroll))
+            {
+                warnings.Add($"level {key}: layer-3 horizontal scroll \"{Layer3.HScrollNames[a2.HScroll]}\""
+                           + " is not supported on a prepped base (auto-scroll rates are unported)"
+                           + " — written as None");
+                a2 = a2 with { HScroll = 0 };
+            }
+            adv = a2;
+        }
+        Layer3.WriteAdvanced(w, adv);
         // Light only the bit for the half that was actually used. Setting bit 15 for a
         // layer-3-only edit would switch on an FG/BG/SP bypass the project never asked for.
         if (state.GfxOverrides.Keys.Any(k => k is >= 0 and <= 11)) w[0] |= 0x8000;

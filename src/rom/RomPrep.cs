@@ -57,7 +57,7 @@ public static class RomPrep
     /// instead of stopping at the project file (see <see cref="AppendV14Stamps"/>).
     /// Version-keyed stamp lists keep every released version BYTE-FROZEN: a v1 project's
     /// pinned image must reproduce forever (golden-hash tested).</summary>
-    public const int Version = 15;
+    public const int Version = 16;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -201,6 +201,34 @@ public static class RomPrep
     /// shorten the status bar (CONTRACT §12b).</summary>
     public const int L3SizeTab = 0x0FFEB4, L3DestWordTab = 0x0FFEBC, L3BarSize = 0x0FFEC4;
 
+    // ---- V16: the ADVANCED layer-3 bypass (initial position, blend, scroll rate) ----
+    /// <summary>The nibble reader, in LM's own `$0FFD80` block (332 B; our prep uses none of that
+    /// range). The ADDRESS need not be LM's — <see cref="LunarMagic.HasLmLayer3Advanced"/> scans
+    /// for the opening idiom rather than a fixed site — but the idiom itself is LM's instruction
+    /// for instruction, so a prepped base answers that probe like an LM-saved one.</summary>
+    public const int L3AdvRead = 0x0FFD80;
+    /// <summary>LM's nibble-PAIR helper, also at its own address: reads the high nibble at Y and
+    /// the one two bytes lower, glues them into a byte, and leaves Y two lower again.</summary>
+    public const int L3AdvPair = 0x0FFE82;
+    /// <summary>The engine (level load) plus the per-frame scroll dispatcher and its kind table.
+    /// LM's own `$0FFB20` block address (523 B); nothing of ours lives in `$0FFB20-$0FFD7F`.</summary>
+    public const int L3Adv = 0x0FFB20;
+    /// <summary>Vanilla's per-frame layer-3 scroll site: `LDA $1403 : BEQ +3` (5 bytes), which
+    /// is exactly where LM puts its own `JSL : RTS`. Ours dispatches when the advanced group is
+    /// on and otherwise unwinds the JSL and jumps back into vanilla, so an unbypassed level
+    /// behaves identically.</summary>
+    public const int L3ScrollHook = 0x05C40C;
+    /// <summary>The per-frame dispatcher's own entry, so the hook above has an address to JSL.</summary>
+    public const int L3Scroll = 0x0FFC40;
+    /// <summary>Where the resolved 5-bit scroll codes are stashed for the per-frame pass. LM's
+    /// own two bytes: it overwrites `$145E`'s high byte (which it has finished reading) with the
+    /// horizontal code and uses `$1460` for the vertical.</summary>
+    public const int L3CodeH = 0x145F, L3CodeV = 0x1460;
+    /// <summary>Layer 3's scroll destinations and layer 1's camera, the pair every rate handler
+    /// works from: `$22`/`$24` = layer 3 X/Y, `$1A`/`$1C` = layer 1 X/Y, `$146A`/`$146C` = the
+    /// initial offsets the advanced group sets, `$1B78`/`$1B7A` = the scroll-sync mirrors.</summary>
+    public const int L3ScrollX = 0x22, L3ScrollY = 0x24;
+
     /// <summary>The four vanilla `JSL $00F545` acts-like call sites (banks 00/01/02),
     /// repointed to our remap so gameplay collision resolves extended tiles.</summary>
     public static readonly int[] ActsCallSites = [0x00F4DD, 0x019533, 0x02961A, 0x02A6EB];
@@ -235,7 +263,9 @@ public static class RomPrep
            // property an LM-saved ROM has, not our particular loader (CONTRACT §0).
            && (version < 14 || rom.HasLmLayer3Gfx)
            // V15: LM's JSL at the head of the tilemap picker.
-           && (version < 15 || rom.HasLmLayer3Tilemap);
+           && (version < 15 || rom.HasLmLayer3Tilemap)
+           // V16: the advanced nibble reader — the same idiom-scan property an LM-saved ROM has.
+           && (version < 16 || rom.HasLmLayer3Advanced);
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying
@@ -363,6 +393,38 @@ public static class RomPrep
         rom.map16TileCount = -1;
     }
 
+    /// <summary>
+    /// A short hash of the CODE this prep stamps, at the current version — the answer to "is
+    /// this base's prep actually what today's build produces?", which the version number alone
+    /// cannot give.
+    ///
+    /// MEASURED HAZARD, not a hypothetical: a project pinned "PrepVersion 16" whose base had
+    /// been stamped by an earlier build of v16 kept the old layer-3 tilemap buffer, so a fix
+    /// that was in the source and in the tests never reached the ROM the user played, and the
+    /// upgrade-on-open path saw matching version numbers and did nothing. Prep changes without
+    /// a version bump every time a routine is edited, so the version is a release marker, not a
+    /// content check.
+    ///
+    /// Cheap enough to run on every open: <see cref="BuildStamps"/> is pure and touches no file.
+    /// </summary>
+    public static string StampSignature
+    {
+        get
+        {
+            if (stampSignature is not null) return stampSignature;
+            var h = System.Security.Cryptography.IncrementalHash.CreateHash(
+                System.Security.Cryptography.HashAlgorithmName.SHA256);
+            foreach (var (pc, bytes) in BuildStamps(Version))
+            {
+                h.AppendData(BitConverter.GetBytes(pc));
+                h.AppendData(bytes);
+            }
+            return stampSignature = Convert.ToHexString(h.GetHashAndReset())[..16];
+        }
+    }
+
+    private static string? stampSignature;
+
     private static int Pc(int snes) => Rom.SnesToPc(snes);
 
     // ---------------------------------------------------------------- stamps
@@ -392,7 +454,30 @@ public static class RomPrep
         // only the v14 image differs.
         if (version >= 14) AppendV14Stamps(s);
         if (version >= 15) AppendV15Stamps(s);
+        if (version >= 16) AppendV16Stamps(s);
         return s;
+    }
+
+    /// <summary>
+    /// V16: the ADVANCED layer-3 bypass — the group that answers "I do not want the tileset's
+    /// scroll and blend". Everything up to here made the layer-3 PICTURE per-level; this makes
+    /// its BEHAVIOUR per-level, which is the half LM's help calls out: "the behavior and scrolling
+    /// of the original setting will remain unless you enable the advanced bypass settings".
+    ///
+    /// The nine spare high nibbles are gathered by the reader; the once-per-level parts (colour
+    /// math, subscreen, initial X/Y) ride the `$00A01F` seat v15 already owns; and the scroll
+    /// rate is recomputed each frame at vanilla's own layer-3 scroll site, which is LM's hook too.
+    /// The GFX loader image changes with the version the way v14/v15 changed it, so earlier
+    /// versions' bytes stay frozen.
+    /// </summary>
+    private static void AppendV16Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        s.Add((Pc(GfxArmStub), GfxCode(16)));
+        s.Add((Pc(L3Adv), L3AdvCode()));
+        // `LDA $1403 : BEQ +3` (5 bytes) → `JSL dispatcher : RTS`. The dispatcher re-enters
+        // vanilla itself when the group is off, so those 5 bytes are the whole hook.
+        s.Add((Pc(L3ScrollHook), [0x22, (byte)(L3Scroll & 0xFF), (byte)(L3Scroll >> 8 & 0xFF),
+                                  (byte)(L3Scroll >> 16), 0x60]));
     }
 
     /// <summary>
@@ -517,6 +602,23 @@ public static class RomPrep
     /// <summary>Where a decompressed GFX file lands from V13 on — vanilla's and LM's $7EAD00.
     /// (V4-V12 used <see cref="Gfx4bppBuffer"/>.)</summary>
     public const int GfxBuffer = 0x7EAD00;
+
+    /// <summary>
+    /// The layer-3 TILEMAP's own decompression buffer, from v16 (see the note at the decompress
+    /// call in <c>L3Map</c>). A tilemap file is 0x2000 bytes and the shared
+    /// <see cref="GfxBuffer"/> has room for 0x1000, so sharing it overran the level's Map16 maps.
+    /// v4-v12's GFX buffer address, free since v13 moved that back to vanilla's $7E:AD00.
+    /// </summary>
+    public const int L3MapBuffer = 0x7FA000;
+
+    /// <summary>LM's per-level layer-2/3 settings byte, one per level, read by the `$05803B` hook
+    /// into `$7FC00B` (CONTRACT §10b). Stamped all-zero by `LmLevelRender` from v10.</summary>
+    public const int Layer23Settings = 0x0EF310;
+
+    /// <summary>The two bits that make a level's layer 2 a CUSTOM background rather than an object
+    /// stream: bit 1 = do not fall through to `$058074` (the object path), bit 2 = skip the
+    /// layer-2 map fill, because a custom stream carries its own page plane.</summary>
+    public const int Layer23CustomBg = 0x06;
 
     /// <summary>
     /// V10: an entrance that can stand anywhere — on Lunar Magic's rails.
@@ -1612,8 +1714,19 @@ public static class RomPrep
         // can become the advanced group's entry later; the tilemap copy happens at the END of this
         // routine instead (L3StripeThunk), so this must keep answering with the real option — a 0
         // here would make the caller skip the upload AND the copy with it.
-        a.PadTo(L3Opt)
-         .LdaAbs(0x1BE3)
+        // V16 takes the seat this comment reserved. The reader runs on EVERY armed load, so the
+        // four RAM variables always describe the level actually being entered rather than the
+        // last one that used the group; the engine runs only when $145E bit 0 is set. The answer
+        // handed back is unchanged either way — the advanced group does NOT override the layer-3
+        // option (LM's `AND #$0003` at $1099A4 is the initial-X index, not the option), so an
+        // unbypassed level goes through here exactly as it did at v15.
+        a.PadTo(L3Opt);
+        if (version >= 16)
+            a.Jsr(L3AdvRead)
+             .LdaAbs(0x145E).AndImm8(0x01).Beq("l3vanopt")
+             .Jsr(L3Adv)                                 // the engine, in its own block
+             .Label("l3vanopt");
+        a.LdaAbs(0x1BE3)
          .DecA()
          .Tax()
          .Inx()
@@ -1651,9 +1764,18 @@ public static class RomPrep
          .JsrL("resolve")
          .Bcs("mpop")                        // not inserted / invalid id
          .Sep(0x20)
+         // The tilemap gets its OWN buffer from v16 on. It is 0x2000 bytes — twice any GFX file —
+         // and the shared $7E:AD00 buffer only has room to $7EBCFF, which a 4bpp file fills
+         // exactly (§V13). Decompressing 0x2000 there ran to $7ECCFF and wrote straight through
+         // the layer-2 map at $7E:B900, its page plane at $7E:BD00, and the LAYER-1 Map16 map at
+         // $7E:C800 — which renders as one Map16 tile repeating in a grid across the level.
+         // MEASURED, not deduced: `Layer3VramBoundsTests` pins the reach of both buffers.
+         // $7F:A000 is v4-v12's old GFX buffer, freed when v13 moved back to $7E:AD00; 0x2000
+         // bytes there end at $7FBFFF, clear of LM's record cache at $7FC006 and of the Map16
+         // page plane at $7F:C800.
          .StzDp(0x00)
-         .LdaImm8(GfxBuffer >> 8 & 0xFF).StaDp(0x01)
-         .LdaImm8(GfxBuffer >> 16).StaDp(0x02)
+         .LdaImm8((version >= 16 ? L3MapBuffer : GfxBuffer) >> 8 & 0xFF).StaDp(0x01)
+         .LdaImm8((version >= 16 ? L3MapBuffer : GfxBuffer) >> 16).StaDp(0x02)
          .Jsl(GfxThunks)                     // LC_LZ2 core: the map is an ordinary GFX file
          .Rep(0x30)
          .Pla()
@@ -1705,6 +1827,163 @@ public static class RomPrep
          .Label("mpop")
          .Pla()
          .Bra("mdone");
+        return a.Bytes();
+    }
+
+    /// <summary>The code -> kind table the per-frame dispatcher indexes, after the routines.</summary>
+    public const int L3KindTabAddr = 0x0FFCE0;
+
+    /// <summary>
+    /// V16's own block, in LM's `$0FFB20` range and stamped separately from the GFX loader image.
+    /// Separate because the loader block would otherwise grow over `L3DestTable` ($0FFA7F) and the
+    /// v15 tables ($0FFEB4+) and, being stamped after them, pad them away. Ends before $0FFEB4.
+    ///
+    /// Emitted in ASCENDING address order, which `Asm` requires — `PadTo` only ever moves forward.
+    /// </summary>
+    private static byte[] L3AdvCode()
+    {
+        var a = new Asm(L3Adv);
+        // ---- The engine + the per-frame dispatcher ----
+        a.PadTo(L3Adv)
+         .Label("engine")                                // 8-bit M/X in, from L3Opt
+         // colour math: $7FC01A bit 2 → $40 bit 2 (LM uses TSB/TRB; same result)
+         .LdaLong(0x7FC01A).AndImm8(0x04).Beq("nocg")
+         .LdaDp(0x40).OraImm8(0x04).StaDp(0x40)
+         .Bra("sub")
+         .Label("nocg")
+         .LdaDp(0x40).AndImm8(0xFB).StaDp(0x40)
+         .Label("sub")
+         // layer 3 to subscreen: bit 3 → $0D9D bit 10, mirrored to both screen-designation ports
+         .LdaLong(0x7FC01A).AndImm8(0x08).Beq("xpos")
+         .Rep(0x20)
+         .LdaAbs(0x0D9D).AndImm16(0xFFFB).OraImm16(0x0400).StaAbs(0x0D9D)
+         .StaAbs(0x212C).StaAbs(0x212E)
+         .Sep(0x20)
+         .Label("xpos")
+         // initial X: bits 0-1 are an INDEX. index*0x40, except index 3 which is $100 — which is
+         // why LM's own list reads 00/04/08/10 and skips 0C.
+         .LdaLong(0x7FC01A).AndImm8(0x03)
+         .Rep(0x20).AndImm16(0x00FF)
+         .Xba().Lsr().Lsr()
+         .CmpImm16(0x00C0).Bne("setx")
+         .LdaImm16(0x0100)
+         .Label("setx")
+         .StaAbs(0x146A)
+         .Sep(0x20)
+         // initial Y: ($7FC01C : $145E & F8) is Y*8 in a 14-bit signed field. ASL ASL shifts the
+         // two scroll bits out of the top and lands the sign in bit 15; CMP/ROR then shifts back
+         // with that sign carried in, so the net is Y*16 with the sign preserved. LM's own trick.
+         .LdaLong(0x7FC01C).Xba()
+         .LdaAbs(0x145E).AndImm8(0xF8)
+         .Rep(0x20)
+         .Asl().Asl()
+         .CmpImm16(0x8000).Ror()
+         .StaAbs(0x146C)
+         .Sep(0x20)
+         // resolve the two 5-bit codes and stash them for the per-frame pass
+         .LdaAbs(L3CodeH).AndImm8(0x0F).StaDp(0x00)                  // $145F low nibble
+         .LdaLong(0x7FC01C).AndImm8(0x80).Beq("hdone")
+         .LdaDp(0x00).OraImm8(0x10).StaDp(0x00)
+         .Label("hdone")
+         .LdaAbs(L3CodeH).Lsr().Lsr().Lsr().Lsr().StaDp(0x01)        // $145F high nibble
+         .LdaLong(0x7FC01C).AndImm8(0x40).Beq("vdone")
+         .LdaDp(0x01).OraImm8(0x10).StaDp(0x01)
+         .Label("vdone")
+         .LdaDp(0x00).StaAbs(L3CodeH)                                // safe: $145F is read out
+         .LdaDp(0x01).StaAbs(L3CodeV)
+         .Rts();
+
+        // ---- One axis: A = camera, $06 = initial offset, X = code. Out: A = layer-3 position ----
+        a.Label("axis")                                  // 16-bit M/X
+         .StaDp(0x08)
+         .Sep(0x20).LdaLongX(L3KindTabAddr).Rep(0x20).AndImm16(0x00FF)
+         .Beq("hold")                                    // 0 = None: stay at the offset
+         .CmpImm16(0x0001).Beq("oneone")                 // 1 = Constant: 1:1 with layer 1
+         .CmpImm16(0x0008).Beq("fast")                   // 8 = Fast: 1.2x
+         .CmpImm16(0x0009).Bcs("hold")                   // 9 = auto-scroll, not ported
+         .Sec().SbcImm16(0x0001).Tax()                   // kinds 2-7 → shift 1-6
+         .LdaDp(0x08)
+         .Label("shift")
+         .Lsr().Dex().Bne("shift")
+         .Clc().AdcDp(0x06).Rts()
+         .Label("oneone")
+         .LdaDp(0x08).Clc().AdcDp(0x06).Rts()
+         .Label("hold")
+         .LdaDp(0x06).Rts()
+         .Label("fast")                                  // offset + cam + cam/5, LM's divider use
+         .LdaDp(0x08).StaAbs(0x4204)
+         .Sep(0x20).LdaImm8(0x05).StaAbs(0x4206).Rep(0x20)
+         .Xba().Xba()                                    // the divide needs 16 cycles to settle
+         .LdaDp(0x08).Clc().AdcDp(0x06).AdcAbs(0x4214)
+         .Rts();
+
+        // ---- The per-frame dispatcher, long-called from vanilla's own scroll site ----
+        a.PadTo(L3Scroll)
+         .Label("scroll")                                // 8-bit M/X, from bank 05
+         .LdaAbs(0x1931).Bmi("bail")                     // LM's own guard
+         .LdaAbs(0x145E).AndImm8(0x01).Beq("bail")
+         .Rep(0x30)
+         .LdaAbs(0x146A).StaDp(0x06)
+         .Sep(0x20).LdaAbs(L3CodeH).Rep(0x20).AndImm16(0x00FF).Tax()
+         .LdaDp(0x1A).JsrL("axis").StaDp(L3ScrollX)
+         .LdaAbs(0x146C).StaDp(0x06)
+         .Sep(0x20).LdaAbs(L3CodeV).Rep(0x20).AndImm16(0x00FF).Tax()
+         .LdaDp(0x1C).JsrL("axis").StaDp(L3ScrollY)
+         .Sep(0x20)
+         .LdaAbs(0x145E).AndImm8(0x02).Beq("sdone")      // scroll-sync fix
+         .Rep(0x20)
+         .LdaDp(L3ScrollX).StaAbs(0x1B78)
+         .LdaDp(L3ScrollY).StaAbs(0x1B7A)
+         .Sep(0x20)
+         .Label("sdone")
+         .Sep(0x30).Rtl()
+         // Not enabled: drop the JSL's return address and re-enter vanilla where it would have
+         // gone, so the unbypassed path keeps its exact behaviour instead of merely a similar one.
+         .Label("bail")
+         .Pla().Pla().Pla()
+         .LdaAbs(0x1403).Beq("vanfall")
+         .Jml(0x05C494)
+         .Label("vanfall")
+         .Jml(0x05C414);
+
+        // code → kind: 0 hold, 1 one-to-one, 2-7 shift 1-6, 8 fast, 9 auto (not ported).
+        // The ladder is LM's: 02 03 18 19 04 1A are >>1 .. >>6, which is exactly the dropdown
+        // order Medium, Medium 2, Medium 3, Medium 4, Slow, Slow 2 (Layer3.ScrollCodes).
+        var kinds = new byte[0x1B];
+        Array.Fill(kinds, (byte)1);                      // LM sends its unused codes 12-17 here
+        kinds[0x00] = 0; kinds[0x01] = 1;
+        kinds[0x02] = 2; kinds[0x03] = 3; kinds[0x18] = 4; kinds[0x19] = 5;
+        kinds[0x04] = 6; kinds[0x1A] = 7; kinds[0x05] = 8;
+        for (int c = 0x06; c <= 0x11; c++) kinds[c] = 9;
+        a.PadTo(L3KindTabAddr).Db(kinds);
+
+        // ---- The reader. Near-called from the engine seat; 8-bit M/X in and out ----
+        // LM loads the record pointer from its own $7FC006 cache, which we do not keep, so this
+        // builds it from $FE (armed level + 1) the way the layer-3 GFX pass does. From the
+        // `LDY #$17` on it is LM's opening instruction for instruction, which is what the
+        // capability probe scans for.
+        a.PadTo(L3AdvRead)
+         .Rep(0x30)
+         .LdaDp(0xFE).DecA()
+         .Asl().Asl().Asl().Asl().Asl()                  // level * 0x20
+         .Clc().AdcImm16(GfxBypassRecords & 0xFFFF)
+         .StaDp(0x8A)
+         .Sep(0x30)
+         .LdaImm8(GfxBypassRecords >> 16).StaDp(0x8C)
+         .LdyImm8(0x17).LdaIndLongY(0x8A).Lsr().Lsr().Lsr().Lsr().StaLong(0x7FC01A)
+         .Dey().Dey().Jsr(L3AdvPair).StaLong(0x7FC01C)
+         .LdyImm8(0x07).Jsr(L3AdvPair).StaLong(0x7FC01B)
+         .LdyImm8(0x1F).Jsr(L3AdvPair).Xba()
+         .Dey().Dey().Jsr(L3AdvPair)
+         .Rep(0x20).StaAbs(0x145E).Sep(0x20)             // nib(w15..w12), 16-bit
+         .Rts();
+
+        // The nibble-pair helper, byte for byte LM's.
+        a.PadTo(L3AdvPair)
+         .LdaIndLongY(0x8A).AndImm8(0xF0).StaDp(0x00)
+         .Dey().Dey()
+         .LdaIndLongY(0x8A).Lsr().Lsr().Lsr().Lsr().OraDp(0x00)
+         .Rts();
         return a.Bytes();
     }
 }

@@ -465,6 +465,14 @@ public static class LunarMagic
         /// gathers those nibbles into $7FC01A-$7FC01C and $145E (CONTRACT §12b). Probed by the
         /// routine itself rather than an address: `LDY #$17 : LDA [$8A],Y : LSR x4 : STA $7FC01A`
         /// is its opening, and the operand it stores to is the confirmation.</summary>
+        /// <summary>True when the layer-2 pointer's bank check at `$05803B` is hijacked, which is
+        /// what makes a CUSTOM background possible: vanilla treats a non-`$FF` bank as an object
+        /// stream, and the hook instead reads the per-level settings byte at `$0EF310` and lets a
+        /// real 24-bit pointer name a relocatable RLE block (CONTRACT §10b). Present on any
+        /// LM-saved base and on ours from prep v10 (`LmLevelRender`). Without it a background can
+        /// only be rewritten in place, inside the stream it came from.</summary>
+        public bool HasLmLayer2Custom => rom.ReadByte(0x05803B) is 0x5C or 0x22;
+
         public bool HasLmLayer3Advanced
             => ScanOperand(rom, [0xA0, 0x17, 0xB7, 0x8A, 0x4A, 0x4A, 0x4A, 0x4A, 0x8F], []) == 0x7FC01A;
 

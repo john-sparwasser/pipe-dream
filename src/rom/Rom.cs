@@ -210,7 +210,20 @@ public sealed class Rom
 
     /// <summary>Layer 2 pointer. Bank $FF means "layer 2 is a background image", not object data.</summary>
     public int Layer2Pointer(int level) => ReadValue(Layer2TableSnes + level * 3, 3);
-    public bool Layer2IsBackground(int level) => (Layer2Pointer(level) >> 16) == 0xFF;
+    public bool Layer2IsBackground(int level) => (Layer2Pointer(level) >> 16) == 0xFF
+                                                 || Layer2IsCustomBackground(level);
+
+    /// <summary>
+    /// True when the level's layer 2 is a CUSTOM background: a real 24-bit pointer plus the
+    /// settings byte at `$0EF310` saying so (CONTRACT §10b). Vanilla reads a non-`$FF` bank as an
+    /// object stream, and only the `$05803B` hook makes it mean anything else — so without the
+    /// hook this is never true, and with it the two cases are told apart by the byte, not the bank.
+    /// </summary>
+    public bool Layer2IsCustomBackground(int level)
+        => (Layer2Pointer(level) >> 16) != 0xFF
+           && this.HasLmLayer2Custom
+           && (ReadByte(RomPrep.Layer23Settings + (level & 0x1FF)) & RomPrep.Layer23CustomBg)
+              == RomPrep.Layer23CustomBg;
 
     /// <summary>Repoint a level's Layer 2 table entry at a SNES address. Writing a real bank
     /// here also converts a background-image level to object mode, since the mode IS the

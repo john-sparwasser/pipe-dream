@@ -48,6 +48,20 @@ public static class LevelParser
     public static ushort[]? DecodeBgImage(Rom rom, int number)
     {
         if (!rom.Layer2IsBackground(number)) return null;
+
+        // A CUSTOM background carries its own page plane and its own geometry (§10b), so it is
+        // decoded whole rather than paired with one page derived from the address.
+        if (rom.Layer2IsCustomBackground(number))
+        {
+            if (BgImage.DecodeCustom(rom, rom.Layer2Pointer(number)) is not var (cLow, cPage))
+                return null;
+            if (rom.BgTilemaps.TryGetValue(number, out var over)) cLow = over;
+            var custom = new ushort[cLow.Length];
+            for (int i = 0; i < cLow.Length; i++)
+                custom[i] = (ushort)((i < cPage.Length ? cPage[i] << 8 : 0) | cLow[i]);
+            return custom;
+        }
+
         int lo16 = rom.Layer2Pointer(number) & 0xFFFF;
         int page = BgImage.PageFor(lo16);
         byte[] low = rom.BgTilemaps.TryGetValue(number, out var edited) ? edited

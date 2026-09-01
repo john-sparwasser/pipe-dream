@@ -48,6 +48,23 @@ public sealed class Cpu65816(Rom rom)
     public List<byte>? VramLog;
 
     /// <summary>
+    /// Debug: when set, models the VRAM ADDRESS as well as the data — `$2116`/`$2117` (word
+    /// address) and `$2115`'s increment mode — and records every word written as (word, value).
+    ///
+    /// <see cref="VramLog"/> answers "what bytes did this upload produce"; this answers "WHERE did
+    /// they land", which is the question an upload routine's length and destination arithmetic
+    /// actually turns on. Without it a routine that overruns its window looks identical to one
+    /// that fits: the bytes are the same, and only the addresses differ. Layer 3's window is
+    /// words $5000-$5FFF with layer 1's tilemap immediately above it at $6000, so an off-by-one
+    /// on a length in bytes-vs-words silently repaints layer 1 — see CONTRACT §12b.
+    /// </summary>
+    public List<(int Word, int Value)>? VramWrites;
+
+    private int vramAddr, vramStep = 1;
+    private bool vramIncOnHigh = true;
+    private int vramLatchLow = -1;
+
+    /// <summary>
     /// Object attribution (set all three to enable): every RAM write also records which
     /// level-data record the loader is processing. The loader advances the stream pointer
     /// $65 past the 3-byte record BEFORE dispatching its handler (bank 05 CODE_058612),
@@ -76,6 +93,25 @@ public sealed class Cpu65816(Rom rom)
         if (VramLog is not null && addr is 0x2118 or 0x2119
             && (bank < 0x40 || (bank >= 0x80 && bank < 0xC0)))
             VramLog.Add(v);
+        if (VramWrites is not null && (bank < 0x40 || (bank >= 0x80 && bank < 0xC0)))
+            switch (addr)
+            {
+                case 0x2115:                                    // VMAIN
+                    vramIncOnHigh = (v & 0x80) != 0;
+                    vramStep = (v & 3) switch { 0 => 1, 1 => 32, 2 => 128, _ => 128 };
+                    break;
+                case 0x2116: vramAddr = (vramAddr & 0xFF00) | v; break;
+                case 0x2117: vramAddr = (vramAddr & 0x00FF) | (v << 8); break;
+                case 0x2118:                                    // low byte
+                    if (vramIncOnHigh) vramLatchLow = v;
+                    else { VramWrites.Add((vramAddr & 0x7FFF, v)); vramAddr += vramStep; }
+                    break;
+                case 0x2119:                                    // high byte
+                    VramWrites.Add((vramAddr & 0x7FFF, vramLatchLow < 0 ? v << 8 : vramLatchLow | (v << 8)));
+                    vramLatchLow = -1;
+                    if (vramIncOnHigh) vramAddr += vramStep;
+                    break;
+            }
         if (StreamOwner is not null && Ram7E[0x67] == 0x7F)
         {
             int p = ((Ram7E[0x66] << 8) | Ram7E[0x65]) - 3;

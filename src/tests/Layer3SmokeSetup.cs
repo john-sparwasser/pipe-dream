@@ -131,10 +131,9 @@ public class Layer3SmokeSetup(ITestOutputHelper log)
     /// Builds the ROM for the prep-v15 layer-3 TILEMAP smoke test, again on a prepped vanilla.
     ///
     /// Same row-digit diagnostic as the first fixture — every row filled with the font glyph for
-    /// its own row number mod 10 — and stamped at "Start of Layer 3", which deliberately covers
-    /// the status bar's own rows. That is the point: the status bar is the part of layer 3 that
-    /// is on screen no matter which level the run lands in, so replacing it with countable
-    /// digits is a result that reads itself.
+    /// its own row number mod 10 — stamped at the destination the build uses, "Under Status Bar",
+    /// so the digits start on row 5 and the HUD above them stays readable. Reading the two
+    /// together is the check: a working run shows the score AND digits counting down from it.
     /// </summary>
     [Fact]
     public void build_a_rom_whose_status_bar_is_a_bypassed_tilemap()

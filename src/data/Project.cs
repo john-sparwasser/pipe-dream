@@ -52,6 +52,7 @@ internal sealed class Project
                 Size = bytes.Length,
                 Title = Rom.Load(dest).Title,
                 PrepVersion = prepVersion,
+                PrepStamp = prepVersion > 0 ? RomPrep.StampSignature : "",
             },
         };
         var p = new Project(folder, data);
@@ -129,8 +130,14 @@ internal sealed class Project
     /// GFX) reports "save it in Lunar Magic once first" and there was no way out from the UI.
     /// A PrepVersion-0 base that is NOT vanilla is a foreign/LM ROM: prepping would replace it
     /// with vanilla and throw the hack away, so those are excluded.</summary>
+    /// <remarks>The stamp check is the third case and the one that matters during development:
+    /// a base at the CURRENT version whose bytes came from an earlier build of that version is
+    /// stale in every way that counts, and nothing else notices (see
+    /// <see cref="RomPrep.StampSignature"/>).</remarks>
     internal bool CanUpgradeBasePrep =>
-        Data.BaseRom.PrepVersion is >= 1 && Data.BaseRom.PrepVersion < RomPrep.Version
+        Data.BaseRom.PrepVersion >= 1
+        && (Data.BaseRom.PrepVersion < RomPrep.Version
+            || Data.BaseRom.PrepStamp != RomPrep.StampSignature)
         || Data.BaseRom.PrepVersion == 0 && File.Exists(BaseRomPath)
            && RomHash.HeaderlessSha256File(BaseRomPath) == RomHash.VanillaUsSha256;
 
@@ -172,6 +179,7 @@ internal sealed class Project
         Data.BaseRom.Sha256 = RomHash.HeaderlessSha256(bytes);
         Data.BaseRom.Size = bytes.Length;
         Data.BaseRom.PrepVersion = RomPrep.Version;
+        Data.BaseRom.PrepStamp = RomPrep.StampSignature;
         Save();
         return null;
     }

@@ -75,6 +75,8 @@ public sealed class Asm(int orgSnes)
     public Asm StaAbsY(int a) => Imm16(0x99, a);
     public Asm LdaLongX(int a) => E(0xBF, (byte)a, (byte)(a >> 8), (byte)(a >> 16));
     public Asm StaLongX(int a) => E(0x9F, (byte)a, (byte)(a >> 8), (byte)(a >> 16));
+    public Asm LdaLong(int a) => E(0xAF, (byte)a, (byte)(a >> 8), (byte)(a >> 16));
+    public Asm StaLong(int a) => E(0x8F, (byte)a, (byte)(a >> 8), (byte)(a >> 16));
     public Asm LdaIndLongY(int d) => E(0xB7, (byte)d);   // LDA [dp],Y
     public Asm StaIndLongY(int d) => E(0x97, (byte)d);   // STA [dp],Y
     public Asm LdyImm8(int v) => E(0xA0, (byte)v);
@@ -84,6 +86,8 @@ public sealed class Asm(int orgSnes)
     public Asm LdxImm8(int v) => E(0xA2, (byte)v);
     public Asm LdxImm16(int v) => Imm16(0xA2, v);
     public Asm StxDp(int d) => E(0x86, (byte)d);
+    public Asm StxAbs(int a) => Imm16(0x8E, a);
+    public Asm LdyAbs(int a) => Imm16(0xAC, a);
     public Asm LdaDpX(int d) => E(0xB5, (byte)d);
     public Asm StzDp(int d) => E(0x64, (byte)d);
     public Asm StzAbs(int a) => Imm16(0x9C, a);
@@ -99,6 +103,9 @@ public sealed class Asm(int orgSnes)
     public Asm AndImm16(int v) => Imm16(0x29, v);
     public Asm AndDp(int d) => E(0x25, (byte)d);
     public Asm OraDp(int d) => E(0x05, (byte)d);
+    public Asm OraImm8(int v) => E(0x09, (byte)v);
+    public Asm OraImm16(int v) => Imm16(0x09, v);
+    public Asm AndAbs(int a) => Imm16(0x2D, a);
     public Asm OraIndLong(int d) => E(0x07, (byte)d);    // ORA [dp]
     public Asm OraAbsX(int a) => Imm16(0x1D, a);
     public Asm CmpImm8(int v) => E(0xC9, (byte)v);
@@ -108,6 +115,7 @@ public sealed class Asm(int orgSnes)
     public Asm Asl() => E(0x0A);
     public Asm Lsr() => E(0x4A);
     public Asm Rol() => E(0x2A);
+    public Asm Ror() => E(0x6A);
     /// <summary>BIT #imm — tests bits WITHOUT touching A, which is the whole reason to use it
     /// over AND when the accumulator is still needed afterwards.</summary>
     public Asm BitImm8(int v) => E(0x89, (byte)v);

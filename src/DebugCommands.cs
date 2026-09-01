@@ -156,7 +156,18 @@ static class DebugCommands
                         + $"({Layer3.OptionNames[option]}), priority {header.Layer3Priority}");
         Console.WriteLine($"  LG1-4 = {string.Join(" ", files.Select(f => $"{f:X2}"))}"
                         + (rom.LmLayer3Gfx(level) is null ? "  (vanilla)" : "  (LM bypass, record w0 bit 14)"));
-        if (Layer3.Tilemap(rom, header.LevelMode, option) is not { } map)
+        // A BUILT rom carries its custom tilemap as an ordinary GFX file named by the record, so
+        // reading vanilla's (mode, option) pick here would show the picture the game replaced.
+        int[]? map = null;
+        if (rom.LmLayer3Tilemap(level) is { } lt3 && Gfx.Cached(rom, lt3.File) is { } lt3Bytes)
+        {
+            Console.WriteLine($"  LT3 = file {lt3.File:X3}, {Layer3.TilemapDestinations[lt3.Destination]}"
+                            + $" (word ${Layer3.TilemapDestinationWords[lt3.Destination]:X4}), "
+                            + $"size 0x{Layer3.TilemapSizes[lt3.Size]:X}, file is 0x{lt3Bytes.Length:X} bytes");
+            map = Layer3.FromBytes(lt3Bytes);
+        }
+        map ??= Layer3.Tilemap(rom, header.LevelMode, option);
+        if (map is null)
         {
             Console.WriteLine("no layer 3 in this level");
             return 0;

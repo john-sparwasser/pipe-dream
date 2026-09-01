@@ -150,8 +150,14 @@ public class BackgroundEditTests(ITestOutputHelper log)
     }
 
     /// <summary>Words the vanilla script never wrote stay unwritten through a save: a flat file
-    /// has no way to say "untouched", so they go out as 0xFFFF and come back as nothing rather
-    /// than as tile 0, which in GFX28 is a font glyph.</summary>
+    /// has no way to say "untouched", so they go out as <see cref="Layer3.BlankWord"/> — the
+    /// transparent tile SMW's own status bar pads with — rather than as tile 0, which in GFX28 is
+    /// a font glyph.
+    ///
+    /// This used to be 0xFFFF on the reasoning that tile 0x3FF is past the 512 the window holds
+    /// and so draws nothing anywhere. That is true of this editor and false of the console, which
+    /// fetched the tile out of the tilemap region and drew it in FRONT of layer 1 (0xFFFF sets the
+    /// priority bit) — a built map is stamped full-window, so it covered the level in garbage.</summary>
     [Fact]
     public void unwritten_words_survive_the_round_trip_as_nothing()
     {
@@ -161,11 +167,13 @@ public class BackgroundEditTests(ITestOutputHelper log)
 
         var raw = s.Rom!.Layer3Tilemaps[0x009];
         int at = Layer3.CellIndex(60, 60) * 2;
-        Assert.Equal(0xFFFF, raw[at] | (raw[at + 1] << 8));
+        Assert.Equal(Layer3.BlankWord, raw[at] | (raw[at + 1] << 8));
 
-        // ...and 0xFFFF draws nothing on the way back in: it names tile 3FF, past the 512 the
-        // window holds, so neither the editor nor the console has a tile to put there.
-        Assert.Null(s.Layer3CellPixels(Layer3.FromBytes(raw)[Layer3.CellIndex(60, 60)]));
+        // ...and it draws nothing on the way back in — a real tile, every pixel on colour 0, so
+        // the editor and the console agree instead of only the editor being blank.
+        var px = s.Layer3CellPixels(Layer3.FromBytes(raw)[Layer3.CellIndex(60, 60)]);
+        Assert.NotNull(px);
+        Assert.All(px!, p => Assert.Equal(0u, p));
     }
 
     // ---- the level-canvas preview ----
