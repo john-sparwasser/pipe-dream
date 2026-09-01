@@ -821,6 +821,15 @@ public partial class MainWindow : Window
             e.Handled = true;
             return;
         }
+        // File → Save. The menu item's InputGesture only DRAWS "Ctrl+S"; Avalonia does not
+        // register a gesture from it, so the key has to be handled here like F4. This is a
+        // bubbling handler, so a focused text box still gets first refusal.
+        if (e.Key == Key.S && e.KeyModifiers == KeyModifiers.Control)
+        {
+            OnSave(this, e);
+            e.Handled = true;
+            return;
+        }
         if (e.Key == Key.Z && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
             bool redo = e.KeyModifiers.HasFlag(KeyModifiers.Shift);

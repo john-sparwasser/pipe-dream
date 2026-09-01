@@ -16,7 +16,7 @@ public sealed class SpriteEdit(SpriteData sprites, SpriteOverlay? overlay, bool 
     public SpriteData Sprites { get; } = sprites;
     public SpriteOverlay? Overlay { get; set; } = overlay;
     public HashSet<int> Selection { get; } = [];
-    public bool Dirty { get; private set; }
+    public bool Dirty { get; internal set; }
     public int UndoDepth => undo.Count;
     public bool CanUndo => undo.Count > 0;
     public bool CanRedo => redo.Count > 0;

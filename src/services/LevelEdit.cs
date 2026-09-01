@@ -34,7 +34,7 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
     public int UndoDepth => undo.Count;
     public bool CanUndo => undo.Count > 0;
     public bool CanRedo => redo.Count > 0;
-    public bool Dirty { get; private set; }
+    public bool Dirty { get; internal set; }
     public bool InStroke => stroke.Count > 0;
 
     /// <summary>Cells whose pixels changed since the last <see cref="TakeDirty"/>.</summary>

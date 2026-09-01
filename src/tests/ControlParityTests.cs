@@ -55,6 +55,14 @@ public class ControlParityTests(ITestOutputHelper log)
         .GetField("edit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
         .GetValue(w)!;
 
+    private static EditorSession SessionOf(MainWindow w) => (EditorSession)typeof(MainWindow)
+        .GetField("session", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+        .GetValue(w)!;
+
+    private static void Invoke(MainWindow w, string method) => typeof(MainWindow)
+        .GetMethod(method, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+        .Invoke(w, null);
+
     [AvaloniaFact]
     public void right_drag_stamps_tiles_and_left_drag_does_not()
     {
@@ -300,5 +308,43 @@ public class ControlParityTests(ITestOutputHelper log)
         w.MouseWheel(at, new Vector(0, -1));
         Dispatcher.UIThread.RunJobs();
         Assert.Empty(moves);
+    }
+
+    /// <summary>
+    /// Ctrl+S saves. The File menu draws "Ctrl+S" next to Save, but a MenuItem's InputGesture
+    /// in Avalonia is DECORATION — it registers no gesture — so the key only works because
+    /// OnWindowKeyDown handles it, and it silently did nothing until it did.
+    /// </summary>
+    [AvaloniaFact]
+    public void ctrl_s_saves_the_project()
+    {
+        if (Open() is not { } o) { log.WriteLine("SKIP: no ROM"); return; }
+        var (w, c) = o;
+        string dir = Path.Combine(Path.GetTempPath(), "pdsave-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            // Save needs a project to write to. A .pdp on the command line only opens through
+            // OnFirstOpened, which headless runs deliberately never wire up, so the project is
+            // made on the window's own session the way NewProjectFlow does it.
+            var session = SessionOf(w);
+            Assert.True(session.NewProject(Path.Combine(dir, "p"), Prepped!), session.Status);
+            Invoke(w, "AdoptSession");
+            Dispatcher.UIThread.RunJobs();
+
+            int before = EditOf(w).Objects.Count;
+            w.MouseDown(At(c, w, 2, 12), MouseButton.Right);      // stamp, so there is work to lose
+            w.MouseMove(At(c, w, 7, 12));
+            w.MouseUp(At(c, w, 7, 12), MouseButton.Right);
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(EditOf(w).Objects.Count > before);
+            Assert.True(session.HasUnsavedWork);
+
+            w.KeyPressQwerty(PhysicalKey.S, RawInputModifiers.Control);
+            Dispatcher.UIThread.RunJobs();
+            Assert.False(session.HasUnsavedWork, $"Ctrl+S left work unsaved: {session.Status}");
+            Assert.Contains("saved", session.Status);
+            Assert.DoesNotContain("*", w.Title);                  // and the title's marker cleared
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }
 }

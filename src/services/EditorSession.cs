@@ -1968,7 +1968,12 @@ public sealed class EditorSession
         if (Project is null) return "no project open — File ▸ New Project first";
         Project.Save();                       // SyncBeforeSave folds the live level in
         touched.Clear();
+        // Everything that meant "the project snapshot does not have this yet" is now on disk,
+        // so the live editors stop claiming it. Without this the title kept its unsaved marker
+        // for the rest of the session, which reads as "the save did not happen".
         if (GfxPixels is { } g) g.Dirty = false;
+        if (Edit is { } le) le.Dirty = false;
+        if (Sprites is { } se) se.Dirty = false;
         Report($"saved {Project.Name}");
         return Status;
     }
