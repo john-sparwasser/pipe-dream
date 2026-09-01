@@ -1388,6 +1388,57 @@ dialog. Evidence: `.resources/layer3/l3_i.smc` (Fast/Slow, subscreen, sync fix, 
 
 Still not located: "Make tides act as", and LM's mirror of the priority flag.
 
+**PORTING LM'S LAYER-3 INSTALL — the measured spec  [ISOLATED, not yet ported]**
+
+Our prep installs LM's GFX loader but none of the layer-3 hooks, so on a prepped vanilla every
+layer-3 feature here is editor-only and the game draws the level mode's own tilemap — the beta
+cage, on any tileset that is not 1/3/5/9/D/E. Two controlled saves isolate exactly what LM
+stamps, and they are two SEPARATE installs, not one:
+
+*Step A — layer-3 GFX bypass and the record machinery*  [`l3_0` → `l3_b`, 1 MB, 32 runs].
+Triggered by ticking "Enable bypass of standard Layer 3 GFX".
+
+  hooks   `$009471` `AE C6 13 A9 18` → `JSL $0FF9C0 : NOP`
+          `$00A140` `85 20 E2 20` → `JSL $0FFAB0`
+          `$00AA06` / `$00AA47` `F0 03` → `EA EA` (two early-outs killed)
+          `$00AA50` `A2 03 B5 04 9D` → `JSL $0FF780 : RTS`   ← **our prep already stamps this**
+          `$00AA6C` `28 BA 00` → `60 F1 0F`
+          `$049DFE` operand → `$0FFAF0`
+          `$0583B8` `AD 25 19 C9 09` → `JSL $0FF7F0 : NOP`   (ours goes to `$0FF770`)
+          five `E3 B3` → `E0 F0`/`F0 F0` pairs in bank 0D (`$0DA4BE $0DC203 $0DCE03 $0DDA03
+          $0DE903`), plus 25 new bytes at `$0DF0E0`
+  blocks  bank 0F: `$0FEFC3`(25) `$0FF15C`(139) `$0FF200`(1448) `$0FF7D0`(15) `$0FF7F0`(134)
+          `$0FF8A0`(71) `$0FF900`(111) `$0FF9C0`(11) `$0FF9E0`(175) `$0FFAB0`(36) `$0FFAF0`(17)
+          `$0FFB20`(523) `$0FFD80`(332); record table RATS at `$128008` (28160 B)
+
+*Step B — layer-3 TILEMAP bypass*  [`l3_e` → `l3_k`, 1 MB, **11 runs — a clean isolate**].
+Triggered by ticking "Enable bypass of standard Layer 3 tilemap", with LT3 left at 7F Skip File.
+
+  hooks   `$00A01F` `AD E3 1B F0 20 3A` → `22 64 99 10 F0 1F` — `JSL $109964` in place of
+          `LDA $1BE3 : ... : DEC`; the routine does that work itself and the following `BEQ`
+          shortens by one because a JSL is a byte longer than the LDA
+          `$00A153` `A9 06 85 12` → `JSL $109DE4`
+          `$0194B6` `A9 00 8D 93 16` → `JML $109E04 : RTS`
+          `$05C40C` `AD 03 14 F0 03` → `JSL $109D7B : RTS`
+  blocks  RATS in bank 10: `$109844`(280) `$109964`(1216) `$109E2C`(104)
+
+**The advanced group belongs to step B, not step A.** `$109964` — the routine that replaces
+`LDA $1BE3` — opens `LDA $145E : LSR : BCS`, i.e. it returns the layer-3 option when the
+advanced group is off and otherwise applies the whole advanced group and takes the option from
+`$7FC01A` bits 0-1 instead. So the tilemap hook is also the scroll/blend engine. Only the
+nibble READER (`$0FFD80`) ships with step A, which is why `HasLmLayer3Advanced` can be true on a
+ROM that has step A and not step B — the settings are gathered into RAM that nothing yet reads.
+
+**What the port costs.** ~4 KB of 65816 transplanted with operands rewritten (LM's record base
+`$12AD08` → ours `$129000`, its ExGFX tables → ours), which is the same technique the prep
+already uses for LM's midway routine. The obstacle is LAYOUT: our own GFX stage sits at
+`$0FF780`/`$0FF810`/`$0FF8A0`, and LM's `$0FF7F0` block (134 B, ends `$0FF876`) and `$0FF8A0`
+block (71 B) land on top of `GfxResolve` and `GfxSlotTab`. LM's addresses are the rails, so the
+prep's own blocks are what move — which a new prep version may do, since only released versions
+are byte-frozen.
+
+Evidence: `.resources/layer3/l3_k.smc` (step B in isolation, off `l3_e`).
+
 Evidence: `.resources/layer3/l3_0.smc` (pre-hack baseline), `l3_b.smc` (hack + GFX bypass,
 LG1=29), `l3_c.smc` (LG1=30), `l3_e.smc` (+ Tileset Specific).
 
