@@ -9,9 +9,8 @@ namespace PipeDream.Ui.Tests;
 /// project pipeline the build does and nothing else in the repo can make one headlessly.
 ///
 /// The tilemap is a DIAGNOSTIC: every row is filled with the font glyph for its own row number
-/// mod 10, so a screenshot reads back which map row landed at the top of the screen — which is
-/// the one thing "Destination for File" decides and the one thing we have not measured
-/// (CONTRACT §12b, Layer3.BuiltTilemapDestination).
+/// mod 10, so a screenshot reads back which map row landed at the top of the screen — a solid
+/// colour would only have proved that SOMETHING loaded, and random VRAM looks like content.
 ///
 /// Layer 3 is given PRIORITY so it draws in front: behind an opaque layer-2 background it would
 /// be invisible, and "invisible" is indistinguishable from "never loaded".

@@ -280,9 +280,15 @@ public sealed class Rom
     /// <summary>Imported layer-3 tilemaps: level → a flat 16-bit map, LM's LT3 file shape
     /// (0x800/0x1000/0x2000 bytes). Replaces vanilla's (level mode, option) pick for that level
     /// wherever <see cref="Layer3.LevelTilemap"/> is asked. Hydrated from / stashed to
-    /// ProjectFile.LevelState.Layer3Tilemap. EDITOR-ONLY so far: LM's tilemap-bypass slot in the
-    /// per-level record is not decoded, so nothing writes this into a built ROM (CONTRACT §12b).</summary>
+    /// ProjectFile.LevelState.Layer3Tilemap. The build inserts it as an ExGFX file and points
+    /// the record's LT3 slot at it (CONTRACT §12b).</summary>
     public readonly Dictionary<int, byte[]> Layer3Tilemaps = new();
+
+    /// <summary>Session edits to LM's advanced layer-3 bypass: level → the settings, or null
+    /// for "this level has none". A present key always wins over the base ROM's record, which
+    /// is what lets an edit turn the group OFF as well as on. Hydrated from / stashed to
+    /// ProjectFile.LevelState.Layer3Advanced.</summary>
+    public readonly Dictionary<int, Layer3.Advanced?> Layer3AdvancedOverrides = new();
 
     /// <summary>Imported ExGFX files (the project's GFX store): file id → raw planar bytes
     /// at the ROM's bit depth. Consulted first by Gfx.Cached, so imports render everywhere

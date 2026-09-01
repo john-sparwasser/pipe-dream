@@ -409,7 +409,8 @@ internal static class RomBuilder
     private static void WriteGfxRecord(Rom rom, int level, string key, ProjectFile.LevelState state,
                                        List<string> warnings, int lt3File = -1)
     {
-        if (state.GfxOverrides.Count == 0 && lt3File < 0) return;
+        bool advEdit = state.Layer3Advanced is not null || state.Layer3AdvancedOff;
+        if (state.GfxOverrides.Count == 0 && lt3File < 0 && !advEdit) return;
         if (!GfxCapable(rom))
         {
             warnings.Add($"level {key}: GFX slot overrides skipped (base lacks the in-game GFX loader — File → Upgrade base to prep v{RomPrep.Version})");
@@ -428,6 +429,12 @@ internal static class RomBuilder
         }
         foreach (var (word, file) in state.GfxOverrides)
             if (word is >= 0 and < 16) w[word] = (ushort)((w[word] & ~0xFFF) | (file & 0xFFF));
+        // The advanced layer-3 group rides the spare high nibbles of nine of these words, so it
+        // is rewritten unconditionally — `w` was rebuilt from all-defaults above and would
+        // otherwise drop settings the base ROM already had. No enable bit in w0: its own is the
+        // low bit of w12's nibble (§12b).
+        Layer3.WriteAdvanced(w, state.Layer3AdvancedOff ? null
+                              : state.Layer3Advanced ?? Layer3.ReadAdvanced(rom.LmGfxRecord(level) ?? w));
         // Light only the bit for the half that was actually used. Setting bit 15 for a
         // layer-3-only edit would switch on an FG/BG/SP bypass the project never asked for.
         if (state.GfxOverrides.Keys.Any(k => k is >= 0 and <= 11)) w[0] |= 0x8000;
@@ -447,6 +454,8 @@ internal static class RomBuilder
             warnings.Add($"level {key}: BG2/BG3 slot overrides stay editor-only (base lacks LM's VRAM patch)");
         if (state.GfxOverrides.Keys.Any(k => k is 0 or 1))
             warnings.Add($"level {key}: AN1/AN2 slot overrides stay editor-only (ExAnimation sources aren't inserted)");
+        if (!rom.HasLmLayer3Advanced && advEdit)
+            warnings.Add($"level {key}: advanced layer-3 settings stay editor-only (base lacks LM's advanced layer-3 reader)");
         if (!rom.HasLmLayer3Gfx && state.GfxOverrides.Keys.Any(k => k is >= 12 and <= 15))
             warnings.Add($"level {key}: LG1-LG4 slot overrides stay editor-only (base lacks LM's layer-3 GFX loader — it streams GFX 28-2B regardless)");
     }

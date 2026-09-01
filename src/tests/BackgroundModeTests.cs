@@ -276,6 +276,41 @@ public class BackgroundModeTests(ITestOutputHelper log)
                      Enumerable.Range(0, 5).Select(i => map.At(i, 10)));
     }
 
+    /// <summary>
+    /// The Layer 3 settings dialog carries the advanced group — the override for the tileset's
+    /// own scroll and blend behaviour, which is the only thing in Lunar Magic that overrides it.
+    /// The group is disabled until its checkbox is on, so that "off" and "on with defaults"
+    /// cannot be confused, and OK hands back null for the former.
+    /// </summary>
+    [AvaloniaFact]
+    public void the_layer_3_dialog_offers_the_tileset_override_and_returns_null_when_it_is_off()
+    {
+        var adv = new Layer3.Advanced(CgAdSub: false, Subscreen: true, FixScrollSync: true,
+                                      VScroll: 8, HScroll: 6, XPos: 3, Y: 0x123);
+        var dlg = new Layer3OptionsWindow(Layer3.OptionNames, 3, true, _ => true, adv);
+        var pane = dlg.GetControl<StackPanel>("AdvancedPane");
+        var box = dlg.GetControl<CheckBox>("AdvancedBox");
+
+        Assert.True(box.IsChecked);
+        Assert.True(pane.IsEnabled);
+        Assert.Equal("Fast", dlg.GetControl<ComboBox>("VScrollBox").SelectedItem);
+        Assert.Equal("Slow", dlg.GetControl<ComboBox>("HScrollBox").SelectedItem);
+        Assert.Equal("123", dlg.GetControl<TextBox>("YBox").Text);
+        Assert.Equal("10", dlg.GetControl<ComboBox>("XBox").SelectedItem);
+
+        InvokeOn(dlg, "Commit");
+        Assert.Equal(adv, dlg.Result!.Value.Advanced);
+
+        box.IsChecked = false;
+        Assert.False(pane.IsEnabled);
+        InvokeOn(dlg, "Commit");
+        Assert.Null(dlg.Result!.Value.Advanced);
+    }
+
+    private static void InvokeOn(Window w, string method) => w.GetType()
+        .GetMethod(method, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+        .Invoke(w, null);
+
     private static void Paint(MainWindow w, int col, int row)
         => typeof(MainWindow)
             .GetMethod("BgPaint", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!

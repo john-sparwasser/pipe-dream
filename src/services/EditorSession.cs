@@ -338,10 +338,9 @@ public sealed class EditorSession
     /// Import a raw layer-3 tilemap for this level — LM's LT3 file shape, a flat little-endian
     /// 16-bit map of 0x800, 0x1000 or 0x2000 bytes (0x2000 being the whole 64x64 window).
     ///
-    /// EDITOR-ONLY so far, and the build says so: LM's tilemap-bypass slot in the per-level
-    /// record is not decoded (CONTRACT §12b), so there is nowhere to write it that the game
-    /// would read. It renders, it persists in the project, and it will ship the day that slot
-    /// is pinned — which is a better answer than refusing the import.
+    /// The build inserts it as an ExGFX file and points the record's LT3 slot at it, so it
+    /// reaches the console (CONTRACT §12b) — on a base that carries LM's tilemap loader. On one
+    /// that does not it still renders and still persists, and the build says so.
     /// </summary>
     public bool ImportLayer3Tilemap(string path)
     {
@@ -378,6 +377,39 @@ public sealed class EditorSession
         }
         touched.Add(LevelNum);
         Report("layer 3 tilemap ← the base ROM's");
+        return true;
+    }
+
+    /// <summary>
+    /// The level's advanced layer-3 bypass, or null when it has none — in which case its layer 3
+    /// scrolls and blends however its Layer 3 Option implies, which for "Tileset Specific" means
+    /// however the level's TILESET does (CONTRACT §12b). This is the override for that.
+    /// </summary>
+    public Layer3.Advanced? Layer3Advanced
+        => Rom is { } r && HasLevel ? r.LmLayer3Advanced(LevelNum) : null;
+
+    /// <summary>Whether the base ROM can run advanced settings at all. Without LM's reader they
+    /// still store and still show here, but the game never looks at them.</summary>
+    public bool Layer3AdvancedSupported => Rom is { } r && r.HasLmLayer3Advanced;
+
+    /// <summary>Set (or, with null, clear) the level's advanced layer-3 bypass. Recorded as a
+    /// session override so that clearing it survives a save on a base ROM that has one.</summary>
+    public bool ApplyLayer3Advanced(Layer3.Advanced? adv)
+    {
+        if (Rom is not { } r || !HasLevel) { Report("no level open"); return false; }
+        r.Layer3AdvancedOverrides[LevelNum] = adv;
+        if (Project is not null)
+        {
+            var st = Project.Data.Level(LevelNum);
+            st.Layer3Advanced = adv;
+            st.Layer3AdvancedOff = adv is null;
+            Project.MarkDirty();
+        }
+        touched.Add(LevelNum);
+        Report(adv is null ? "advanced layer 3 settings off"
+             : $"advanced layer 3: {Layer3.VScrollNames[adv.Value.VScroll]} / "
+             + $"{Layer3.HScrollNames[adv.Value.HScroll]}"
+             + (Layer3AdvancedSupported ? "" : "  (editor-only — base lacks LM's reader)"));
         return true;
     }
 

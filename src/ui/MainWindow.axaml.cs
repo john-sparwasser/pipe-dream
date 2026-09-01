@@ -2539,14 +2539,17 @@ public partial class MainWindow : Window
     private async void OnLayer3Options(object? sender, RoutedEventArgs e)
     {
         if (session.Header is not { } header || session.MainEntrance is not { } entry) return;
+        var adv = session.Layer3Advanced;
         var dlg = new Layer3OptionsWindow(Layer3.OptionNames, entry.Layer3Option,
-                                          header.Layer3Priority != 0, session.Layer3HasTilemap);
+                                          header.Layer3Priority != 0, session.Layer3HasTilemap,
+                                          adv, session.Layer3AdvancedSupported);
         await dlg.ShowDialog(this);
         if (dlg.Result is not { } r) return;
 
         if (r.Option != entry.Layer3Option) session.ApplyEntry(entry with { Layer3Option = r.Option });
         int priority = r.Priority ? 1 : 0;
         if (priority != header.Layer3Priority) session.ApplyHeader(header with { Layer3Priority = priority });
+        if (r.Advanced != adv) session.ApplyLayer3Advanced(r.Advanced);
         AdoptSession();
         UpdateTitle();
     }
@@ -2608,7 +2611,10 @@ public partial class MainWindow : Window
             bgSheet.Reshape(SheetCols, Layer3.TileCount / SheetCols, 8);
 
             bgNoteBase = $"{Layer3.Cols}x{Layer3.Rows} tiles — {Layer3.OptionNames[opt]}"
-                       + (session.Layer3TilemapImported ? ", custom tilemap" : "");
+                       + (session.Layer3TilemapImported ? ", custom tilemap" : "")
+                       + (session.Layer3Advanced is { } a3
+                          ? $", scroll {Layer3.VScrollNames[a3.VScroll]}/{Layer3.HScrollNames[a3.HScroll]}"
+                          : "");
             RefreshBgNote();
             return;
         }

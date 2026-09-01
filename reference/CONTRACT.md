@@ -1264,8 +1264,16 @@ gated by **w0 bit 13**.
   LM VALIDATES on OK, which is worth knowing before driving it: an un-inserted LT3 file is
   refused ("Graphics file not found in ROM"), and a file larger than the declared size is
   refused too ("larger than it should be for the slot it's in") — including against "Do not
-  use", which permits 0 bytes. Where each destination actually LANDS in the window is still
-  undecoded; only which of the four is selected.
+  use", which permits 0 bytes.
+
+  destinations **[CONFIRMED — LM's own table]** `$0FFEBC` holds the four VRAM words:
+  **`$50A0 $5000 $5080 $5800`** for destination 0-3, i.e. Under Status Bar = +`$A0` (five rows
+  of 32, clearing the status bar), Start of Layer 3 = the window base, Last Line of Status Bar =
+  +`$80` (four rows), Bottom Half = +`$800`. Alongside it `$0FFEB4` holds the sizes
+  (`$2000 $1000 $0800 $0000`) and `$0FFEC4` the status bar tilemap's own size, `$0140` = 320
+  bytes = 32x5 words. LM's help names the last two by file offset — "0x800BC holds the 2 byte
+  layer 3 VRAM destination for that setting, 0x800C4 the 2 byte size of the layer 3 status bar
+  tilemap" — which is the same bytes, independently. `Layer3.TilemapDestinationWords`.
 
 **w1 IS ALSO AN1 — an unresolved collision.** §7d and §12d both read w1's low bits as the
 ExAnimation AN1 slot, traced from LM's loader at `$0FF7F0`; this decode reads the same bits as
@@ -1303,12 +1311,11 @@ the level a new game enters. Booted in Mesen (Start, Start, B) the pattern is on
 rows read `5 6 7 8 9 0 1 2 3 4` down the edge of the intro message box: consecutive, wrapping,
 exactly as authored. A custom tilemap built here reaches the SNES.
 
-What that does NOT settle is the DESTINATION. The file is drawn from word `$5000` and stamped
-with destination 1 ("Start of Layer 3", `Layer3.BuiltTilemapDestination`) because that is the
-destination whose NAME matches; the VRAM offset each of the four implies is still undecoded.
-A full 0x2000 file fills the whole window, so every destination would look the same — telling
-them apart needs a PARTIAL file (0x800 or 0x1000) and a marker row, and layer 3's own vertical
-scroll moves the picture independently, so "which row is at screen top" cannot answer it either.
+The build stamps destination 1, "Start of Layer 3" = word `$5000`, which is exactly where
+`Layer3.FromBytes` draws an imported map — so the editor's picture and the console's agree.
+That was a guess when the smoke test ran and is now measured, off LM's table above; a screenshot
+could never have settled it, because a full 0x2000 file fills the whole window and all four
+destinations look the same.
 
 **The Layer 3 Options field  [CONFIRMED for 0 and 3; 1/2 by dropdown order]** — isolated by
 `l3_c` (Blank Layer 3) → `l3_e` (Tileset Specific), with the hack installed on both. Changing
@@ -1328,9 +1335,58 @@ only that dropdown moved exactly TWO semantic bytes, and LM writes the value to 
   raises LM's destructive "Max Screens Mode Change Alert" — tides halve the screen count and
   LM deletes objects and sprites past the new limit — so pinning them wants a throwaway level.
 
-Still not located: "Make tides act as", the priority flag, and the advanced bypass group
-(CGADSUB / subscreen / scroll-sync / V+H scroll / X+Y offset) — most likely the remaining
-unmapped words of the same 0x20-byte record.
+**The ADVANCED BYPASS  [CONFIRMED + IMPLEMENTED]** — the group that answers "I don't want the
+tileset's default". LM's help is explicit about why it exists: *"the actual tilemap displayed
+can be bypassed from the Layer 3 GFX/Tilemap bypass dialog. But the behavior and scrolling of
+the original setting will remain unless you enable the advanced bypass settings."* So a custom
+tilemap on a Tileset Specific level still scrolls like the beta cage until this is on, and there
+is no other per-level override of it — LM has no "use tileset N's layer 3" control at all.
+
+It costs no new table: it rides the **spare high nibble of nine of the record's sixteen words**,
+which were free because a slot's file id is only 12 bits. LM's reader at **`$0FFD9F`** (gated on
+`$7FC009` being `$41`/`$42`, i.e. the record is in use) glues them into four variables through a
+helper at `$0FFE82` that reads a nibble pair (`LDA [$8A],Y : AND #$F0 : DEY DEY : LDA [$8A],Y :
+LSR x4 : ORA`), leaving Y two lower each call:
+
+  `$7FC01A` = nib(w11)                bits 0-1 initial X index, 2 CGADSUB, 3 layer 3 to subscreen
+  `$7FC01B` = nib(w3)<<4 | nib(w2)    never non-zero in nine controlled saves — bits 0-5 unknown,
+                                      most likely "Make tides act as", which is greyed out on
+                                      every level without tides
+  `$7FC01C` = nib(w10)<<4 | nib(w9)   bits 0-5 = the Y offset's high bits, **bit 6 = the vertical
+                                      scroll's bit 4, bit 7 = the horizontal's**
+  `$145E`   = nib(w15)<<12 | nib(w14)<<8 | nib(w13)<<4 | nib(w12)
+                                      bit 0 **enable**, bit 1 scroll-sync fix, bit 2 unused,
+                                      bits 3-7 the Y offset's low bits, bits 8-11 horizontal
+                                      scroll bits 0-3, bits 12-15 vertical scroll bits 0-3
+
+  **The advanced group has no enable bit in w0.** Its enable is `$145E` bit 0 = nib(w12) bit 0 —
+  the one thing the first controlled save moved, `$12CDC1` `00` → `10`, nothing else in the ROM
+  but relocated level data.
+
+  Y is stored **times 8** in a 14-bit signed field (`$7FC01C` bits 0-5 : `$145E` bits 3-7), which
+  is exactly the -0x400..0x3FF the dialog accepts. `$109964` turns it into `$146C`, layer 3's Y
+  position in pixels = Y*16. X is a 2-bit INDEX into `00 04 08 10` tiles, not a value: the game
+  computes index*`$40` pixels and special-cases index 3 to `$100`, which is why the list skips
+  `0C`. `$146A` gets the result.
+
+  scroll codes  5 bits, and LM's dropdown order is NOT the code order. Measured one save per
+  entry (21 of them), the list index → code map is
+  `00 01 02 03 18 19 04 1A 05 | 06 07 08 09 10 11 | 0A 0B 0C 0D 0E 0F`
+  for `None, Constant, Medium, Medium 2, Medium 3, Medium 4, Slow, Slow 2, Fast |
+  Auto-Scroll Up/Left Slow..Fast 4 | Auto-Scroll Down/Right Slow..Fast 4`. The code space
+  explains the order: 0-5 are six rate handlers, 6-0x11 the twelve auto-scroll speeds sharing
+  one handler (`$109D3B` holds them: ±`$40 $80 $100 $200 $300 $400` per frame), and 0x18-0x1A
+  three later rate handlers appended to the codes rather than to the list.
+
+Read by `Rom.LmLayer3Advanced(level)` via `Layer3.ReadAdvanced`, written by
+`Layer3.WriteAdvanced` (which zeroes all nine nibbles first, so turning the group off leaves no
+half-read setting behind) and stamped by the build. Probe `Rom.HasLmLayer3Advanced` chases the
+reader's own opening (`LDY #$17 : LDA [$8A],Y : LSR x4 : STA $7FC01A`) rather than an address.
+Surfaced as the "Override the tileset's scroll and blend settings" group in the Layer 3 settings
+dialog. Evidence: `.resources/layer3/l3_i.smc` (Fast/Slow, subscreen, sync fix, X=10, Y=123) and
+`l3_j.smc` (Auto-Scroll Up Fast 3 / None, CGADSUB only) — both pinned in `Layer3Tests`.
+
+Still not located: "Make tides act as", and LM's mirror of the priority flag.
 
 Evidence: `.resources/layer3/l3_0.smc` (pre-hack baseline), `l3_b.smc` (hack + GFX bypass,
 LG1=29), `l3_c.smc` (LG1=30), `l3_e.smc` (+ Tileset Specific).

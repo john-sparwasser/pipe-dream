@@ -447,6 +447,27 @@ public static class LunarMagic
                ? (r[1] & 0xFFF, r[1] >> 14 & 3, r[1] >> 12 & 3)
                : null;
 
+        /// <summary>
+        /// The level's advanced layer-3 bypass — how its layer 3 scrolls and blends — or null
+        /// when the level leaves that to whatever its Layer 3 Option implies (CONTRACT §12b).
+        ///
+        /// Packed into the spare high nibbles of the same per-level record, so unlike the other
+        /// three features here it has no bit in w0: its enable is the low bit of w12's nibble.
+        /// Session overrides from <see cref="Rom.Layer3AdvancedOverrides"/> win, and one that
+        /// holds null means "this level deliberately has none", which is why the lookup is a
+        /// TryGetValue and not a null-coalesce.
+        /// </summary>
+        public Layer3.Advanced? LmLayer3Advanced(int level)
+            => rom.Layer3AdvancedOverrides.TryGetValue(level, out var o) ? o
+             : rom.LmGfxRecord(level) is { } r ? Layer3.ReadAdvanced(r) : null;
+
+        /// <summary>True when LM's advanced layer-3 reader is installed — the routine that
+        /// gathers those nibbles into $7FC01A-$7FC01C and $145E (CONTRACT §12b). Probed by the
+        /// routine itself rather than an address: `LDY #$17 : LDA [$8A],Y : LSR x4 : STA $7FC01A`
+        /// is its opening, and the operand it stores to is the confirmation.</summary>
+        public bool HasLmLayer3Advanced
+            => ScanOperand(rom, [0xA0, 0x17, 0xB7, 0x8A, 0x4A, 0x4A, 0x4A, 0x4A, 0x8F], []) == 0x7FC01A;
+
         /// <summary>True when LM's layer-3 TILEMAP loader is installed: a `JSL` replaces
         /// vanilla's `LDA $1BE3` at $00A01F, the head of the routine that picks a tilemap out of
         /// Layer3Ptr and runs it through the stripe uploader (CONTRACT §12b). Without it the

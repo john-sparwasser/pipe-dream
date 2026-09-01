@@ -456,4 +456,110 @@ public class Layer3Tests(ITestOutputHelper log)
         int drawn = px.Count(p => p != pal.Rgba[0]);
         Assert.True(drawn is > 1000 && drawn < w * h / 2, $"{drawn} of {w * h} pixels drawn");
     }
+
+    /// <summary>
+    /// The advanced bypass, read back off the controlled save that set it (CONTRACT §12b).
+    /// l3_i ended with Vertical = Fast, Horizontal = Slow, layer 3 on the subscreen, the
+    /// scroll-sync fix on, CGADSUB off, Initial X = 10 and Initial Y = 123 — and none of it
+    /// touched w0, because the advanced group has no enable bit there.
+    /// </summary>
+    [Fact]
+    public void the_advanced_bypass_reads_back_the_save_that_set_it()
+    {
+        if (OpenRef("layer3", "l3_i.smc") is not { } rom) return;
+
+        var a = rom.LmLayer3Advanced(0x105)!.Value;
+        Assert.Equal("Fast", Layer3.VScrollNames[a.VScroll]);
+        Assert.Equal("Slow", Layer3.HScrollNames[a.HScroll]);
+        Assert.True(a.Subscreen);
+        Assert.True(a.FixScrollSync);
+        Assert.False(a.CgAdSub);
+        Assert.Equal(0x10, Layer3.XPositions[a.XPos]);
+        Assert.Equal(0x123, a.Y);
+
+        Assert.Equal(0x607F, rom.LmGfxRecord(0x105)![0]);   // still only the two GFX enables
+        Assert.True(rom.HasLmLayer3Advanced);
+        for (int level = 0; level < 0x200; level++)
+            if (level != 0x105) Assert.Null(rom.LmLayer3Advanced(level));
+    }
+
+    /// <summary>
+    /// The second controlled save, which moved the three checkboxes and pushed the vertical
+    /// scroll past the 4-bit nibble: "Auto-Scroll Up Fast 3" is code 0x10, so its bit 4 lives
+    /// in a different word from the rest of the field. Horizontal stayed None, which is what
+    /// pins WHICH of the two spare bits belongs to which scroll.
+    /// </summary>
+    [Fact]
+    public void a_five_bit_scroll_code_and_the_flags_survive_the_split_across_words()
+    {
+        if (OpenRef("layer3", "l3_j.smc") is not { } rom) return;
+
+        var a = rom.LmLayer3Advanced(0x105)!.Value;
+        Assert.Equal("Auto-Scroll Up Fast 3", Layer3.VScrollNames[a.VScroll]);
+        Assert.Equal(0x10, Layer3.ScrollCodes[a.VScroll]);
+        Assert.Equal("None", Layer3.HScrollNames[a.HScroll]);
+        Assert.True(a.CgAdSub);
+        Assert.False(a.Subscreen);
+        Assert.False(a.FixScrollSync);
+    }
+
+    /// <summary>
+    /// The advanced group reaches a BUILT ROM, and the level next door keeps the settings the
+    /// base already gave it. That second half is the one that can silently break: the build
+    /// rebuilds the record from all-defaults, so a level with no advanced edit of its own has to
+    /// have its nibbles carried across rather than zeroed.
+    /// </summary>
+    [Fact]
+    public void advanced_settings_reach_a_built_rom_without_wiping_the_level_that_had_them()
+    {
+        if (OpenRefPath("layer3", "l3_i.smc") is not { } basePath) return;
+        string dir = Path.Combine(Path.GetTempPath(), "pdl3a-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            var s = new EditorSession();
+            Assert.True(s.NewProject(Path.Combine(dir, "proj"), basePath), s.Status);
+            Assert.True(s.Rom!.HasLmLayer3Advanced);
+
+            var mine = new Layer3.Advanced(CgAdSub: true, Subscreen: false, FixScrollSync: false,
+                                           VScroll: 13, HScroll: 2, XPos: 1, Y: -0x120);
+            s.ShowLevel(0x009);
+            Assert.True(s.ApplyLayer3Advanced(mine), s.Status);
+            s.Save();
+
+            string status = s.Build();
+            log.WriteLine(status);
+            var rom = Rom.Load(Path.Combine(s.Project!.Folder, "build", s.Project.Name + ".smc"));
+
+            Assert.Equal(mine, rom.LmLayer3Advanced(0x009));
+            Assert.Equal(0x123, rom.LmLayer3Advanced(0x105)!.Value.Y);   // l3_i's own, untouched
+            Assert.DoesNotContain("editor-only", status);
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
+    }
+
+    /// <summary>Every field survives a write/read round trip through the record's spare
+    /// nibbles, including a negative Y — it reaches the ROM multiplied by 8 in a 14-bit signed
+    /// field, which is the one place a sign can be lost.</summary>
+    [Theory]
+    [InlineData(0, 0, 0, 0)]
+    [InlineData(8, 6, 3, 0x123)]
+    [InlineData(13, 20, 2, -0x400)]
+    [InlineData(20, 14, 1, 0x3FF)]
+    [InlineData(4, 7, 0, -1)]
+    public void advanced_settings_round_trip_through_the_spare_nibbles(int v, int h, int x, int y)
+    {
+        var a = new Layer3.Advanced(CgAdSub: true, Subscreen: false, FixScrollSync: true,
+                                    VScroll: v, HScroll: h, XPos: x, Y: y);
+        var w = new ushort[16];
+        for (int i = 0; i < 16; i++) w[i] = 0x07F;    // a record of "slot uses the default"
+        Layer3.WriteAdvanced(w, a);
+
+        Assert.Equal(a, Layer3.ReadAdvanced(w));
+        // The low 12 bits of every word are GFX file ids and must come through untouched.
+        Assert.All(w, x2 => Assert.Equal(0x07F, x2 & 0xFFF));
+
+        Layer3.WriteAdvanced(w, null);
+        Assert.Null(Layer3.ReadAdvanced(w));
+        Assert.All(w, x2 => Assert.Equal(0x007F, x2));
+    }
 }

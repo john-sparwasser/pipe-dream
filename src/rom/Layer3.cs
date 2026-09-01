@@ -128,8 +128,9 @@ public static class Layer3
     /// A flat tilemap file as VRAM words. LM's LT3 files are plain little-endian 16-bit maps of
     /// 0x800, 0x1000 or 0x2000 bytes; they land at the start of the window and whatever the file
     /// does not cover stays untouched (-1), exactly as an unwritten stripe-image word does.
-    /// (LM's per-file "Destination" — Under Status Bar / Start / Last Line / Bottom Half — is
-    /// not decoded, so everything starts at word $5000 for now.)
+    /// Word $5000 is the top of the window and the destination this editor builds with
+    /// (<see cref="BuiltTilemapDestination"/>); the other three land further in, by the offsets
+    /// in <see cref="TilemapDestinationWords"/>.
     /// </summary>
     public static int[] FromBytes(ReadOnlySpan<byte> raw)
     {
@@ -193,19 +194,159 @@ public static class Layer3
     /// Index 3 is "Do not use" — a bypass that names a file and then declines to load it.</summary>
     public static readonly int[] TilemapSizes = [0x2000, 0x1000, 0x800, 0];
 
-    /// <summary>LM's four tilemap destinations, indexed by the record's destination field. Where
-    /// each one actually lands in the window is NOT decoded — only which is selected.</summary>
+    /// <summary>LM's four tilemap destinations, indexed by the record's destination field.</summary>
     public static readonly string[] TilemapDestinations =
         ["Under Status Bar", "Start of Layer 3", "Last Line of Status Bar", "Bottom Half of Layer 3"];
 
     /// <summary>
-    /// The destination a BUILT tilemap is stamped with: "Start of Layer 3", because that is the
-    /// one whose name matches where this editor draws an imported map — word $5000, the top of
-    /// the window (<see cref="FromBytes"/>). The VRAM offset each destination actually implies is
-    /// undecoded, so this is the honest guess and not a measurement; if a built layer 3 comes out
-    /// shifted, this is the constant to question first.
+    /// The VRAM word each destination copies to, read straight out of LM's own table at
+    /// $0FFEBC (CONTRACT §12b). Relative to the window base $5000 they are +$A0, 0, +$80 and
+    /// +$800: five rows down (past the 32x5 status bar), the very top, four rows down (over the
+    /// status bar's last line), and the bottom half. LM's help names the same address as the
+    /// byte to patch when a hack shortens its status bar, which is the independent confirmation.
+    /// </summary>
+    public static readonly int[] TilemapDestinationWords = [0x50A0, 0x5000, 0x5080, 0x5800];
+
+    /// <summary>
+    /// The destination a BUILT tilemap is stamped with: "Start of Layer 3", the one that lands
+    /// at word $5000 — the top of the window, which is where <see cref="FromBytes"/> draws an
+    /// imported map. Confirmed against LM's destination table, so the editor's picture and the
+    /// console's agree.
     /// </summary>
     public const int BuiltTilemapDestination = 1;
+
+    // ---- LM's advanced layer-3 bypass (CONTRACT §12b) --------------------------------------
+
+    /// <summary>
+    /// LM's "Enable advanced bypass settings for Layer 3" group: how the level's layer 3
+    /// SCROLLS and BLENDS, as opposed to which tilemap it shows.
+    ///
+    /// This is the part that matters for a custom layer 3. The tilemap bypass replaces the
+    /// picture, but LM's own help is explicit that "the behavior and scrolling of the original
+    /// setting will remain unless you enable the advanced bypass settings" — so a custom map on
+    /// a level whose Layer 3 Option is "Tileset Specific" still scrolls like the beta cage
+    /// until this is on.
+    ///
+    /// <see cref="VScroll"/> and <see cref="HScroll"/> are indices into
+    /// <see cref="VScrollNames"/> / <see cref="HScrollNames"/>, not the codes the ROM stores —
+    /// LM's dropdown order and its code space are different orders, and
+    /// <see cref="ScrollCodes"/> is the map between them. <see cref="XPos"/> likewise indexes
+    /// <see cref="XPositions"/>. <see cref="Y"/> is the raw signed value, in 16x16 tiles.
+    /// </summary>
+    public readonly record struct Advanced(
+        bool CgAdSub, bool Subscreen, bool FixScrollSync,
+        int VScroll, int HScroll, int XPos, int Y);
+
+    /// <summary>LM's vertical scroll dropdown, in its own order. "Constant" scrolls in place
+    /// with layer 1, the Mediums and Slows are fractions of it, "Fast" is 1.2x, and the
+    /// auto-scrolls move on their own at the speeds in LM's table at $109D3B.</summary>
+    public static readonly string[] VScrollNames =
+    [
+        "None", "Constant", "Medium", "Medium 2", "Medium 3", "Medium 4", "Slow", "Slow 2", "Fast",
+        "Auto-Scroll Up Slow", "Auto-Scroll Up Medium", "Auto-Scroll Up Fast",
+        "Auto-Scroll Up Fast 2", "Auto-Scroll Up Fast 3", "Auto-Scroll Up Fast 4",
+        "Auto-Scroll Down Slow", "Auto-Scroll Down Medium", "Auto-Scroll Down Fast",
+        "Auto-Scroll Down Fast 2", "Auto-Scroll Down Fast 3", "Auto-Scroll Down Fast 4",
+    ];
+
+    /// <summary>The horizontal list — the same 21 entries, with the auto-scrolls named for the
+    /// direction they move.</summary>
+    public static readonly string[] HScrollNames =
+    [
+        "None", "Constant", "Medium", "Medium 2", "Medium 3", "Medium 4", "Slow", "Slow 2", "Fast",
+        "Auto-Scroll Left Slow", "Auto-Scroll Left Medium", "Auto-Scroll Left Fast",
+        "Auto-Scroll Left Fast 2", "Auto-Scroll Left Fast 3", "Auto-Scroll Left Fast 4",
+        "Auto-Scroll Right Slow", "Auto-Scroll Right Medium", "Auto-Scroll Right Fast",
+        "Auto-Scroll Right Fast 2", "Auto-Scroll Right Fast 3", "Auto-Scroll Right Fast 4",
+    ];
+
+    /// <summary>
+    /// Dropdown index → the 5-bit code the record stores, measured one save per entry. The two
+    /// orders are NOT the same: LM groups the list by feel (Medium 3 sits between Medium 2 and
+    /// Medium 4) while the codes group by implementation — 0-5 are the six rate handlers,
+    /// 6-0x11 the twelve auto-scroll speeds sharing one handler, and 0x18-0x1A three more
+    /// rate handlers LM added later and appended to the code space rather than the list.
+    /// </summary>
+    public static readonly int[] ScrollCodes =
+    [
+        0x00, 0x01, 0x02, 0x03, 0x18, 0x19, 0x04, 0x1A, 0x05,
+        0x06, 0x07, 0x08, 0x09, 0x10, 0x11,
+        0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+    ];
+
+    /// <summary>The four initial X positions LM offers, in 16x16 tiles. Not evenly spaced: the
+    /// game multiplies the index by 0x40 pixels except for index 3, which it special-cases to
+    /// $100 — which is why the list reads 00/04/08/10 and not 00/04/08/0C.</summary>
+    public static readonly int[] XPositions = [0x00, 0x04, 0x08, 0x10];
+
+    /// <summary>The range LM's Initial Y Position/Offset accepts, in 16x16 tiles. It reaches
+    /// the ROM multiplied by 8 in a 14-bit signed field, which is exactly this range.</summary>
+    public const int MinY = -0x400, MaxY = 0x3FF;
+
+    private static int Nib(ushort[] r, int i) => r[i] >> 12 & 0xF;
+
+    private static void SetNib(ushort[] r, int i, int v) =>
+        r[i] = (ushort)(r[i] & 0x0FFF | (v & 0xF) << 12);
+
+    /// <summary>
+    /// The advanced settings out of a per-level bypass record, or null when the level does not
+    /// use them.
+    ///
+    /// They live in the HIGH NIBBLE of nine of the record's sixteen words, which is why they
+    /// cost no space at all: every word's low 12 bits are a GFX file id, and the top four were
+    /// spare. LM's reader at $0FFD9F glues them back into four variables and the rest of the
+    /// game reads those, so the grouping below is its grouping, not ours:
+    ///
+    ///   $7FC01A = w11         X position (bits 0-1), CGADSUB (2), layer 3 to subscreen (3)
+    ///   $7FC01B = w3,w2       not used by anything we have seen — most likely "Make tides act
+    ///                         as", which is greyed out on every level that has no tides
+    ///   $7FC01C = w10,w9      the Y offset's high bits, plus the two scrolls' bit 4
+    ///   $145E   = w15..w12    enable (bit 0), scroll-sync fix (1), the Y offset's low bits
+    ///                         (3-7), then the horizontal and vertical scroll codes
+    /// </summary>
+    public static Advanced? ReadAdvanced(ushort[] r)
+    {
+        int lo = Nib(r, 12);
+        if ((lo & 1) == 0) return null;
+        int c = Nib(r, 10) << 4 | Nib(r, 9);
+        int y8 = (c << 8 | Nib(r, 13) << 4 & 0xF0 | lo & 0x8) & 0x3FFF;
+        return new Advanced(
+            CgAdSub:       (Nib(r, 11) & 4) != 0,
+            Subscreen:     (Nib(r, 11) & 8) != 0,
+            FixScrollSync: (lo & 2) != 0,
+            VScroll:       ScrollIndex(Nib(r, 15) | ((c & 0x40) != 0 ? 0x10 : 0)),
+            HScroll:       ScrollIndex(Nib(r, 14) | ((c & 0x80) != 0 ? 0x10 : 0)),
+            XPos:          Nib(r, 11) & 3,
+            Y:             (y8 << 18 >> 18) / 8);        // 14-bit signed, then undo the *8
+    }
+
+    /// <summary>Write the advanced settings back into a record's spare nibbles, or clear them
+    /// (null). Clearing zeroes every nibble this owns, so a level that stops using the advanced
+    /// group leaves no half-read scroll setting behind.</summary>
+    public static void WriteAdvanced(ushort[] r, Advanced? adv)
+    {
+        foreach (int w in (int[])[2, 3, 9, 10, 11, 12, 13, 14, 15]) SetNib(r, w, 0);
+        if (adv is not { } a) return;
+        int v = ScrollCodes[Math.Clamp(a.VScroll, 0, ScrollCodes.Length - 1)];
+        int h = ScrollCodes[Math.Clamp(a.HScroll, 0, ScrollCodes.Length - 1)];
+        int y8 = Math.Clamp(a.Y, MinY, MaxY) * 8 & 0x3FFF;
+        SetNib(r, 11, a.XPos & 3 | (a.CgAdSub ? 4 : 0) | (a.Subscreen ? 8 : 0));
+        SetNib(r, 12, 1 | (a.FixScrollSync ? 2 : 0) | (y8 & 8));
+        SetNib(r, 13, y8 >> 4 & 0xF);
+        SetNib(r, 9, y8 >> 8 & 0xF);
+        SetNib(r, 10, y8 >> 12 & 3 | (v & 0x10) >> 2 | (h & 0x10) >> 1);
+        SetNib(r, 14, h & 0xF);
+        SetNib(r, 15, v & 0xF);
+    }
+
+    /// <summary>A stored scroll code back to its place in LM's dropdown. An unknown code falls
+    /// back to "None" rather than throwing — the code space has gaps (0x12-0x17) that no list
+    /// entry names, and a record can hold one.</summary>
+    public static int ScrollIndex(int code)
+    {
+        int i = Array.IndexOf(ScrollCodes, code);
+        return i < 0 ? 0 : i;
+    }
 
     /// <summary>
     /// Vanilla's stripe-image uploader ($00871E), run into a word buffer instead of VRAM.

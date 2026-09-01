@@ -40,6 +40,8 @@ public static class ProjectSession
             if (state.Header is { } hx) rom.LevelHeaderOverrides[lvl] = Convert.FromHexString(hx);
             if (state.Layer3Tilemap is { } l3) rom.Layer3Tilemaps[lvl] = Convert.FromBase64String(l3);
             if (state.BgTilemap is { } bg) rom.BgTilemaps[lvl] = Convert.FromBase64String(bg);
+            if (state.Layer3Advanced is { } adv) rom.Layer3AdvancedOverrides[lvl] = adv;
+            else if (state.Layer3AdvancedOff) rom.Layer3AdvancedOverrides[lvl] = null;
         }
 
         string? warn = RomBuilder.ReplayMap16(rom, data);
@@ -108,6 +110,9 @@ public sealed class LevelEditState
             ? Convert.ToBase64String(l3b) : null;
         s.BgTilemap = rom.BgTilemaps.TryGetValue(levelNum, out var bgb)
             ? Convert.ToBase64String(bgb) : null;
+        bool advEdit = rom.Layer3AdvancedOverrides.TryGetValue(levelNum, out var advo);
+        s.Layer3Advanced = advEdit ? advo : null;
+        s.Layer3AdvancedOff = advEdit && advo is null;
     }
 
     /// <summary>

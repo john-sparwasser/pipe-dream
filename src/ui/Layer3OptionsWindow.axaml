@@ -2,11 +2,11 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="PipeDream.Ui.Layer3OptionsWindow"
         Title="Layer 3 settings"
-        Width="420" SizeToContent="Height" CanResize="False"
+        Width="440" SizeToContent="Height" CanResize="False"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
   <StackPanel Margin="16" Spacing="12">
-    <Grid ColumnDefinitions="70,*">
+    <Grid ColumnDefinitions="80,*">
       <TextBlock Grid.Column="0" Text="Layer 3" VerticalAlignment="Center"
                  Foreground="{DynamicResource TextBrush}"/>
       <ComboBox Grid.Column="1" x:Name="OptionBox" HorizontalAlignment="Stretch"/>
@@ -17,6 +17,35 @@
     <TextBlock x:Name="ModeNote" Classes="dim" TextWrapping="Wrap"/>
     <CheckBox x:Name="PriorityBox" Content="Force layer 3 tiles with priority"
               ToolTip.Tip="Header byte 2 bit 7 — layer 3 draws in front of everything"/>
+
+    <!-- The override for the tileset's own behaviour. A custom tilemap replaces the PICTURE;
+         until this is on, the level still scrolls and blends the way the Layer 3 Option says,
+         which for "Tileset Specific" means the way the tileset does. -->
+    <CheckBox x:Name="AdvancedBox" Content="Override the tileset's scroll and blend settings"
+              ToolTip.Tip="Lunar Magic's &quot;Enable advanced bypass settings for Layer 3&quot;"/>
+    <TextBlock x:Name="AdvancedNote" Classes="dim" TextWrapping="Wrap"/>
+    <StackPanel x:Name="AdvancedPane" Spacing="8">
+      <CheckBox x:Name="CgAdSubBox" Content="Translucent against the subscreen (CGADSUB)"/>
+      <CheckBox x:Name="SubscreenBox" Content="Move layer 3 to the subscreen"
+                ToolTip.Tip="Puts layer 3 behind layer 2 — and the status bar behind layer 1"/>
+      <CheckBox x:Name="SyncBox" Content="Fix the status bar's scroll sync glitch"/>
+      <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="6">
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="Vertical scroll" VerticalAlignment="Center"
+                   Foreground="{DynamicResource TextBrush}"/>
+        <ComboBox Grid.Row="0" Grid.Column="1" x:Name="VScrollBox" HorizontalAlignment="Stretch"/>
+        <TextBlock Grid.Row="1" Grid.Column="0" Text="Horizontal scroll" VerticalAlignment="Center"
+                   Foreground="{DynamicResource TextBrush}"/>
+        <ComboBox Grid.Row="1" Grid.Column="1" x:Name="HScrollBox" HorizontalAlignment="Stretch"/>
+        <TextBlock Grid.Row="2" Grid.Column="0" Text="Initial Y (tiles)" VerticalAlignment="Center"
+                   Foreground="{DynamicResource TextBrush}"/>
+        <TextBox Grid.Row="2" Grid.Column="1" x:Name="YBox" HorizontalAlignment="Stretch"
+                 ToolTip.Tip="Hex, -400 to 3FF. A position for None and the auto-scrolls; an offset from layer 1 for the rest"/>
+        <TextBlock Grid.Row="3" Grid.Column="0" Text="Initial X (tiles)" VerticalAlignment="Center"
+                   Foreground="{DynamicResource TextBrush}"/>
+        <ComboBox Grid.Row="3" Grid.Column="1" x:Name="XBox" HorizontalAlignment="Stretch"/>
+      </Grid>
+    </StackPanel>
+
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
       <Button Content="Cancel" Click="OnCancel" IsCancel="True"/>
       <Button Content="OK" Click="OnOk" IsDefault="True"/>

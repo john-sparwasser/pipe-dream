@@ -113,6 +113,14 @@ public sealed class ProjectFile
         /// <summary>An imported layer-3 tilemap for this level, base64 of the raw 16-bit map
         /// (LM's LT3 file shape), or null to use vanilla's (level mode, option) pick.</summary>
         public string? Layer3Tilemap { get; set; }
+        /// <summary>LM's advanced layer-3 bypass for this level — the scroll and blend settings
+        /// that would otherwise come from whatever the Layer 3 Option implies — or null to leave
+        /// the base ROM's. <see cref="Layer3AdvancedOff"/> tells the two kinds of null apart.</summary>
+        public Layer3.Advanced? Layer3Advanced { get; set; }
+        /// <summary>True when this level's edit is "no advanced bypass", as opposed to "no edit".
+        /// A null <see cref="Layer3Advanced"/> alone cannot say which, and turning the group off
+        /// on a base ROM that has it on has to survive a save.</summary>
+        public bool Layer3AdvancedOff { get; set; }
 
         /// <summary>Deep copy, via the same JSON round-trip the file itself makes.</summary>
         public LevelState Clone() =>
