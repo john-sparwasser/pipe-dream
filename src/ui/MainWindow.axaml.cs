@@ -52,6 +52,7 @@ public partial class MainWindow : Window
     private Border drawer = null!;
     private TabStrip paletteTabs = null!;
     private DockPanel spritePanel = null!, objectPanel = null!, palettePanel = null!;
+    private CheckBox paletteLayer3 = null!;
     private GfxCanvasView gfxCanvas = null!;
     private Avalonia.Controls.Shapes.Path gfxKind = null!;
     private Button gfxSave = null!, gfxSaveAs = null!, gfxEmptyLoad = null!;
@@ -434,6 +435,7 @@ public partial class MainWindow : Window
         objectHint = this.GetControl<TextBlock>("ObjectHint");
 
         palettePanel = this.GetControl<DockPanel>("PalettePanel");
+        paletteLayer3 = this.GetControl<CheckBox>("PaletteLayer3");
         paletteGrid = this.GetControl<PaletteGridView>("PaletteGrid");
         paletteNote = this.GetControl<TextBlock>("PaletteNote");
         paletteIndex = this.GetControl<TextBlock>("PaletteIndex");
@@ -2391,15 +2393,38 @@ public partial class MainWindow : Window
 
     private void RefreshPaletteTab()
     {
-        paletteGrid.Colors = session.PaletteRgba;
+        // Layer 3 is 2bpp and can name eight palette groups of four, so its whole reach is CGRAM
+        // 00-1F. Four wide by eight tall over that range is group-major for free — grid row g IS
+        // palette group g — so nothing has to remap indices: a swatch's position in this view and
+        // its CGRAM number stay the same thing, and edits, tooltips and the picker are unchanged.
+        bool l3 = paletteLayer3.IsChecked == true;
+        var all = session.PaletteRgba;
+        paletteGrid.Cols = l3 ? Layer3.PaletteColors : 16;
+        paletteGrid.Rows = l3 ? Layer3.PaletteGroups : 16;
+        paletteGrid.Colors = l3 ? [.. all.Take(Layer3.PaletteSpace)] : all;
         paletteGrid.InvalidateVisual();
-        paletteBg.Colors = session.PaletteRgba is { Length: > 0 } pr ? [pr[0]] : [0xFF000000u];
+        paletteBg.Colors = all is { Length: > 0 } pr ? [pr[0]] : [0xFF000000u];
         paletteBg.InvalidateVisual();
-        paletteNote.Text = "CGRAM — rows 0-7 background and foreground, 8-F sprites.  "
+        paletteNote.Text = (l3
+                              ? "CGRAM 00-1F — layer 3's whole reach, one palette group per row. "
+                              + "Groups 2, 3, 6 and 7 are its own colours; 0, 1, 4 and 5 are the "
+                              + "backdrop, white and the level's background palette, which vanilla's "
+                              + "layer 3 uses too.  "
+                              : "CGRAM — rows 0-7 background and foreground, 8-F sprites.  ")
                          + (session.HasCustomPalette ? "source: LM custom palette"
                                                      : "source: vanilla (header-assembled)")
                          + (session.PaletteEditCount > 0 ? $"  —  {session.PaletteEditCount} edit(s)" : "");
         ShowPaletteColor(paletteGrid.Selected);
+    }
+
+    /// <summary>Narrow the palette page to what layer 3 can reach, and back. A selection outside
+    /// the narrowed range is DROPPED rather than clamped: clamping would silently move the picker
+    /// to a colour the user never chose, and the next edit would land on it.</summary>
+    private void OnPaletteLayer3Only(object? sender, RoutedEventArgs e)
+    {
+        if (paletteLayer3.IsChecked == true && paletteGrid.Selected >= Layer3.PaletteSpace)
+            paletteGrid.Select(-1);
+        RefreshPaletteTab();
     }
 
     /// <summary>The readout under the swatch grid. Deliberately does NOT touch the picker: every
@@ -2753,7 +2778,8 @@ public partial class MainWindow : Window
         bgPalNote.Text = group < 0 ? ""
             : !layer3 ? $"CGRAM {at:X2}-{at + count - 1:X2} — the tile's own row; change it in Map16"
             : $"CGRAM {at:X2}-{at + count - 1:X2}"
-              + (Layer3.IsLayer3Palette(group) ? "" : " — not one of the four the game fills for layer 3");
+              + (Layer3.IsLayer3Palette(group) ? " — layer 3's own colours"
+                                              : " — the level's background palette, not layer 3's own");
     }
 
     /// <summary>

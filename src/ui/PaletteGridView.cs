@@ -16,8 +16,12 @@ namespace PipeDream.Ui;
 /// </summary>
 public class PaletteGridView : Control
 {
-    public int Cols { get; set; } = 16;
-    public int Rows { get; set; } = 16;
+    // Setting these RESHAPES the control, so they invalidate measure: a grid that switches
+    // between sixteen wide and four keeps its old width otherwise, and the swatches spread out
+    // to fill it rather than the strip getting narrower.
+    public int Cols { get => cols; set { cols = value; InvalidateMeasure(); } }
+    public int Rows { get => rows; set { rows = value; InvalidateMeasure(); } }
+    private int cols = 16, rows = 16;
     public int Count => Cols * Rows;
 
     public double Cell { get; set; } = 28;

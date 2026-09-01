@@ -1416,6 +1416,33 @@ LM treats the two features as mutually exclusive per level. NOT established — 
 `Gfx.LevelSlots` will report a bypassed LT3 file as that level's AN1. `Rom.LmLayer3Tilemap`
 reads the layer-3 side; `LmGfxBypass`'s w1 still reads the AN1 side.
 
+**Which palettes layer 3 can use  [MEASURED over every vanilla layer-3 tilemap].** All EIGHT,
+and the common assumption that a layer 3 is limited to one palette is wrong twice over: the group
+is per TILE (bits 10-12 of each tilemap word), and every group is addressable. 2bpp makes a group
+four colours, so layer 3's whole reach is CGRAM `00-1F` — 32 of the 256 the palette page shows,
+which is what the page's "Layer 3 only" toggle narrows to, four wide so each row IS a group.
+
+What differs between the groups is what SMW puts in them, and the split is not the one the code
+used to claim:
+
+  2, 3, 6, 7   Layer 3's OWN colours — `Palette.Load`'s `$00B170` block, which lands at CGRAM
+               `08-0F` and `18-1F`. Loaded from a fixed address with NO header byte indexing it,
+               so these four are identical on every level in the ROM. (A palette edit here still
+               works per level: it is written as an LM custom palette, which overrides all 256.)
+  0, 1, 4, 5   CGRAM `00-07` and `10-17`: the backdrop, colour 1's white, and the level's own
+               BACKGROUND palette (`$00B0B0` indexed by the header's BG palette byte). A layer-3
+               tile drawn with one of these TINTS WITH THE LEVEL.
+
+Calling the second set invalid would be wrong, and the game's own maps say so — `--layer3` with
+no level now prints the per-group cell counts:
+
+  tides (option 2)               `6x1982`, plus 2 cells of group 0
+  ghost house (mode 2, opt 3)    `6x190 7x136`, 18 cells of group 0
+  scrolling rocks (mode 14)      `4x194 5x94`, then `1x16 6x10 3x2`
+
+So the tides live in layer 3's own block, and the scrolling rocks deliberately live in the
+level's background palette. Group 2 is the only one nothing in the ROM uses.
+
 Read by `Rom.LmLayer3Gfx(level)` (null = not bypassed) via `Rom.LmGfxRecord`, which returns
 the raw 16 words so each feature applies its own gate. `--layer3` prints the resolved LG1-4 and
 dumps LG1's sheet. WRITTEN as session overrides: LG1-LG4 are ordinary bins in `Gfx.LevelSlots`

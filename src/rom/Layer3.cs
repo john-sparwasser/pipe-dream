@@ -17,8 +17,14 @@ namespace PipeDream;
 /// finds through vanilla's stripe-image uploader ($00871E). Option 0 means the level has no
 /// layer 3 at all.
 ///
-/// Colours come from <see cref="Palette"/>'s $00B170 block — CGRAM 08-0F and 18-1F, i.e. BG
-/// palettes 2, 3, 6 and 7, which is what a tilemap word's 3-bit palette field selects.
+/// A tilemap word's 3-bit palette field names one of EIGHT groups, and 2bpp makes a group four
+/// colours, so layer 3's whole palette space is CGRAM 00-1F — the two 16-colour rows SMW keeps
+/// for it. Half of that is layer 3's own: <see cref="Palette"/> loads the $00B170 block into
+/// CGRAM 08-0F and 18-1F, groups 2/3/6/7, from a FIXED address no header byte indexes, so those
+/// four are identical on every level. The other four groups are the backdrop, white and the
+/// level's own background palette — and vanilla's layer 3 uses them too, which is how the
+/// mode-14 scrolling rocks tint with the level (see <see cref="IsLayer3Palette"/> for the
+/// measured counts).
 /// </summary>
 public static class Layer3
 {
@@ -206,11 +212,25 @@ public static class Layer3
     public static int PaletteBase(int group) => (group & (PaletteGroups - 1)) * PaletteColors;
 
     /// <summary>
-    /// Whether SMW actually loads LAYER-3 colours into this group. The tilemap's palette field
-    /// can name all eight, but the game's $00B170 block fills CGRAM 08-0F and 18-1F for layer 3
-    /// — groups 2, 3, 6 and 7. The other four hold layer-1/2 colours: a tile drawn with one of
-    /// them renders, just in someone else's palette, and it will change when the level's
-    /// background does. Worth SAYING rather than forbidding — LM offers all eight too.
+    /// The last CGRAM index a layer-3 tile can name. All eight groups are addressable and 2bpp
+    /// is four colours each, so layer 3's whole palette space is CGRAM 00-1F — the two 16-colour
+    /// rows SMW keeps for it, and a thirty-second of the 256 the palette page shows.
+    /// </summary>
+    public const int PaletteSpace = PaletteGroups * PaletteColors;
+
+    /// <summary>
+    /// Whether this group's colours come from SMW's DEDICATED layer-3 block, `$00B170` — which
+    /// `Palette.Load` puts at CGRAM 08-0F and 18-1F, i.e. groups 2, 3, 6 and 7. It is loaded
+    /// from a fixed address with no header byte indexing it, so those four are the same on every
+    /// level (until an LM custom palette overrides them, which is what a palette edit here
+    /// writes).
+    ///
+    /// The other four are NOT invalid, and calling them that would be wrong: groups 0/1/4/5 are
+    /// the backdrop, white, and the level's own BACKGROUND palette, so a tile drawn with one of
+    /// them tints with the level. Vanilla does exactly that — measured over every layer-3 tilemap
+    /// in the ROM (`--layer3` with no level prints the counts), the tides spend 1982 cells in
+    /// group 6, the ghost house 190 in 6 and 136 in 7, and the mode-14 scrolling rocks 194 in
+    /// group 4 and 94 in group 5. Group 2 is the only one nothing uses.
     /// </summary>
     public static bool IsLayer3Palette(int group) => group is 2 or 3 or 6 or 7;
 

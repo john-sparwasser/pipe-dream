@@ -195,6 +195,47 @@ public class PaletteTabTests(ITestOutputHelper log) : IDisposable
     }
 
     /// <summary>
+    /// "Layer 3 only" narrows the page to what a 2bpp layer-3 tile can actually name: CGRAM
+    /// 00-1F, four wide so each ROW is one of the eight palette groups. Sifting for those 32 in a
+    /// 16x16 block of 256 is the problem it exists to remove.
+    ///
+    /// The shape is load-bearing, not decoration: four-by-eight over that range is group-major
+    /// for free, so a swatch's position and its CGRAM number stay the same thing and the picker,
+    /// the edit markers and the tooltips need no remapping. A test on the colours alone would
+    /// pass with the grid still sixteen wide and the rows meaning nothing.
+    /// </summary>
+    [AvaloniaFact]
+    public void the_palette_page_narrows_to_layer_3s_thirty_two_colours_one_group_per_row()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<TabStrip>("PaletteTabs").SelectedIndex = MainWindow.PaletteTabIndex;
+        Dispatcher.UIThread.RunJobs();
+
+        var grid = w.GetControl<PaletteGridView>("PaletteGrid");
+        Assert.Equal(16, grid.Cols);
+        Assert.Equal(256, grid.Count);
+
+        w.GetControl<CheckBox>("PaletteLayer3").IsChecked = true;
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(Layer3.PaletteColors, grid.Cols);
+        Assert.Equal(Layer3.PaletteGroups, grid.Rows);
+        Assert.Equal(Layer3.PaletteSpace, grid.Count);
+        // Row g is group g: the swatch at (0, g) is the CGRAM index that group's colour 0 sits at.
+        for (int g = 0; g < Layer3.PaletteGroups; g++)
+            Assert.Equal(Layer3.PaletteBase(g), g * grid.Cols);
+        Assert.Contains("00-1F", w.GetControl<TextBlock>("PaletteNote").Text);
+
+        w.GetControl<CheckBox>("PaletteLayer3").IsChecked = false;
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(256, grid.Count);
+    }
+
+    /// <summary>
     /// Step-wise undo of palette edits, which the ImGui editor had and the Avalonia port
     /// dropped in favour of a Reset-everything button.
     ///

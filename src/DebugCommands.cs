@@ -141,8 +141,15 @@ static class DebugCommands
                 if (Layer3.Option(rom, lv) is var o && o != 0)
                 {
                     int mode = LevelParser.Parse(rom, lv).Header.LevelMode;
-                    Console.WriteLine($"{lv:X3}: mode {mode,2}  option {o} {Layer3.OptionNames[o]}"
-                                    + (Layer3.Tilemap(rom, mode, o) is null ? "  (no tilemap)" : ""));
+                    // Which palette GROUPS the tilemap names, and how many cells each. Layer 3 is
+                    // 2bpp, so a group is four CGRAM entries — this is how "which groups are
+                    // valid for layer 3" gets answered from the game's own maps rather than from
+                    // the palette loader alone.
+                    string pals = Layer3.Tilemap(rom, mode, o) is { } m
+                        ? "  pal " + string.Join(" ", m.Where(v => v >= 0).GroupBy(Layer3.PaletteOf)
+                              .OrderBy(g => g.Key).Select(g => $"{g.Key}x{g.Count()}"))
+                        : "  (no tilemap)";
+                    Console.WriteLine($"{lv:X3}: mode {mode,2}  option {o} {Layer3.OptionNames[o]}{pals}");
                 }
             return 0;
         }
