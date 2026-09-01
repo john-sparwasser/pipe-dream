@@ -570,7 +570,7 @@ public sealed class EditorSession
 
     /// <summary>The level's VRAM GFX bins in drawer order: the ten FG/BG/SP ones, then LG1-LG4
     /// (the layer-3 window), then the animation slots.</summary>
-    public (string Name, int PalRow, int BypWord, int Def, int File, int ColorOffset)[] GfxBins
+    public (string Name, int PalRow, int BypWord, int Def, int File, int ColorOffset, int Bpp)[] GfxBins
         => Rom is { } r && Scene is { } s ? Gfx.LevelSlots(r, s.Level.Header, LevelNum) : [];
 
     /// <summary>The 16 tileset / sprite-set choices for the graphics-header dialog: the setting
@@ -598,11 +598,11 @@ public sealed class EditorSession
 
     /// <summary>One GFX file decoded as a tile sheet, for a preview. Empty when the id resolves
     /// nowhere or will not decode — a bin pointing at nothing is normal (0x7F means "unused").</summary>
-    public (uint[] Px, int W, int H) GfxFileSheet(int file, int palRow, int colorOffset = 0)
+    public (uint[] Px, int W, int H) GfxFileSheet(int file, int palRow, int colorOffset = 0, int bpp = 0)
     {
         if (Rom is null || file == 0x7F || Scene?.Palettes[0] is not { } pal) return ([], 0, 0);
         if (Gfx.Cached(Rom, file) is not { } data) return ([], 0, 0);
-        try { return Gfx.TileSheet(data, Gfx.FileBpp(Rom, file), pal, palRow, colorOffset: colorOffset); }
+        try { return Gfx.TileSheet(data, bpp > 0 ? bpp : Gfx.FileBpp(Rom, file), pal, palRow, colorOffset: colorOffset); }
         catch { return ([], 0, 0); }
     }
 

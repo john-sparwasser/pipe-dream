@@ -29,6 +29,14 @@ public static class Layer3
     public const int SlotTiles = 0x80;
     private const int ScreenCols = 32, ScreenRows = 32;
 
+    /// <summary>
+    /// Layer 3 is ALWAYS two bit planes. $00A993 streams 0x800 bytes per slot into a 128-tile
+    /// window, so the depth is fixed by the upload, not by the file: vanilla 28-2B are listed
+    /// 2bpp in <see cref="Gfx.FileBpp"/>, but an ExGFX file that a bypassed slot points at is
+    /// not, and reading one at the ROM's depth halves its tile count and garbles every tile.
+    /// </summary>
+    public const int Bpp = 2;
+
     /// <summary>LG1-LG4, in the order $00A99F uploads them (LG1 first, at word $4000).</summary>
     public static readonly int[] VanillaGfx = [0x28, 0x29, 0x2A, 0x2B];
 
@@ -75,9 +83,9 @@ public static class Layer3
         {
             int file = files[slot];
             if (Gfx.Cached(rom, file) is not { } data) continue;
-            int bpp = Gfx.FileBpp(rom, file), tb = Gfx.TileBytes(bpp);
+            int tb = Gfx.TileBytes(Bpp);
             for (int t = 0; t < SlotTiles && (t + 1) * tb <= data.Length; t++)
-                tiles[slot * SlotTiles + t] = Gfx.DecodeTile(data, t * tb, bpp);
+                tiles[slot * SlotTiles + t] = Gfx.DecodeTile(data, t * tb, Bpp);
         }
         return tiles;
     }

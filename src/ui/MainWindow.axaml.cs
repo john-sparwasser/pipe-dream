@@ -1127,7 +1127,7 @@ public partial class MainWindow : Window
             return;
         }
         var slot = session.GfxBins.Where(b => b.BypWord == gfxSlot)
-                          .Select(b => ((string Name, int PalRow)?)(b.Name, b.PalRow))
+                          .Select(b => ((string Name, int PalRow, int Bpp)?)(b.Name, b.PalRow, b.Bpp))
                           .FirstOrDefault();
         if (await PickGfxFile(slot is { } s ? $"Load into this level's {s.Name} bin"
                                             : "Open a graphics file in the tile editor") is not { } picked)
@@ -1140,6 +1140,9 @@ public partial class MainWindow : Window
             AdoptSession();                     // the level draws through the new file now
         }
         session.GfxPixels?.Open(picked);
+        // The bin's depth outlives the file that was in it: a fresh ExGFX loaded into an LG slot
+        // is layer-3 data whatever the ROM stores everything else at. Open() reset the override.
+        if (slot is { Bpp: > 0 } l3) session.GfxPixels?.ViewAs(l3.Bpp);
         RefreshGfx();
     }
 
@@ -2191,7 +2194,7 @@ public partial class MainWindow : Window
         // imports a .bin into it. An absent one still opens — as a blank file to create.
         var bins = session.GfxBins.ToList();
         for (int i = 0; i < 4; i++)
-            bins.Add(($"E{0x60 + i:X2}", 2, 0x60 + i, 0x7F, session.Rom is { } r && (r.ImportedGfx.ContainsKey(0x60 + i) || r.LmAltExGfx(i) > 0) ? 0x60 + i : 0x7F, 0));
+            bins.Add(($"E{0x60 + i:X2}", 2, 0x60 + i, 0x7F, session.Rom is { } r && (r.ImportedGfx.ContainsKey(0x60 + i) || r.LmAltExGfx(i) > 0) ? 0x60 + i : 0x7F, 0, 0));
         foreach (var bin in bins)
         {
             int bypWord = bin.BypWord, palRow = bin.PalRow, file = bin.File;
@@ -2251,7 +2254,7 @@ public partial class MainWindow : Window
             // show the same colours; the others keep the row the level actually loads them under.
             int previewRow = bin.BypWord == gfxSlot && session.GfxPixels is { } sel
                 ? sel.PalRow : bin.PalRow;
-            var (px, w, h) = session.GfxFileSheet(bin.File, previewRow, bin.ColorOffset);
+            var (px, w, h) = session.GfxFileSheet(bin.File, previewRow, bin.ColorOffset, bin.Bpp);
             if (px.Length > 0)
                 block.Children.Add(new PixelImage
                 {
@@ -2287,7 +2290,7 @@ public partial class MainWindow : Window
             card.PointerPressed += (_, _) =>
             {
                 gfxSlot = bypWord;
-                EditGfxFile(openFile, palRow);
+                EditGfxFile(openFile, palRow, bin.Bpp);
             };
             gfxBins.Children.Add(card);
         }
@@ -2300,12 +2303,16 @@ public partial class MainWindow : Window
     /// <summary>Open a bin's file in the GFX canvas mode. An unused bin (0x7F) resolves nowhere and
     /// is opened all the same: the canvas then shows its Load button instead of the last file's
     /// pixels, which is the honest answer to "what is in this bin".</summary>
-    private void EditGfxFile(int file, int palRow)
+    private void EditGfxFile(int file, int palRow, int bpp = 0)
     {
         if (session.GfxPixels is not { } g) return;
         CommitGfxFloat();                    // into the file it was floating over
         g.Open(file);
         g.PalRow = palRow;                 // the bin's own row; the picker follows in RefreshGfx
+        // A bin can KNOW its depth where the file cannot: layer 3 is 2bpp because of where it is
+        // loaded, so an ExGFX file a bypassed LG slot points at opens 2bpp too, not at the ROM's
+        // depth. Open() cleared any previous override, so this is the one that sticks.
+        if (bpp > 0) g.ViewAs(bpp);
         OnMode(modeGfx, new RoutedEventArgs());
     }
 

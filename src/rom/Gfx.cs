@@ -131,7 +131,9 @@ public static class Gfx
     ///   0x27, 0x33 whatever a conversion left them at — see <see cref="UnconvertedBpp"/>
     /// Neither of those two is tile-packed at all, so the depth only says how wide their rows
     /// are; the picker says what they actually hold.
-    /// ExGFX (0x80+) follow the ROM: a user file's depth is normalised on import.
+    /// ExGFX (0x80+) follow the ROM: a user file's depth is normalised on import — EXCEPT where the
+    /// slot it lands in fixes the depth instead, which is layer 3 (see <see cref="Layer3.Bpp"/>):
+    /// a bin knows what a file cannot.
     /// </summary>
     public static int FileBpp(Rom rom, int file) => file switch
     {
@@ -608,7 +610,7 @@ public static class Gfx
     /// BG2/BG3 bins); File != Def means something repointed it. ColorOffset shifts a preview off
     /// its palette row's first colour, which only layer 3 needs.
     /// </summary>
-    public static (string Name, int PalRow, int BypWord, int Def, int File, int ColorOffset)[] LevelSlots(
+    public static (string Name, int PalRow, int BypWord, int Def, int File, int ColorOffset, int Bpp)[] LevelSlots(
         Rom rom, LevelHeader h, int levelNum)
     {
         var byp = rom.LmGfxBypass(levelNum);
@@ -639,12 +641,12 @@ public static class Gfx
         // hence row 0-1 plus an offset of 8.
         var lg = Layer3.GfxFiles(rom, levelNum);
         var l3 = Enumerable.Range(0, 4).Select(i =>
-            ($"LG{i + 1}", 0, 15 - i, Layer3.VanillaGfx[i], lg[i], 8));
+            ($"LG{i + 1}", 0, 15 - i, Layer3.VanillaGfx[i], lg[i], 8, Layer3.Bpp));
         var main = slots.Select(s =>
         {
             int def = s.listBase < -1 ? -s.listBase : s.listBase < 0 ? 0x7F : rom.Data[rom.FileOffset(s.listBase) + s.idx];
             bool bypassed = byp is not null && (byp[s.bypWord] & 0xFFF) != 0x7F;
-            return (s.name, s.palRow, s.bypWord, def, bypassed ? byp![s.bypWord] & 0xFFF : def, 0);
+            return (s.name, s.palRow, s.bypWord, def, bypassed ? byp![s.bypWord] & 0xFFF : def, 0, 0);
         }).ToArray();
         // The layer-3 four sit after SP4 and before the animation slots, which is where they
         // belong on screen: they are VRAM the level loads, not a slot the animation engine reads.

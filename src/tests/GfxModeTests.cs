@@ -615,6 +615,30 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         // at CGRAM 08 rather than a palette row of their own.
         Assert.Equal([15, 14, 13, 12], s.GfxBins.Where(b => b.Name.StartsWith("LG")).Select(b => b.BypWord));
         Assert.All(s.GfxBins.Where(b => b.Name.StartsWith("LG")), b => Assert.Equal(8, b.ColorOffset));
+        // The bin carries the depth because the FILE cannot: an ExGFX in an LG slot is still
+        // layer-3 data. 0 on every other bin means "read it at its own depth".
+        Assert.All(s.GfxBins.Where(b => b.Name.StartsWith("LG")), b => Assert.Equal(2, b.Bpp));
+        Assert.All(s.GfxBins.Where(b => !b.Name.StartsWith("LG")), b => Assert.Equal(0, b.Bpp));
+    }
+
+    /// <summary>A bin preview reads at the BIN's depth, so an imported sheet in an LG slot shows
+    /// its 128 tiles rather than the 64 a 4bpp read would find.</summary>
+    [AvaloniaFact]
+    public void an_imported_layer_3_file_previews_2bpp_in_its_bin()
+    {
+        if (Open() is not { } s) { log.WriteLine("SKIP: no ROM"); return; }
+        s.ShowLevel(0x105);
+        s.Rom!.ImportedGfx[0x100] = new byte[0x800];
+        s.SetGfxSlot(15, 0x100);                          // LG1
+
+        var lg1 = s.GfxBins.Single(b => b.Name == "LG1");
+        Assert.Equal(0x100, lg1.File);
+        var (_, _, asBin) = s.GfxFileSheet(lg1.File, lg1.PalRow, lg1.ColorOffset, lg1.Bpp);
+        var (_, _, asFile) = s.GfxFileSheet(lg1.File, lg1.PalRow);
+        Assert.Equal(8 * 8, asBin);                       // 128 tiles, 16 per row
+        // Read at the FILE's depth it is 85 tiles on a 3bpp base or 64 on a 4bpp one — either
+        // way not 128, which is the whole reason the bin has to carry the depth.
+        Assert.NotEqual(asBin, asFile);
     }
 
     /// <summary>Repointing one turns the bypass on for that level alone, leaves the other three

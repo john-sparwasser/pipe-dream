@@ -230,6 +230,31 @@ public class Layer3Tests(ITestOutputHelper log)
         finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }
 
+    /// <summary>
+    /// Layer 3 is 2bpp because of WHERE it is loaded, not because of which file is loaded. A
+    /// vanilla 28-2B is listed 2bpp already, but an ExGFX file a bypassed LG slot points at is
+    /// not — and reading a 0x800-byte sheet at the ROM's 4bpp yields 64 tiles of 16 colours
+    /// instead of 128 of four: half the window empty, and every tile that does appear garbled.
+    /// </summary>
+    [Fact]
+    public void a_bypassed_slot_reads_its_file_2bpp_whatever_the_rom_stores()
+    {
+        if (Open() is not { } rom) return;
+        Assert.NotEqual(2, Gfx.RomBpp(rom));                  // the ROM stores 3 or 4 planes, never 2
+
+        // A full 2bpp slot: 0x800 bytes of 0xFF is 128 tiles, every pixel colour 3.
+        rom.ImportedGfx[0x100] = [.. Enumerable.Repeat((byte)0xFF, 0x800)];
+        rom.GfxSlotOverrides[(0x009, 15)] = 0x100;            // w15 = LG1
+        Assert.Equal(0x100, Layer3.GfxFiles(rom, 0x009)[0]);
+
+        var tiles = Layer3.Tiles(rom, 0x009);
+        // Read at 4bpp the file would run out after 64 tiles, so the tail is the whole point.
+        Assert.All(tiles[..Layer3.SlotTiles], t => Assert.NotNull(t));
+        Assert.NotNull(tiles[Layer3.SlotTiles - 1]);
+        Assert.All(tiles[..Layer3.SlotTiles], t => Assert.All(t!, px => Assert.Equal(3, px)));
+        Assert.Equal(2, Layer3.Bpp);
+    }
+
     // ---- imported tilemaps ----
 
     [Fact]
