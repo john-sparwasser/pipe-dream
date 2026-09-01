@@ -55,8 +55,13 @@ public sealed class LevelScene
     /// </summary>
     public enum SpriteDraw { Compose, ParseOnly, Skip }
 
+    /// <param name="previewLayer3">Compose the level's layer 3 into the canvas as well — behind
+    /// layer 2 and layer 1, or in front when the header gives it priority. Off by default: it is
+    /// a view setting, and the level canvas is otherwise exactly what the level's own data
+    /// draws.</param>
     public static LevelScene Build(Rom rom, int levelNum, SpriteDraw sprites = SpriteDraw.Compose,
-                                   IReadOnlyDictionary<int, ushort>? paletteEdits = null)
+                                   IReadOnlyDictionary<int, ushort>? paletteEdits = null,
+                                   bool previewLayer3 = false)
     {
         var level = LevelParser.Parse(rom, levelNum);
         var grid = ObjectEngine.Render(rom, level);
@@ -102,8 +107,21 @@ public sealed class LevelScene
             backdrop[p] = pal.Rgba[0];
             if (bgImage is not null) bgCaches[p] = Map16.ComposeAllBg(rom, level.Header, levelNum, p, pal);
 
+            // Layer 3 does not animate, so one surface serves every phase — but it is rendered
+            // per phase anyway because the palette can differ, and it is cheap next to the level.
+            (uint[] Px, int W, int H, bool Front)? l3 = null;
+            if (previewLayer3
+                && Layer3.LevelTilemap(rom, levelNum, level.Header.LevelMode,
+                                       Layer3.Option(rom, levelNum)) is { } l3map)
+            {
+                // Backdrop 0: the gaps have to stay transparent, or the preview would paint the
+                // level's own back-area colour over layer 2.
+                var (lp, lw, lh) = Layer3.Render(l3map, Layer3.Tiles(rom, levelNum), pal, 0);
+                l3 = (lp, lw, lh, level.Header.Layer3Priority != 0);
+            }
+
             var (img, pw, ph) = Map16.ComposeLevel(caches[p], pal.Rgba[0], grid,
-                                                   bgImage, bgCaches[p], layer2, visRows);
+                                                   bgImage, bgCaches[p], layer2, visRows, l3);
             if (sprites == SpriteDraw.Compose) overlay?.Draw(img, pw, ph, pal);
             phases[p] = img;
             w = pw; h = ph;

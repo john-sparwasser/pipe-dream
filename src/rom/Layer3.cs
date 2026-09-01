@@ -232,15 +232,16 @@ public static class Layer3
         => ((index >> 10 & 1) * ScreenCols + (index & 31), (index >> 11 & 1) * ScreenRows + (index >> 5 & 31));
 
     /// <summary>
-    /// The tilemap drawn with the level's tiles and palette: 512×512 pixels over the back-area
-    /// colour, which is what shows through wherever layer 3 is transparent (colour 0 of a BG3
-    /// palette is never drawn).
+    /// The tilemap drawn with the level's tiles and palette, 512×512 pixels over
+    /// <paramref name="backdrop"/> — the back-area colour for a standalone view, or 0 to leave
+    /// the gaps transparent so it can be composed UNDER a level. Colour 0 of a BG3 palette is
+    /// never drawn either way.
     /// </summary>
-    public static (uint[] Px, int W, int H) Render(int[] map, byte[]?[] tiles, Palette pal)
+    public static (uint[] Px, int W, int H) Render(int[] map, byte[]?[] tiles, Palette pal, uint backdrop)
     {
         int w = Cols * 8, h = Rows * 8;
         var px = new uint[w * h];
-        Array.Fill(px, pal.Rgba[0]);
+        if (backdrop != 0) Array.Fill(px, backdrop);
         for (int i = 0; i < map.Length; i++)
         {
             int word = map[i], chr = word & 0x3FF;

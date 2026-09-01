@@ -110,7 +110,9 @@ static class DebugCommands
         var lv = LevelParser.Parse(rom, level);
         var grid = ObjectEngine.Render(rom, lv);
         int phase = int.TryParse(args.ElementAtOrDefault(ri + 5), out var ph) ? ph & 3 : 0;
-        var (px, w, h) = Map16.ComposeLevel(rom, lv.Header, grid, level, phase);
+        var scene = LevelScene.Build(rom, level, LevelScene.SpriteDraw.Skip, null,
+                                     previewLayer3: args.Contains("--l3"));
+        var (px, w, h) = (scene.Phases[phase]!, scene.Width, scene.Height);
         SpriteData.Parse(rom, level).DrawOverlay(px, w, h, rom, lv.Header, level);
 
         if (cropW > 0 && cropW * 16 < w)
@@ -167,7 +169,7 @@ static class DebugCommands
             var (bp, bw, bh) = Gfx.TileSheet(lg1, 2, pal, 0, colorOffset: 8);
             Png.Write(Path.ChangeExtension(outPath, null) + "-lg1.png", bp, bw, bh);
         }
-        var (px, w, h) = Layer3.Render(map, Layer3.Tiles(rom, level), pal);
+        var (px, w, h) = Layer3.Render(map, Layer3.Tiles(rom, level), pal, pal.Rgba[0]);
         Png.Write(outPath, px, w, h);
         Console.WriteLine($"wrote {outPath}: {w}x{h}, {map.Count(v => v >= 0)} tilemap words set");
         return 0;

@@ -338,7 +338,7 @@ public class Layer3Tests(ITestOutputHelper log)
         var header = LevelParser.Parse(rom, 0x009).Header;
         var map = Layer3.Tilemap(rom, header.LevelMode, Layer3.Option(rom, 0x009));
         var pal = Palette.Load(rom, header, 0x009);
-        var (px, w, h) = Layer3.Render(map!, Layer3.Tiles(rom), pal);
+        var (px, w, h) = Layer3.Render(map!, Layer3.Tiles(rom), pal, pal.Rgba[0]);
 
         Assert.Equal(Layer3.Cols * 8, w);
         Assert.Equal(Layer3.Rows * 8, h);

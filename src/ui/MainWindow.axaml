@@ -292,6 +292,8 @@
         <Separator/>
         <MenuItem x:Name="SpriteOverlayItem" Header="_Sprite overlay" Click="OnToggleSprites"/>
         <MenuItem x:Name="AnimateItem" Header="_Animate tiles" Click="OnToggleAnimate"/>
+        <MenuItem x:Name="Layer3PreviewItem" Header="Layer _3 preview" Click="OnToggleLayer3Preview"
+                  ToolTip.Tip="Draw this level's layer 3 on the level canvas — behind the level, or in front when the header gives it priority"/>
       </MenuItem>
       <!-- Only in a - -dev launch (the F5 profile): shortcuts for testing, never shipped UI. -->
       <MenuItem x:Name="DebugMenu" Header="De_bug" IsVisible="False">

@@ -168,6 +168,45 @@ public class BackgroundEditTests(ITestOutputHelper log)
         Assert.Null(s.Layer3CellPixels(Layer3.FromBytes(raw)[Layer3.CellIndex(60, 60)]));
     }
 
+    // ---- the level-canvas preview ----
+
+    /// <summary>
+    /// Layer 3 previews on the LEVEL canvas, composed behind layer 2 and layer 1 — not painted
+    /// over the finished canvas, which could only ever hide the level. It is off by default,
+    /// because the level canvas is otherwise exactly what the level's own data draws.
+    /// </summary>
+    [Fact]
+    public void the_level_canvas_can_preview_layer_3_behind_the_level()
+    {
+        if (Open(0x009) is not { } s) return;
+        Assert.False(s.PreviewLayer3);
+        var plain = (uint[])s.Phases[0]!.Clone();
+
+        Assert.True(s.SetPreviewLayer3(true));
+        Assert.False(s.SetPreviewLayer3(true));            // idempotent: no needless recompose
+        var previewed = s.Phases[0]!;
+        Assert.Equal(plain.Length, previewed.Length);
+        Assert.NotEqual(plain, previewed);
+
+        // BEHIND: every pixel layer 1 or layer 2 already drew is untouched, so the level itself
+        // reads the same. Only what was bare backdrop can have changed.
+        uint backdrop = s.Scene!.Backdrop[0];
+        for (int i = 0; i < plain.Length; i++)
+            if (plain[i] != backdrop) Assert.Equal(plain[i], previewed[i]);
+
+        Assert.True(s.SetPreviewLayer3(false));
+        Assert.Equal(plain, s.Phases[0]);
+    }
+
+    [Fact]
+    public void a_level_with_no_layer_3_previews_nothing()
+    {
+        if (Open(0x105) is not { } s) return;                // no layer 3 at all
+        var plain = (uint[])s.Phases[0]!.Clone();
+        Assert.True(s.SetPreviewLayer3(true));
+        Assert.Equal(plain, s.Phases[0]);
+    }
+
     // ---- layer 2: the edit reaches the level canvas and the built ROM ----
 
     [Fact]

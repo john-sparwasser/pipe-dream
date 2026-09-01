@@ -68,7 +68,7 @@ public partial class MainWindow : Window
     private ComboBox gfxPalRow = null!, gfxBpp = null!;
     private PaletteGridView gfxColors = null!;
     private MenuItem recentMenu = null!, upgradePrepItem = null!, spriteOverlayItem = null!,
-                     animateItem = null!, runEmulatorItem = null!;
+                     animateItem = null!, runEmulatorItem = null!, layer3PreviewItem = null!;
     private PaletteGridView paletteGrid = null!, paletteBg = null!;
     private TextBlock paletteNote = null!, paletteIndex = null!;
 
@@ -598,6 +598,7 @@ public partial class MainWindow : Window
         runEmulatorItem = this.GetControl<MenuItem>("RunEmulatorItem");
         spriteOverlayItem = this.GetControl<MenuItem>("SpriteOverlayItem");
         animateItem = this.GetControl<MenuItem>("AnimateItem");
+        layer3PreviewItem = this.GetControl<MenuItem>("Layer3PreviewItem");
         SetAnimating(true);             // tiles animate as the game does; View ▸ Animate tiles stops it
         // Rebuilt when the menu opens rather than kept in sync: the recent list changes behind
         // this window's back (a project opened elsewhere in the session reorders it), and pruning
@@ -1311,16 +1312,25 @@ public partial class MainWindow : Window
         UpdateTitle();
     }
 
-    private void OnBuild(object? sender, RoutedEventArgs e)
+    /// <summary>
+    /// Build, and SAY what happened. The status was going nowhere at all — nothing in the window
+    /// shows session.Status — so a build looked identical whether it wrote a ROM or refused to,
+    /// and every "stays editor-only" warning the builder raises was invisible. That is the worst
+    /// possible failure for a feature the base cannot carry: the edit is in the project, the
+    /// build drops it on the floor, and the only way to find out was to run the game.
+    /// </summary>
+    private async void OnBuild(object? sender, RoutedEventArgs e)
     {
         session.Build();
         UpdateTitle();
+        await new ConfirmWindow("Build ROM", session.Status, "OK").ShowDialog(this);
     }
 
-    private void OnExportBps(object? sender, RoutedEventArgs e)
+    private async void OnExportBps(object? sender, RoutedEventArgs e)
     {
         session.ExportBps();
         UpdateTitle();
+        await new ConfirmWindow("Export BPS", session.Status, "OK").ShowDialog(this);
     }
 
     /// <summary>Level header + main entrance, staged in a dialog and applied in one go: every
@@ -1644,6 +1654,16 @@ public partial class MainWindow : Window
     /// recompose, which is why it can run at a game-ish rate at all.
     /// </summary>
     private void OnToggleAnimate(object? sender, RoutedEventArgs e) => SetAnimating(animate is null);
+
+    /// <summary>Draw the level's layer 3 on the level canvas. A recompose, not an overlay: it
+    /// belongs BEHIND layer 2 unless the header gives it priority, and nothing painted over a
+    /// finished canvas can go behind anything.</summary>
+    private void OnToggleLayer3Preview(object? sender, RoutedEventArgs e)
+    {
+        if (!session.SetPreviewLayer3(!session.PreviewLayer3)) return;
+        layer3PreviewItem.Icon = session.PreviewLayer3 ? new TextBlock { Text = "✓" } : null;
+        AdoptSession();
+    }
 
     /// <summary>Run or stop the phase cycle, and keep the menu's checkbox saying which it is.
     /// Stopping parks on phase 0, the state the level composes to.</summary>

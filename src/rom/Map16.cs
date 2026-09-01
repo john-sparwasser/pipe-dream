@@ -167,6 +167,23 @@ public static class Map16
             }
     }
 
+    /// <summary>
+    /// Tile a rendered layer-3 surface across the canvas. A PREVIEW: the real thing scrolls at
+    /// its own rate and sits wherever the level's scroll settings put it, none of which is
+    /// modelled — this repeats it from the top-left, the way the background image repeats, so
+    /// the whole canvas shows something rather than one 512px corner.
+    /// </summary>
+    public static void DrawLayer3(uint[] img, int W, int H, uint[] l3, int l3W, int l3H)
+    {
+        if (l3W <= 0 || l3H <= 0) return;
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+            {
+                uint c = l3[(y % l3H) * l3W + (x % l3W)];
+                if (c != 0) img[y * W + x] = c;      // colour 0 is transparent on BG3
+            }
+    }
+
     /// <summary>Draw a Map16 grid onto an existing canvas (transparent pixels leave it).</summary>
     public static void DrawGrid(uint[] img, int W, int H, Map16Grid grid, uint[][] cache)
     {
@@ -188,11 +205,13 @@ public static class Map16
 
     /// <summary>Compose a level canvas from precomputed caches (fast; for live edits).</summary>
     public static (uint[] px, int w, int h) ComposeLevel(uint[][] cache, uint backdrop, Map16Grid grid,
-        ushort[]? bgImg = null, uint[][]? bgCache = null, Map16Grid? l2 = null, int visibleRows = 27)
+        ushort[]? bgImg = null, uint[][]? bgCache = null, Map16Grid? l2 = null, int visibleRows = 27,
+        (uint[] Px, int W, int H, bool Front)? layer3 = null)
     {
         int rows = Math.Min(visibleRows, grid.Height);
         int W = grid.Width * 16, H = rows * 16;
-        return (ComposeLevelInto(new uint[W * H], cache, backdrop, grid, bgImg, bgCache, l2, visibleRows),
+        return (ComposeLevelInto(new uint[W * H], cache, backdrop, grid, bgImg, bgCache, l2,
+                                 visibleRows, layer3),
                 W, H);
     }
 
@@ -202,14 +221,20 @@ public static class Map16
     /// discards more than the work itself costs.
     /// </summary>
     public static uint[] ComposeLevelInto(uint[] img, uint[][] cache, uint backdrop, Map16Grid grid,
-        ushort[]? bgImg, uint[][]? bgCache, Map16Grid? l2, int visibleRows)
+        ushort[]? bgImg, uint[][]? bgCache, Map16Grid? l2, int visibleRows,
+        (uint[] Px, int W, int H, bool Front)? layer3 = null)
     {
         int rows = Math.Min(visibleRows, grid.Height);
         int W = grid.Width * 16, H = rows * 16;
         Array.Fill(img, backdrop);
+        // Layer 3 sits BEHIND layer 2 and layer 1 unless the header gives it priority, which is
+        // the whole reason a preview has to go through the compose rather than being painted
+        // over the finished canvas: on top it would hide the level it is meant to sit behind.
+        if (layer3 is { Front: false } back) DrawLayer3(img, W, H, back.Px, back.W, back.H);
         if (bgImg is not null && bgCache is not null) DrawBgImage(img, W, H, grid.Width, bgImg, bgCache);
         else if (l2 is not null) DrawGrid(img, W, H, l2, cache);
         DrawGrid(img, W, H, grid, cache);
+        if (layer3 is { Front: true } front) DrawLayer3(img, W, H, front.Px, front.W, front.H);
         return img;
     }
 

@@ -314,6 +314,20 @@ public sealed class EditorSession
     /// what every word draws as.</summary>
     private void InvalidateLayer3Cells() { layer3Cells.Clear(); layer3Tiles = null; }
 
+    /// <summary>Draw the level's layer 3 on the LEVEL canvas too — behind layer 2 and layer 1,
+    /// or in front when the header gives it priority. A view setting, off by default, and a
+    /// PREVIEW: the real thing scrolls at its own rate, which is not modelled.</summary>
+    public bool PreviewLayer3 { get; private set; }
+
+    /// <summary>Turn the preview on or off and recompose. False when nothing changed.</summary>
+    public bool SetPreviewLayer3(bool on)
+    {
+        if (PreviewLayer3 == on) return false;
+        PreviewLayer3 = on;
+        RecomposeScene();
+        return true;
+    }
+
     /// <summary>True when this level draws an imported tilemap rather than vanilla's.</summary>
     public bool Layer3TilemapImported => Rom is { } r && HasLevel && r.Layer3Tilemaps.ContainsKey(LevelNum);
 
@@ -381,7 +395,7 @@ public sealed class EditorSession
     {
         if (Rom is not { } r || Scene is not { } s || s.Palettes[0] is not { } pal) return ([], 0, 0);
         return Layer3.LevelTilemap(r, LevelNum, s.Level.Header.LevelMode, Layer3.Option(r, LevelNum)) is { } map
-            ? Layer3.Render(map, Layer3.Tiles(r, LevelNum), pal) : ([], 0, 0);
+            ? Layer3.Render(map, Layer3.Tiles(r, LevelNum), pal, pal.Rgba[0]) : ([], 0, 0);
     }
 
     /// <summary>The 512 layer-3 8x8s as a picker sheet, in BG palette 2 (CGRAM 08-0B) — the
@@ -1233,7 +1247,7 @@ public sealed class EditorSession
 
             // Built without sprites when the project has its own list, so the ROM's parse is
             // not composed in and then painted over.
-            Scene = LevelScene.Build(Rom, num, SpriteMode(live is not null), paletteEdits);
+            Scene = LevelScene.Build(Rom, num, SpriteMode(live is not null), paletteEdits, PreviewLayer3);
             var objects = saved is not null
                 ? saved.Objects.Select(o => o.ToLevelObject()).ToList()
                 : [.. Scene.Level.Objects];
@@ -1548,7 +1562,7 @@ public sealed class EditorSession
         var l2 = layer2?.Objects.ToList();
         try
         {
-            Scene = LevelScene.Build(Rom, LevelNum, SpriteMode(Sprites is not null), paletteEdits);
+            Scene = LevelScene.Build(Rom, LevelNum, SpriteMode(Sprites is not null), paletteEdits, PreviewLayer3);
             if (Sprites is { } sp) DrawSprites(sp.Sprites);
             layer1 = new LevelEdit(Rom, Scene, objects);
             layer1.Rerender();
