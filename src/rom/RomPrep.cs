@@ -51,12 +51,13 @@ public static class RomPrep
     /// V8 uploads 4bpp the way LM does, which is the only thing that makes LM read a prepped
     /// ROM's graphics as 4bpp rather than as noise; V9 reserves the balance that keeps the
     /// ROM's checksum reading as Super Mario World's own, so LM stops calling it tampered with.
+    /// V15 adds the layer-3 TILEMAP bypass, hung off vanilla's own tilemap picker.
     /// V14 adds the LAYER-3 GFX bypass — LG1-LG4 out of the same per-level record, uploaded on
     /// every level load the way LM does it, so a repointed layer-3 slot reaches the console
     /// instead of stopping at the project file (see <see cref="AppendV14Stamps"/>).
     /// Version-keyed stamp lists keep every released version BYTE-FROZEN: a v1 project's
     /// pinned image must reproduce forever (golden-hash tested).</summary>
-    public const int Version = 14;
+    public const int Version = 15;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -182,6 +183,24 @@ public static class RomPrep
     /// LG4..LG1, i.e. LG1 at word $4000 and 0x400 words a slot (CONTRACT §12b).</summary>
     public const int L3DestTable = 0x0FFA7F;
 
+    // ---- V15: layer-3 TILEMAP bypass (LT3 = record word 1, gated by w0 bit 13) ----
+    /// <summary>LM's two hook sites. `$00A01F` is vanilla's `LDA $1BE3 : BEQ : DEC` — the head
+    /// of the routine that picks a tilemap out of Layer3Ptr — and a JSL there is what
+    /// <see cref="LunarMagic.HasLmLayer3Tilemap"/> probes. `$00A153` is `LDA #$06 : STA $12`,
+    /// the instruction after the level's GFX are up, which is where the file is copied in.</summary>
+    public const int L3OptHook = 0x00A01F;
+    /// <summary>`JSR $871E : RTS` at the tail of vanilla's tilemap picker — the uploader call
+    /// itself. Measured, not assumed: $00A153 (LM's other site) is never executed on the level
+    /// load path this has to catch, while $00A01F and this run every time.</summary>
+    public const int L3StripeHook = 0x00A041, L3StripeThunk = 0x00FFA2;
+    public const int L3Opt = 0x0FF950;             // returns the layer-3 option, vanilla's way
+    public const int L3Map = 0x0FF980;             // the LT3 file → VRAM
+    /// <summary>LM's tilemap tables, at LM's own addresses. Sizes by the record's size field,
+    /// VRAM destination words by its destination field, and the size of the status bar's own
+    /// tilemap — the last two are the pair LM's help tells patch authors to edit when they
+    /// shorten the status bar (CONTRACT §12b).</summary>
+    public const int L3SizeTab = 0x0FFEB4, L3DestWordTab = 0x0FFEBC, L3BarSize = 0x0FFEC4;
+
     /// <summary>The four vanilla `JSL $00F545` acts-like call sites (banks 00/01/02),
     /// repointed to our remap so gameplay collision resolves extended tiles.</summary>
     public static readonly int[] ActsCallSites = [0x00F4DD, 0x019533, 0x02961A, 0x02A6EB];
@@ -214,7 +233,9 @@ public static class RomPrep
            && (version < 13 || rom.ReadByte(0x0480BD) == 0x10)
            // V14: LM's layer-3 VRAM destination table, at LM's own fixed address — the same
            // property an LM-saved ROM has, not our particular loader (CONTRACT §0).
-           && (version < 14 || rom.HasLmLayer3Gfx);
+           && (version < 14 || rom.HasLmLayer3Gfx)
+           // V15: LM's JSL at the head of the tilemap picker.
+           && (version < 15 || rom.HasLmLayer3Tilemap);
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying
@@ -370,6 +391,7 @@ public static class RomPrep
         // is an extra tail on the same loader, so the earlier versions' bytes stay frozen and
         // only the v14 image differs.
         if (version >= 14) AppendV14Stamps(s);
+        if (version >= 15) AppendV15Stamps(s);
         return s;
     }
 
@@ -396,6 +418,44 @@ public static class RomPrep
     {
         s.Add((Pc(GfxArmStub), GfxCode(14)));
         s.Add((Pc(L3DestTable), [0x00, 0x4C, 0x00, 0x48, 0x00, 0x44, 0x00, 0x40]));
+    }
+
+    /// <summary>
+    /// V15: the layer-3 TILEMAP bypass — LT3, record word 1, behind w0 bit 13.
+    ///
+    /// Vanilla picks a tilemap by (level mode, layer-3 option), runs it through the stripe
+    /// uploader at $00871E, and has no per-level say in it at all; two levels of the same mode
+    /// and option get the same picture, which is why a "Tileset Specific" level on a tileset
+    /// that has no image of its own gets the beta cage. LM's answer is to copy a flat 16-bit
+    /// map straight into the window afterwards, and this does the same at the same two sites.
+    ///
+    /// $00A01F takes over vanilla's `LDA $1BE3 : BEQ : DEC`: our routine returns A = option-1
+    /// with Z set when the option is 0, which is the contract the displaced `BEQ` reads, and a
+    /// JSL there is also what the capability probe looks for. It does nothing else YET — it is
+    /// the seat the advanced scroll group takes when that lands (§12b: LM's $109964 is both).
+    ///
+    /// $00A153 is where the copy happens, after the level's graphics are up so that the layer-3
+    /// GFX v14 uploads are already in VRAM. The DESTINATION is a window offset applied to BOTH
+    /// ends: a file byte lands at the window word its own offset names, and "Under Status Bar"
+    /// simply starts 0xA0 words in — which is what LM means by "this is already taken into
+    /// account when you set the appropriate destination", and why its help warns against
+    /// shortening the file to dodge the status bar.
+    /// </summary>
+    private static void AppendV15Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        s.Add((Pc(GfxArmStub), GfxCode(15)));
+        // JSL over `LDA $1BE3 : BEQ +$20 : DEC`, then the same branch one byte shorter — a JSL
+        // is a byte longer than the LDA and eats the DEC, so both land on $00A044 as before.
+        s.Add((Pc(L3OptHook), [0x22, (byte)(L3Opt & 0xFF), (byte)(L3Opt >> 8 & 0xFF), (byte)(L3Opt >> 16), 0xF0, 0x1F]));
+        // The uploader call becomes a call to a bank-00 thunk that runs it and then copies the
+        // bypass over the top; the RTS that followed it is untouched and still ends the routine.
+        s.Add((Pc(L3StripeHook), [0x20, (byte)(L3StripeThunk & 0xFF), (byte)(L3StripeThunk >> 8 & 0xFF)]));
+        s.Add((Pc(L3StripeThunk), [0x20, 0x1E, 0x87,                       // JSR $871E
+                                   0x22, (byte)(L3Map & 0xFF), (byte)(L3Map >> 8 & 0xFF), (byte)(L3Map >> 16),
+                                   0x60]));
+        s.Add((Pc(L3SizeTab), [0x00, 0x20, 0x00, 0x10, 0x00, 0x08, 0x00, 0x00]));
+        s.Add((Pc(L3DestWordTab), [0xA0, 0x50, 0x00, 0x50, 0x80, 0x50, 0x00, 0x58]));
+        s.Add((Pc(L3BarSize), [0x40, 0x01]));       // 0x140 bytes = the status bar's 32x5 words
     }
 
     /// <summary>
@@ -1543,6 +1603,108 @@ public static class RomPrep
          .CpxImm16(0x0008)
          .Bcc("l3slot")
          .Rts();
+        if (version < 15) return a.Bytes();
+
+        // ---- The layer-3 option, for the $00A01F hook ----
+        // Vanilla's own three instructions, moved here so the JSL that replaces them can also
+        // Entry is 8-bit M and X ($00A001's SEP #$20, and $00A007's `LDX #$07`), and the caller
+        // reads only Z. Vanilla's own three instructions, moved here so the JSL that replaces them
+        // can become the advanced group's entry later; the tilemap copy happens at the END of this
+        // routine instead (L3StripeThunk), so this must keep answering with the real option — a 0
+        // here would make the caller skip the upload AND the copy with it.
+        a.PadTo(L3Opt)
+         .LdaAbs(0x1BE3)
+         .DecA()
+         .Tax()
+         .Inx()
+         .Rtl();
+
+        // ---- The LT3 file → the layer-3 window, called from L3StripeThunk ----
+        // Scratch is deliberately only $00-$02 and $8B-$8E — the bytes vanilla's own
+        // `JSL $00BA28` clobbers four instructions earlier, so nothing here can be relying on
+        // them. Everything else rides the stack. $00 survives the decompressor (only the
+        // EXPANDER advances it, and this path does not use one), so it still points at the
+        // buffer when the copy loop reads through it.
+        a.PadTo(L3Map)
+         .Php()
+         .Phb()
+         .Phk().Plb()                        // $010B and the PPU ports are absolute reads here
+         .Rep(0x30)
+         .LdaAbs(0x010B)                     // the level being loaded (see L3Opt)
+         .AndImm16(0x01FF)
+         .Asl().Asl().Asl().Asl().Asl()
+         .Tax()
+         .LdaLongX(GfxBypassRecords)         // w0
+         .AndImm16(0x2000)                   // the tilemap enable, distinct from the other two
+         .Bne("mgo")
+         .Label("mdone0")                    // a near exit: the far one is out of branch range
+         .Plb()
+         .Plp()
+         .Rtl()
+         .Label("mgo")
+         .Inx().Inx()
+         .LdaLongX(GfxBypassRecords)         // w1: file in 0-11, size in 12-13, destination 14-15
+         .Pha()
+         .AndImm16(0x0FFF)
+         .CmpImm16(0x007F)
+         .Beq("mpop")                        // 0x7F = Skip File
+         .JsrL("resolve")
+         .Bcs("mpop")                        // not inserted / invalid id
+         .Sep(0x20)
+         .StzDp(0x00)
+         .LdaImm8(GfxBuffer >> 8 & 0xFF).StaDp(0x01)
+         .LdaImm8(GfxBuffer >> 16).StaDp(0x02)
+         .Jsl(GfxThunks)                     // LC_LZ2 core: the map is an ordinary GFX file
+         .Rep(0x30)
+         .Pla()
+         .Pha()
+         // Destination word, and the SAME offset into the file — a file byte belongs at the
+         // window word its own offset names, so both ends move together. That is what makes
+         // "Under Status Bar" leave the status bar alone without the file being reshaped.
+         .Xba()
+         .Lsr().Lsr().Lsr().Lsr().Lsr().Lsr()
+         .AndImm16(0x0003)
+         .Asl()
+         .Tax()
+         .LdaLongX(L3DestWordTab)
+         .StaDp(0x8B)                        // the VRAM word to start at
+         .Sec()
+         .SbcImm16(0x5000)
+         .Asl()                              // window word offset → byte offset into the file
+         .StaDp(0x8D)
+         // length = size - that offset, in words, minus one for the DEX/BPL loop
+         .Pla()
+         .Xba()
+         .Lsr().Lsr().Lsr().Lsr()
+         .AndImm16(0x0003)
+         .Asl()
+         .Tax()
+         .LdaLongX(L3SizeTab)
+         .Sec()
+         .SbcDp(0x8D)
+         .Beq("mdone")                       // "Do not use", or a file the offset swallows
+         .Bmi("mdone")
+         .Lsr()
+         .DecA()
+         .Tax()                              // X = words - 1
+         .Sep(0x20)
+         .LdaImm8(0x80).StaAbs(0x2115)       // word-increment VRAM mode
+         .Rep(0x20)
+         .LdaDp(0x8B).StaAbs(0x2116)         // 16-bit: $2116/$2117 take the word address
+         .LdyDp(0x8D)
+         .Label("mcopy")
+         .LdaIndLongY(0x00)
+         .StaAbs(0x2118)
+         .Iny().Iny()
+         .Dex()
+         .Bpl("mcopy")
+         .Label("mdone")
+         .Plb()
+         .Plp()
+         .Rtl()
+         .Label("mpop")
+         .Pla()
+         .Bra("mdone");
         return a.Bytes();
     }
 }

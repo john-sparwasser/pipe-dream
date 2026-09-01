@@ -115,9 +115,12 @@ public static class Layer3
 
     /// <summary>
     /// The tilemap to DRAW for a level: a tilemap the project imported for it, else vanilla's
-    /// (level mode, option) pick. An import still needs the level to have a layer 3 at all —
-    /// option 0 means the loader never runs, and showing a map the game would not is worse than
-    /// showing none.
+    /// (level mode, option) pick, else none.
+    ///
+    /// An import still needs the level to have a layer 3 at all. The bypass is copied in at the
+    /// tail of vanilla's own tilemap picker (prep v15, CONTRACT §12b), and option 0 makes the
+    /// game skip that routine entirely — so a bypassed map on an option-0 level never loads,
+    /// and showing one here would be a picture the console does not draw.
     /// </summary>
     public static int[]? LevelTilemap(Rom rom, int level, int levelMode, int option)
         => option is < 1 or > 3 ? null

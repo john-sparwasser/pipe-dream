@@ -126,4 +126,63 @@ public class Layer3SmokeSetup(ITestOutputHelper log)
         log.WriteLine($"LG files: {string.Join(" ", Layer3.GfxFiles(rom, BootLevel).Select(f => f.ToString("X")))}");
         Assert.DoesNotContain("editor-only", status);
     }
+
+    /// <summary>
+    /// Builds the ROM for the prep-v15 layer-3 TILEMAP smoke test, again on a prepped vanilla.
+    ///
+    /// Same row-digit diagnostic as the first fixture — every row filled with the font glyph for
+    /// its own row number mod 10 — and stamped at "Start of Layer 3", which deliberately covers
+    /// the status bar's own rows. That is the point: the status bar is the part of layer 3 that
+    /// is on screen no matter which level the run lands in, so replacing it with countable
+    /// digits is a result that reads itself.
+    /// </summary>
+    [Fact]
+    public void build_a_rom_whose_status_bar_is_a_bypassed_tilemap()
+    {
+        if (Environment.GetEnvironmentVariable("PIPEDREAM_L3_SMOKE") is null)
+        { log.WriteLine("SKIP: set PIPEDREAM_L3_SMOKE to build the smoke ROM"); return; }
+
+        string dir = Path.Combine(Path.GetTempPath(), "pd-l3map");
+        if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+
+        var s = new EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), Path.Combine(Root, ".resources", "SMW.smc")),
+                    s.Status);
+        Assert.True(s.Rom!.HasLmLayer3Tilemap, "base was not prepped to v15");
+
+        var raw = new byte[0x2000];
+        for (int row = 0; row < Layer3.Rows; row++)
+            for (int col = 0; col < Layer3.Cols; col++)
+            {
+                int w = (2 << 10) | (row % 10), at = Layer3.CellIndex(col, row) * 2;
+                raw[at] = (byte)w; raw[at + 1] = (byte)(w >> 8);
+            }
+        string map = Path.Combine(dir, "rows.bin");
+        File.WriteAllBytes(map, raw);
+
+        foreach (int lvl in (int[])[BootLevel, 0x0C7, 0x105, 0x024])
+        {
+            // The option and the priority flag are what make layer 3 VISIBLE: outside the
+            // status bar strip the game leaves BG3 off unless the level asks for a layer 3,
+            // and behind an opaque layer 2 it would be there and unseen either way.
+            s.ShowLevel(lvl);
+            s.ApplyEntry(s.MainEntrance!.Value with { Layer3Option = 3 });
+            s.ApplyHeader(s.Header!.Value with { Layer3Priority = 1 });
+            s.ShowLevel(lvl);
+            Assert.True(s.ImportLayer3Tilemap(map), s.Status);
+            s.Save();
+        }
+
+        string status = s.Build();
+        log.WriteLine(status);
+        string built = Path.Combine(s.Project!.Folder, "build", s.Project.Name + ".smc");
+        Assert.True(File.Exists(built), status);
+        var rom = Rom.Load(built);
+        var bypass = rom.LmLayer3Tilemap(0x0C7);
+        Assert.NotNull(bypass);
+        log.WriteLine($"built: {built}");
+        log.WriteLine($"LT3 file {bypass!.Value.File:X3}, {Layer3.TilemapDestinations[bypass.Value.Destination]}, "
+                    + $"size 0x{Layer3.TilemapSizes[bypass.Value.Size]:X}");
+        Assert.DoesNotContain("editor-only", status);
+    }
 }

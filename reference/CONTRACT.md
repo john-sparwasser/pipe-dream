@@ -1456,6 +1456,40 @@ block (71 B) land on top of `GfxResolve` and `GfxSlotTab`. LM's addresses are th
 prep's own blocks are what move — which a new prep version may do, since only released versions
 are byte-frozen.
 
+**Step B is PORTED — prep v15  [CONFIRMED in Mesen, 2026-09-01]**, again LM's contract with our
+code. The hook site is NOT one of LM's two, and that was measured rather than assumed:
+**`$00A153` is never executed on the level-load path** (Mesen exec callback, 0 hits over a whole
+load), while `$00A01F` and the tail of the same routine run three times each. So the copy hangs
+off vanilla's own picker instead —
+
+  `$00A01F`  `JSL L3Opt`, which is vanilla's own `LDA $1BE3 : DEC : TAX : INX` moved into a
+             routine. It answers the real option, and exists for two reasons: it is what
+             `HasLmLayer3Tilemap` probes, and it is the seat the advanced group takes later.
+  `$00A041`  `JSR $871E : RTS` — the uploader call at the tail of the picker — becomes
+             `JSR L3StripeThunk`, a bank-00 thunk that runs the vanilla upload and then copies
+             the bypass over the top. The `RTS` after it is untouched.
+
+The copy keys off **`$010B`**, the level being loaded, not `$FE`: `$FE` is the arm flag the GFX
+loader uses at `$00AA50` and it is ordinary scratch that is long gone by here.
+
+Order is the whole point. An earlier attempt put the copy at LM's `$00A153` and the map never
+reached the screen; vanilla's stripe script runs after that and overwrote it. Hanging the copy
+on the uploader's own call site makes "after vanilla's upload" structural rather than lucky.
+
+Because the copy rides that routine, **option 0 still means no layer 3**: `$00A022` branches
+past the whole picker, copy included, so a bypassed map on an option-0 level never loads and
+`Layer3.LevelTilemap` keeps refusing to draw one.
+
+Confirmed twice, the same way v14 was.
+`a_bypassed_layer_3_tilemap_is_copied_into_the_window_at_its_destination` runs the routine on the
+65816 emulator and asserts VramLog for all four destinations, including that each one shifts the
+SOURCE by the same amount it shifts the destination. Then in Mesen, on a prepped vanilla: the
+routine is reached three times during the load, and at the instant it returns VRAM word `$5000`
+holds the authored map byte for byte — rows 0, 3 and 13 each read back their own digit. The
+title demo then rebuilds layer 3 for its logo and copyright line, which is why the pattern is
+gone by the time the frame is drawn; picking a level headlessly is still the open problem
+`reference/MESEN.md` describes.
+
 Evidence: `.resources/layer3/l3_k.smc` (step B in isolation, off `l3_e`).
 
 Evidence: `.resources/layer3/l3_0.smc` (pre-hack baseline), `l3_b.smc` (hack + GFX bypass,

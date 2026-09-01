@@ -63,6 +63,7 @@ public class RomPrepTests
     private const string GoldenPrepV12Sha256 = "37a2fe4e90a8996a6e22a82a801e90f9fd7d9ad1554c265cb15dd89aa0619a92";
     private const string GoldenPrepV13Sha256 = "b509e09cf2fcb6b253a05a15858ea4b587bcd51e3c97531824ebc69c5956972d";
     private const string GoldenPrepV14Sha256 = "18db2e75e03fd3c053a595aff71a20309e48cd014718b482360e4c2eeaed8105";
+    private const string GoldenPrepV15Sha256 = "f5834693f0ed3d68599a3e994503e76203c809a03af4b238126c59966d82c0a0";
 
     private static Rom Prepped()
     {
@@ -525,11 +526,15 @@ public class RomPrepTests
             Assert.Equal(GoldenPrepV13Sha256, RomHash.HeaderlessSha256File(tmp));
 
             File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
-            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V14)
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 14));     // frozen V14 stamp list
+            Assert.Equal(GoldenPrepV14Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V15)
             string v14 = RomHash.HeaderlessSha256File(tmp);
             // Spelled out rather than left to the assertion message: xunit truncates a mismatch,
             // and this hash is what the NEXT version bump has to be told.
-            Assert.True(GoldenPrepV14Sha256 == v14, $"V14 golden hash is now {v14}");
+            Assert.True(GoldenPrepV15Sha256 == v14, $"V15 golden hash is now {v14}");
         }
         finally { File.Delete(tmp); }
     }
@@ -579,6 +584,49 @@ public class RomPrepTests
         Assert.Equal(expect[..0x1000], moved[..0x1000]);           // LG1, LG2 untouched
         Assert.Equal(Gfx.DecompressFile(rom, 0)[..0x800], moved[0x1000..0x1800]);
         Assert.Equal(expect[0x1800..], moved[0x1800..]);           // LG4 untouched
+    }
+
+    /// <summary>
+    /// V15: the layer-3 TILEMAP bypass. The file is copied into the window verbatim, and the
+    /// DESTINATION shifts BOTH ends by the same amount — "Under Status Bar" starts 0xA0 words
+    /// in and skips the first 0xA0 words of the file with it, which is what lets LM tell people
+    /// not to reshape their file to dodge the status bar.
+    /// </summary>
+    [RealRomFact]
+    public void a_bypassed_layer_3_tilemap_is_copied_into_the_window_at_its_destination()
+    {
+        var rom = Rom.Load(TestRom.RealRomPath);
+        RomPrep.Apply(rom);
+        Assert.True(rom.HasLmLayer3Tilemap);
+
+        var map = new byte[0x2000];
+        for (int i = 0; i < map.Length; i++) map[i] = (byte)(i * 7 + (i >> 8));
+        int blob = RatsWriter.Allocate(rom, Gfx.Lz2Compress(map));
+        int pfo = rom.FileOffset(RomPrep.ExGfxPtrTable);                 // ExGFX 0x100
+        rom.Data[pfo] = (byte)blob; rom.Data[pfo + 1] = (byte)(blob >> 8); rom.Data[pfo + 2] = (byte)(blob >> 16);
+
+        int rfo = rom.FileOffset(RomPrep.GfxBypassRecords + 5 * 0x20);
+        for (int w = 0; w < 16; w++) { rom.Data[rfo + w * 2] = 0x7F; rom.Data[rfo + w * 2 + 1] = 0; }
+
+        List<byte> Run(int w0hi, int w1)
+        {
+            rom.Data[rfo + 1] = (byte)w0hi;
+            rom.Data[rfo + 2] = (byte)w1; rom.Data[rfo + 3] = (byte)(w1 >> 8);
+            var cpu = new Cpu65816(rom) { VramLog = [] };
+            cpu.Ram7E[0x010B] = 5;                                        // the level being loaded
+            cpu.CallLong(RomPrep.L3Map, 20_000_000);
+            return cpu.VramLog!;
+        }
+
+        // Enabled, "Start of Layer 3", 0x2000 bytes: the whole file, unchanged.
+        Assert.Equal(map, Run(0x20, 0x100 | 1 << 14));
+        // "Under Status Bar": 0xA0 words in at both ends, so the status bar keeps its own rows.
+        Assert.Equal(map[0x140..], Run(0x20, 0x100 | 0 << 14));
+        // "Bottom Half".
+        Assert.Equal(map[0x1000..], Run(0x20, 0x100 | 3 << 14));
+        // Enable bit clear, and "Skip File", both write nothing at all.
+        Assert.Empty(Run(0x00, 0x100 | 1 << 14));
+        Assert.Empty(Run(0x20, 0x07F | 1 << 14));
     }
 
     /// <summary>SlotTab must send each record word to the VRAM page vanilla would have used

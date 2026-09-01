@@ -238,10 +238,11 @@ public class Layer3Tests(ITestOutputHelper log)
         finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }
 
-    /// <summary>...and on a base WITHOUT the loader it says so instead of writing bytes the game
-    /// would never read.</summary>
+    /// <summary>...and it no longer needs an LM-saved base to do it: prep v15 installs the
+    /// loader, so an ordinary project on a prepped vanilla stamps the bypass and stops
+    /// apologising. This is the case every project here actually is.</summary>
     [Fact]
-    public void a_base_without_the_tilemap_loader_is_told_so_rather_than_stamped()
+    public void a_painted_tilemap_reaches_a_rom_built_on_a_plain_prepped_vanilla()
     {
         if (!File.Exists(Vanilla)) { log.WriteLine("SKIP: no ROM"); return; }
         string dir = Path.Combine(Path.GetTempPath(), "pdl3n-" + Guid.NewGuid().ToString("N")[..8]);
@@ -250,15 +251,18 @@ public class Layer3Tests(ITestOutputHelper log)
             var s = new EditorSession();
             Assert.True(s.NewProject(Path.Combine(dir, "proj"), Vanilla), s.Status);
             s.ShowLevel(0x009);
-            Assert.False(s.Rom!.HasLmLayer3Tilemap);
+            Assert.True(s.Rom!.HasLmLayer3Tilemap);        // prep v15 installs it
             s.Layer3Map!.Stamp(10, 10, (2 << 10) | 0x41);
             s.Layer3Map.EndStroke();
             s.Save();
 
             string status = s.Build();
-            Assert.Contains("layer-3 tilemap stays editor-only", status);
+            Assert.DoesNotContain("editor-only", status);
             var rom = Rom.Load(Path.Combine(s.Project!.Folder, "build", s.Project.Name + ".smc"));
-            Assert.Null(rom.LmLayer3Tilemap(0x009));
+            var bypass = rom.LmLayer3Tilemap(0x009);
+            Assert.NotNull(bypass);
+            Assert.InRange(bypass!.Value.File, 0x80, 0xFFF);
+            Assert.Equal(Layer3.BuiltTilemapDestination, bypass.Value.Destination);
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }

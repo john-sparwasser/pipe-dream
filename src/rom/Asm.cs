@@ -94,6 +94,7 @@ public sealed class Asm(int orgSnes)
     public Asm AdcDp(int d) => E(0x65, (byte)d);
     public Asm AdcAbs(int a) => Imm16(0x6D, a);
     public Asm SbcImm16(int v) => Imm16(0xE9, v);
+    public Asm SbcDp(int d) => E(0xE5, (byte)d);
     public Asm AndImm8(int v) => E(0x29, (byte)v);
     public Asm AndImm16(int v) => Imm16(0x29, v);
     public Asm AndDp(int d) => E(0x25, (byte)d);
