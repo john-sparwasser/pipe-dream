@@ -1722,10 +1722,21 @@ public static class RomPrep
         // unbypassed level goes through here exactly as it did at v15.
         a.PadTo(L3Opt);
         if (version >= 16)
-            a.Jsr(L3AdvRead)
+            // $00 IS LIVE ACROSS THIS SEAT. $009FC0 puts the level's mode*3 there and $00A026 —
+            // two instructions after we return — adds it to the option to index Layer3Ptr. The
+            // reader's nibble-pair helper and the engine's code resolution both use $00 as
+            // scratch (LM's own helper does too, but LM reaches it from its GFX loader, not from
+            // here), so leaving it clobbered indexed the tilemap pointer table with a wrong
+            // entry: the stripe uploader then ran a pointer that is not a script, and the whole
+            // screen came up dark. MEASURED — it is why the advanced group looked like it
+            // "did not work" rather than like it broke something. $01 and $02 are safe: both are
+            // WRITTEN further down that routine before anything reads them.
+            a.LdaDp(0x00).Pha()
+             .Jsr(L3AdvRead)
              .LdaAbs(0x145E).AndImm8(0x01).Beq("l3vanopt")
              .Jsr(L3Adv)                                 // the engine, in its own block
-             .Label("l3vanopt");
+             .Label("l3vanopt")
+             .Pla().StaDp(0x00);
         a.LdaAbs(0x1BE3)
          .DecA()
          .Tax()
@@ -1846,6 +1857,15 @@ public static class RomPrep
         // ---- The engine + the per-frame dispatcher ----
         a.PadTo(L3Adv)
          .Label("engine")                                // 8-bit M/X in, from L3Opt
+         // Let layer 3 scroll AT ALL. $13D5 is vanilla's "this level's layer 3 does not move"
+         // flag: $00A012 sets it for every (mode, option) whose entry in the table at $009F88 is
+         // negative, and $05BC3F is its only reader — it gates the JSR that reaches the
+         // per-frame scroll routine, so with the flag up our dispatcher at $05C40C is never
+         // called. MEASURED: 0 hits over a whole level, and forcing $13D5 to 0 from outside
+         // turned it on. That is exactly the levels the advanced group exists for — a custom
+         // layer 3 on a tileset whose own layer 3 is a static picture — so overriding the
+         // scroll means overriding this too. We run after $00A012, so clearing wins.
+         .StzAbs(0x13D5)
          // colour math: $7FC01A bit 2 → $40 bit 2 (LM uses TSB/TRB; same result)
          .LdaLong(0x7FC01A).AndImm8(0x04).Beq("nocg")
          .LdaDp(0x40).OraImm8(0x04).StaDp(0x40)

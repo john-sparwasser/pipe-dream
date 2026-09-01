@@ -1532,7 +1532,7 @@ dialog. Evidence: `.resources/layer3/l3_i.smc` (Fast/Slow, subscreen, sync fix, 
 
 Still not located: "Make tides act as", and LM's mirror of the priority flag.
 
-**The advanced group is PORTED — prep v16  [emulator-verified; console check outstanding]**, in
+**The advanced group is PORTED — prep v16  [CONFIRMED in Mesen, 2026-09-01]**, in
 three pieces, each in a seat that already existed:
 
   reader     `$0FFD80` in LM's own block. Builds the record pointer from `$FE` (LM reads its own
@@ -1571,12 +1571,42 @@ accumulator that consumes it is not. The kind table maps those codes to "hold po
 our `L3Opt` is the test) — an LM-saved base has LM's handler and keeps them. Half-porting it
 would move layer 3 at the wrong speed, which is worse than not moving it.
 
-Verified on the 65816 emulator (`Layer3AdvancedPrepTests`, 7 tests): the nine nibbles land in
+Verified on the 65816 emulator (`Layer3AdvancedPrepTests`, 9 tests): the nine nibbles land in
 LM's four variables (`$145E = FEDC` for nib(w15..w12) = F,E,D,C), the X index gives
 `00/40/80/100`, Y round-trips *16 with its sign across the full -0x400..0x3FF, both flags set and
-clear, the whole shift ladder from a `$800` camera, the sync-fix mirrors, and an unbypassed level
-still gets the vanilla option answer. Not yet covered: "Fast" (the emulator does not model the
-hardware divider) and the disabled path's re-entry into bank 05 — both need the console.
+clear, the whole shift ladder from a `$800` camera, the sync-fix mirrors, `$00` survives the seat,
+`$13D5` is cleared only when the group is on, and an unbypassed level still gets the vanilla
+option answer. Not covered here: "Fast" (the emulator does not model the hardware divider) and the
+disabled path's re-entry into bank 05 — both need the console.
+
+**Two things the emulator could not see, both MEASURED in Mesen  [CONFIRMED, 2026-09-01].** The
+first port of v16 gathered every nibble correctly and still did nothing:
+
+  `$13D5`   Vanilla's "this level's layer 3 does not move" flag, set by `$00A012` for every
+            (mode, option) whose entry in the byte table at `$009F88` is NEGATIVE — and for
+            **mode 0, option 3** that entry is `C0`, i.e. an ordinary horizontal level set to
+            Tileset Specific, which is every level the advanced group exists for. Its only
+            reader is `$05BC3F`, and it gates the `JSR $C40C` that reaches the per-frame scroll
+            routine we hook. Exec counts over a whole level: **0 hits on `$05C40C`** with the
+            flag up, 250 with it forced to 0 from outside. LM clears it too, at **`$109A65`**
+            (`STX $13D5`, X = 0 on the path every horizontal level takes) — a site the earlier
+            scan missed because it is `STX`, not `STA`/`STZ`. LM re-raises it for one vertical-
+            level case (`$1403` = 0 AND `$5B` negative AND `$1413 & $F0`); ours always clears.
+  `$00`     LIVE ACROSS THE `$00A01F` SEAT. `$009FC0` puts the level's `mode*3` there and
+            `$00A026`, two instructions after the JSL returns, adds it to the option to index
+            Layer3Ptr. Both LM's nibble-pair helper and our code resolution use `$00` as
+            scratch — harmless for LM, which reaches the helper from its GFX loader, fatal here.
+            The stripe uploader then ran a pointer that is not a script and the whole screen came
+            up dark, which reads as "the settings do nothing" rather than as a crash. The seat now
+            pushes and pops it. `$01` and `$02` are safe: that routine WRITES both before reading.
+
+  End to end, on the console, with the record copied onto the level a forced `$7E:0100 = $0B`
+  enters: `$145E = 01`, `$145F = 18`, `$1460 = 00`, `$7FC01A = 0C` — reader and engine both
+  right — and with `$1A` forced to `$0800` at the dispatcher's own entry, `$22` reads back
+  **`$0100`**, which is `$800 >> 3`, the Medium 3 rung of the ladder. Screenshots of the same
+  level with the group off / position-only / CGADSUB / CGADSUB+subscreen differ exactly as the
+  hardware says, and `$2131` bit 2 on a vanilla layer 3 changes nothing — the blend only bites
+  where layer 3 has pixels, which is the point.
 
 **PORTING LM'S LAYER-3 INSTALL — the measured spec  [ISOLATED, not yet ported]**
 

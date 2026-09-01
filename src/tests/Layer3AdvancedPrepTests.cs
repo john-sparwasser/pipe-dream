@@ -201,6 +201,62 @@ public class Layer3AdvancedPrepTests(ITestOutputHelper log)
         Assert.Equal(0x5678, Word(cpu, 0x1B7A));
     }
 
+    /// <summary>
+    /// `$00` must survive the seat. `$009FC0` leaves the level's mode*3 there and `$00A026` —
+    /// two instructions after this routine returns — adds it to the option to index the layer-3
+    /// tilemap pointer table. Both the reader's nibble-pair helper and the engine's code
+    /// resolution want a scratch byte, and taking `$00` sent the stripe uploader off a pointer
+    /// that is not a script: the level came up dark and wrong whenever the group was on, which
+    /// read as "the advanced settings do nothing" rather than as a crash.
+    /// </summary>
+    [RealRomFact]
+    public void the_seat_gives_back_the_scratch_byte_the_caller_is_still_using()
+    {
+        foreach (bool on in (bool[])[true, false])
+        {
+            var (rom, fo) = Prepped();
+            if (on) PutAdvanced(rom, fo, new Layer3.Advanced(true, true, true, 8, 8, 3, 0x100));
+            var cpu = new Cpu65816(rom);
+            cpu.Ram7E[0xFE] = Level + 1;
+            cpu.Ram7E[0x00] = 0x2A;                                       // mode*3, as $009FC0 left it
+            cpu.PresetWidths(m8: true, x8: true);
+            cpu.CallLong(RomPrep.L3Opt, 2_000_000);
+            Assert.Equal(0x2A, cpu.Ram7E[0x00]);
+        }
+    }
+
+    /// <summary>
+    /// The group must clear `$13D5`, or none of the scrolling above ever runs on a real level.
+    /// `$00A012` sets that flag for every (mode, option) whose entry in `$009F88` is negative —
+    /// which includes **mode 0, option 3**, i.e. an ordinary horizontal level set to "Tileset
+    /// Specific", the exact case the advanced group exists for. Its only reader gates the JSR
+    /// that reaches the per-frame scroll routine our dispatcher hooks. MEASURED in Mesen: 0
+    /// dispatcher hits over a whole level with the flag up, 250 with it forced down. LM writes
+    /// the same byte at `$109A65` (`STX $13D5`, X = 0 on the path every horizontal level takes).
+    /// </summary>
+    [RealRomFact]
+    public void the_group_lets_layer_3_scroll_on_a_level_whose_tileset_froze_it()
+    {
+        var (rom, fo) = Prepped();
+        PutAdvanced(rom, fo, new Layer3.Advanced(false, false, false, VScroll: 0, HScroll: 2, 0, 0));
+        var cpu = new Cpu65816(rom);
+        cpu.Ram7E[0xFE] = Level + 1;
+        cpu.Ram7E[0x13D5] = 1;                                            // what $00A012 leaves
+        cpu.PresetWidths(m8: true, x8: true);
+        cpu.CallLong(RomPrep.L3Opt, 2_000_000);
+        Assert.Equal(0, cpu.Ram7E[0x13D5]);
+
+        // A level that does NOT use the group keeps vanilla's answer — the flag is the tileset's
+        // to set, and overriding it everywhere would move layer 3 on levels that never asked.
+        var (rom2, _) = Prepped();
+        var cpu2 = new Cpu65816(rom2);
+        cpu2.Ram7E[0xFE] = Level + 1;
+        cpu2.Ram7E[0x13D5] = 1;
+        cpu2.PresetWidths(m8: true, x8: true);
+        cpu2.CallLong(RomPrep.L3Opt, 2_000_000);
+        Assert.Equal(1, cpu2.Ram7E[0x13D5]);
+    }
+
     /// <summary>A level that does not use the group must not have its layer-3 option answer
     /// change — that byte gates the tilemap upload, so a wrong 0 here blanks layer 3 outright.</summary>
     [RealRomFact]
