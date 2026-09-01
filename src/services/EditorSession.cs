@@ -221,6 +221,12 @@ public sealed class EditorSession
     /// Name it with <see cref="Layer3.OptionNames"/>.</summary>
     public int Layer3Option => Rom is { } r && HasLevel ? Layer3.Option(r, LevelNum) : 0;
 
+    /// <summary>Whether an option value would actually reach a tilemap on THIS level — the
+    /// pointer table is indexed by (level mode, option) and only covers modes 0-14, so a legal
+    /// option can still land on nothing (CONTRACT §12b).</summary>
+    public bool Layer3HasTilemap(int option)
+        => Rom is { } r && Scene is { } s && Layer3.Tilemap(r, s.Level.Header.LevelMode, option) is not null;
+
     /// <summary>The level's layer 3 drawn as one 512x512 image, empty when it has none. Not
     /// per-phase: its GFX are the fixed 2bpp files and its colours sit outside the animated
     /// ones, so unlike the background it does not move between phases.</summary>

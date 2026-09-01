@@ -1,0 +1,25 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PipeDream.Ui.Layer3OptionsWindow"
+        Title="Layer 3 settings"
+        Width="420" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+  <StackPanel Margin="16" Spacing="12">
+    <Grid ColumnDefinitions="70,*">
+      <TextBlock Grid.Column="0" Text="Layer 3" VerticalAlignment="Center"
+                 Foreground="{DynamicResource TextBrush}"/>
+      <ComboBox Grid.Column="1" x:Name="OptionBox" HorizontalAlignment="Stretch"/>
+    </Grid>
+    <!-- Which tilemap the option actually reaches depends on the level MODE as well, so the
+         window says what the pair resolves to rather than letting the pane be the first place
+         you find out (CONTRACT §12b). -->
+    <TextBlock x:Name="ModeNote" Classes="dim" TextWrapping="Wrap"/>
+    <CheckBox x:Name="PriorityBox" Content="Force layer 3 tiles with priority"
+              ToolTip.Tip="Header byte 2 bit 7 — layer 3 draws in front of everything"/>
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="Cancel" Click="OnCancel" IsCancel="True"/>
+      <Button Content="OK" Click="OnOk" IsDefault="True"/>
+    </StackPanel>
+  </StackPanel>
+</Window>

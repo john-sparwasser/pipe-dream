@@ -130,6 +130,58 @@ public class BackgroundModeTests(ITestOutputHelper log)
         Assert.Contains("Tileset specific", w.GetControl<TextBlock>("BgNote").Text);
     }
 
+    /// <summary>The settings button belongs to Layer 3 and appears only there — on Layer 2 it
+    /// could not apply to anything on screen.</summary>
+    [AvaloniaFact]
+    public void the_options_button_shows_on_layer_3_and_nowhere_else()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var w = Open(0x105, layer3: false);
+        var button = w.GetControl<Button>("BgOptions");
+        Assert.False(button.IsVisible);
+
+        Click(w, "BgLayer3");
+        Assert.True(button.IsVisible);
+        Assert.True(button.IsEnabled);
+
+        Click(w, "BgLayer2");
+        Assert.False(button.IsVisible);
+    }
+
+    /// <summary>The dialog's two fields come from two different records, and both have to land:
+    /// the option is the entrance byte, the priority flag is in the header.</summary>
+    [AvaloniaFact]
+    public void the_options_dialog_writes_the_option_and_the_priority_flag()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var w = Open(0x105, layer3: true);
+        var session = SessionOf(w);
+        Assert.Equal(0, session.MainEntrance!.Value.Layer3Option);
+        Assert.Equal(0, session.Header!.Value.Layer3Priority);
+
+        // What OnLayer3Options applies once the dialog returns (Option 3, priority on).
+        session.ApplyEntry(session.MainEntrance.Value with { Layer3Option = 3 });
+        session.ApplyHeader(session.Header.Value with { Layer3Priority = 1 });
+        Invoke(w, "AdoptSession");
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(3, session.MainEntrance!.Value.Layer3Option);
+        Assert.Equal(1, session.Header!.Value.Layer3Priority);
+        Assert.NotNull(w.GetControl<PixelImage>("BgView").Source);
+    }
+
+    /// <summary>The dialog warns before you commit, rather than leaving the empty pane to say
+    /// it afterwards: an option is only as good as the level mode's tilemap for it.</summary>
+    [AvaloniaFact]
+    public void the_session_knows_which_options_this_levels_mode_can_reach()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var session = SessionOf(Open(0x105, layer3: true));
+
+        Assert.False(session.Layer3HasTilemap(0));      // Blank never reaches one
+        Assert.True(session.Layer3HasTilemap(3));       // level 105 is mode 0, which has all three
+    }
+
     private static EditorSession SessionOf(MainWindow w) => (EditorSession)typeof(MainWindow)
         .GetField("session", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
         .GetValue(w)!;

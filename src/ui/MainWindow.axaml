@@ -837,18 +837,26 @@
         <DockPanel x:Name="BgPane" IsVisible="False" Background="{DynamicResource VoidBrush}">
           <Border x:Name="BgEditorBar" DockPanel.Dock="Top" Classes="panel bar"
                   BorderThickness="0,0,0,1" Padding="10,6" MinHeight="40">
-            <StackPanel Orientation="Horizontal" Spacing="6">
-              <ToggleButton x:Name="BgLayer2" Classes="mode" IsChecked="True" Click="OnBgLayer"
-                            ToolTip.Tip="The level's layer-2 background image">
-                <TextBlock Text="Layer 2" VerticalAlignment="Center"/>
-              </ToggleButton>
-              <ToggleButton x:Name="BgLayer3" Classes="mode" Click="OnBgLayer"
-                            ToolTip.Tip="The level's layer-3 tile map">
-                <TextBlock Text="Layer 3" VerticalAlignment="Center"/>
-              </ToggleButton>
-              <Rectangle Classes="sep"/>
-              <TextBlock x:Name="BgNote" Classes="dim" VerticalAlignment="Center"/>
-            </StackPanel>
+            <!-- The settings button belongs to Layer 3 alone, so it is hidden on Layer 2 rather
+                 than disabled: a control that can never apply to what is on screen is noise. -->
+            <DockPanel>
+              <Button x:Name="BgOptions" DockPanel.Dock="Right" Content="Layer 3 Options"
+                      VerticalAlignment="Center" IsVisible="False" Click="OnLayer3Options"
+                      ToolTip.Tip="Which layer 3 this level gets, and whether it draws in front"/>
+              <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="6">
+                <ToggleButton x:Name="BgLayer2" Classes="mode" IsChecked="True" Click="OnBgLayer"
+                              ToolTip.Tip="The level's layer-2 background image">
+                  <TextBlock Text="Layer 2" VerticalAlignment="Center"/>
+                </ToggleButton>
+                <ToggleButton x:Name="BgLayer3" Classes="mode" Click="OnBgLayer"
+                              ToolTip.Tip="The level's layer-3 tile map">
+                  <TextBlock Text="Layer 3" VerticalAlignment="Center"/>
+                </ToggleButton>
+                <Rectangle Classes="sep"/>
+              </StackPanel>
+              <TextBlock x:Name="BgNote" Classes="dim" VerticalAlignment="Center"
+                         TextTrimming="CharacterEllipsis" Margin="6,0,10,0"/>
+            </DockPanel>
           </Border>
           <ScrollViewer x:Name="BgScroll" Background="{x:Static ui:UiColors.DeskPattern}">
             <ui:PixelImage x:Name="BgView" Stretch="True" Margin="16"

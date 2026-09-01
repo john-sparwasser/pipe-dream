@@ -86,6 +86,7 @@ public partial class MainWindow : Window
     private DockPanel animPane = null!, animToolPanel = null!;
     private DockPanel bgPane = null!, bgToolPanel = null!;
     private ToggleButton bgLayer2 = null!, bgLayer3 = null!;
+    private Button bgOptions = null!;
     private PixelImage bgView = null!, bgSheet = null!;
     private TextBlock bgNote = null!, bgDrawerTitle = null!;
     private readonly LevelBitmap bgBitmap = new(), bgSheetBitmap = new();
@@ -135,6 +136,7 @@ public partial class MainWindow : Window
         bgToolPanel = this.GetControl<DockPanel>("BgToolPanel");
         bgLayer2 = this.GetControl<ToggleButton>("BgLayer2");
         bgLayer3 = this.GetControl<ToggleButton>("BgLayer3");
+        bgOptions = this.GetControl<Button>("BgOptions");
         bgView = this.GetControl<PixelImage>("BgView");
         bgSheet = this.GetControl<PixelImage>("BgSheet");
         bgNote = this.GetControl<TextBlock>("BgNote");
@@ -2466,6 +2468,30 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// The level's layer-3 settings, off the Layer 3 bar rather than the level properties
+    /// dialog: they are two bits in two different records, but they are one decision, and the
+    /// place you make it should be the place you can see the result.
+    ///
+    /// The option is an ENTRANCE field and the priority a HEADER one, so they apply through
+    /// different session calls — and a header change reparses the level, which is why it is
+    /// applied second and the repaint happens once at the end.
+    /// </summary>
+    private async void OnLayer3Options(object? sender, RoutedEventArgs e)
+    {
+        if (session.Header is not { } header || session.MainEntrance is not { } entry) return;
+        var dlg = new Layer3OptionsWindow(Layer3.OptionNames, entry.Layer3Option,
+                                          header.Layer3Priority != 0, session.Layer3HasTilemap);
+        await dlg.ShowDialog(this);
+        if (dlg.Result is not { } r) return;
+
+        if (r.Option != entry.Layer3Option) session.ApplyEntry(entry with { Layer3Option = r.Option });
+        int priority = r.Priority ? 1 : 0;
+        if (priority != header.Layer3Priority) session.ApplyHeader(header with { Layer3Priority = priority });
+        AdoptSession();
+        UpdateTitle();
+    }
+
+    /// <summary>
     /// Repaint the Background pane: the level's layer-2 background as a tile map, with the BG
     /// Map16 tiles it can address in the drawer.
     ///
@@ -2477,6 +2503,8 @@ public partial class MainWindow : Window
     {
         bool layer3 = bgLayer3.IsChecked == true;
         bgDrawerTitle.Text = layer3 ? "Layer 3 tiles" : "BG Map16 — pages 80-81";
+        bgOptions.IsVisible = layer3;
+        bgOptions.IsEnabled = session.HasLevel;
 
         if (layer3)
         {
