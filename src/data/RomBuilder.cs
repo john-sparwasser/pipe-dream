@@ -210,6 +210,7 @@ internal static class RomBuilder
                     }
                 }
 
+                WriteBackground(rom, level, key, state, warnings);
                 // A layer-3 tilemap has no slot to be written to yet, so the build owes the user
                 // the difference between "not supported here" and data quietly vanishing.
                 if (state.Layer3Tilemap is not null)
@@ -327,6 +328,41 @@ internal static class RomBuilder
                 rom.Data[fo] = (byte)snes; rom.Data[fo + 1] = (byte)(snes >> 8); rom.Data[fo + 2] = (byte)(snes >> 16);
             }
         }
+    }
+
+    /// <summary>
+    /// Write an edited layer-2 background back over the stream it came from.
+    ///
+    /// IN PLACE is the only address-safe option (CONTRACT §10a): the page byte is not in the
+    /// data, the loader derives it from the pointer, so moving a stream silently recolours every
+    /// tile in it — and the loader reads bank $0C only, where there is no room to move to. So an
+    /// edit ships when it re-encodes no larger than the stream it replaces, and says so when it
+    /// does not. <see cref="BgImage.Encode"/> beats vanilla's own encoding on all 17 backgrounds,
+    /// which buys the headroom most edits need.
+    ///
+    /// A background SHARED by several levels is shared in the built ROM too — this writes the
+    /// stream, not a copy of it, so every level pointing there gets the edit. That is the vanilla
+    /// arrangement, and splitting it needs somewhere to put the copy.
+    /// </summary>
+    private static void WriteBackground(Rom rom, int level, string key, ProjectFile.LevelState state,
+                                        List<string> warnings)
+    {
+        if (state.BgTilemap is not { } b64) return;
+        if (!rom.Layer2IsBackground(level))
+        {
+            warnings.Add($"level {key}: background edit skipped — its layer 2 is an object stream now");
+            return;
+        }
+        int lo16 = rom.Layer2Pointer(level) & 0xFFFF;
+        BgImage.Decode(rom, lo16, out int consumed);
+        var encoded = BgImage.Encode(Convert.FromBase64String(b64));
+        if (encoded.Length > consumed)
+        {
+            warnings.Add($"level {key}: background edit skipped — it re-encodes to 0x{encoded.Length:X} bytes "
+                       + $"and its stream is 0x{consumed:X}; a longer one cannot move without recolouring it");
+            return;
+        }
+        encoded.CopyTo(rom.Data, rom.FileOffset(BgImage.Bank | lo16));
     }
 
     /// <summary>

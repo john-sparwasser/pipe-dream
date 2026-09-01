@@ -49,6 +49,9 @@ public class BackgroundModeTests(ITestOutputHelper log)
         Dispatcher.UIThread.RunJobs();
     }
 
+    private static TilemapView View(MainWindow w) => w.GetControl<TilemapView>("BgView");
+    private static TilemapView Sheet(MainWindow w) => w.GetControl<TilemapView>("BgSheet");
+
     [AvaloniaFact]
     public void background_mode_takes_the_canvas_and_the_drawer()
     {
@@ -62,13 +65,18 @@ public class BackgroundModeTests(ITestOutputHelper log)
     }
 
     [AvaloniaFact]
-    public void layer_2_draws_a_background_image_and_the_bg_map16_beside_it()
+    public void layer_2_paints_bg_map16_tiles_over_two_screens()
     {
         if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
         var w = Open(0x105, layer3: false);
 
-        Assert.NotNull(w.GetControl<PixelImage>("BgView").Source);
-        Assert.NotNull(w.GetControl<PixelImage>("BgSheet").Source);
+        Assert.Equal(EditorSession.BgCols, View(w).Cols);
+        Assert.Equal(EditorSession.BgRows, View(w).Rows);
+        Assert.Equal(16, View(w).CellPx);
+        Assert.NotNull(View(w).CellAt);
+        // The drawer is the same control, picking rather than painting.
+        Assert.True(Sheet(w).PickOnLeft);
+        Assert.Equal(16, Sheet(w).Cols);
         Assert.Contains("pages 80-81", w.GetControl<TextBlock>("BgDrawerTitle").Text);
     }
 
@@ -78,20 +86,20 @@ public class BackgroundModeTests(ITestOutputHelper log)
         if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
         var w = Open(0x009, layer3: false);
 
-        Assert.Null(w.GetControl<PixelImage>("BgView").Source);
+        Assert.Equal(0, View(w).Cols);
         Assert.Contains("object stream", w.GetControl<TextBlock>("BgNote").Text);
     }
 
     [AvaloniaFact]
-    public void layer_3_draws_the_levels_tilemap_and_names_the_option_that_chose_it()
+    public void layer_3_paints_a_64_by_64_grid_of_8x8_tiles()
     {
         if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
         var w = Open(0x009, layer3: true);
 
-        var view = w.GetControl<PixelImage>("BgView");
-        Assert.NotNull(view.Source);
-        Assert.Equal(Layer3.Cols * 8 * 2, view.Width);        // 512x512, drawn at 2x like the BG
-        Assert.NotNull(w.GetControl<PixelImage>("BgSheet").Source);
+        Assert.Equal(Layer3.Cols, View(w).Cols);
+        Assert.Equal(Layer3.Rows, View(w).Rows);
+        Assert.Equal(8, View(w).CellPx);
+        Assert.Equal(Layer3.TileCount / 16, Sheet(w).Rows);
         Assert.Contains("Tileset specific", w.GetControl<TextBlock>("BgNote").Text);
         Assert.Contains("Layer 3 tiles", w.GetControl<TextBlock>("BgDrawerTitle").Text);
     }
@@ -102,7 +110,7 @@ public class BackgroundModeTests(ITestOutputHelper log)
         if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
         var w = Open(0x105, layer3: true);
 
-        Assert.Null(w.GetControl<PixelImage>("BgView").Source);
+        Assert.Equal(0, View(w).Cols);
         // A dead end that names no way out is the same as no message at all — and the way out
         // is the button next to it, which is the point of having moved the setting here.
         Assert.Contains("Layer 3 Options", w.GetControl<TextBlock>("BgNote").Text);
@@ -121,41 +129,45 @@ public class BackgroundModeTests(ITestOutputHelper log)
         if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
         var w = Open(0x105, layer3: true);
         var session = SessionOf(w);
-        Assert.Null(w.GetControl<PixelImage>("BgView").Source);
+        Assert.Equal(0, View(w).Cols);
 
         // What Level ▸ Properties ▸ "Layer 3 option" does: 3 = Tileset specific.
         session.ApplyEntry(session.MainEntrance!.Value with { Layer3Option = 3 });
+        session.ShowLevel(session.LevelNum);          // the option picks the tilemap at load
         Invoke(w, "AdoptSession");
         Dispatcher.UIThread.RunJobs();
 
-        Assert.NotNull(w.GetControl<PixelImage>("BgView").Source);
+        Assert.Equal(Layer3.Cols, View(w).Cols);
         Assert.Contains("Tileset specific", w.GetControl<TextBlock>("BgNote").Text);
     }
 
     /// <summary>
-    /// Repointing an LG slot has to reach the pane. It did not: RefreshBg pushed the new pixels
-    /// into the SAME WriteableBitmap and re-assigned it, and PixelImage.Source only repaints on
-    /// a value change — so layer 3, which is one still image rather than a cycling phase set,
-    /// kept drawing the tiles it loaded first.
+    /// Repointing an LG slot has to reach the pane. The tiles a word draws as are CACHED per
+    /// word — a 64x64 grid recomposes on every stamp and only ever names a few dozen — so the
+    /// cache has to go when the graphics under it move, or the pane keeps drawing the old sheet.
     ///
     /// Level 009's tilemap names tiles from LG2 and LG4 only, so LG4 is the slot to move: a test
-    /// on LG1 would pass without the fix, because nothing on screen references it.
+    /// on LG1 would pass without the invalidation, because nothing on screen references it.
     /// </summary>
     [AvaloniaFact]
     public void repointing_a_layer_3_gfx_slot_redraws_the_pane()
     {
         if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
-        var w = Open(0x009, layer3: true);          // ghost house: option 3, a real layer 3
+        var w = Open(0x009, layer3: true);
         var session = SessionOf(w);
-        var view = w.GetControl<PixelImage>("BgView");
-        var before = view.Source;
+
+        // A word this level's map actually uses, from LG4 (tiles 180-1FF).
+        int word = Enumerable.Range(0, Layer3.Cols * Layer3.Rows)
+            .Select(i => session.Layer3Map!.At(i % Layer3.Cols, i / Layer3.Cols))
+            .First(v => v >= 0 && (v & 0x3FF) >= 3 * Layer3.SlotTiles);
+        var before = session.Layer3CellPixels(word);
         Assert.NotNull(before);
 
-        session.SetGfxSlot(12, 0x14);               // w12 = LG4, tiles 180-1FF
+        session.SetGfxSlot(12, 0x14);                 // w12 = LG4
         Invoke(w, "AdoptSession");
         Dispatcher.UIThread.RunJobs();
 
-        Assert.NotSame(before, view.Source);        // a new bitmap, so the control actually draws it
+        Assert.NotEqual(before, session.Layer3CellPixels(word));
         Assert.Equal(0x14, session.GfxBins.Single(b => b.Name == "LG4").File);
     }
 
@@ -196,7 +208,6 @@ public class BackgroundModeTests(ITestOutputHelper log)
 
         Assert.Equal(3, session.MainEntrance!.Value.Layer3Option);
         Assert.Equal(1, session.Header!.Value.Layer3Priority);
-        Assert.NotNull(w.GetControl<PixelImage>("BgView").Source);
     }
 
     /// <summary>The dialog warns before you commit, rather than leaving the empty pane to say

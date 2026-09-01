@@ -553,8 +553,7 @@
                 </StackPanel>
               </Border>
               <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-                <ui:PixelImage x:Name="BgSheet" Stretch="True" Margin="8"
-                               HorizontalAlignment="Left" VerticalAlignment="Top"/>
+                <ui:TilemapView x:Name="BgSheet" Margin="8"/>
               </ScrollViewer>
             </DockPanel>
 
@@ -863,8 +862,7 @@
             </DockPanel>
           </Border>
           <ScrollViewer x:Name="BgScroll" Background="{x:Static ui:UiColors.DeskPattern}">
-            <ui:PixelImage x:Name="BgView" Stretch="True" Margin="16"
-                           HorizontalAlignment="Left" VerticalAlignment="Top"/>
+            <ui:TilemapView x:Name="BgView" Margin="16"/>
           </ScrollViewer>
         </DockPanel>
         <DockPanel x:Name="GfxScroll" IsVisible="False" Background="{DynamicResource VoidBrush}">

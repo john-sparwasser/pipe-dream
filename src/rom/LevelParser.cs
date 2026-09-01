@@ -50,7 +50,8 @@ public static class LevelParser
         if (!rom.Layer2IsBackground(number)) return null;
         int lo16 = rom.Layer2Pointer(number) & 0xFFFF;
         int page = BgImage.PageFor(lo16);
-        byte[] low = BgImage.Decode(rom, lo16, out _);
+        byte[] low = rom.BgTilemaps.TryGetValue(number, out var edited) ? edited
+                   : BgImage.Decode(rom, lo16, out _);
         var tiles = new ushort[low.Length];
         for (int i = 0; i < low.Length; i++) tiles[i] = (ushort)((page << 8) | low[i]);
         return tiles;

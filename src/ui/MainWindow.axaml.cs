@@ -87,9 +87,12 @@ public partial class MainWindow : Window
     private DockPanel bgPane = null!, bgToolPanel = null!;
     private ToggleButton bgLayer2 = null!, bgLayer3 = null!;
     private Button bgOptions = null!, bgImportMap = null!;
-    private PixelImage bgView = null!, bgSheet = null!;
+    private TilemapView bgView = null!, bgSheet = null!;
+
+    /// <summary>What a stamp writes: a BG Map16 tile on layer 2, a whole BG3 word on layer 3
+    /// (palette group 2 by default — the eyedropper is how any other one is picked up).</summary>
+    private int bgBrush = 0x100, bgBrushL3 = 2 << 10;
     private TextBlock bgNote = null!, bgDrawerTitle = null!;
-    private readonly LevelBitmap bgBitmap = new(), bgSheetBitmap = new();
     private StackPanel animGfx = null!, animBody = null!;
     private TextBlock animTitle = null!, animListTitle = null!;
     private Button animDelete = null!, animReassign = null!, animEmptyAdd = null!;
@@ -138,8 +141,15 @@ public partial class MainWindow : Window
         bgLayer3 = this.GetControl<ToggleButton>("BgLayer3");
         bgOptions = this.GetControl<Button>("BgOptions");
         bgImportMap = this.GetControl<Button>("BgImportMap");
-        bgView = this.GetControl<PixelImage>("BgView");
-        bgSheet = this.GetControl<PixelImage>("BgSheet");
+        bgView = this.GetControl<TilemapView>("BgView");
+        bgSheet = this.GetControl<TilemapView>("BgSheet");
+        bgSheet.PickOnLeft = true;
+        // Wired ONCE: RefreshBg runs on every phase tick and mode switch, and re-subscribing
+        // there would stack a handler per refresh. The handlers look the layer up instead.
+        bgView.Painted += (_, c) => BgPaint(c.Col, c.Row);
+        bgView.StrokeEnded += (_, _) => BgStrokeEnded();
+        bgView.Picked += (_, c) => BgEyedrop(c.Col, c.Row);
+        bgSheet.Picked += (_, c) => BgBrushPicked(c.Col, c.Row);
         bgNote = this.GetControl<TextBlock>("BgNote");
         bgDrawerTitle = this.GetControl<TextBlock>("BgDrawerTitle");
         animPane = this.GetControl<DockPanel>("AnimPane");
@@ -871,6 +881,13 @@ public partial class MainWindow : Window
             else if (modeMap16.IsChecked == true)
             {
                 if (redo ? map16?.Redo() == true : map16?.Undo() == true) RefreshMap16Sheet();
+            }
+            // The background layers keep a history each, so undo follows the layer on screen
+            // for the same reason it follows the canvas mode: rewinding the level's objects
+            // while looking at a tilemap would be the wrong thing every time.
+            else if (modeBg.IsChecked == true && BgLayerEdit is { } bgMap)
+            {
+                if (redo ? bgMap.Redo() : bgMap.Undo()) { RefreshBg(); UpdateTitle(); }
             }
             // Sprite mode has its own history — without this branch Ctrl+Z in sprite mode fell
             // through and silently rewound the OBJECT stack instead.
@@ -2524,59 +2541,124 @@ public partial class MainWindow : Window
         bgDrawerTitle.Text = layer3 ? "Layer 3 tiles" : "BG Map16 — pages 80-81";
         bgOptions.IsVisible = bgImportMap.IsVisible = layer3;
         bgOptions.IsEnabled = bgImportMap.IsEnabled = session.HasLevel;
+        bgView.Backdrop = session.PaletteRgba is { Length: > 0 } pal ? pal[0] : 0xFF000000u;
+        bgSheet.Backdrop = bgView.Backdrop;
+
+        void Empty(string note)
+        {
+            bgView.CellAt = null; bgView.Reshape(0, 0, 16);
+            bgSheet.CellAt = null; bgSheet.Reshape(0, 0, 16);
+            bgNote.Text = note;
+        }
+
+        if (!session.HasLevel) { Empty(""); return; }
+        int ph = canvas.Phase;
 
         if (layer3)
         {
-            if (!session.HasLevel) { bgView.Source = null; bgSheet.Source = null; bgNote.Text = ""; return; }
             int opt = session.Layer3Option;
-            var (l3, lw, lh) = session.Layer3Image();
-            if (lw == 0)
+            if (session.Layer3Map is not { } map)
             {
                 // Two different empty states, and saying which one it is IS the fix: "no layer 3"
                 // alone left no way to tell a level that never asked for one from a level whose
                 // mode has no tilemap to give it (vanilla's table covers modes 0-14, §12b).
-                bgView.Source = null;
-                bgSheet.Source = null;
-                bgNote.Text = opt != 0 ? $"{Layer3.OptionNames[opt]}, but level mode {session.Header?.LevelMode} has no tilemap for it"
-                             : session.Layer3TilemapImported ? "a tilemap is imported, but this level's option is Blank Layer 3"
-                             : "no layer 3 — give this level one with Layer 3 Options";
+                Empty(opt != 0
+                    ? $"{Layer3.OptionNames[opt]}, but level mode {session.Header?.LevelMode} has no tilemap for it"
+                    : session.Layer3TilemapImported
+                        ? "a tilemap is imported, but this level's option is Blank Layer 3"
+                        : "no layer 3 — give this level one with Layer 3 Options");
                 return;
             }
-            // Layer 3 does not animate, so it is one bitmap rather than a phase set — and a
-            // fresh one each refresh, which is also what makes a repointed LG slot show up.
-            bgView.Source = LevelBitmap.FromPixels(l3, lw, lh);
-            bgView.Width = lw * 2; bgView.Height = lh * 2;
+            bgView.CellAt = map.At;
+            bgView.CellPixels = session.Layer3CellPixels;
+            bgView.Zoom = 2;
+            bgView.Reshape(map.Cols, map.Rows, map.CellPx);
 
-            var (l3s, l3w, l3h) = session.Layer3Sheet();
-            bgSheet.Source = l3s.Length > 0 ? LevelBitmap.FromPixels(l3s, l3w, l3h) : null;
-            bgSheet.Width = l3w * 2; bgSheet.Height = l3h * 2;
+            // The drawer is the SAME control in picker mode: its cells are tile numbers laid out
+            // sixteen to a row, drawn in whatever palette group the brush carries, so the sheet
+            // and the thing about to be painted match.
+            bgSheet.CellAt = (c, r) => (bgBrushL3 & ~0x3FF) | (r * SheetCols + c);
+            bgSheet.CellPixels = session.Layer3CellPixels;
+            bgSheet.Selected = bgBrushL3 & 0x3FF;
+            bgSheet.Zoom = 2;
+            bgSheet.Reshape(SheetCols, Layer3.TileCount / SheetCols, 8);
 
             bgNote.Text = $"{Layer3.Cols}x{Layer3.Rows} tiles — {Layer3.OptionNames[opt]}"
-                        + (session.Layer3TilemapImported ? ", imported tilemap" : "");
+                        + (session.Layer3TilemapImported ? ", custom tilemap" : "");
             return;
         }
 
-        if (!session.HasLevel) { bgView.Source = null; bgSheet.Source = null; bgNote.Text = ""; return; }
-        if (!session.Layer2IsBackgroundImage)
+        if (session.BgMap is not { } bg)
         {
-            bgView.Source = null;
-            bgSheet.Source = null;
-            bgNote.Text = "this level's layer 2 is an object stream — edit it on the Level canvas";
+            Empty("this level's layer 2 is an object stream — edit it on the Level canvas");
             return;
         }
+        bgView.CellAt = bg.At;
+        bgView.CellPixels = t => session.BgCellPixels(t, ph);
+        bgView.Zoom = 2;
+        bgView.Reshape(bg.Cols, bg.Rows, bg.CellPx);
 
-        int ph = canvas.Phase;
-        var (px, w, h) = session.BgPhases();
-        bgBitmap.SetImages(px, w, h, ph);
-        bgView.Source = bgBitmap.For(ph);
-        bgView.Width = w * 2; bgView.Height = h * 2;
+        bgSheet.CellAt = (c, r) => r * SheetCols + c;
+        bgSheet.CellPixels = t => session.BgCellPixels(t, ph);
+        bgSheet.Selected = bgBrush & 0x1FF;
+        bgSheet.Zoom = 1;
+        bgSheet.Reshape(SheetCols, EditorSession.BgSheetTiles / SheetCols, 16);
 
-        var (spx, sw, sh) = session.BgSheetPhases();
-        bgSheetBitmap.SetImages(spx, sw, sh, ph);
-        bgSheet.Source = bgSheetBitmap.For(ph);
-        bgSheet.Width = sw * 2; bgSheet.Height = sh * 2;
+        bgNote.Text = $"{EditorSession.BgCols}x{EditorSession.BgRows} tiles — two screens, repeats"
+                    + (session.BgTilemapEdited ? ", edited" : "");
+    }
 
-        bgNote.Text = $"{EditorSession.BgCols}x{EditorSession.BgRows} tiles — two screens, repeats";
+    /// <summary>The drawer sheets are sixteen tiles to a row, as every other sheet here is.</summary>
+    private const int SheetCols = 16;
+
+    // ---- painting a background ----
+    // Left paints, right is the eyedropper, and the drawer's left click arms the brush. The
+    // level and Map16 canvases stamp on the RIGHT because their left button runs a selection;
+    // this mode has none, so left painting is the binding that leaves no button idle.
+
+    private TilemapEdit? BgLayerEdit => bgLayer3.IsChecked == true ? session.Layer3Map : session.BgMap;
+
+    private void BgPaint(int col, int row)
+    {
+        if (BgLayerEdit is not { } map) return;
+        if (map.Stamp(col, row, bgLayer3.IsChecked == true ? bgBrushL3 : bgBrush)) bgView.Invalidate();
+    }
+
+    /// <summary>Mouse up: the stroke becomes one undo entry and the level's data changes. A drag
+    /// that painted nothing new settles into nothing, so it cannot clear the redo stack.</summary>
+    private void BgStrokeEnded()
+    {
+        if (BgLayerEdit?.EndStroke() != true) return;
+        RefreshBg();
+        UpdateTitle();
+    }
+
+    /// <summary>Right-click: arm what is already in this cell. On layer 3 that carries the whole
+    /// WORD — palette group and flips included — which is the only way to paint with the palette
+    /// an existing tilemap uses, since the drawer offers one group at a time.</summary>
+    private void BgEyedrop(int col, int row)
+    {
+        if (BgLayerEdit is not { } map) return;
+        int v = map.At(col, row);
+        if (v < 0) return;
+        if (bgLayer3.IsChecked == true) bgBrushL3 = v; else bgBrush = v;
+        RefreshBg();
+    }
+
+    private void BgBrushPicked(int col, int row)
+    {
+        int tile = row * SheetCols + col;
+        if (bgLayer3.IsChecked == true)
+        {
+            if (tile >= Layer3.TileCount) return;
+            bgBrushL3 = (bgBrushL3 & ~0x3FF) | tile;
+        }
+        else
+        {
+            if (tile >= EditorSession.BgSheetTiles) return;
+            bgBrush = tile;
+        }
+        RefreshBg();
     }
 
     // ---- Animations canvas mode ----

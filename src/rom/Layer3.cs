@@ -140,6 +140,51 @@ public static class Layer3
         return map;
     }
 
+    /// <summary>
+    /// The inverse: a word buffer back to a full 0x2000-byte file. An unwritten word (-1) is
+    /// stored as 0xFFFF, which names tile 0x3FF — past the 512 the window holds, so it draws as
+    /// nothing here and would draw as nothing on the console either. A flat file has no way to
+    /// say "untouched", and picking a real tile instead would paint the gaps with GFX28's font.
+    /// </summary>
+    public static byte[] ToBytes(int[] map)
+    {
+        var raw = new byte[MapWords * 2];
+        for (int i = 0; i < MapWords; i++)
+        {
+            int w = i < map.Length && map[i] >= 0 ? map[i] : 0xFFFF;
+            raw[i * 2] = (byte)w;
+            raw[i * 2 + 1] = (byte)(w >> 8);
+        }
+        return raw;
+    }
+
+    /// <summary>(column, row) → the VRAM word index that holds it. A 64x64 BG is four 32x32
+    /// screens, so this is the inverse of <see cref="At"/> and the one place the layout lives.</summary>
+    public static int CellIndex(int col, int row)
+        => (row / ScreenRows << 11) | (col / ScreenCols << 10) | (row % ScreenRows) << 5 | col % ScreenCols;
+
+    /// <summary>
+    /// One tilemap word drawn: its tile from the level's 512, in the palette group its bits
+    /// name, flipped as they say. Null when it names no tile the window holds. Colour 0 comes
+    /// back as 0 (fully transparent) rather than a palette colour, so a caller can lay it over
+    /// a backdrop the way the console does.
+    /// </summary>
+    public static uint[]? CellPixels(int word, byte[]?[] tiles, Palette pal)
+    {
+        int chr = word & 0x3FF;
+        if (word < 0 || chr >= TileCount || tiles[chr] is not { } t) return null;
+        var px = new uint[64];
+        int color = (word >> 10 & 7) * 4;
+        bool fx = (word & 0x4000) != 0, fy = (word & 0x8000) != 0;
+        for (int y = 0; y < 8; y++)
+            for (int x = 0; x < 8; x++)
+            {
+                int idx = t[(fy ? 7 - y : y) * 8 + (fx ? 7 - x : x)];
+                px[y * 8 + x] = idx == 0 ? 0 : pal.Rgba[color + idx];
+            }
+        return px;
+    }
+
     /// <summary>Sizes a tilemap file may be: whole 16-bit maps, up to the 64x64 window.
     /// LM offers exactly these three in its bypass dialog.</summary>
     public static bool IsTilemapSize(int bytes) => bytes is 0x800 or 0x1000 or 0x2000;

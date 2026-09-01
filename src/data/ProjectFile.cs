@@ -106,6 +106,10 @@ public sealed class ProjectFile
         public Dictionary<int, int> Palette { get; set; } = new();
         /// <summary>GFX slot overrides: bypass word index (0-15) → GFX file id.</summary>
         public Dictionary<int, int> GfxOverrides { get; set; } = new();
+        /// <summary>An edited layer-2 background for this level, base64 of the 0x400 BG Map16 def
+        /// indices. Independent of <see cref="Layer2Background"/>, which only says WHICH stream the
+        /// level points at: this is the stream's contents.</summary>
+        public string? BgTilemap { get; set; }
         /// <summary>An imported layer-3 tilemap for this level, base64 of the raw 16-bit map
         /// (LM's LT3 file shape), or null to use vanilla's (level mode, option) pick.</summary>
         public string? Layer3Tilemap { get; set; }

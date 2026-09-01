@@ -271,6 +271,12 @@ public sealed class Rom
     /// Hydrated from / stashed to ProjectFile.LevelState.Header by LevelSession.</summary>
     public readonly Dictionary<int, byte[]> LevelHeaderOverrides = new();
 
+    /// <summary>Edited layer-2 backgrounds: level → the 0x400 BG Map16 def indices the RLE
+    /// stream decodes to (page NOT applied — it comes from the stream's address, §10a).
+    /// LevelParser.DecodeBgImage prefers these, so an edit reaches the level canvas, the
+    /// Background tab and the built ROM through the one path the base ROM already uses.</summary>
+    public readonly Dictionary<int, byte[]> BgTilemaps = new();
+
     /// <summary>Imported layer-3 tilemaps: level → a flat 16-bit map, LM's LT3 file shape
     /// (0x800/0x1000/0x2000 bytes). Replaces vanilla's (level mode, option) pick for that level
     /// wherever <see cref="Layer3.LevelTilemap"/> is asked. Hydrated from / stashed to

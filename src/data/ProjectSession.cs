@@ -39,6 +39,7 @@ public static class ProjectSession
                 rom.GfxSlotOverrides[(lvl, word)] = file;
             if (state.Header is { } hx) rom.LevelHeaderOverrides[lvl] = Convert.FromHexString(hx);
             if (state.Layer3Tilemap is { } l3) rom.Layer3Tilemaps[lvl] = Convert.FromBase64String(l3);
+            if (state.BgTilemap is { } bg) rom.BgTilemaps[lvl] = Convert.FromBase64String(bg);
         }
 
         string? warn = RomBuilder.ReplayMap16(rom, data);
@@ -105,6 +106,8 @@ public sealed class LevelEditState
             ? Convert.ToHexString(hb) : null;
         s.Layer3Tilemap = rom.Layer3Tilemaps.TryGetValue(levelNum, out var l3b)
             ? Convert.ToBase64String(l3b) : null;
+        s.BgTilemap = rom.BgTilemaps.TryGetValue(levelNum, out var bgb)
+            ? Convert.ToBase64String(bgb) : null;
     }
 
     /// <summary>

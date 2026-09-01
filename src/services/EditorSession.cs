@@ -183,6 +183,9 @@ public sealed class EditorSession
     /// (§10b) — that arrives with the writer, not before.</summary>
     public const int BgCols = 32, BgRows = 27;
 
+    /// <summary>BG Map16 defs: the fixed 0x200 at $0D9100, which is the whole picker.</summary>
+    public const int BgSheetTiles = 0x200;
+
     /// <summary>The level's background drawn as pixels, one image per animation phase (BG tiles
     /// animate like any other). Empty when layer 2 is not a background image.</summary>
     public (uint[]?[] Px, int W, int H) BgPhases()
@@ -221,8 +224,101 @@ public sealed class EditorSession
     /// Name it with <see cref="Layer3.OptionNames"/>.</summary>
     public int Layer3Option => Rom is { } r && HasLevel ? Layer3.Option(r, LevelNum) : 0;
 
+    // ---- background tilemap EDITING ----
+    // Both layers paint through TilemapEdit; what differs is where a (column, row) lands in the
+    // level's own buffer, and what a cell's number means. Created per level in ShowLevel, and
+    // each commit writes straight back into the session ROM's override store — the same store
+    // the import path fills, so an edited map and an imported one are the same thing downstream.
+
+    /// <summary>The layer-2 background as a paintable 32x27 grid of BG Map16 tiles, or null when
+    /// this level's layer 2 is an object stream (nothing to paint) or no level is open.</summary>
+    public TilemapEdit? BgMap { get; private set; }
+
+    /// <summary>The layer-3 tilemap as a paintable 64x64 grid, or null when the level has no
+    /// layer 3. Cells are whole BG3 words, so a stamp carries the brush's palette and flips.</summary>
+    public TilemapEdit? Layer3Map { get; private set; }
+
+    /// <summary>Build both editors for the level now open. An edit to either is a per-level
+    /// override, so a level that has never been painted has no buffer of its own until it is.</summary>
+    private void OpenBackgroundEdits()
+    {
+        BgMap = null; Layer3Map = null;
+        if (Rom is not { } rom || Scene is not { } s) return;
+
+        if (s.BgImage is not null)
+        {
+            // The page bits come from the stream's ADDRESS, not the data, so the editable value
+            // is the low def index and the page rides along unchanged (CONTRACT §10a).
+            byte[] low = rom.BgTilemaps.TryGetValue(LevelNum, out var edited)
+                ? edited : [.. s.BgImage.Select(t => (byte)(t & 0xFF))];
+            var cells = new int[low.Length];
+            for (int i = 0; i < low.Length; i++) cells[i] = low[i];
+            BgMap = new TilemapEdit(cells, BgCols, BgRows, 16,
+                                    (c, r) => (c / 16) * 0x1B0 + r * 16 + (c % 16));
+            BgMap.Committed += () =>
+            {
+                rom.BgTilemaps[LevelNum] = [.. BgMap.Cells.Select(v => (byte)v)];
+                if (Project is not null)
+                {
+                    Project.Data.Level(LevelNum).BgTilemap =
+                        Convert.ToBase64String(rom.BgTilemaps[LevelNum]);
+                    Project.MarkDirty();
+                }
+                touched.Add(LevelNum);
+                RecomposeScene();
+            };
+        }
+
+        if (Layer3.LevelTilemap(rom, LevelNum, s.Level.Header.LevelMode, Layer3.Option(rom, LevelNum))
+            is { } map)
+        {
+            Layer3Map = new TilemapEdit(map, Layer3.Cols, Layer3.Rows, 8, Layer3.CellIndex);
+            Layer3Map.Committed += () =>
+            {
+                // The first stroke turns a level using vanilla's shared (mode, option) tilemap
+                // into one with a map of its own — the same move LM makes when you edit a shared
+                // background, and the only way to avoid editing every level that shares it.
+                rom.Layer3Tilemaps[LevelNum] = Layer3.ToBytes(Layer3Map.Cells);
+                if (Project is not null)
+                {
+                    Project.Data.Level(LevelNum).Layer3Tilemap =
+                        Convert.ToBase64String(rom.Layer3Tilemaps[LevelNum]);
+                    Project.MarkDirty();
+                }
+                touched.Add(LevelNum);
+            };
+        }
+    }
+
+    /// <summary>Pixels for one BG Map16 tile, for the Background canvas and its drawer.</summary>
+    public uint[]? BgCellPixels(int tile, int phase = 0)
+        => Scene?.BgCaches[phase & 3] is { } cache && (uint)(tile & 0x1FF) < cache.Length
+           ? cache[tile & 0x1FF] : null;
+
+    /// <summary>Pixels for one layer-3 tilemap WORD — tile, palette group and both flips, which
+    /// is why it is keyed by the word rather than by the tile number. Cached per distinct word:
+    /// a 64x64 map redraws on every stamp and only ever names a handful of them.</summary>
+    public uint[]? Layer3CellPixels(int word)
+    {
+        if (Rom is not { } r || Scene?.Palettes[0] is not { } pal) return null;
+        if (word < 0 || (word & 0x3FF) >= Layer3.TileCount) return null;
+        if (layer3Cells.TryGetValue(word, out var hit)) return hit;
+        layer3Tiles ??= Layer3.Tiles(r, LevelNum);
+        return layer3Cells[word] = Layer3.CellPixels(word, layer3Tiles, pal);
+    }
+
+    private readonly Dictionary<int, uint[]?> layer3Cells = [];
+    private byte[]?[]? layer3Tiles;
+
+    /// <summary>Drop the layer-3 pixel caches — a repointed LG slot or a palette edit changes
+    /// what every word draws as.</summary>
+    private void InvalidateLayer3Cells() { layer3Cells.Clear(); layer3Tiles = null; }
+
     /// <summary>True when this level draws an imported tilemap rather than vanilla's.</summary>
     public bool Layer3TilemapImported => Rom is { } r && HasLevel && r.Layer3Tilemaps.ContainsKey(LevelNum);
+
+    /// <summary>True when this level's background is one the project edited.</summary>
+    public bool BgTilemapEdited => Rom is { } r && HasLevel && r.BgTilemaps.ContainsKey(LevelNum);
 
     /// <summary>
     /// Import a raw layer-3 tilemap for this level — LM's LT3 file shape, a flat little-endian
@@ -1177,6 +1273,8 @@ public sealed class EditorSession
             // level's own graphics — both belong to the level that was just loaded.
             NewMap16Edit();
             spriteCatalog = null;
+            InvalidateLayer3Cells();
+            OpenBackgroundEdits();
             Changed?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception ex) { Report($"level ${num:X3}: {ex.Message}"); }
@@ -1355,6 +1453,7 @@ public sealed class EditorSession
         // The GFX itself may be what changed here (a repointed bin, an edited pixel), so the
         // cached graphics have to go before anything recomposes from them.
         Scene?.InvalidateGfx();
+        InvalidateLayer3Cells();
         Rebuild("recompose");
     }
 
