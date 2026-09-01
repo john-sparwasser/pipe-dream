@@ -210,6 +210,11 @@ internal static class RomBuilder
                     }
                 }
 
+                // A layer-3 tilemap has no slot to be written to yet, so the build owes the user
+                // the difference between "not supported here" and data quietly vanishing.
+                if (state.Layer3Tilemap is not null)
+                    warnings.Add($"level {key}: the imported layer-3 tilemap stays editor-only "
+                               + "(LM's tilemap-bypass slot is not decoded — CONTRACT §12b)");
                 WriteGfxRecord(rom, level, key, state, warnings);
             }
 

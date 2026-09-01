@@ -221,11 +221,62 @@ public sealed class EditorSession
     /// Name it with <see cref="Layer3.OptionNames"/>.</summary>
     public int Layer3Option => Rom is { } r && HasLevel ? Layer3.Option(r, LevelNum) : 0;
 
+    /// <summary>True when this level draws an imported tilemap rather than vanilla's.</summary>
+    public bool Layer3TilemapImported => Rom is { } r && HasLevel && r.Layer3Tilemaps.ContainsKey(LevelNum);
+
+    /// <summary>
+    /// Import a raw layer-3 tilemap for this level — LM's LT3 file shape, a flat little-endian
+    /// 16-bit map of 0x800, 0x1000 or 0x2000 bytes (0x2000 being the whole 64x64 window).
+    ///
+    /// EDITOR-ONLY so far, and the build says so: LM's tilemap-bypass slot in the per-level
+    /// record is not decoded (CONTRACT §12b), so there is nowhere to write it that the game
+    /// would read. It renders, it persists in the project, and it will ship the day that slot
+    /// is pinned — which is a better answer than refusing the import.
+    /// </summary>
+    public bool ImportLayer3Tilemap(string path)
+    {
+        if (Rom is null || !HasLevel) { Report("no level open"); return false; }
+        byte[] bytes;
+        try { bytes = File.ReadAllBytes(path); }
+        catch (Exception e) { Report($"import failed: {e.Message}"); return false; }
+
+        if (!Layer3.IsTilemapSize(bytes.Length))
+        {
+            Report($"import rejected: {Path.GetFileName(path)} is 0x{bytes.Length:X} bytes — "
+                 + "a layer-3 tilemap is 0x800, 0x1000 or 0x2000");
+            return false;
+        }
+        Rom.Layer3Tilemaps[LevelNum] = bytes;
+        if (Project is not null)
+        {
+            Project.Data.Level(LevelNum).Layer3Tilemap = Convert.ToBase64String(bytes);
+            Project.MarkDirty();
+        }
+        touched.Add(LevelNum);
+        Report($"layer 3 tilemap ← {Path.GetFileName(path)} (0x{bytes.Length:X} bytes)");
+        return true;
+    }
+
+    /// <summary>Drop an imported tilemap, back to vanilla's (level mode, option) pick.</summary>
+    public bool ClearLayer3Tilemap()
+    {
+        if (Rom is null || !Rom.Layer3Tilemaps.Remove(LevelNum)) return false;
+        if (Project is not null)
+        {
+            Project.Data.Level(LevelNum).Layer3Tilemap = null;
+            Project.MarkDirty();
+        }
+        touched.Add(LevelNum);
+        Report("layer 3 tilemap ← the base ROM's");
+        return true;
+    }
+
     /// <summary>Whether an option value would actually reach a tilemap on THIS level — the
     /// pointer table is indexed by (level mode, option) and only covers modes 0-14, so a legal
     /// option can still land on nothing (CONTRACT §12b).</summary>
     public bool Layer3HasTilemap(int option)
-        => Rom is { } r && Scene is { } s && Layer3.Tilemap(r, s.Level.Header.LevelMode, option) is not null;
+        => Rom is { } r && Scene is { } s
+           && Layer3.LevelTilemap(r, LevelNum, s.Level.Header.LevelMode, option) is not null;
 
     /// <summary>The level's layer 3 drawn as one 512x512 image, empty when it has none. Not
     /// per-phase: its GFX are the fixed 2bpp files and its colours sit outside the animated
@@ -233,7 +284,7 @@ public sealed class EditorSession
     public (uint[] Px, int W, int H) Layer3Image()
     {
         if (Rom is not { } r || Scene is not { } s || s.Palettes[0] is not { } pal) return ([], 0, 0);
-        return Layer3.Tilemap(r, s.Level.Header.LevelMode, Layer3.Option(r, LevelNum)) is { } map
+        return Layer3.LevelTilemap(r, LevelNum, s.Level.Header.LevelMode, Layer3.Option(r, LevelNum)) is { } map
             ? Layer3.Render(map, Layer3.Tiles(r, LevelNum), pal) : ([], 0, 0);
     }
 

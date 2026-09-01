@@ -106,6 +106,9 @@ public sealed class ProjectFile
         public Dictionary<int, int> Palette { get; set; } = new();
         /// <summary>GFX slot overrides: bypass word index (0-15) → GFX file id.</summary>
         public Dictionary<int, int> GfxOverrides { get; set; } = new();
+        /// <summary>An imported layer-3 tilemap for this level, base64 of the raw 16-bit map
+        /// (LM's LT3 file shape), or null to use vanilla's (level mode, option) pick.</summary>
+        public string? Layer3Tilemap { get; set; }
 
         /// <summary>Deep copy, via the same JSON round-trip the file itself makes.</summary>
         public LevelState Clone() =>

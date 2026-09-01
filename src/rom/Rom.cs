@@ -271,6 +271,13 @@ public sealed class Rom
     /// Hydrated from / stashed to ProjectFile.LevelState.Header by LevelSession.</summary>
     public readonly Dictionary<int, byte[]> LevelHeaderOverrides = new();
 
+    /// <summary>Imported layer-3 tilemaps: level → a flat 16-bit map, LM's LT3 file shape
+    /// (0x800/0x1000/0x2000 bytes). Replaces vanilla's (level mode, option) pick for that level
+    /// wherever <see cref="Layer3.LevelTilemap"/> is asked. Hydrated from / stashed to
+    /// ProjectFile.LevelState.Layer3Tilemap. EDITOR-ONLY so far: LM's tilemap-bypass slot in the
+    /// per-level record is not decoded, so nothing writes this into a built ROM (CONTRACT §12b).</summary>
+    public readonly Dictionary<int, byte[]> Layer3Tilemaps = new();
+
     /// <summary>Imported ExGFX files (the project's GFX store): file id → raw planar bytes
     /// at the ROM's bit depth. Consulted first by Gfx.Cached, so imports render everywhere
     /// a GFX id resolves. Hydrated from / stashed to ProjectFile.Gfx by LevelSession;

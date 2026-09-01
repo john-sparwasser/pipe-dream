@@ -103,8 +103,10 @@ public class BackgroundModeTests(ITestOutputHelper log)
         var w = Open(0x105, layer3: true);
 
         Assert.Null(w.GetControl<PixelImage>("BgView").Source);
-        // A dead end that names no way out is the same as no message at all.
-        Assert.Contains("Layer 3 option", w.GetControl<TextBlock>("BgNote").Text);
+        // A dead end that names no way out is the same as no message at all — and the way out
+        // is the button next to it, which is the point of having moved the setting here.
+        Assert.Contains("Layer 3 Options", w.GetControl<TextBlock>("BgNote").Text);
+        Assert.True(w.GetControl<Button>("BgOptions").IsVisible);
     }
 
     /// <summary>
@@ -128,6 +130,33 @@ public class BackgroundModeTests(ITestOutputHelper log)
 
         Assert.NotNull(w.GetControl<PixelImage>("BgView").Source);
         Assert.Contains("Tileset specific", w.GetControl<TextBlock>("BgNote").Text);
+    }
+
+    /// <summary>
+    /// Repointing an LG slot has to reach the pane. It did not: RefreshBg pushed the new pixels
+    /// into the SAME WriteableBitmap and re-assigned it, and PixelImage.Source only repaints on
+    /// a value change — so layer 3, which is one still image rather than a cycling phase set,
+    /// kept drawing the tiles it loaded first.
+    ///
+    /// Level 009's tilemap names tiles from LG2 and LG4 only, so LG4 is the slot to move: a test
+    /// on LG1 would pass without the fix, because nothing on screen references it.
+    /// </summary>
+    [AvaloniaFact]
+    public void repointing_a_layer_3_gfx_slot_redraws_the_pane()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var w = Open(0x009, layer3: true);          // ghost house: option 3, a real layer 3
+        var session = SessionOf(w);
+        var view = w.GetControl<PixelImage>("BgView");
+        var before = view.Source;
+        Assert.NotNull(before);
+
+        session.SetGfxSlot(12, 0x14);               // w12 = LG4, tiles 180-1FF
+        Invoke(w, "AdoptSession");
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotSame(before, view.Source);        // a new bitmap, so the control actually draws it
+        Assert.Equal(0x14, session.GfxBins.Single(b => b.Name == "LG4").File);
     }
 
     /// <summary>The settings button belongs to Layer 3 and appears only there — on Layer 2 it

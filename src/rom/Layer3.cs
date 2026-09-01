@@ -106,6 +106,37 @@ public static class Layer3
     }
 
     /// <summary>
+    /// The tilemap to DRAW for a level: a tilemap the project imported for it, else vanilla's
+    /// (level mode, option) pick. An import still needs the level to have a layer 3 at all —
+    /// option 0 means the loader never runs, and showing a map the game would not is worse than
+    /// showing none.
+    /// </summary>
+    public static int[]? LevelTilemap(Rom rom, int level, int levelMode, int option)
+        => option is < 1 or > 3 ? null
+         : rom.Layer3Tilemaps.TryGetValue(level, out var raw) ? FromBytes(raw)
+         : Tilemap(rom, levelMode, option);
+
+    /// <summary>
+    /// A flat tilemap file as VRAM words. LM's LT3 files are plain little-endian 16-bit maps of
+    /// 0x800, 0x1000 or 0x2000 bytes; they land at the start of the window and whatever the file
+    /// does not cover stays untouched (-1), exactly as an unwritten stripe-image word does.
+    /// (LM's per-file "Destination" — Under Status Bar / Start / Last Line / Bottom Half — is
+    /// not decoded, so everything starts at word $5000 for now.)
+    /// </summary>
+    public static int[] FromBytes(ReadOnlySpan<byte> raw)
+    {
+        var map = new int[MapWords];
+        Array.Fill(map, -1);
+        for (int i = 0; i < MapWords && i * 2 + 1 < raw.Length; i++)
+            map[i] = raw[i * 2] | (raw[i * 2 + 1] << 8);
+        return map;
+    }
+
+    /// <summary>Sizes a tilemap file may be: whole 16-bit maps, up to the 64x64 window.
+    /// LM offers exactly these three in its bypass dialog.</summary>
+    public static bool IsTilemapSize(int bytes) => bytes is 0x800 or 0x1000 or 0x2000;
+
+    /// <summary>
     /// Vanilla's stripe-image uploader ($00871E), run into a word buffer instead of VRAM.
     /// Each entry is a 4-byte header: the VRAM word address BIG-endian, then a flags/length
     /// pair — bit 15 steps down a column (+32 words, one row of a screen) instead of across,

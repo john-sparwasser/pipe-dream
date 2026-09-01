@@ -1259,6 +1259,14 @@ the bit-15 bypass, which is why `LmGfxBypass` now ignores words 12-15 and `LmLay
 them. Nothing writes the record back into an LM ROM's own table yet — the override lives in the
 project and is applied on build, the same as every other slot.
 
+**Tilemaps can be IMPORTED but not built.** `EditorSession.ImportLayer3Tilemap` takes LM's LT3
+file shape — a flat little-endian 16-bit map of 0x800/0x1000/0x2000 bytes — stores it per level
+(`Rom.Layer3Tilemaps`, `ProjectFile.LevelState.Layer3Tilemap`) and draws it in place of vanilla's
+(mode, option) pick. It stays EDITOR-ONLY, with a build warning, because the record's LT3 slot is
+still unlocated: no controlled save has enabled the tilemap bypass. The file lands at word 
+and whatever it does not cover stays unwritten, since LM's per-file "Destination" (Under Status
+Bar / Start / Last Line / Bottom Half) is undecoded too.
+
 **The Layer 3 Options field  [CONFIRMED for 0 and 3; 1/2 by dropdown order]** — isolated by
 `l3_c` (Blank Layer 3) → `l3_e` (Tileset Specific), with the hack installed on both. Changing
 only that dropdown moved exactly TWO semantic bytes, and LM writes the value to both:

@@ -23,7 +23,20 @@ public sealed class PixelImage : Control
         AffectsRender<PixelImage>(SourceProperty);
     }
 
-    public Bitmap? Source { get => GetValue(SourceProperty); set => SetValue(SourceProperty, value); }
+    /// <summary>
+    /// Assigning ALWAYS repaints, even when it is the same bitmap object as last time.
+    /// <see cref="AffectsRender{T}"/> only fires on a value CHANGE, and LevelBitmap rewrites a
+    /// bitmap's pixels in place and hands the same instance back whenever the size is unchanged
+    /// — so a re-push looked identical to the property system and was never drawn. That is
+    /// invisible anywhere the phase cycles between four bitmaps, and permanent anywhere a single
+    /// still image is re-pushed, which is how the Background tab's layer 3 came to ignore its
+    /// own GFX slots changing under it.
+    /// </summary>
+    public Bitmap? Source
+    {
+        get => GetValue(SourceProperty);
+        set { SetValue(SourceProperty, value); InvalidateVisual(); }
+    }
     public double Zoom { get => zoom; set { zoom = value; InvalidateMeasure(); InvalidateVisual(); } }
 
     /// <summary>Fill the available width, height following the sheet's aspect. The zoom that

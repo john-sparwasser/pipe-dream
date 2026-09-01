@@ -86,7 +86,7 @@ public partial class MainWindow : Window
     private DockPanel animPane = null!, animToolPanel = null!;
     private DockPanel bgPane = null!, bgToolPanel = null!;
     private ToggleButton bgLayer2 = null!, bgLayer3 = null!;
-    private Button bgOptions = null!;
+    private Button bgOptions = null!, bgImportMap = null!;
     private PixelImage bgView = null!, bgSheet = null!;
     private TextBlock bgNote = null!, bgDrawerTitle = null!;
     private readonly LevelBitmap bgBitmap = new(), bgSheetBitmap = new();
@@ -137,6 +137,7 @@ public partial class MainWindow : Window
         bgLayer2 = this.GetControl<ToggleButton>("BgLayer2");
         bgLayer3 = this.GetControl<ToggleButton>("BgLayer3");
         bgOptions = this.GetControl<Button>("BgOptions");
+        bgImportMap = this.GetControl<Button>("BgImportMap");
         bgView = this.GetControl<PixelImage>("BgView");
         bgSheet = this.GetControl<PixelImage>("BgSheet");
         bgNote = this.GetControl<TextBlock>("BgNote");
@@ -2467,6 +2468,17 @@ public partial class MainWindow : Window
         RefreshBg();
     }
 
+    /// <summary>Import a raw layer-3 tilemap for this level — LM's LT3 file, a flat 16-bit map.
+    /// Editor-only until LM's tilemap-bypass slot is decoded, which the build says out loud;
+    /// this is where you SEE it, which is most of what authoring one needs.</summary>
+    private async void OnImportLayer3Tilemap(object? sender, RoutedEventArgs e)
+    {
+        if (await PickFile("Import a layer-3 tilemap",
+                           new FilePickerFileType("Tilemap") { Patterns = ["*.bin", "*.map"] }) is not { } path)
+            return;
+        if (session.ImportLayer3Tilemap(path)) { AdoptSession(); UpdateTitle(); }
+    }
+
     /// <summary>
     /// The level's layer-3 settings, off the Layer 3 bar rather than the level properties
     /// dialog: they are two bits in two different records, but they are one decision, and the
@@ -2503,8 +2515,8 @@ public partial class MainWindow : Window
     {
         bool layer3 = bgLayer3.IsChecked == true;
         bgDrawerTitle.Text = layer3 ? "Layer 3 tiles" : "BG Map16 — pages 80-81";
-        bgOptions.IsVisible = layer3;
-        bgOptions.IsEnabled = session.HasLevel;
+        bgOptions.IsVisible = bgImportMap.IsVisible = layer3;
+        bgOptions.IsEnabled = bgImportMap.IsEnabled = session.HasLevel;
 
         if (layer3)
         {
@@ -2518,22 +2530,22 @@ public partial class MainWindow : Window
                 // mode has no tilemap to give it (vanilla's table covers modes 0-14, §12b).
                 bgView.Source = null;
                 bgSheet.Source = null;
-                bgNote.Text = opt == 0
-                    ? "no layer 3 — give this level one in Level ▸ Properties ▸ \"Layer 3 option\""
-                    : $"{Layer3.OptionNames[opt]}, but level mode {session.Header?.LevelMode} has no tilemap for it";
+                bgNote.Text = opt != 0 ? $"{Layer3.OptionNames[opt]}, but level mode {session.Header?.LevelMode} has no tilemap for it"
+                             : session.Layer3TilemapImported ? "a tilemap is imported, but this level's option is Blank Layer 3"
+                             : "no layer 3 — give this level one with Layer 3 Options";
                 return;
             }
-            // Layer 3 does not animate, so it is drawn once rather than per phase.
-            bgBitmap.SetImages([l3, l3, l3, l3], lw, lh, 0);
-            bgView.Source = bgBitmap.For(0);
+            // Layer 3 does not animate, so it is one bitmap rather than a phase set — and a
+            // fresh one each refresh, which is also what makes a repointed LG slot show up.
+            bgView.Source = LevelBitmap.FromPixels(l3, lw, lh);
             bgView.Width = lw * 2; bgView.Height = lh * 2;
 
             var (l3s, l3w, l3h) = session.Layer3Sheet();
-            bgSheetBitmap.SetImages([l3s, l3s, l3s, l3s], l3w, l3h, 0);
-            bgSheet.Source = bgSheetBitmap.For(0);
+            bgSheet.Source = l3s.Length > 0 ? LevelBitmap.FromPixels(l3s, l3w, l3h) : null;
             bgSheet.Width = l3w * 2; bgSheet.Height = l3h * 2;
 
-            bgNote.Text = $"{Layer3.Cols}x{Layer3.Rows} tiles — {Layer3.OptionNames[opt]}, GFX 28-2B";
+            bgNote.Text = $"{Layer3.Cols}x{Layer3.Rows} tiles — {Layer3.OptionNames[opt]}"
+                        + (session.Layer3TilemapImported ? ", imported tilemap" : "");
             return;
         }
 

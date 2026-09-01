@@ -38,6 +38,7 @@ public static class ProjectSession
             foreach (var (word, file) in state.GfxOverrides)
                 rom.GfxSlotOverrides[(lvl, word)] = file;
             if (state.Header is { } hx) rom.LevelHeaderOverrides[lvl] = Convert.FromHexString(hx);
+            if (state.Layer3Tilemap is { } l3) rom.Layer3Tilemaps[lvl] = Convert.FromBase64String(l3);
         }
 
         string? warn = RomBuilder.ReplayMap16(rom, data);
@@ -102,6 +103,8 @@ public sealed class LevelEditState
                             .ToDictionary(kv => kv.Key.Word, kv => kv.Value);
         s.Header = rom.LevelHeaderOverrides.TryGetValue(levelNum, out var hb)
             ? Convert.ToHexString(hb) : null;
+        s.Layer3Tilemap = rom.Layer3Tilemaps.TryGetValue(levelNum, out var l3b)
+            ? Convert.ToBase64String(l3b) : null;
     }
 
     /// <summary>

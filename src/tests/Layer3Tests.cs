@@ -230,6 +230,82 @@ public class Layer3Tests(ITestOutputHelper log)
         finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }
 
+    // ---- imported tilemaps ----
+
+    [Fact]
+    public void an_imported_tilemap_replaces_vanillas_pick_and_survives_a_project_round_trip()
+    {
+        if (!File.Exists(Vanilla)) { log.WriteLine("SKIP: no ROM"); return; }
+        string dir = Path.Combine(Path.GetTempPath(), "pdl3i-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            var s = new EditorSession();
+            Assert.True(s.NewProject(Path.Combine(dir, "proj"), Vanilla), s.Status);
+            s.ShowLevel(0x009);
+            var (before, _, _) = s.Layer3Image();
+
+            // A full 64x64 map of one tile — LM's default LT3 size.
+            string file = Path.Combine(dir, "flat.bin");
+            var raw = new byte[0x2000];
+            for (int i = 0; i < 0x1000; i++) { raw[i * 2] = 0x40; raw[i * 2 + 1] = 0x18; }
+            File.WriteAllBytes(file, raw);
+
+            Assert.True(s.ImportLayer3Tilemap(file), s.Status);
+            Assert.True(s.Layer3TilemapImported);
+            var (after, w, h) = s.Layer3Image();
+            Assert.NotEqual(before, after);
+            // Every word written, so nothing falls back to the backdrop.
+            Assert.Equal(w * h, after.Length);
+
+            // Reopened from disk, the level still draws the imported map.
+            s.Save();
+            var reopened = new EditorSession();
+            Assert.True(reopened.OpenProject(s.Project!.FilePath), reopened.Status);
+            reopened.ShowLevel(0x009);
+            Assert.True(reopened.Layer3TilemapImported);
+            Assert.Equal(after, reopened.Layer3Image().Px);
+
+            Assert.True(reopened.ClearLayer3Tilemap());
+            Assert.False(reopened.Layer3TilemapImported);
+            Assert.Equal(before, reopened.Layer3Image().Px);
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
+    }
+
+    [Fact]
+    public void a_tilemap_that_is_not_a_whole_map_is_refused_with_a_reason()
+    {
+        if (!File.Exists(Vanilla)) { log.WriteLine("SKIP: no ROM"); return; }
+        string dir = Path.Combine(Path.GetTempPath(), "pdl3r-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            Directory.CreateDirectory(dir);
+            var s = new EditorSession();
+            Assert.True(s.OpenRom(Vanilla), s.Status);
+            s.ShowLevel(0x009);
+
+            string odd = Path.Combine(dir, "odd.bin");
+            File.WriteAllBytes(odd, new byte[0x123]);
+            Assert.False(s.ImportLayer3Tilemap(odd));
+            Assert.Contains("0x800, 0x1000 or 0x2000", s.Status);
+            Assert.False(s.Layer3TilemapImported);
+
+            Assert.True(Layer3.IsTilemapSize(0x800) && Layer3.IsTilemapSize(0x1000)
+                        && Layer3.IsTilemapSize(0x2000));
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
+    }
+
+    [Fact]
+    public void a_short_tilemap_leaves_the_rest_of_the_window_untouched()
+    {
+        // 0x800 bytes is one 32x32 screen, so the other three stay -1 rather than tile 0.
+        var map = Layer3.FromBytes(new byte[0x800]);
+        Assert.Equal(Layer3.MapWords, map.Length);
+        Assert.All(map[..0x400], v => Assert.Equal(0, v));
+        Assert.All(map[0x400..], v => Assert.Equal(-1, v));
+    }
+
     [Fact]
     public void rendering_covers_the_written_words_and_leaves_the_rest_as_backdrop()
     {
