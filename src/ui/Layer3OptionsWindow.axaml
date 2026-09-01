@@ -28,6 +28,7 @@
       <CheckBox x:Name="CgAdSubBox" Content="Translucent against the subscreen (CGADSUB)"/>
       <CheckBox x:Name="SubscreenBox" Content="Move layer 3 to the subscreen"
                 ToolTip.Tip="Puts layer 3 behind layer 2 — and the status bar behind layer 1"/>
+      <TextBlock x:Name="BlendNote" Classes="dim" TextWrapping="Wrap"/>
       <CheckBox x:Name="SyncBox" Content="Fix the status bar's scroll sync glitch"/>
       <Grid ColumnDefinitions="120,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="6">
         <TextBlock Grid.Row="0" Grid.Column="0" Text="Vertical scroll" VerticalAlignment="Center"

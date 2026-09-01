@@ -78,9 +78,22 @@ public partial class Layer3OptionsWindow : Window
             : "This base ROM has no reader for these — they save and show here, but the game "
             + "will not use them until the base carries Lunar Magic's advanced layer-3 hack.";
 
+        var blendNote = this.GetControl<TextBlock>("BlendNote");
+
         void Sync2()
         {
             pane.IsEnabled = advanced.IsChecked == true;
+            // The two blend switches LOOK independent and are not: moving layer 3 to the
+            // subscreen takes it off the main screen, and CGADSUB only blends what is ON the
+            // main screen. Ticking both is the natural thing to do for translucent mist and it
+            // gives you an opaque layer instead — LM's help says so in a sentence most people
+            // never read, and this cost a real project two rounds of "it still isn't
+            // translucent". So it is on screen, only when the combination is actually set.
+            blendNote.Text = cgadsub.IsChecked == true && subscreen.IsChecked == true
+                ? "Those two cancel out: CGADSUB blends layer 3 against the subscreen, but the "
+                + "second box moves layer 3 onto the subscreen, where there is nothing to blend "
+                + "it with. For translucent mist, leave \"Move layer 3 to the subscreen\" off."
+                : "";
             int i = option.SelectedIndex;
             note.Text = i <= 0 ? "This level has no layer 3."
                       : hasTilemapFor(i) ? "This level's mode has a tilemap for that."
@@ -88,6 +101,8 @@ public partial class Layer3OptionsWindow : Window
         }
         option.SelectionChanged += (_, _) => Sync2();
         advanced.IsCheckedChanged += (_, _) => Sync2();
+        cgadsub.IsCheckedChanged += (_, _) => Sync2();
+        subscreen.IsCheckedChanged += (_, _) => Sync2();
         Sync2();
     }
 

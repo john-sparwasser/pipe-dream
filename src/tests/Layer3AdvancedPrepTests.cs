@@ -202,6 +202,59 @@ public class Layer3AdvancedPrepTests(ITestOutputHelper log)
     }
 
     /// <summary>
+    /// The twelve auto-scroll rates: a speed in 8.8 fixed point accumulated per frame, not a
+    /// fraction of the camera. The pixel is only carried out when the fraction rolls over, so a
+    /// test that ran one frame would see nothing move at the slow speeds and conclude the whole
+    /// thing was dead — which is exactly how the "hold position" stub used to pass.
+    ///
+    /// The seeded frame is deliberately still: `$0BE6`/`$0BE7` bit 7 makes the level open on the
+    /// position the X/Y fields name (for auto-scroll LM's help calls those actual positions, not
+    /// offsets) rather than one step past it.
+    /// </summary>
+    [RealRomFact]
+    public void an_auto_scroll_rate_carries_a_whole_pixel_only_when_its_fraction_rolls_over()
+    {
+        // dropdown index → (speed per frame in 8.8, name). Up/Left are positive, Down/Right negative.
+        var expect = new (int Index, int Speed)[]
+        {
+            (9, 0x0040), (10, 0x0080), (11, 0x0100), (12, 0x0200), (13, 0x0300), (14, 0x0400),
+            (15, -0x0040), (16, -0x0080), (17, -0x0100), (18, -0x0200), (19, -0x0300), (20, -0x0400),
+        };
+        foreach (var (index, speed) in expect)
+        {
+            var (rom, fo) = Prepped();
+            PutAdvanced(rom, fo, new Layer3.Advanced(false, false, false,
+                                                     VScroll: 0, HScroll: index, XPos: 1, Y: 0));
+            var cpu = RunOpt(rom);
+            Assert.Equal(Layer3.ScrollCodes[index], cpu.Ram7E[RomPrep.L3CodeH]);
+            Assert.Equal(0x40, Word(cpu, RomPrep.L3ScrollX));             // seeded at XPos index 1
+
+            cpu.Ram7E[0x1931] = 0;
+            const int frames = 8;
+            for (int f = 0; f < frames; f++)
+            {
+                cpu.PresetWidths(m8: true, x8: true);
+                cpu.CallLong(RomPrep.L3Scroll, 2_000_000);
+            }
+            // The same accumulator, in C#. Not speed*frames/256: the fraction seed for a NEGATIVE
+            // speed is the speed's own low byte (LM's `BMI` past the `LDA #$0000`), which delays
+            // its first whole pixel — at the slowest rate by three frames. Modelling it here
+            // rather than asserting the idealised figure is what makes this test able to fail
+            // for a real reason.
+            int frac = speed < 0 ? speed & 0xFF : 0, want = 0x40;
+            for (int f = 1; f < frames; f++)
+            {
+                int sum = (frac + speed) & 0xFFFF;
+                frac = sum & 0xFF;
+                want = (want + ((short)(sum & 0xFF00) >> 8)) & 0xFFFF;
+            }
+            log.WriteLine($"index {index,2} speed {speed,6}: $22={Word(cpu, 0x22):X4} (want {want:X4})");
+            Assert.Equal(want, Word(cpu, RomPrep.L3ScrollX));
+            Assert.Equal(0, Word(cpu, RomPrep.L3ScrollY));                // vertical is None
+        }
+    }
+
+    /// <summary>
     /// `$00` must survive the seat. `$009FC0` leaves the level's mode*3 there and `$00A026` —
     /// two instructions after this routine returns — adds it to the option to index the layer-3
     /// tilemap pointer table. Both the reader's nibble-pair helper and the engine's code

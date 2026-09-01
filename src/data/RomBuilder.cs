@@ -467,30 +467,6 @@ internal static class RomBuilder
         // low bit of w12's nibble (§12b).
         var adv = state.Layer3AdvancedOff ? null
                 : state.Layer3Advanced ?? Layer3.ReadAdvanced(rom.LmGfxRecord(level) ?? w);
-        // The twelve auto-scroll rates are the one part of the group prep does not implement
-        // (CONTRACT §12b): their handler is not decoded, and our dispatcher holds position for
-        // those codes. Writing one would look like a setting that does nothing, so drop it to
-        // "None" and say so rather than shipping a silent no-op.
-        // ...but only on a base WE installed: an LM-saved base has LM's own handler and supports
-        // them. `$00A01F` pointing at our L3Opt is what says the engine behind it is ours.
-        if (adv is { } a2 && rom.ReadValue(RomPrep.L3OptHook + 1, 3) == RomPrep.L3Opt)
-        {
-            if (Layer3.IsAutoScroll(a2.VScroll))
-            {
-                warnings.Add($"level {key}: layer-3 vertical scroll \"{Layer3.VScrollNames[a2.VScroll]}\""
-                           + " is not supported on a prepped base (auto-scroll rates are unported)"
-                           + " — written as None");
-                a2 = a2 with { VScroll = 0 };
-            }
-            if (Layer3.IsAutoScroll(a2.HScroll))
-            {
-                warnings.Add($"level {key}: layer-3 horizontal scroll \"{Layer3.HScrollNames[a2.HScroll]}\""
-                           + " is not supported on a prepped base (auto-scroll rates are unported)"
-                           + " — written as None");
-                a2 = a2 with { HScroll = 0 };
-            }
-            adv = a2;
-        }
         Layer3.WriteAdvanced(w, adv);
         // Light only the bit for the half that was actually used. Setting bit 15 for a
         // layer-3-only edit would switch on an FG/BG/SP bypass the project never asked for.

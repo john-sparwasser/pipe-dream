@@ -384,10 +384,9 @@ public static class Layer3
 
     /// <summary>
     /// The twelve auto-scroll entries — the ones that move layer 3 on their own rather than as a
-    /// fraction of layer 1. They are the part of the group prep v16 does NOT implement: their
-    /// single shared handler is entangled with `$17BD`/`$9D`/`$145A`/`$145C` and a pause
-    /// interaction that is not decoded, so the dispatcher holds position for those codes and the
-    /// build downgrades them to None with a warning (CONTRACT §12b). Codes 0x06-0x11.
+    /// fraction of layer 1. Codes 0x06-0x11: a speed in 8.8 fixed point accumulated per frame,
+    /// from LM's table (CONTRACT §12b). The tide variant of them (a level whose `$1403` is
+    /// non-zero) is the one part still unported.
     /// </summary>
     public static bool IsAutoScroll(int dropdownIndex) => dropdownIndex is >= 9 and <= 20;
 

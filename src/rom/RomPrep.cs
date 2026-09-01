@@ -202,11 +202,11 @@ public static class RomPrep
     public const int L3SizeTab = 0x0FFEB4, L3DestWordTab = 0x0FFEBC, L3BarSize = 0x0FFEC4;
 
     // ---- V16: the ADVANCED layer-3 bypass (initial position, blend, scroll rate) ----
-    /// <summary>The nibble reader, in LM's own `$0FFD80` block (332 B; our prep uses none of that
+    /// <summary>The nibble reader, inside LM's own `$0FFD80` block (332 B; our prep uses none of that
     /// range). The ADDRESS need not be LM's — <see cref="LunarMagic.HasLmLayer3Advanced"/> scans
     /// for the opening idiom rather than a fixed site — but the idiom itself is LM's instruction
     /// for instruction, so a prepped base answers that probe like an LM-saved one.</summary>
-    public const int L3AdvRead = 0x0FFD80;
+    public const int L3AdvRead = 0x0FFDB0;
     /// <summary>LM's nibble-PAIR helper, also at its own address: reads the high nibble at Y and
     /// the one two bytes lower, glues them into a byte, and leaves Y two lower again.</summary>
     public const int L3AdvPair = 0x0FFE82;
@@ -1844,6 +1844,13 @@ public static class RomPrep
     /// <summary>The code -> kind table the per-frame dispatcher indexes, after the routines.</summary>
     public const int L3KindTabAddr = 0x0FFCE0;
 
+    /// <summary>The auto-scroll block: the per-frame handler and the load-time seeding, both
+    /// axes through one routine (see the comment at the code).</summary>
+    public const int L3Auto = 0x0FFD00;
+
+    /// <summary>LM's auto-scroll speed table, its own bytes, indexed by scroll code * 2.</summary>
+    public const int L3SpeedTab = 0x0FFE00;
+
     /// <summary>
     /// V16's own block, in LM's `$0FFB20` range and stamped separately from the GFX loader image.
     /// Separate because the loader block would otherwise grow over `L3DestTable` ($0FFA7F) and the
@@ -1911,6 +1918,14 @@ public static class RomPrep
          .Label("vdone")
          .LdaDp(0x00).StaAbs(L3CodeH)                                // safe: $145F is read out
          .LdaDp(0x01).StaAbs(L3CodeV)
+         // ...and arm the auto-scroll accumulators, once per axis. X = axis*2 for the pairs two
+         // bytes apart ($1458/$145A, $146A/$146C, $22/$24), Y = axis for the ones one byte apart
+         // ($145F/$1460, $145C/$145D, $0BE6/$0BE7) — LM's own layout, and the reason one shared
+         // routine can serve both axes instead of two near-copies.
+         .Rep(0x30)
+         .LdxImm16(0).LdyImm16(0).JsrL("seed")
+         .LdxImm16(2).LdyImm16(1).JsrL("seed")
+         .Sep(0x30)
          .Rts();
 
         // ---- One axis: A = camera, $06 = initial offset, X = code. Out: A = layer-3 position ----
@@ -1920,7 +1935,11 @@ public static class RomPrep
          .Beq("hold")                                    // 0 = None: stay at the offset
          .CmpImm16(0x0001).Beq("oneone")                 // 1 = Constant: 1:1 with layer 1
          .CmpImm16(0x0008).Beq("fast")                   // 8 = Fast: 1.2x
-         .CmpImm16(0x0009).Bcs("hold")                   // 9 = auto-scroll, not ported
+         // 9 = one of the twelve auto-scrolls. A JSR rather than a branch: its block sits past
+         // the kind table, out of rel8 reach.
+         .CmpImm16(0x0009).Bcc("shifts")
+         .JsrL("auto").Rts()
+         .Label("shifts")
          .Sec().SbcImm16(0x0001).Tax()                   // kinds 2-7 → shift 1-6
          .LdaDp(0x08)
          .Label("shift")
@@ -1943,9 +1962,13 @@ public static class RomPrep
          .LdaAbs(0x1931).Bmi("bail")                     // LM's own guard
          .LdaAbs(0x145E).AndImm8(0x01).Beq("bail")
          .Rep(0x30)
+         // $0A names the axis for the auto-scroll case, which is the only one whose state is
+         // per-axis rather than derived from the camera.
+         .StzDp(0x0A)
          .LdaAbs(0x146A).StaDp(0x06)
          .Sep(0x20).LdaAbs(L3CodeH).Rep(0x20).AndImm16(0x00FF).Tax()
          .LdaDp(0x1A).JsrL("axis").StaDp(L3ScrollX)
+         .LdaImm16(1).StaDp(0x0A)
          .LdaAbs(0x146C).StaDp(0x06)
          .Sep(0x20).LdaAbs(L3CodeV).Rep(0x20).AndImm16(0x00FF).Tax()
          .LdaDp(0x1C).JsrL("axis").StaDp(L3ScrollY)
@@ -1977,6 +2000,75 @@ public static class RomPrep
         for (int c = 0x06; c <= 0x11; c++) kinds[c] = 9;
         a.PadTo(L3KindTabAddr).Db(kinds);
 
+        // ---- Auto-scroll: the twelve rates that move layer 3 on their own ----
+        // Not a fraction of the camera but a speed in 8.8 fixed point, accumulated. LM's layout,
+        // its speed table and its guards; the tide variant (`$1403` != 0) is still not ported.
+        //
+        //   SEED (level load, both axes): speed → $1458/$145A, the fractional byte → $145C/$145D
+        //   (seeded with the speed's low byte when the speed is negative, which is how LM makes
+        //   the first whole pixel land on time), the initial position → $22/$24 (for auto-scroll
+        //   LM's help calls X/Y "actual positions", not offsets), and the skip bit in
+        //   $0BE6/$0BE7 so the first frame draws exactly where it was seeded.
+        //
+        //   PER FRAME: fraction += speed; the carried-out whole pixels, sign-extended, plus
+        //   $17BD/$17BC — vanilla's accumulated camera delta, computed at $05BC0C just before it
+        //   calls us — are added to the position. $9D (sprites locked / pause) freezes it.
+        a.PadTo(L3Auto)
+         .Label("auto")                                  // 16-bit M/X; $0A = axis, X = kind
+         .LdaDp(0x0A).Tay()                              // Y = axis: the one-byte-apart pairs
+         .Asl().Tax()                                    // X = axis*2: the two-byte-apart ones
+         .Sep(0x20).LdaDp(0x9D).Rep(0x20).AndImm16(0x00FF)
+         .Bne("autohold")                                // locked: hold the position we had
+         // $04 = the camera delta, sign-extended from one byte. The only pair whose order is
+         // REVERSED against the axis index ($17BD is horizontal, $17BC vertical), so it branches
+         // rather than indexes.
+         .Sep(0x20)
+         .LdaDp(0x0A).Bne("autovd")
+         .LdaAbs(0x17BD).Bra("autogd")
+         .Label("autovd").LdaAbs(0x17BC)
+         .Label("autogd")
+         .Rep(0x20).AndImm16(0x00FF)
+         .CmpImm16(0x0080).Bcc("autodp").OraImm16(0xFF00)
+         .Label("autodp").StaDp(0x04)
+         // One frame is skipped after seeding, so the level opens on the seeded position.
+         .Sep(0x20)
+         .LdaAbsY(0x0BE6).AndImm8(0x80).Beq("autorun")
+         .LdaAbsY(0x0BE6).AndImm8(0x7F).StaAbsY(0x0BE6)
+         .Rep(0x20).LdaImm16(0).Bra("autoadd")
+         .Label("autorun")
+         .Rep(0x20)
+         .LdaAbsY(0x145C).AndImm16(0x00FF)               // the fraction carried from last frame
+         .Clc().AdcAbsX(0x1458)
+         .Phx().Sep(0x20).StaAbsY(0x145C).Rep(0x20).Plx()  // keep the new fraction (low byte)
+         .AndImm16(0xFF00).Bpl("autow").OraImm16(0x00FF)
+         .Label("autow").Xba()                            // whole pixels, signed
+         .Label("autoadd")
+         .Clc().AdcDp(0x04)
+         .Clc().AdcDpX(L3ScrollX)                        // $22 or $24, whichever axis this is
+         .Rts()
+         .Label("autohold")
+         .LdaDpX(L3ScrollX)
+         .Rts()
+         // The load-time half, called twice by the engine.
+         .Label("seed")                                  // 16-bit M/X; X = axis*2, Y = axis
+         .LdaAbsY(L3CodeH).AndImm16(0x00FF)
+         .CmpImm16(0x0006).Bcc("seeddone")
+         .CmpImm16(0x0012).Bcs("seeddone")
+         .Asl().Phx().Tax()
+         .LdaLongX(L3SpeedTab)
+         .Plx()
+         .StaAbsX(0x1458)
+         // CMP rather than the BMI that reads naturally here: PLX above set N/Z from the pulled
+         // index, not from the speed.
+         .CmpImm16(0x8000).Bcs("seedfrac")               // negative speeds carry from their own
+         .LdaImm16(0)                                    // low byte; positive ones start at 0
+         .Label("seedfrac")
+         .Sep(0x20).StaAbsY(0x145C).Rep(0x20)
+         .LdaAbsX(0x146A).StaDpX(L3ScrollX)
+         .Sep(0x20).LdaAbsY(0x0BE6).OraImm8(0x80).StaAbsY(0x0BE6).Rep(0x20)
+         .Label("seeddone")
+         .Rts();
+
         // ---- The reader. Near-called from the engine seat; 8-bit M/X in and out ----
         // LM loads the record pointer from its own $7FC006 cache, which we do not keep, so this
         // builds it from $FE (armed level + 1) the way the layer-3 GFX pass does. From the
@@ -1997,6 +2089,17 @@ public static class RomPrep
          .Dey().Dey().Jsr(L3AdvPair)
          .Rep(0x20).StaAbs(0x145E).Sep(0x20)             // nib(w15..w12), 16-bit
          .Rts();
+
+        // LM's own speed table ($109D3B), indexed by code*2 — 8.8 fixed point pixels per frame.
+        // Codes 0-5 are the camera-relative rates and read 0 here; 06-09 and 10-11 climb
+        // +$40 +$80 +$100 +$200 +$300 +$400 (Up/Left Slow..Fast 4) and 0A-0F are the same six
+        // negated (Down/Right). $40 = a quarter pixel a frame, which is the fog/goldfish drift;
+        // $400 = four pixels, the tide speed.
+        a.PadTo(L3SpeedTab).Db(
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,   // 00-05
+            0x40, 0x00, 0x80, 0x00, 0x00, 0x01, 0x00, 0x02,                           // 06-09
+            0xC0, 0xFF, 0x80, 0xFF, 0x00, 0xFF, 0x00, 0xFE, 0x00, 0xFD, 0x00, 0xFC,   // 0A-0F
+            0x00, 0x03, 0x00, 0x04);                                                  // 10-11
 
         // The nibble-pair helper, byte for byte LM's.
         a.PadTo(L3AdvPair)

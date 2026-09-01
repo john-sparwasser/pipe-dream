@@ -1563,18 +1563,59 @@ unused codes `12-17` fall through to Constant, and ours do too. Our dispatcher r
 27-entry pointer tables (`$109CBB` horizontal, `$109CFB` vertical) with one 27-byte code→kind
 table and a single shared routine — same results, ~100 bytes less.
 
-**NOT ported: the twelve auto-scroll rates (codes `06-11`).** Their one shared handler at
-`$109AB4` is entangled with `$17BD`/`$9D`/`$145A`/`$145C`/`$1403` and a pause interaction that is
-not decoded; the speed table `$109D3B` (±`$40 $80 $100 $200 $300 $400`) is known but the
-accumulator that consumes it is not. The kind table maps those codes to "hold position" and
-`RomBuilder` DOWNGRADES them to None with a warning when the base is ours (`$00A01F` pointing at
-our `L3Opt` is the test) — an LM-saved base has LM's handler and keeps them. Half-porting it
-would move layer 3 at the wrong speed, which is worse than not moving it.
+**The twelve auto-scroll rates are PORTED too (codes `06-11`)**, from LM's handlers at `$109AB4`
+(horizontal) and `$109B78` (vertical), which its two pointer tables send all twelve codes to.
+They are not a fraction of the camera at all — they are a SPEED in 8.8 fixed point, accumulated:
 
-Verified on the 65816 emulator (`Layer3AdvancedPrepTests`, 9 tests): the nine nibbles land in
+    fraction += speed                       ; one byte of fraction, per axis
+    position += (whole pixels carried out) + $17BD/$17BC
+
+`$1458`/`$145A` hold the speed and `$145C`/`$145D` the fraction — LM's own addresses, and their
+layout is what lets one routine serve both axes: the pairs are alternately two bytes apart
+(`$1458`, `$146A`, `$22`) and one (`$145F`, `$145C`, `$0BE6`), so X = axis*2 and Y = axis index
+all six. The one pair whose order is REVERSED is `$17BD` (horizontal) / `$17BC` (vertical) —
+vanilla's accumulated camera delta, computed at `$05BC0C` in the very routine that then calls us
+— so that one branches instead of indexing.
+
+  the table    LM's `$109D3B`, indexed by code*2, taken verbatim: `06-09` and `10-11` climb
+               `+$40 +$80 +$100 +$200 +$300 +$400` (Up/Left Slow..Fast 4) and `0A-0F` are the same
+               six negated (Down/Right). `$40` is a quarter pixel a frame — LM's help names it as
+               the fog/goldfish drift — and `$400` is four, the tide speed.
+  seeding      At level load: the speed, the fraction (0, or the speed's own LOW BYTE when the
+               speed is negative — LM's `BMI` past its `LDA #$0000`, which delays that rate's
+               first whole pixel by three frames at `$40`), the position from `$146A`/`$146C`
+               (for auto-scroll LM's help calls the X/Y fields "actual positions", not offsets),
+               and bit 7 of `$0BE6`/`$0BE7`, LM's skip-one-frame flag, so the level opens exactly
+               where it was seeded.
+  guards       `$9D` (sprites locked / paused) freezes it, holding the position rather than
+               writing one — LM returns without touching `$22` there, and so do we.
+
+Still not ported: the TIDE variant of the same handler (`$1403` non-zero), which is a different
+routine behind the same codes.
+
+**The two blend switches CANCEL OUT, and LM's help is the only place that says so
+[LM-DOC + CONFIRMED on the console].** "The CGADSUB for layer 3 checkbox will determine if layer
+3 will appear translucent against layers on the subscreen. **This of course assumes that layer 3
+is on the main screen** (which it normally is), and that there's any layers on the subscreen to
+appear translucent against." The other box moves layer 3 ONTO the subscreen — where there is
+nothing left to blend it against, so the layer comes out opaque. Ticking both is the natural
+thing to do for translucent mist and it is the one combination that cannot produce it; it cost a
+real project two rounds of "layer 3 still isn't translucent". Screenshots of the same level with
+CGADSUB alone and with both settle it: alone, the mist's black areas vanish (add-black is
+transparent) and its clouds blend over the level; together, solid blobs. The dialog now says so,
+but only when both are ticked.
+
+LM's own help also names what the level header's layer-3 priority flag is for — "**Force layer
+3** will show layer 3 tiles that have the priority bit enabled above all other layers and
+sprites. This will not work if layer 3 is only enabled on the subscreen (TS)" — and confirms the
+rate ladder from the other side: "Variable is 1/2 the position of layer 1, Variable 2 is 1/4, and
+Slow is 1/32", which is shifts 1, 2 and 5, exactly `Layer3.ScrollCodes` indices 2, 3 and 6.
+
+Verified on the 65816 emulator (`Layer3AdvancedPrepTests`, 10 tests): the nine nibbles land in
 LM's four variables (`$145E = FEDC` for nib(w15..w12) = F,E,D,C), the X index gives
 `00/40/80/100`, Y round-trips *16 with its sign across the full -0x400..0x3FF, both flags set and
-clear, the whole shift ladder from a `$800` camera, the sync-fix mirrors, `$00` survives the seat,
+clear, the whole shift ladder from a `$800` camera, all twelve auto-scroll rates accumulating (the
+fraction model, not an idealised speed*frames), the sync-fix mirrors, `$00` survives the seat,
 `$13D5` is cleared only when the group is on, and an unbypassed level still gets the vanilla
 option answer. Not covered here: "Fast" (the emulator does not model the hardware divider) and the
 disabled path's re-entry into bank 05 — both need the console.
