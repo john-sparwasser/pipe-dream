@@ -222,6 +222,65 @@ public class BackgroundModeTests(ITestOutputHelper log)
         Assert.True(session.Layer3HasTilemap(3));       // level 105 is mode 0, which has all three
     }
 
+    /// <summary>
+    /// The precedence the other canvases run: a lasso made HERE outranks the tile picked in the
+    /// drawer, so a right-click stamps the lassoed rectangle rather than the drawer's one tile.
+    /// Dropping the lasso hands the drawer back its say.
+    /// </summary>
+    [AvaloniaFact]
+    public void a_canvas_lasso_outranks_the_drawers_tile()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var w = Open(0x105, layer3: false);
+        var map = SessionOf(w).BgMap!;
+        var view = View(w);
+
+        // Two cells that differ, so stamping them somewhere else is unambiguous.
+        map.Stamp(2, 2, 0x30); map.Stamp(3, 2, 0x31);
+        map.EndStroke();
+
+        view.BeginSelection(2, 2);
+        view.ExtendSelection(3, 2);
+        Assert.Equal((2, 2, 2, 1), view.Selection);
+        Assert.Equal((2, 1), view.Brush);          // the cursor outlines what would land
+
+        Paint(w, 5, 5);
+        Assert.Equal(0x30, map.At(5, 5));
+        Assert.Equal(0x31, map.At(6, 5));
+
+        // Without a lasso the drawer's tile is what lands, one cell of it.
+        view.ClearSelection();
+        Paint(w, 8, 8);
+        Assert.Equal(0x100, map.At(8, 8));         // bgBrush's default
+        Assert.NotEqual(0x100, map.At(9, 8));
+    }
+
+    /// <summary>Stamping a selection over itself is the ordinary case — nudging a pattern along
+    /// by a cell — so the source is read WHOLE before any of it is written.</summary>
+    [AvaloniaFact]
+    public void stamping_a_selection_onto_itself_does_not_smear_it()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var w = Open(0x105, layer3: false);
+        var map = SessionOf(w).BgMap!;
+        var view = View(w);
+
+        for (int i = 0; i < 4; i++) map.Stamp(i, 10, 0x30 + i);
+        map.EndStroke();
+
+        view.BeginSelection(0, 10);
+        view.ExtendSelection(3, 10);
+        Paint(w, 1, 10);                            // one cell to the right, overlapping itself
+
+        Assert.Equal([0x30, 0x30, 0x31, 0x32, 0x33],
+                     Enumerable.Range(0, 5).Select(i => map.At(i, 10)));
+    }
+
+    private static void Paint(MainWindow w, int col, int row)
+        => typeof(MainWindow)
+            .GetMethod("BgPaint", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .Invoke(w, [col, row]);
+
     private static EditorSession SessionOf(MainWindow w) => (EditorSession)typeof(MainWindow)
         .GetField("session", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
         .GetValue(w)!;

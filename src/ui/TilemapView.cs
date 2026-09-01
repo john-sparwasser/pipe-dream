@@ -12,13 +12,14 @@ namespace PipeDream.Ui;
 /// (a picker). They are the same thing — a grid of cells you point at — and the only difference
 /// is which button does what, so the picker is a flag rather than a second class.
 ///
-///   LEFT click/drag    paint the armed tile (canvas), or pick the cell (drawer)
-///   RIGHT click        eyedropper: arm the tile already in this cell
+///   LEFT click/drag    lasso a rectangle of cells (canvas), or pick a tile (drawer)
+///   RIGHT click/drag   stamp — a COPY of the lassoed rectangle when there is one, else the
+///                      drawer's tile
 ///
-/// Left paints here rather than stamping on the right, as the level and Map16 canvases do. Those
-/// keep left for selection because they HAVE selection; this mode does not, so leaving left with
-/// no job would be the only surprise on offer. It follows the GFX canvas instead, which is the
-/// nearer sibling: a paint surface with a brush.
+/// The same grammar as the level and Map16 canvases, including the precedence: a selection made
+/// HERE outranks the one made in the drawer, exactly as a Map16 lasso outranks its 8x8 brush.
+/// A one-cell lasso is therefore also the eyedropper — it carries whatever that cell holds,
+/// which on layer 3 is a whole BG3 word, palette group and flips included.
 ///
 /// Cells are composed into one surface rather than drawn one rectangle at a time, so a 64x64
 /// layer 3 is a single blit at whatever fractional zoom the viewport lands on.
@@ -48,15 +49,33 @@ public sealed class TilemapView : Control
     /// <summary>A cell value → its CellPx × CellPx pixels, or null when it draws nothing.</summary>
     public Func<int, uint[]?>? CellPixels { get; set; }
 
-    /// <summary>Drawer mode: left picks instead of painting, and the picked cell is ringed.</summary>
+    /// <summary>Drawer mode: left picks a tile instead of lassoing, and nothing is paintable.</summary>
     public bool PickOnLeft { get; set; }
 
-    /// <summary>The armed cell, drawn with a selection ring. In drawer mode this is the brush.</summary>
+    /// <summary>The armed cell, drawn with a ring. In drawer mode this is the brush.</summary>
     public int? Selected { get; set; }
+
+    /// <summary>The lassoed rectangle in cells, or null. A stamp copies THIS when it exists —
+    /// the canvas outranks the drawer, which is what makes a one-cell lasso an eyedropper.</summary>
+    public (int X, int Y, int W, int H)? Selection { get; private set; }
+
+    /// <summary>The footprint a stamp would cover, for the cursor outline: the lasso's size, or
+    /// one cell when the drawer's tile is what would land.</summary>
+    public (int W, int H) Brush => Selection is { } s ? (s.W, s.H) : (1, 1);
 
     public event EventHandler<(int Col, int Row)>? Painted;
     public event EventHandler? StrokeEnded;
     public event EventHandler<(int Col, int Row)>? Picked;
+    public event EventHandler? SelectionChanged;
+
+    /// <summary>Drop the lasso — a drawer pick, or a click on the desk beside the grid.</summary>
+    public void ClearSelection()
+    {
+        if (Selection is null) return;
+        Selection = null;
+        SelectionChanged?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
+    }
 
     public TilemapView()
     {
@@ -133,9 +152,21 @@ public sealed class TilemapView : Control
             ctx.FillRectangle(UiColors.SelectionFill, r);
             ctx.DrawRectangle(null, new Pen(UiColors.Selection, 2), r);
         }
+        if (Selection is { } lasso)
+        {
+            var r = new Rect(lasso.X * Step, lasso.Y * Step, lasso.W * Step, lasso.H * Step);
+            ctx.FillRectangle(UiColors.SelectionFill, r);
+            ctx.DrawRectangle(null, new Pen(UiColors.Selection, 2), r);
+        }
+        // The cursor outlines what a stamp would COVER, not the cell it is over: with a lasso
+        // armed that is the whole rectangle, and guessing where it lands is the one thing a
+        // pattern brush should never make you do.
         if (hover is { } h && !PickOnLeft)
+        {
+            var (bw, bh) = Brush;
             ctx.DrawRectangle(null, new Pen(UiColors.Band, 1.5),
-                              new Rect(h.Col * Step, h.Row * Step, Step, Step));
+                              new Rect(h.Col * Step, h.Row * Step, bw * Step, bh * Step));
+        }
     }
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
@@ -143,15 +174,22 @@ public sealed class TilemapView : Control
         var p = e.GetPosition(this);
         if (At(p) is not { } cell) return;
         var props = e.GetCurrentPoint(this).Properties;
-        if (props.IsRightButtonPressed || PickOnLeft)
+        if (PickOnLeft)
         {
             Picked?.Invoke(this, cell);
         }
-        else if (props.IsLeftButtonPressed)
+        else if (props.IsRightButtonPressed)
         {
             painting = true;
             e.Pointer.Capture(this);
             Painted?.Invoke(this, cell);
+        }
+        else if (props.IsLeftButtonPressed)
+        {
+            // A press starts the lasso and settles it at one cell straight away, so a plain
+            // click IS a selection — there is no drag threshold to discover.
+            BeginSelection(cell.Col, cell.Row);
+            e.Pointer.Capture(this);
         }
         e.Handled = true;
     }
@@ -161,15 +199,44 @@ public sealed class TilemapView : Control
         var cell = At(e.GetPosition(this));
         if (cell != hover) { hover = cell; if (!PickOnLeft) InvalidateVisual(); }
         if (painting && cell is { } c) Painted?.Invoke(this, c);
+        else if (lassoStart is not null && cell is { } l) ExtendSelection(l.Col, l.Row);
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
+        e.Pointer.Capture(null);
+        lassoStart = null;
         if (!painting) return;
         painting = false;
-        e.Pointer.Capture(null);
         StrokeEnded?.Invoke(this, EventArgs.Empty);
     }
+
+    /// <summary>
+    /// Anchor a lasso at this cell and settle it there — the gesture a left press starts.
+    /// Public because it is the behaviour worth testing, and driving it through synthesised
+    /// pointer events would be testing Avalonia rather than this.
+    /// </summary>
+    public void BeginSelection(int col, int row)
+    {
+        lassoStart = (col, row);
+        SetLasso((col, row));
+    }
+
+    /// <summary>Grow the lasso to cover the anchor and this cell, in either direction.</summary>
+    public void ExtendSelection(int col, int row) => SetLasso((col, row));
+
+    private void SetLasso((int Col, int Row) to)
+    {
+        if (lassoStart is not { } from) return;
+        var next = (X: Math.Min(from.Col, to.Col), Y: Math.Min(from.Row, to.Row),
+                    W: Math.Abs(to.Col - from.Col) + 1, H: Math.Abs(to.Row - from.Row) + 1);
+        if (Selection == next) return;
+        Selection = next;
+        SelectionChanged?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
+    }
+
+    private (int Col, int Row)? lassoStart;
 
     protected override void OnPointerExited(PointerEventArgs e)
     {

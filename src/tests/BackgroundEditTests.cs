@@ -82,6 +82,49 @@ public class BackgroundEditTests(ITestOutputHelper log)
         log.WriteLine($"layer 2 grid {bg.Cols}x{bg.Rows}, layer 3 {s.Layer3Map!.Cols}x{s.Layer3Map.Rows}");
     }
 
+    // ---- the canvas grammar ----
+
+    /// <summary>
+    /// Left lassos, right stamps, and the lasso OUTRANKS the drawer's tile — the same precedence
+    /// the Map16 canvas runs, where a selection beats the 8x8 brush. A plain left click settles a
+    /// one-cell lasso straight away, which is what makes it double as the eyedropper: on layer 3
+    /// a cell is a whole BG3 word, so it carries the palette group an existing map uses.
+    /// </summary>
+    [Avalonia.Headless.XUnit.AvaloniaFact]
+    public void a_lasso_settles_on_press_and_covers_the_dragged_rectangle()
+    {
+        var view = new TilemapView { Cols = 32, Rows = 27, CellPx = 16, Zoom = 2 };
+        var seen = 0;
+        view.SelectionChanged += (_, _) => seen++;
+
+        // A press at (2,3) settles one cell immediately — no drag threshold to find.
+        view.BeginSelection(2, 3);
+        Assert.Equal((2, 3, 1, 1), view.Selection);
+        Assert.Equal((1, 1), view.Brush);
+
+        // Dragging up and left of the anchor still gives a positive rectangle.
+        view.ExtendSelection(0, 1);
+        Assert.Equal((0, 1, 3, 3), view.Selection);
+        Assert.Equal((3, 3), view.Brush);
+        Assert.True(seen >= 2);
+
+        view.ClearSelection();
+        Assert.Null(view.Selection);
+        Assert.Equal((1, 1), view.Brush);
+    }
+
+    [Avalonia.Headless.XUnit.AvaloniaFact]
+    public void the_cell_under_a_point_follows_the_zoom()
+    {
+        var view = new TilemapView { Cols = 32, Rows = 27, CellPx = 16, Zoom = 2 };
+        Assert.Equal((0, 0), view.At(new Avalonia.Point(0, 0)));
+        Assert.Equal((1, 0), view.At(new Avalonia.Point(32, 0)));     // 16px cell at 2x
+        Assert.Equal((3, 2), view.At(new Avalonia.Point(3 * 32 + 5, 2 * 32 + 5)));
+        Assert.Null(view.At(new Avalonia.Point(32 * 32, 0)));         // past the last column
+        view.Zoom = 1;
+        Assert.Equal((2, 0), view.At(new Avalonia.Point(32, 0)));
+    }
+
     // ---- layer 3: the first stroke makes the level's own tilemap ----
 
     [Fact]

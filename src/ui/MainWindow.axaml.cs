@@ -148,7 +148,7 @@ public partial class MainWindow : Window
         // there would stack a handler per refresh. The handlers look the layer up instead.
         bgView.Painted += (_, c) => BgPaint(c.Col, c.Row);
         bgView.StrokeEnded += (_, _) => BgStrokeEnded();
-        bgView.Picked += (_, c) => BgEyedrop(c.Col, c.Row);
+        bgView.SelectionChanged += (_, _) => RefreshBgNote();
         bgSheet.Picked += (_, c) => BgBrushPicked(c.Col, c.Row);
         bgNote = this.GetControl<TextBlock>("BgNote");
         bgDrawerTitle = this.GetControl<TextBlock>("BgDrawerTitle");
@@ -958,6 +958,10 @@ public partial class MainWindow : Window
                 DiscardGfxFloat();
             else if (modeGfx.IsChecked == true && gfxCanvas.Selection is not null)
                 gfxCanvas.Selection = null;
+            // Same shape in the Background tab: the first Esc drops the lasso, so the drawer's
+            // tile is armed again; only the next one leaves the mode.
+            else if (modeBg.IsChecked == true && bgView.Selection is not null)
+                bgView.ClearSelection();
             else if (modeLevel.IsChecked != true) OnMode(modeLevel, new RoutedEventArgs());
             // The overlay modes are modes you can be IN, so Esc is how you leave one — before it
             // gets as far as the layer/sprite cycle, which has no meaning while one is armed.
@@ -2548,7 +2552,7 @@ public partial class MainWindow : Window
         {
             bgView.CellAt = null; bgView.Reshape(0, 0, 16);
             bgSheet.CellAt = null; bgSheet.Reshape(0, 0, 16);
-            bgNote.Text = note;
+            bgNoteBase = note; RefreshBgNote();
         }
 
         if (!session.HasLevel) { Empty(""); return; }
@@ -2583,8 +2587,9 @@ public partial class MainWindow : Window
             bgSheet.Zoom = 2;
             bgSheet.Reshape(SheetCols, Layer3.TileCount / SheetCols, 8);
 
-            bgNote.Text = $"{Layer3.Cols}x{Layer3.Rows} tiles — {Layer3.OptionNames[opt]}"
-                        + (session.Layer3TilemapImported ? ", custom tilemap" : "");
+            bgNoteBase = $"{Layer3.Cols}x{Layer3.Rows} tiles — {Layer3.OptionNames[opt]}"
+                       + (session.Layer3TilemapImported ? ", custom tilemap" : "");
+            RefreshBgNote();
             return;
         }
 
@@ -2604,12 +2609,22 @@ public partial class MainWindow : Window
         bgSheet.Zoom = 1;
         bgSheet.Reshape(SheetCols, EditorSession.BgSheetTiles / SheetCols, 16);
 
-        bgNote.Text = $"{EditorSession.BgCols}x{EditorSession.BgRows} tiles — two screens, repeats"
-                    + (session.BgTilemapEdited ? ", edited" : "");
+        bgNoteBase = $"{EditorSession.BgCols}x{EditorSession.BgRows} tiles — two screens, repeats"
+                   + (session.BgTilemapEdited ? ", edited" : "");
+        RefreshBgNote();
     }
 
     /// <summary>The drawer sheets are sixteen tiles to a row, as every other sheet here is.</summary>
     private const int SheetCols = 16;
+
+    /// <summary>What the note says apart from the lasso. Kept so a lasso DRAG can update the
+    /// note without going back through RefreshBg, which would recompose the whole grid on every
+    /// cell the cursor crosses.</summary>
+    private string bgNoteBase = "";
+
+    private void RefreshBgNote()
+        => bgNote.Text = bgNoteBase
+                       + (bgView.Selection is { } s ? $"  —  {s.W}x{s.H} selected, right-click to stamp" : "");
 
     // ---- painting a background ----
     // Left paints, right is the eyedropper, and the drawer's left click arms the brush. The
@@ -2621,7 +2636,23 @@ public partial class MainWindow : Window
     private void BgPaint(int col, int row)
     {
         if (BgLayerEdit is not { } map) return;
-        if (map.Stamp(col, row, bgLayer3.IsChecked == true ? bgBrushL3 : bgBrush)) bgView.Invalidate();
+        bool changed;
+        if (bgView.Selection is { } sel)
+        {
+            // Read the whole rectangle BEFORE writing any of it: stamping a selection over
+            // itself is the ordinary case (nudging a pattern along by a cell), and reading as
+            // you write smears the first row across the rest.
+            var copy = new int[sel.W * sel.H];
+            for (int j = 0; j < sel.H; j++)
+                for (int i = 0; i < sel.W; i++)
+                    copy[j * sel.W + i] = map.At(sel.X + i, sel.Y + j);
+            changed = false;
+            for (int j = 0; j < sel.H; j++)
+                for (int i = 0; i < sel.W; i++)
+                    changed |= map.Stamp(col + i, row + j, copy[j * sel.W + i]);
+        }
+        else changed = map.Stamp(col, row, bgLayer3.IsChecked == true ? bgBrushL3 : bgBrush);
+        if (changed) bgView.Invalidate();
     }
 
     /// <summary>Mouse up: the stroke becomes one undo entry and the level's data changes. A drag
@@ -2633,18 +2664,9 @@ public partial class MainWindow : Window
         UpdateTitle();
     }
 
-    /// <summary>Right-click: arm what is already in this cell. On layer 3 that carries the whole
-    /// WORD — palette group and flips included — which is the only way to paint with the palette
-    /// an existing tilemap uses, since the drawer offers one group at a time.</summary>
-    private void BgEyedrop(int col, int row)
-    {
-        if (BgLayerEdit is not { } map) return;
-        int v = map.At(col, row);
-        if (v < 0) return;
-        if (bgLayer3.IsChecked == true) bgBrushL3 = v; else bgBrush = v;
-        RefreshBg();
-    }
-
+    /// <summary>Picking in the drawer DROPS the canvas lasso. The lasso outranks the drawer's
+    /// tile when both exist, so leaving it up would make the pick do nothing at all — the
+    /// precedence is about which is armed, and picking is how you arm the other one.</summary>
     private void BgBrushPicked(int col, int row)
     {
         int tile = row * SheetCols + col;
@@ -2658,6 +2680,7 @@ public partial class MainWindow : Window
             if (tile >= EditorSession.BgSheetTiles) return;
             bgBrush = tile;
         }
+        bgView.ClearSelection();
         RefreshBg();
     }
 
