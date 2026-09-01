@@ -162,6 +162,36 @@ public class Layer3Tests(ITestOutputHelper log)
         }
     }
 
+    /// <summary>
+    /// The tilemap bypass, all of it in word 1 behind w0 bit 13 (CONTRACT §12b). l3_g ends its
+    /// six controlled saves at LT3 = ExGFX 80, size 0x2000, destination "Last Line of Status
+    /// Bar" — w1 = 8080 — with the two OTHER enables in w0 untouched by any of it.
+    /// </summary>
+    [Fact]
+    public void the_tilemap_bypass_is_word_1_behind_its_own_enable_bit()
+    {
+        if (OpenRef("layer3", "l3_g.smc") is not { } rom) return;
+
+        Assert.Equal(0x8080, rom.LmGfxRecord(0x105)![1]);
+        var (file, dest, size) = rom.LmLayer3Tilemap(0x105)!.Value;
+        Assert.Equal(0x080, file);
+        Assert.Equal(2, dest);
+        Assert.Equal(0, size);
+        Assert.Equal(0x2000, Layer3.TilemapSizes[size]);
+        Assert.Equal("Last Line of Status Bar", Layer3.TilemapDestinations[dest]);
+
+        // Three independent enables in w0, and this save set only the third.
+        Assert.Equal(0x607F, rom.LmGfxRecord(0x105)![0]);
+        Assert.NotNull(rom.LmLayer3Gfx(0x105));       // bit 14, from the earlier saves
+        Assert.Null(rom.LmGfxBypass(0x105));          // bit 15, still off
+
+        // Only level 105, and only where the bit says so.
+        for (int level = 0; level < 0x200; level++)
+            if (level != 0x105)
+                Assert.Null(rom.LmLayer3Tilemap(level));
+        Assert.Null(OpenRef("layer3", "l3_e.smc")?.LmLayer3Tilemap(0x105));
+    }
+
     [Fact]
     public void a_rom_without_lms_layer_3_hack_keeps_the_vanilla_files()
     {

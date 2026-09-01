@@ -427,6 +427,26 @@ public static class LunarMagic
             return lg;
         }
 
+        /// <summary>
+        /// The level's layer-3 TILEMAP bypass — the LT3 file, where it lands, and how much of
+        /// the window it fills — or null when the level does not bypass the tilemap
+        /// (CONTRACT §12b).
+        ///
+        /// All of it is <b>word 1</b> of the same per-level record, gated by <b>w0 bit 13</b>:
+        /// bits 0-11 are the file (0x7F = skip), bits 12-13 the size, bits 14-15 the
+        /// destination. Three enables now live in w0 — bit 15 FG/BG/SP, bit 14 layer-3 GFX,
+        /// bit 13 layer-3 tilemap — and they are independent.
+        ///
+        /// NOTE the collision: §7d and §12d both read w1's low bits as the ExAnimation AN1
+        /// slot, traced from LM's own loader at $0FF7F0. Both cannot hold a file at once, so a
+        /// level using AN1 and a bypassed layer-3 tilemap disagree about what w1 means. Which
+        /// reader wins is NOT established — see §12b.
+        /// </summary>
+        public (int File, int Destination, int Size)? LmLayer3Tilemap(int level)
+            => rom.LmGfxRecord(level) is { } r && (r[0] & 0x2000) != 0
+               ? (r[1] & 0xFFF, r[1] >> 14 & 3, r[1] >> 12 & 3)
+               : null;
+
         /// <summary>True when LM's LAYER-3 GFX loader is installed — the code that reads the
         /// record's bit 14 and its words 12-15 at all (CONTRACT §12b). Probed by its VRAM
         /// destination table at the fixed $0FFA7F inside LM's $0FF780 block: $4C00 $4800 $4400

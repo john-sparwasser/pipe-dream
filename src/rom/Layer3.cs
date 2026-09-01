@@ -189,6 +189,15 @@ public static class Layer3
     /// LM offers exactly these three in its bypass dialog.</summary>
     public static bool IsTilemapSize(int bytes) => bytes is 0x800 or 0x1000 or 0x2000;
 
+    /// <summary>LM's four tilemap sizes, indexed by the record's size field (CONTRACT §12b).
+    /// Index 3 is "Do not use" — a bypass that names a file and then declines to load it.</summary>
+    public static readonly int[] TilemapSizes = [0x2000, 0x1000, 0x800, 0];
+
+    /// <summary>LM's four tilemap destinations, indexed by the record's destination field. Where
+    /// each one actually lands in the window is NOT decoded — only which is selected.</summary>
+    public static readonly string[] TilemapDestinations =
+        ["Under Status Bar", "Start of Layer 3", "Last Line of Status Bar", "Bottom Half of Layer 3"];
+
     /// <summary>
     /// Vanilla's stripe-image uploader ($00871E), run into a word buffer instead of VRAM.
     /// Each entry is a 4-byte header: the VRAM word address BIG-endian, then a flags/length

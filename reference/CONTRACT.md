@@ -1244,10 +1244,35 @@ and `gfx_after.smc` (which predates the layer-3 hack entirely) already carries i
   VRAM         LM's own destination table at `$0FFA7F` is `$4C00 $4800 $4400 $4000` for slot
                index 0-3, i.e. **LG1 → word $4000, LG2 → $4400, LG3 → $4800, LG4 → $4C00**,
                0x400 words each — independently confirming the 128-tile-per-slot layout above.
-  still open   the TILEMAP bypass (LT3 file, destination, size) is not pinned. Its dialog
-               default is "7F Skip File", and w9-w11 sit at `0x007F` in every sampled record,
-               which is where it probably lives; w0 bit 13 is the obvious candidate for its
-               enable. No controlled save has enabled it yet.
+**The TILEMAP bypass  [CONFIRMED — all four fields, `l3_g.smc`]** — six controlled saves off
+`l3_e`, each moving one control. It is not in w9-w11 as guessed: the whole thing is **word 1**,
+gated by **w0 bit 13**.
+
+  enable       **w0 bit 13** (`0x2000`). Ticking "Enable bypass of standard Layer 3 tilemap"
+               alone moved exactly that bit: `407F` → `607F`, nothing else in the record. So w0
+               carries THREE independent enables — bit 15 FG/BG/SP, bit 14 layer-3 GFX, bit 13
+               layer-3 tilemap.
+  w1 bits 0-11 the LT3 file (`0x7F` = Skip File). `l3_g` ends at `w1 = 8080`, LT3 = ExGFX 80.
+  w1 bits 12-13 file size: **0 = 0x2000 (512x512), 1 = 0x1000 (512x256), 2 = 0x800 (256x256),
+               3 = "Do not use"**. Read off four saves: `807F 907F A07F B07F`.
+  w1 bits 14-15 destination: **0 = Under Status Bar, 1 = Start of Layer 3, 2 = Last Line of
+               Status Bar, 3 = Bottom Half of Layer 3**. Four saves gave `007F 507F 907F D07F`,
+               whose high nibbles are `dest<<2 | size` — the bit 12 that first looked like a
+               stray "not default" flag was the size field, which LM's dialog had quietly left
+               on 0x1000 from an earlier step.
+
+  LM VALIDATES on OK, which is worth knowing before driving it: an un-inserted LT3 file is
+  refused ("Graphics file not found in ROM"), and a file larger than the declared size is
+  refused too ("larger than it should be for the slot it's in") — including against "Do not
+  use", which permits 0 bytes. Where each destination actually LANDS in the window is still
+  undecoded; only which of the four is selected.
+
+**w1 IS ALSO AN1 — an unresolved collision.** §7d and §12d both read w1's low bits as the
+ExAnimation AN1 slot, traced from LM's loader at `$0FF7F0`; this decode reads the same bits as
+the LT3 file. Both cannot hold a file at once. Either one of the readers masks differently, or
+LM treats the two features as mutually exclusive per level. NOT established — and until it is,
+`Gfx.LevelSlots` will report a bypassed LT3 file as that level's AN1. `Rom.LmLayer3Tilemap`
+reads the layer-3 side; `LmGfxBypass`'s w1 still reads the AN1 side.
 
 Read by `Rom.LmLayer3Gfx(level)` (null = not bypassed) via `Rom.LmGfxRecord`, which returns
 the raw 16 words so each feature applies its own gate. `--layer3` prints the resolved LG1-4 and
