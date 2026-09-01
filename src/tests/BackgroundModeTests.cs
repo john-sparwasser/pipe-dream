@@ -97,12 +97,44 @@ public class BackgroundModeTests(ITestOutputHelper log)
     }
 
     [AvaloniaFact]
-    public void a_level_with_no_layer_3_says_which_option_left_it_empty()
+    public void a_level_with_no_layer_3_says_where_to_turn_one_on()
     {
         if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
         var w = Open(0x105, layer3: true);
 
         Assert.Null(w.GetControl<PixelImage>("BgView").Source);
-        Assert.Contains("Blank Layer 3", w.GetControl<TextBlock>("BgNote").Text);
+        // A dead end that names no way out is the same as no message at all.
+        Assert.Contains("Layer 3 option", w.GetControl<TextBlock>("BgNote").Text);
     }
+
+    /// <summary>
+    /// Turning the option on is what "activates" a layer 3, and the tab has to notice. The
+    /// entrance byte the dialog writes is mostly spawn bookkeeping the canvas never draws, so
+    /// the properties flow used not to repaint at all — which looked exactly like the setting
+    /// not taking.
+    /// </summary>
+    [AvaloniaFact]
+    public void setting_the_layer_3_option_makes_the_level_grow_one()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var w = Open(0x105, layer3: true);
+        var session = SessionOf(w);
+        Assert.Null(w.GetControl<PixelImage>("BgView").Source);
+
+        // What Level ▸ Properties ▸ "Layer 3 option" does: 3 = Tileset specific.
+        session.ApplyEntry(session.MainEntrance!.Value with { Layer3Option = 3 });
+        Invoke(w, "AdoptSession");
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.NotNull(w.GetControl<PixelImage>("BgView").Source);
+        Assert.Contains("Tileset specific", w.GetControl<TextBlock>("BgNote").Text);
+    }
+
+    private static EditorSession SessionOf(MainWindow w) => (EditorSession)typeof(MainWindow)
+        .GetField("session", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+        .GetValue(w)!;
+
+    private static void Invoke(MainWindow w, string method) => typeof(MainWindow)
+        .GetMethod(method, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+        .Invoke(w, null);
 }

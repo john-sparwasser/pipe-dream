@@ -1307,7 +1307,10 @@ public partial class MainWindow : Window
         await dlg.ShowDialog(this);
 
         if (dlg.RevertRequested) { session.RevertHeader(); AdoptSession(); return; }
-        if (dlg.AppliedEntry is { } en) session.ApplyEntry(en);
+        // An entrance change repaints too. Most of its fields are spawn bookkeeping the canvas
+        // never draws, but the Layer 3 option is in there — without this, giving a level a
+        // layer 3 wrote the byte and left the Background tab still saying it has none.
+        if (dlg.AppliedEntry is { } en && en != entrance) { session.ApplyEntry(en); AdoptSession(); }
         if (dlg.AppliedHeader is { } h && h != header)
         {
             session.ApplyHeader(h);
@@ -2482,11 +2485,14 @@ public partial class MainWindow : Window
             var (l3, lw, lh) = session.Layer3Image();
             if (lw == 0)
             {
-                // Either the level's option is Blank, or its level mode has no tilemap for the
-                // option it carries — vanilla's table only covers modes 0-14 (CONTRACT §12b).
+                // Two different empty states, and saying which one it is IS the fix: "no layer 3"
+                // alone left no way to tell a level that never asked for one from a level whose
+                // mode has no tilemap to give it (vanilla's table covers modes 0-14, §12b).
                 bgView.Source = null;
                 bgSheet.Source = null;
-                bgNote.Text = $"no layer 3 in this level — {Layer3.OptionNames[opt]}";
+                bgNote.Text = opt == 0
+                    ? "no layer 3 — give this level one in Level ▸ Properties ▸ \"Layer 3 option\""
+                    : $"{Layer3.OptionNames[opt]}, but level mode {session.Header?.LevelMode} has no tilemap for it";
                 return;
             }
             // Layer 3 does not animate, so it is drawn once rather than per phase.
