@@ -199,6 +199,15 @@ public static class Layer3
         ["Under Status Bar", "Start of Layer 3", "Last Line of Status Bar", "Bottom Half of Layer 3"];
 
     /// <summary>
+    /// The destination a BUILT tilemap is stamped with: "Start of Layer 3", because that is the
+    /// one whose name matches where this editor draws an imported map — word $5000, the top of
+    /// the window (<see cref="FromBytes"/>). The VRAM offset each destination actually implies is
+    /// undecoded, so this is the honest guess and not a measurement; if a built layer 3 comes out
+    /// shifted, this is the constant to question first.
+    /// </summary>
+    public const int BuiltTilemapDestination = 1;
+
+    /// <summary>
     /// Vanilla's stripe-image uploader ($00871E), run into a word buffer instead of VRAM.
     /// Each entry is a 4-byte header: the VRAM word address BIG-endian, then a flags/length
     /// pair — bit 15 steps down a column (+32 words, one row of a screen) instead of across,

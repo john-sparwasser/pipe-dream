@@ -192,6 +192,85 @@ public class Layer3Tests(ITestOutputHelper log)
         Assert.Null(OpenRef("layer3", "l3_e.smc")?.LmLayer3Tilemap(0x105));
     }
 
+    /// <summary>
+    /// A layer-3 tilemap now REACHES the built ROM: inserted as an ExGFX file, named by the
+    /// record's LT3 slot, with bit 13 lit. It needs a base carrying LM's tilemap loader, so this
+    /// builds on l3_g — the save that installed it — rather than on a prepped vanilla.
+    /// </summary>
+    [Fact]
+    public void a_tilemap_is_inserted_and_named_by_the_record_when_the_base_can_load_it()
+    {
+        if (OpenRefPath("layer3", "l3_g.smc") is not { } basePath) return;
+        string dir = Path.Combine(Path.GetTempPath(), "pdl3w-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            var s = new EditorSession();
+            Assert.True(s.NewProject(Path.Combine(dir, "proj"), basePath), s.Status);
+            s.ShowLevel(0x009);
+            Assert.True(s.Rom!.HasLmLayer3Tilemap);
+
+            var map = s.Layer3Map!;
+            map.Stamp(10, 10, (2 << 10) | 0x41);
+            Assert.True(map.EndStroke());
+            s.Save();
+
+            string status = s.Build();
+            log.WriteLine(status);
+            string built = Path.Combine(s.Project!.Folder, "build", s.Project.Name + ".smc");
+            Assert.True(File.Exists(built), status);
+            var rom = Rom.Load(built);
+
+            var bypass = rom.LmLayer3Tilemap(0x009);
+            Assert.NotNull(bypass);
+            var (file, dest, size) = bypass!.Value;
+            Assert.InRange(file, 0x80, 0xFF);
+            Assert.Equal(Layer3.BuiltTilemapDestination, dest);
+            Assert.Equal(0x2000, Layer3.TilemapSizes[size]);
+
+            // The file the slot names really is there, and really is the map that was painted.
+            var inserted = Gfx.Cached(rom, file);
+            Assert.NotNull(inserted);
+            Assert.Equal(0x2000, inserted!.Length);
+            int at = Layer3.CellIndex(10, 10) * 2;
+            Assert.Equal((2 << 10) | 0x41, inserted[at] | (inserted[at + 1] << 8));
+            Assert.DoesNotContain("editor-only", status);
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
+    }
+
+    /// <summary>...and on a base WITHOUT the loader it says so instead of writing bytes the game
+    /// would never read.</summary>
+    [Fact]
+    public void a_base_without_the_tilemap_loader_is_told_so_rather_than_stamped()
+    {
+        if (!File.Exists(Vanilla)) { log.WriteLine("SKIP: no ROM"); return; }
+        string dir = Path.Combine(Path.GetTempPath(), "pdl3n-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            var s = new EditorSession();
+            Assert.True(s.NewProject(Path.Combine(dir, "proj"), Vanilla), s.Status);
+            s.ShowLevel(0x009);
+            Assert.False(s.Rom!.HasLmLayer3Tilemap);
+            s.Layer3Map!.Stamp(10, 10, (2 << 10) | 0x41);
+            s.Layer3Map.EndStroke();
+            s.Save();
+
+            string status = s.Build();
+            Assert.Contains("layer-3 tilemap stays editor-only", status);
+            var rom = Rom.Load(Path.Combine(s.Project!.Folder, "build", s.Project.Name + ".smc"));
+            Assert.Null(rom.LmLayer3Tilemap(0x009));
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
+    }
+
+    private string? OpenRefPath(params string[] parts)
+    {
+        string p = Path.Combine([Path.GetDirectoryName(Vanilla)!, .. parts]);
+        if (File.Exists(p)) return p;
+        log.WriteLine($"SKIP: no {string.Join("/", parts)}");
+        return null;
+    }
+
     [Fact]
     public void a_rom_without_lms_layer_3_hack_keeps_the_vanilla_files()
     {

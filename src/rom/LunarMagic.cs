@@ -447,6 +447,12 @@ public static class LunarMagic
                ? (r[1] & 0xFFF, r[1] >> 14 & 3, r[1] >> 12 & 3)
                : null;
 
+        /// <summary>True when LM's layer-3 TILEMAP loader is installed: a `JSL` replaces
+        /// vanilla's `LDA $1BE3` at $00A01F, the head of the routine that picks a tilemap out of
+        /// Layer3Ptr and runs it through the stripe uploader (CONTRACT §12b). Without it the
+        /// record's bit 13 and word 1 are bytes nothing reads.</summary>
+        public bool HasLmLayer3Tilemap => rom.ReadByte(0x00A01F) == 0x22;
+
         /// <summary>True when LM's LAYER-3 GFX loader is installed — the code that reads the
         /// record's bit 14 and its words 12-15 at all (CONTRACT §12b). Probed by its VRAM
         /// destination table at the fixed $0FFA7F inside LM's $0FF780 block: $4C00 $4800 $4400

@@ -1284,15 +1284,23 @@ the bit-15 bypass, which is why `LmGfxBypass` now ignores words 12-15 and `LmLay
 them. Nothing writes the record back into an LM ROM's own table yet — the override lives in the
 project and is applied on build, the same as every other slot.
 
-**Tilemaps can be EDITED and IMPORTED, but not built.** Painting layer 3 forks the level a
-tilemap of its own on the first stroke (the shared (mode, option) block is left alone), and
- `EditorSession.ImportLayer3Tilemap` takes LM's LT3
-file shape — a flat little-endian 16-bit map of 0x800/0x1000/0x2000 bytes — stores it per level
-(`Rom.Layer3Tilemaps`, `ProjectFile.LevelState.Layer3Tilemap`) and draws it in place of vanilla's
-(mode, option) pick. It stays EDITOR-ONLY, with a build warning, because the record's LT3 slot is
-still unlocated: no controlled save has enabled the tilemap bypass. The file lands at word 
-and whatever it does not cover stays unwritten, since LM's per-file "Destination" (Under Status
-Bar / Start / Last Line / Bottom Half) is undecoded too.
+**Tilemaps can be EDITED, IMPORTED and BUILT.** Painting layer 3 forks the level a tilemap of its
+own on the first stroke, leaving the shared (mode, option) block alone;
+`EditorSession.ImportLayer3Tilemap` takes LM's LT3 file shape — a flat little-endian 16-bit map
+of 0x800/0x1000/0x2000 bytes. Either way it is stored per level (`Rom.Layer3Tilemaps`,
+`ProjectFile.LevelState.Layer3Tilemap`) and drawn in place of vanilla's pick.
+
+The BUILD inserts it as an ordinary graphics file — LZ2-compressed, RATS-allocated, taking the
+lowest free ExGFX id in 80-FF — and names it from the record's LT3 slot with bit 13 lit. That
+needs a base carrying LM's layer-3 tilemap loader (`Rom.HasLmLayer3Tilemap`: a `JSL` replacing
+`LDA $1BE3` at `$00A01F`). Our prep does NOT install it, so on a prepped base the tilemap stays
+editor-only and the build says so.
+
+Two approximations remain, both flagged in code. The file is drawn from word `$5000` and
+stamped with destination 1 ("Start of Layer 3", `Layer3.BuiltTilemapDestination`) because that
+is the destination whose NAME matches — the VRAM offset each of the four implies is undecoded,
+so a built layer 3 coming out shifted means that constant is the thing to question. And nothing
+has yet been run in an emulator to confirm the round trip end to end.
 
 **The Layer 3 Options field  [CONFIRMED for 0 and 3; 1/2 by dropdown order]** — isolated by
 `l3_c` (Blank Layer 3) → `l3_e` (Tileset Specific), with the hack installed on both. Changing

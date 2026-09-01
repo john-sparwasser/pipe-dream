@@ -211,12 +211,8 @@ internal static class RomBuilder
                 }
 
                 WriteBackground(rom, level, key, state, warnings);
-                // A layer-3 tilemap has no slot to be written to yet, so the build owes the user
-                // the difference between "not supported here" and data quietly vanishing.
-                if (state.Layer3Tilemap is not null)
-                    warnings.Add($"level {key}: the imported layer-3 tilemap stays editor-only "
-                               + "(LM's tilemap-bypass slot is not decoded — CONTRACT §12b)");
-                WriteGfxRecord(rom, level, key, state, warnings);
+                int lt3 = WriteLayer3Tilemap(rom, project.Data, level, key, state, warnings);
+                WriteGfxRecord(rom, level, key, state, warnings, lt3);
             }
 
             Directory.CreateDirectory(Path.Combine(project.Folder, "build"));
@@ -366,15 +362,54 @@ internal static class RomBuilder
     }
 
     /// <summary>
+    /// Insert a level's layer-3 tilemap as an ExGFX file and return the id it took, or -1.
+    ///
+    /// The tilemap rides the ordinary graphics path — LM's LT3 slot names a GFX file number and
+    /// the same resolver fetches it (§7d) — so this is compress, allocate, point, exactly as
+    /// <see cref="WriteGfx"/> does for a real graphics file. The id comes from the 0x80-0xFF
+    /// range, which is the one LM's own dialog offers for LT3, and is chosen as the lowest that
+    /// neither the project nor the base already uses so a rebuild picks the same one.
+    /// </summary>
+    private static int WriteLayer3Tilemap(Rom rom, ProjectFile data, int level, string key,
+                                          ProjectFile.LevelState state, List<string> warnings)
+    {
+        if (state.Layer3Tilemap is not { } b64) return -1;
+        if (!rom.HasLmLayer3Tilemap)
+        {
+            warnings.Add($"level {key}: the layer-3 tilemap stays editor-only (base lacks LM's "
+                       + "layer-3 tilemap loader — it draws the level mode's own tilemap instead)");
+            return -1;
+        }
+        var raw = Convert.FromBase64String(b64);
+        if (Array.IndexOf(Layer3.TilemapSizes, raw.Length) is < 0 or 3)
+        {
+            warnings.Add($"level {key}: layer-3 tilemap skipped — 0x{raw.Length:X} bytes is not one "
+                       + "of LM's sizes (0x800 / 0x1000 / 0x2000)");
+            return -1;
+        }
+        int id = 0x80;
+        while (id <= 0xFF && (data.Gfx.ContainsKey($"{id:X}") || Gfx.SourceSnes(rom, id) >= 0)) id++;
+        if (id > 0xFF)
+        {
+            warnings.Add($"level {key}: layer-3 tilemap skipped — no free ExGFX id in 80-FF");
+            return -1;
+        }
+        int snes = AllocateAutoExpand(rom, Gfx.Lz2Compress(raw), avoidBankCross: false);
+        int fo = rom.FileOffset(Gfx.ExGfx80Table + (id - 0x80) * 3);
+        rom.Data[fo] = (byte)snes; rom.Data[fo + 1] = (byte)(snes >> 8); rom.Data[fo + 2] = (byte)(snes >> 16);
+        return id;
+    }
+
+    /// <summary>
     /// Write a level's Super-GFX-Bypass record (16 words at LmGfxBypassBase + level*0x20):
     /// the base ROM's record (or an all-default one) with the project's slot overrides
     /// applied and the w0 enable bit set — byte-parity with the session overlay
     /// (LunarMagic.LmGfxBypass) by construction.
     /// </summary>
     private static void WriteGfxRecord(Rom rom, int level, string key, ProjectFile.LevelState state,
-                                       List<string> warnings)
+                                       List<string> warnings, int lt3File = -1)
     {
-        if (state.GfxOverrides.Count == 0) return;
+        if (state.GfxOverrides.Count == 0 && lt3File < 0) return;
         if (!GfxCapable(rom))
         {
             warnings.Add($"level {key}: GFX slot overrides skipped (base lacks the in-game GFX loader — File → Upgrade base to prep v{RomPrep.Version})");
@@ -397,6 +432,14 @@ internal static class RomBuilder
         // layer-3-only edit would switch on an FG/BG/SP bypass the project never asked for.
         if (state.GfxOverrides.Keys.Any(k => k is >= 0 and <= 11)) w[0] |= 0x8000;
         if (state.GfxOverrides.Keys.Any(k => k is >= 12 and <= 15)) w[0] |= 0x4000;
+        // ...and the third enable, bit 13, with everything it needs packed into word 1: the file
+        // in the low 12 bits, the size in 12-13, the destination in 14-15 (§12b).
+        if (lt3File >= 0)
+        {
+            int size = Array.IndexOf(Layer3.TilemapSizes, Convert.FromBase64String(state.Layer3Tilemap!).Length);
+            w[0] |= 0x2000;
+            w[1] = (ushort)((lt3File & 0xFFF) | (size & 3) << 12 | Layer3.BuiltTilemapDestination << 14);
+        }
         int fo = rom.FileOffset(rom.LmGfxBypassBase + level * 0x20);
         for (int i = 0; i < 16; i++) { rom.Data[fo + i * 2] = (byte)w[i]; rom.Data[fo + i * 2 + 1] = (byte)(w[i] >> 8); }
 
