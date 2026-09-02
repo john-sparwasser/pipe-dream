@@ -18,8 +18,7 @@ namespace PipeDream.Ui;
 /// </summary>
 public class Map16PaletteView : Control
 {
-    private readonly LevelBitmap sheet = new();
-    private int sheetW, sheetH;
+    private readonly Map16Sheet sheet = new();
 
     /// <summary>Which animation phase to draw. The window steps it for every surface at once,
     /// so a tile animates the same here as it does in the level.</summary>
@@ -30,7 +29,7 @@ public class Map16PaletteView : Control
 
     /// <summary>Draw a square around each Map16 page (16 rows).</summary>
     public bool ShowPages { get; set; }
-    public int TileCount { get; private set; }
+    public int TileCount => sheet.TileCount;
 
     /// <summary>Selected Map16 tile number, in the unified numbering the level canvas uses.</summary>
     public int Selected { get; private set; } = 0x100;
@@ -41,11 +40,12 @@ public class Map16PaletteView : Control
 
     public void SetSheet(uint[]?[] px, int w, int h, int tileCount)
     {
-        sheetW = w; sheetH = h; TileCount = tileCount;
-        sheet.SetImages(px, w, h, Phase);
+        sheet.SetSheet(px, w, h, tileCount, Phase);
         InvalidateVisual();
         InvalidateMeasure();
     }
+
+    public void SetPlaceholder(uint[]?[] px) { sheet.SetPlaceholder(px); InvalidateVisual(); }
 
     /// <summary>Tile under a screen point, or null past the end of the bank.</summary>
     public int? TileAt(Point p)
@@ -82,47 +82,10 @@ public class Map16PaletteView : Control
         }
     }
 
-    /// <summary>The empty-page tile per phase, same as the Map16 editor: FG pages without
-    /// defs yet are a field of LM's default tile, not a black hole.</summary>
-    private readonly Bitmap?[] placeholder = new Bitmap?[4];
-
-    public void SetPlaceholder(uint[]?[] px)
-    {
-        for (int p = 0; p < 4; p++) placeholder[p] = px[p] is { } img ? LevelBitmap.FromPixels(img, 16, 16) : null;
-        InvalidateVisual();
-    }
-
-    private readonly PixelBlit blit = new();
-
     public override void Render(DrawingContext ctx)
     {
-        double z = Zoom, cell = 16 * z;
-        var full = new Rect(0, 0, 16 * cell, Map16Layout.BankRows * cell);
-        // Empty pages are ordinary black tiles, not a roped-off region: painting one is what
-        // brings it into existence, so the drawer must not make it look unavailable.
-        ctx.FillRectangle(Brushes.Black, full);
-        if (Bank < 2 && placeholder[Phase & 3] is { } ph)
-            ctx.FillRectangle(new ImageBrush(ph)
-            {
-                TileMode = TileMode.Tile, Stretch = Stretch.Fill,
-                DestinationRect = new RelativeRect(0, 0, cell, cell, RelativeUnit.Absolute),
-            }, full);
-
-        if (sheet.For(Phase) is { } bmp && sheetH > 0)
-        {
-            var (v0, v1, rows, _) = Map16Layout.SheetWindow(Bank, sheetH, TileCount);
-            if (rows > 0)
-            {
-                var src = new Rect(0, v0 * sheetH, sheetW, (v1 - v0) * sheetH);
-                blit.Draw(this, ctx, bmp, src, new Rect(0, 0, 16 * cell, rows * cell),
-                          VisualRoot?.RenderScaling ?? 1);
-            }
-        }
-
-        // Page separators every 16 rows, LM-style — the drawer's only orientation cue.
-        var line = new Pen(new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)));
-        for (int page = 1; page < Map16Layout.BankTiles / 0x100; page++)
-            ctx.DrawLine(line, new Point(0, page * 16 * cell), new Point(16 * cell, page * 16 * cell));
+        double cell = 16 * Zoom;
+        sheet.Draw(this, ctx, Bank, Phase, cell);
 
         // "Pages" toggle: a square around each Map16 page plus its number, for when the
         // subtle lines aren't enough to keep track of which page a tile lands on.
