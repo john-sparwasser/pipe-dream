@@ -68,12 +68,7 @@ public class ChrPaletteView : Control
     private double Cell => 8 * Zoom;
 
     public int? TileAt(Point p)
-    {
-        int col = (int)(p.X / Cell), row = (int)(p.Y / Cell);
-        if (col is < 0 or >= Cols || row < 0) return null;
-        int t = row * Cols + col;
-        return t < Count ? t : null;
-    }
+        => Lasso.CellAt(p, Cell, Cols, Count / Cols) is { } c ? c.Y * Cols + c.X : null;
 
     /// <summary>Fit the width. The host must not offer infinity here — the ScrollViewer around
     /// this one scrolls vertically only, so it does not — but a stale zoom beats a NaN one.</summary>

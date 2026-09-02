@@ -76,6 +76,23 @@ public class GestureTests
     }
 
     [Fact]
+    public void a_stroke_paints_its_first_cell_fills_gaps_and_ends_once()
+    {
+        var painted = new List<(int X, int Y)>();
+        var stroke = new Stroke(painted.Add);
+        Assert.False(stroke.Active);
+        stroke.MoveTo((9, 9));                                 // nothing running: nothing painted
+        Assert.Empty(painted);
+
+        stroke.Begin((0, 0));
+        stroke.MoveTo((3, 0));
+        Assert.True(stroke.Active);
+        Assert.Equal([(0, 0), (1, 0), (2, 0), (3, 0)], painted);
+        Assert.True(stroke.End());
+        Assert.False(stroke.End());                            // the second release is not a stroke
+    }
+
+    [Fact]
     public void a_stroke_between_two_samples_has_no_holes_and_skips_the_start()
     {
         var steps = Lasso.Between((0, 0), (5, 2)).ToList();
