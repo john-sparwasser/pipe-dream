@@ -284,4 +284,72 @@ public class BackgroundEditTests(ITestOutputHelper log)
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { } }
     }
+
+    /// <summary>
+    /// The whole promise behind painting a layer 3: the strokes are saved with the project like
+    /// any other level edit, and a build puts them in the ROM. No Save button of its own, no
+    /// export step in between — which is exactly why it needed pinning, because "it won't let me
+    /// save this" is what the absence of a button looks like from the outside.
+    ///
+    /// Four hops, because each one has failed somewhere in this codebase before: the stroke
+    /// reaches project.pdp, a reopened project has it, the build inserts the file, and the bytes
+    /// in that file are the ones that were painted.
+    /// </summary>
+    [RealRomFact]
+    public void a_painted_layer_3_is_saved_with_the_project_and_built_into_the_rom()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "pdl3-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            var s = new EditorSession();
+            Assert.True(s.NewProject(Path.Combine(dir, "proj"), Vanilla), s.Status);
+            s.ShowLevel(0x009);
+            int word = 3 << 10 | 0x1A5;                       // palette 3, a tile from LG4
+            Assert.True(s.Layer3Map!.Stamp(9, 9, word));
+            Assert.True(s.Layer3Map.EndStroke());
+            s.Save();
+
+            string pdp = Path.Combine(dir, "proj", "project.pdp");
+            var s2 = new EditorSession();
+            Assert.True(s2.OpenProject(pdp), s2.Status);
+            s2.ShowLevel(0x009);
+            Assert.Equal(word, s2.Layer3Map!.At(9, 9));
+
+            string status = s2.Build();
+            var rom = Rom.Load(Path.Combine(dir, "proj", "build", "proj.smc"));
+            var bypass = rom.LmLayer3Tilemap(0x009);
+            Assert.True(bypass is not null, "the build named no LT3 file: " + status);
+            var raw = Gfx.Cached(rom, bypass!.Value.File)!;
+            int at = Layer3.CellIndex(9, 9) * 2;
+            Assert.Equal(word, raw[at] | (raw[at + 1] << 8));
+        }
+        finally { try { Directory.Delete(dir, true); } catch { } }
+    }
+
+    /// <summary>
+    /// Export is the mirror of import, so the file it writes has to be one import takes back —
+    /// a "save" that only this editor can read is not a save. It exports what the level DRAWS,
+    /// so a level still on its mode's shared tilemap exports that rather than refusing.
+    /// </summary>
+    [RealRomFact]
+    public void an_exported_tilemap_is_the_file_import_reads_back()
+    {
+        if (Open(0x009) is not { Layer3Map: { } map } s) return;
+        string path = Path.Combine(Path.GetTempPath(), "pdl3-" + Guid.NewGuid().ToString("N")[..8] + ".bin");
+        try
+        {
+            int word = 6 << 10 | 0x0C3;
+            map.Stamp(1, 2, word);
+            map.EndStroke();
+            Assert.True(s.ExportLayer3Tilemap(path), s.Status);
+            Assert.Equal(Layer3.MapWords * 2, new FileInfo(path).Length);
+
+            // Round trip through the importer, onto a level that has never been painted.
+            s.ShowLevel(0x01A);
+            Assert.False(s.Layer3TilemapImported);
+            Assert.True(s.ImportLayer3Tilemap(path), s.Status);
+            Assert.Equal(word, s.Layer3Map!.At(1, 2));
+        }
+        finally { try { File.Delete(path); } catch { } }
+    }
 }

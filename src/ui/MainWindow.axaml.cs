@@ -87,7 +87,7 @@ public partial class MainWindow : Window
     private DockPanel animPane = null!, animToolPanel = null!;
     private DockPanel bgPane = null!, bgToolPanel = null!;
     private ToggleButton bgLayer2 = null!, bgLayer3 = null!;
-    private Button bgOptions = null!, bgImportMap = null!;
+    private Button bgOptions = null!, bgImportMap = null!, bgExportMap = null!;
     private TilemapView bgView = null!, bgSheet = null!;
 
     /// <summary>What a stamp writes: a BG Map16 tile on layer 2, a whole BG3 word on layer 3
@@ -147,6 +147,7 @@ public partial class MainWindow : Window
         bgLayer3 = this.GetControl<ToggleButton>("BgLayer3");
         bgOptions = this.GetControl<Button>("BgOptions");
         bgImportMap = this.GetControl<Button>("BgImportMap");
+        bgExportMap = this.GetControl<Button>("BgExportMap");
         bgView = this.GetControl<TilemapView>("BgView");
         bgSheet = this.GetControl<TilemapView>("BgSheet");
         bgSheet.PickOnLeft = true;
@@ -1236,6 +1237,19 @@ public partial class MainWindow : Window
             Title = title, AllowMultiple = false, FileTypeFilter = [type],
         });
         return files.Count > 0 ? files[0].TryGetLocalPath() : null;
+    }
+
+    /// <summary>Where to WRITE a file, the mirror of <see cref="PickFile"/>. Same settle-first
+    /// rule: the nested message loop a native dialog runs will hang the app if it starts inside
+    /// the input event that asked for it.</summary>
+    private async Task<string?> PickSaveFile(string title, string suggested, FilePickerFileType type)
+    {
+        await SettleBeforeNativeDialog();
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = title, SuggestedFileName = suggested, FileTypeChoices = [type],
+        });
+        return file?.TryGetLocalPath();
     }
 
     /// <summary>
@@ -2590,6 +2604,18 @@ public partial class MainWindow : Window
     /// <summary>Import a raw layer-3 tilemap for this level — LM's LT3 file, a flat 16-bit map.
     /// Editor-only until LM's tilemap-bypass slot is decoded, which the build says out loud;
     /// this is where you SEE it, which is most of what authoring one needs.</summary>
+    /// <summary>Save the level's layer-3 tilemap to a file. Painting it is already saved with
+    /// the project — this is for getting it OUT: into Lunar Magic, another level, or a backup.</summary>
+    private async void OnExportLayer3Tilemap(object? sender, RoutedEventArgs e)
+    {
+        if (await PickSaveFile("Export this level's layer-3 tilemap",
+                               $"level{session.LevelNum:X3}.bin",
+                               new FilePickerFileType("Tilemap") { Patterns = ["*.bin", "*.map"] }) is not { } path)
+            return;
+        session.ExportLayer3Tilemap(path);
+        UpdateTitle();
+    }
+
     private async void OnImportLayer3Tilemap(object? sender, RoutedEventArgs e)
     {
         if (await PickFile("Import a layer-3 tilemap",
@@ -2637,8 +2663,10 @@ public partial class MainWindow : Window
     {
         bool layer3 = bgLayer3.IsChecked == true;
         bgDrawerTitle.Text = layer3 ? "Layer 3 tiles" : "BG Map16 — pages 80-81";
-        bgOptions.IsVisible = bgImportMap.IsVisible = layer3;
+        bgOptions.IsVisible = bgImportMap.IsVisible = bgExportMap.IsVisible = layer3;
         bgOptions.IsEnabled = bgImportMap.IsEnabled = session.HasLevel;
+        // Export needs something to write; the other two are how you get there.
+        bgExportMap.IsEnabled = session.Layer3Map is not null;
         bgView.Backdrop = session.PaletteRgba is { Length: > 0 } pal ? pal[0] : 0xFF000000u;
         bgSheet.Backdrop = bgView.Backdrop;
 
@@ -2685,7 +2713,11 @@ public partial class MainWindow : Window
 
             bgNoteBase = $"{Layer3.Cols}x{Layer3.Rows} tiles — {Layer3.OptionNames[opt]}"
                        + $", palettes {Layer3PalettesInUse(palCounts)}"
-                       + (session.Layer3TilemapImported ? ", custom tilemap" : "")
+                       // "Did my painting stick?" is answered here, because the fork is invisible
+                       // otherwise: until the first stroke this level is LOOKING AT a tilemap
+                       // every level of its mode shares, and after it the level owns one. The bar
+                       // is narrow and ellipsises, so the sentence goes in the tip below.
+                       + (session.Layer3TilemapImported ? ", own tilemap" : ", shared")
                        + (session.Layer3Advanced is { } a3
                           ? $", scroll {Layer3.VScrollNames[a3.VScroll]}/{Layer3.HScrollNames[a3.HScroll]}"
                           : "");
@@ -2853,6 +2885,15 @@ public partial class MainWindow : Window
 
     private void RefreshBgNote()
     {
+        // The tip carries what the ellipsised note cannot, and it is the question people arrive
+        // with: painting a layer 3 needs no Save button of its own — the strokes ride the
+        // project like every other level edit, and the ROM gets them at the next build.
+        ToolTip.SetTip(bgNote, bgLayer3.IsChecked != true ? null
+            : session.Layer3TilemapImported
+                ? "This level has a layer-3 tilemap of its own. Painting it is saved with the "
+                + "project (Ctrl+S) and written into the ROM when you build (F4)."
+                : "This level is still showing the tilemap every level of its mode shares. The "
+                + "first stroke gives it one of its own, so painting cannot disturb the others.");
         bgNote.Text = bgNoteBase
                     + (bgView.Selection is { } s ? $"  —  {s.W}x{s.H} selected, right-click to stamp" : "");
         // Every exit from RefreshBg lands here, and so does a lasso drag — which is what the

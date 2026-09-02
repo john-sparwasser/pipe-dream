@@ -362,7 +362,31 @@ public sealed class EditorSession
             Project.MarkDirty();
         }
         touched.Add(LevelNum);
+        // The paintable grid is built from the tilemap at ShowLevel time, so it still holds the
+        // OLD map until it is rebuilt — an import that did not do this looked like it had done
+        // nothing until the level was switched away and back.
+        OpenBackgroundEdits();
         Report($"layer 3 tilemap ← {Path.GetFileName(path)} (0x{bytes.Length:X} bytes)");
+        return true;
+    }
+
+    /// <summary>
+    /// Write this level's layer-3 tilemap out as an LM-shaped LT3 file — the same flat
+    /// little-endian 0x2000 <see cref="ImportLayer3Tilemap"/> takes, so a map painted here can go
+    /// back into Lunar Magic, into another level, or into a backup.
+    ///
+    /// It exports what the level DRAWS, painted or not: a level still on vanilla's shared
+    /// (mode, option) tilemap has never forked one of its own, and refusing to export until the
+    /// first stroke would make "save what I am looking at" fail on exactly the picture someone
+    /// wants to start from.
+    /// </summary>
+    public bool ExportLayer3Tilemap(string path)
+    {
+        if (Layer3Map is not { } map) { Report("this level has no layer 3 to export"); return false; }
+        try { File.WriteAllBytes(path, Layer3.ToBytes(map.Cells)); }
+        catch (Exception e) { Report($"could not write {Path.GetFileName(path)}: {e.Message}"); return false; }
+        Report($"wrote {Path.GetFileName(path)} — 0x{Layer3.MapWords * 2:X} bytes, "
+             + $"{Layer3.Cols}x{Layer3.Rows} words");
         return true;
     }
 
@@ -376,6 +400,7 @@ public sealed class EditorSession
             Project.MarkDirty();
         }
         touched.Add(LevelNum);
+        OpenBackgroundEdits();                    // same reason as the import: rebuild what is painted on
         Report("layer 3 tilemap ← the base ROM's");
         return true;
     }

@@ -873,7 +873,14 @@
               <Button x:Name="BgOptions" DockPanel.Dock="Right" Content="Layer 3 Options"
                       VerticalAlignment="Center" IsVisible="False" Click="OnLayer3Options"
                       ToolTip.Tip="Which layer 3 this level gets, and whether it draws in front"/>
-              <Button x:Name="BgImportMap" DockPanel.Dock="Right" Content="Tilemap…"
+              <!-- Painting is saved with the project like every other level edit, so these two
+                   are about FILES, and having only one of them read as "a tilemap can only come
+                   from a file". -->
+              <Button x:Name="BgExportMap" DockPanel.Dock="Right" Content="Export…"
+                      VerticalAlignment="Center" IsVisible="False" Margin="0,0,6,0"
+                      Click="OnExportLayer3Tilemap"
+                      ToolTip.Tip="Write this level's layer-3 tilemap out as an LT3 file"/>
+              <Button x:Name="BgImportMap" DockPanel.Dock="Right" Content="Import…"
                       VerticalAlignment="Center" IsVisible="False" Margin="0,0,6,0"
                       Click="OnImportLayer3Tilemap"
                       ToolTip.Tip="Import a raw layer-3 tilemap (0x800/0x1000/0x2000 bytes) for this level"/>
