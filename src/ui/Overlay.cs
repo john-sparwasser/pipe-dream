@@ -55,4 +55,24 @@ internal static class Overlay
         ctx.DrawRectangle(null, RingUnder, r);
         ctx.DrawRectangle(null, RingOver, r);
     }
+
+    /// <summary>Badge text in the UI face, white unless told otherwise. Made separately from the
+    /// draw because a badge is sized to its text first.</summary>
+    public static FormattedText Text(string s, double size, IBrush? ink = null)
+        => new(s, System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+               Typeface.Default, size, ink ?? Brushes.White);
+
+    /// <summary>Draw text so its CAP HEIGHT straddles <paramref name="midY"/>. FormattedText's
+    /// Height carries the font's descent and line gap, and digits and capitals have no
+    /// descenders, so centring on the line box parks the text against the top of a badge.
+    /// DrawText takes the top of the line box, hence the Baseline term.</summary>
+    public static void DrawText(DrawingContext ctx, FormattedText t, double size, double x, double midY)
+        => ctx.DrawText(t, new Point(x, midY + size * 0.72 / 2 - t.Baseline));
+
+    /// <summary>One label, centred on a point.</summary>
+    public static void Label(DrawingContext ctx, string s, double size, Point centre, IBrush? ink = null)
+    {
+        var t = Text(s, size, ink);
+        DrawText(ctx, t, size, centre.X - t.Width / 2, centre.Y);
+    }
 }

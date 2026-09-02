@@ -728,21 +728,14 @@ public class LevelView : Control
             if (r.Width <= 0) continue;
             // Two digits for a byte, three once the destination carries its ninth bit — the
             // badge should read as the level number the user typed.
-            var text = new FormattedText(lm ? $"{dest:X4}" : dest > 0xFF ? $"{dest:X3}" : $"{dest:X2}",
-                                         System.Globalization.CultureInfo.InvariantCulture,
-                                         FlowDirection.LeftToRight, Typeface.Default, size, Brushes.White);
-            // The box is sized to the DIGITS, not to the line box: FormattedText.Height carries
-            // the font's descent and line gap, and digits have no descenders, so centring on it
-            // parks the number against the top of the badge.
+            var text = Overlay.Text(lm ? $"{dest:X4}" : dest > 0xFF ? $"{dest:X3}" : $"{dest:X2}", size);
+            // The box is sized to the DIGITS, not to the line box.
             var box = new Rect(r.Right - text.Width - padX * 2 - 8, r.Top + 6,
                                text.Width + padX * 2, size + padY * 2);
             // Anchored to the screen's top-right corner, not the viewport's: the badge names
             // THIS screen, and one that floated would name whichever is scrolled into view.
-            ctx.DrawRectangle(UiColors.Accent, new Pen(Brushes.White, 1), box, 3, 3);
-            // Baseline placed so the cap height straddles the middle. DrawText takes the top of
-            // the line box, hence the Baseline term.
-            double cap = size * 0.72;
-            ctx.DrawText(text, new Point(box.X + padX, box.Center.Y + cap / 2 - text.Baseline));
+            ctx.DrawRectangle(UiColors.Accent, BadgeEdge, box, 3, 3);
+            Overlay.DrawText(ctx, text, size, box.X + padX, box.Center.Y);
             badges.Add((box, screen));
         }
     }
@@ -771,32 +764,32 @@ public class LevelView : Control
             else
             {
                 var cap = new Rect(r.Center.X - 9, r.Y, 18, 18);
-                ctx.DrawEllipse(MarioRed, new Pen(Brushes.White, 1.5), cap.Center, 9, 9);
-                var m = new FormattedText("M", System.Globalization.CultureInfo.InvariantCulture,
-                                          FlowDirection.LeftToRight, Typeface.Default, 11, Brushes.White);
-                ctx.DrawText(m, new Point(cap.Center.X - m.Width / 2, cap.Center.Y + 11 * 0.72 / 2 - m.Baseline));
+                ctx.DrawEllipse(MarioRed, CapEdge, cap.Center, 9, 9);
+                Overlay.Label(ctx, "M", 11, cap.Center);
             }
-            ctx.DrawRectangle(null, new Pen(Brushes.White, 1), r);
+            ctx.DrawRectangle(null, BadgeEdge, r);
 
-            var label = new FormattedText(shown.Label, System.Globalization.CultureInfo.InvariantCulture,
-                                          FlowDirection.LeftToRight, Typeface.Default, 11, Brushes.White);
+            var label = Overlay.Text(shown.Label, 11);
             var box = new Rect(r.Right + 3, r.Y + 1, label.Width + 11, 16);
-            ctx.DrawRectangle(UiColors.SelectionFill, new Pen(UiColors.Selection, 1), box, 3, 3);
-            ctx.DrawText(label, new Point(box.X + 5, box.Center.Y + 11 * 0.72 / 2 - label.Baseline));
+            ctx.DrawRectangle(UiColors.SelectionFill, LabelEdge, box, 3, 3);
+            Overlay.DrawText(ctx, label, 11, box.X + 5, box.Center.Y);
             labelBoxes.Add((box.Inflate(new Thickness(6)), e));   // generous: crossing a 3px gap must not drop the badge
 
             // Hovered: an edit badge after the label, the way into the entrance's settings.
             if (hoverEntrance is { } h && h.Kind == e.Kind && h.Index == e.Index && dragEntrance is null)
             {
-                var pencil = new FormattedText("edit", System.Globalization.CultureInfo.InvariantCulture,
-                                               FlowDirection.LeftToRight, Typeface.Default, 11, Brushes.White);
+                var pencil = Overlay.Text("edit", 11);
                 var bb = new Rect(box.Right + 3, box.Y, pencil.Width + 11, 16);
-                ctx.DrawRectangle(UiColors.SelectionFill, new Pen(UiColors.Selection, 1), bb, 3, 3);
-                ctx.DrawText(pencil, new Point(bb.Center.X - pencil.Width / 2, bb.Center.Y + 11 * 0.72 / 2 - pencil.Baseline));
+                ctx.DrawRectangle(UiColors.SelectionFill, LabelEdge, bb, 3, 3);
+                Overlay.DrawText(ctx, pencil, 11, bb.Center.X - pencil.Width / 2, bb.Center.Y);
                 editBadges.Add((bb.Inflate(new Thickness(4)), e));
             }
         }
     }
+
+    private static readonly Pen BadgeEdge = new(Brushes.White, 1);
+    private static readonly Pen CapEdge = new(Brushes.White, 1.5);
+    private static readonly Pen LabelEdge = new(UiColors.Selection, 1);
 
     /// <summary>Mario's cap red. Not from the ROM's palette on purpose: the marker has to read
     /// against whatever artwork is under it, and the level's own colours are the artwork.</summary>
