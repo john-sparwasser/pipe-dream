@@ -2441,7 +2441,7 @@ public partial class MainWindow : Window
                 // Transparent, never null: a null background is not hit-testable, so the card
                 // would take no clicks except on the controls inside it.
                 Background = open ? UiColors.SelectionFill : Brushes.Transparent,
-                Cursor = new Cursor(StandardCursorType.Hand),
+                Cursor = UiCursors.Hand,
             };
             // An UNUSED bin (0x7F) is clickable too: selecting it is how it gets given something.
             card.PointerPressed += (_, _) =>
@@ -3245,7 +3245,7 @@ public partial class MainWindow : Window
             {
                 Child = block, CornerRadius = new CornerRadius(5), BorderThickness = new Thickness(2),
                 BorderBrush = open ? UiColors.Accent : this.FindResource("BorderBrush") as IBrush,
-                Background = open ? UiColors.SelectionFill : Brushes.Transparent, Cursor = new Cursor(StandardCursorType.Hand),
+                Background = open ? UiColors.SelectionFill : Brushes.Transparent, Cursor = UiCursors.Hand,
             };
             int idx = s.Index;
             card.PointerPressed += (_, _) => { animSelected = idx; RefreshAnim(); };
@@ -3393,7 +3393,7 @@ public partial class MainWindow : Window
             stack.Children.Add(col);
             var cardF = new Border { Child = stack, Margin = new Thickness(0, 0, 8, 8), MinWidth = 104,
                                      CornerRadius = new CornerRadius(5),
-                                     Cursor = new Cursor(StandardCursorType.Hand),
+                                     Cursor = UiCursors.Hand,
                                      Background = this.FindResource("RaisedBrush") as IBrush };
             ToolTip.SetTip(cardF, sel.IsPalette ? "click to set this frame's colour" : "click to pick this frame's tiles on the source sheet");
             cardF.PointerPressed += async (_, _) => await PickFrame(sel, fi, palRow);

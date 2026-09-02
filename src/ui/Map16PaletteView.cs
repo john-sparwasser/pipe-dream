@@ -79,6 +79,9 @@ public class Map16PaletteView : Control
         }
     }
 
+    private static readonly IBrush PageBrush = new SolidColorBrush(Color.Parse("#205C99"));
+    private static readonly Pen PagePen = new(PageBrush, 2);
+
     public override void Render(DrawingContext ctx)
     {
         double cell = 16 * Zoom;
@@ -88,19 +91,15 @@ public class Map16PaletteView : Control
         // subtle lines aren't enough to keep track of which page a tile lands on.
         if (ShowPages)
         {
-            var blue = new SolidColorBrush(Color.Parse("#205C99"));
-            var pen = new Pen(blue, 2);
             int perBank = Map16Layout.BankTiles / 0x100;
             for (int page = 0; page < perBank; page++)
             {
                 double y = page * 16 * cell;
-                ctx.DrawRectangle(null, pen, new Rect(1, y + 1, 16 * cell - 2, 16 * cell - 2));
-                var ft = new FormattedText($"{Bank * perBank + page:X2}",
-                    System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
-                    new Typeface("Consolas"), 12, Brushes.White);
+                ctx.DrawRectangle(null, PagePen, new Rect(1, y + 1, 16 * cell - 2, 16 * cell - 2));
+                var ft = Overlay.Text($"{Bank * perBank + page:X2}", 12);
                 var badge = new Rect(2, y + 2, ft.Width + 10, ft.Height + 6);
-                ctx.FillRectangle(blue, badge);
-                ctx.DrawText(ft, new Point(badge.X + 5, badge.Y + 3));
+                ctx.FillRectangle(PageBrush, badge);
+                Overlay.DrawText(ctx, ft, 12, badge.X + 5, badge.Center.Y);
             }
         }
 

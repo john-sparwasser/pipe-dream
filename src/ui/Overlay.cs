@@ -20,6 +20,7 @@ internal static class Overlay
     private static readonly Pen AntsOver = new(Brushes.White, 1) { DashStyle = DashStyle.Dash };
     private static readonly Pen RingUnder = new(Brushes.Black, 3);
     private static readonly Pen RingOver = new(Brushes.White, 1.5);
+    private static readonly Pen RingSelected = new(UiColors.Selection, 1.5);
 
     /// <summary>A settled selection: translucent fill under a ring.</summary>
     public static void Selection(DrawingContext ctx, Rect r) => ctx.DrawRectangle(UiColors.SelectionFill, SelectionPen, r);
@@ -54,6 +55,14 @@ internal static class Overlay
     {
         ctx.DrawRectangle(null, RingUnder, r);
         ctx.DrawRectangle(null, RingOver, r);
+    }
+
+    /// <summary>The same ring in the selection colour — a run of swatches a preview points at,
+    /// which is a selection rather than the one armed pick.</summary>
+    public static void SelectionRing(DrawingContext ctx, Rect r)
+    {
+        ctx.DrawRectangle(null, RingUnder, r);
+        ctx.DrawRectangle(null, RingSelected, r);
     }
 
     /// <summary>Badge text in the UI face, white unless told otherwise. Made separately from the
