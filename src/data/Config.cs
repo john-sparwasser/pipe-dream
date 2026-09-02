@@ -60,20 +60,80 @@ internal sealed class Config
     internal static StringComparison PathComparison =>
         OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
 
-    internal static Config Load()
+    /// <summary>What this instance loaded, so <see cref="Save(string)"/> can tell the fields it
+    /// changed from the ones it merely carried. Null on an instance made with <c>new</c>, which
+    /// then saves whole — the test suite's fresh instances, against its own redirected file.</summary>
+    private Config? loaded;
+
+    internal static Config Load() => Load(FilePath);
+
+    /// <summary>The file at <paramref name="path"/>, or defaults when it is absent or unreadable.
+    /// Path-parameterised so a test can work a file of its own rather than the one the run shares.</summary>
+    internal static Config Load(string path)
     {
-        try
-        {
-            if (File.Exists(FilePath))
-                return JsonSerializer.Deserialize<Config>(File.ReadAllText(FilePath)) ?? new();
-        }
-        catch { /* corrupt config falls back to defaults; the next Save rewrites it */ }
-        return new();
+        var cfg = Read(path) ?? new();
+        cfg.loaded = cfg.Snapshot();
+        return cfg;
     }
 
-    internal void Save()
+    /// <summary>
+    /// The file parsed, or null when there is nothing usable to parse. Two failures, told apart
+    /// because they need opposite handling.
+    ///
+    /// A read that fails with an IO error is most likely another instance mid-swap — Save's own
+    /// retry exists for the same race from the other side — so it is retried. If it still fails,
+    /// defaults are used, and what stops those defaults from being SAVED over a perfectly good
+    /// file is the merge in Save, which re-reads the file before writing.
+    ///
+    /// A file that exists but does not parse is set aside as config.json.corrupt. Left in place it
+    /// would be overwritten by the defaults on the next action — the recents getter alone saves —
+    /// and the user's settings would be gone without a trace.
+    /// </summary>
+    private static Config? Read(string path)
     {
-        Directory.CreateDirectory(Dir);
+        if (!File.Exists(path)) return null;
+        for (int attempt = 0; ; attempt++)
+        {
+            try { return JsonSerializer.Deserialize<Config>(File.ReadAllText(path)); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                if (attempt < 3) { Thread.Sleep(5); continue; }
+                return null;
+            }
+            catch (JsonException)
+            {
+                try { File.Move(path, path + ".corrupt", overwrite: true); } catch { /* defaults still apply */ }
+                return null;
+            }
+        }
+    }
+
+    /// <summary>A deep copy by the same round trip the file makes; the private state stays behind.</summary>
+    private Config Snapshot() => JsonSerializer.Deserialize<Config>(JsonSerializer.Serialize(this))!;
+
+    internal void Save() => Save(FilePath);
+
+    internal void Save(string path)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+
+        // Merge before writing. This file has as many writers as the user has editor instances
+        // — there is no single-instance guard, so two projects open side by side are two
+        // processes — and each used to write its whole in-memory copy. Set the vanilla ROM in
+        // one window, touch the recents in the other, and the second wrote its stale null over
+        // the first. Now a field this instance did not change takes whatever is on disk, so a
+        // writer only ever moves its own fields. It also heals a load that fell back to defaults
+        // on a transient read error: at save time the file reads fine, and the defaults yield.
+        if (loaded is { } was && Read(path) is { } disk)
+        {
+            if (VanillaRomPath == was.VanillaRomPath) VanillaRomPath = disk.VanillaRomPath;
+            if (RecentProjects.SequenceEqual(was.RecentProjects)) RecentProjects = disk.RecentProjects;
+            if (EmulatorPath == was.EmulatorPath) EmulatorPath = disk.EmulatorPath;
+            if (CheckForUpdates == was.CheckForUpdates) CheckForUpdates = disk.CheckForUpdates;
+            if (SkippedUpdate == was.SkippedUpdate) SkippedUpdate = disk.SkippedUpdate;
+            if (LastUpdateCheckUtc == was.LastUpdateCheckUtc) LastUpdateCheckUtc = disk.LastUpdateCheckUtc;
+            if (GfxBrowserView == was.GfxBrowserView) GfxBrowserView = disk.GfxBrowserView;
+        }
         string json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
 
         // Atomic: write a temp file and swap, so a crash mid-write cannot destroy the config.
@@ -82,7 +142,7 @@ internal sealed class Config
         // two things save at once — a second editor window, or a test run with parallel classes:
         // one writer's file is moved out from under the other, and the loser throws an IOException
         // that surfaces as "could not open project" for no reason the user can act on.
-        string tmp = $"{FilePath}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
+        string tmp = $"{path}.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
         try
         {
             File.WriteAllText(tmp, json);
@@ -96,7 +156,7 @@ internal sealed class Config
             // open project" — with nothing the user could do about it.
             for (int attempt = 0; ; attempt++)
             {
-                try { File.Move(tmp, FilePath, overwrite: true); return; }
+                try { File.Move(tmp, path, overwrite: true); loaded = Snapshot(); return; }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException
                                           && attempt < 3) { Thread.Sleep(5); }
             }
