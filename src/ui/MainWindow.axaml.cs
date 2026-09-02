@@ -68,6 +68,7 @@ public partial class MainWindow : Window
     private StackPanel gfxBins = null!;
     private ComboBox gfxPalRow = null!, gfxBpp = null!;
     private PaletteGridView gfxColors = null!;
+    private TextBlock gfxPalNote = null!;
     private MenuItem recentMenu = null!, upgradePrepItem = null!, spriteOverlayItem = null!,
                      animateItem = null!, runEmulatorItem = null!, layer3PreviewItem = null!;
     private PaletteGridView paletteGrid = null!, paletteBg = null!;
@@ -500,14 +501,15 @@ public partial class MainWindow : Window
         gfxPalRow = this.GetControl<ComboBox>("GfxPalRow");
         gfxBpp = this.GetControl<ComboBox>("GfxBpp");
         gfxColors = this.GetControl<PaletteGridView>("GfxColors");
+        gfxPalNote = this.GetControl<TextBlock>("GfxPalNote");
         gfxColors.Rows = 1;
         gfxColors.Cell = 20;
 
         gfxPalRow.SelectionChanged += (_, _) =>
         {
             if (refillingGfxRows || session.GfxPixels is not { } g) return;
-            if (gfxPalRow.SelectedItem is not int row) return;
-            g.PalRow = row;
+            if (gfxPalRow.SelectedItem is not int value) return;
+            SetGfxPalValue(g, value);
             RefreshGfx();
         };
         // The two depths the SNES actually DISPLAYS: 4bpp for FG/BG and sprite tiles, 2bpp for
@@ -571,7 +573,7 @@ public partial class MainWindow : Window
         // glass while dragging is exactly what lands on release.
         gfxCanvas.ShapeInk = d => session.GfxPixels is not { } g ? null
             : (g.ShapePixels(d.X0, d.Y0, d.X1, d.Y1),
-               session.PaletteRgba[g.PalRow * 16 + g.Color]);
+               session.PaletteRgba[g.BaseColor + g.Color]);
         gfxCanvas.ColorPicked += (_, p) => PickGfxColor(p.X, p.Y);
         // F cycles the tools in enum order rather than toggling two. Counted off the enum so
         // adding a tool cannot leave the last one unreachable.
@@ -814,7 +816,7 @@ public partial class MainWindow : Window
             {
                 CommitGfxFloat();
                 gp.Open(bin.File);
-                gp.PalRow = bin.PalRow;
+                gp.PalRow = bin.PalRow; gp.ColorOffset = bin.ColorOffset;
             }
             RefreshGfx();
         }
@@ -1179,7 +1181,7 @@ public partial class MainWindow : Window
             return;
         }
         var slot = session.GfxBins.Where(b => b.BypWord == gfxSlot)
-                          .Select(b => ((string Name, int PalRow, int Bpp)?)(b.Name, b.PalRow, b.Bpp))
+                          .Select(b => ((string Name, int PalRow, int Bpp, int ColorOffset)?)(b.Name, b.PalRow, b.Bpp, b.ColorOffset))
                           .FirstOrDefault();
         if (await PickGfxFile(slot is { } s ? $"Load into this level's {s.Name} bin"
                                             : "Open a graphics file in the tile editor") is not { } picked)
@@ -1188,7 +1190,7 @@ public partial class MainWindow : Window
         if (slot is { } bin)
         {
             session.SetGfxSlot(gfxSlot, picked);
-            if (session.GfxPixels is { } gp) gp.PalRow = bin.PalRow;   // the picker follows in RefreshGfx
+            if (session.GfxPixels is { } gp) { gp.PalRow = bin.PalRow; gp.ColorOffset = bin.ColorOffset; }
             AdoptSession();                     // the level draws through the new file now
         }
         session.GfxPixels?.Open(picked);
@@ -1964,7 +1966,7 @@ public partial class MainWindow : Window
         var pal = session.PaletteRgba;
         var px = new uint[w * h];
         for (int i = 0; i < px.Length; i++)
-            px[i] = src[i] == 0 ? 0u : pal[g.PalRow * 16 + Math.Min(src[i], (byte)g.MaxColor)];
+            px[i] = src[i] == 0 ? 0u : pal[g.BaseColor + Math.Min(src[i], (byte)g.MaxColor)];
         return px;
     }
 
@@ -2142,15 +2144,33 @@ public partial class MainWindow : Window
     /// constrains the choice, so all sixteen are there.
     /// </summary>
     private (int First, int Count) GfxRowRange()
-        => session.GfxBins.FirstOrDefault(b => b.BypWord == gfxSlot).Name switch
+        // A 2bpp file does not pick a ROW. It reads four colours, and four colours tile CGRAM
+        // 00-1F eight ways — the same palette GROUPS the layer-3 tilemap names and the Background
+        // and Palette pages now show. Offering rows 0-1 here was the old model, and it made the
+        // editor colour an LG file from CGRAM 00-03 while the drawer card beside it used 08-0B.
+        => GfxIsLayer3 ? (0, Layer3.PaletteGroups)
+         : session.GfxBins.FirstOrDefault(b => b.BypWord == gfxSlot).Name switch
         {
             null => (0, 16),
             var n when n.StartsWith("SP") => (8, 8),
-            // Layer 3 is 2bpp and its colours are the $00B170 block: CGRAM 08-0F and 18-1F,
-            // i.e. rows 0-1 offset by 8 — two rows, not eight.
-            var n when n.StartsWith("LG") => (0, 2),
             _ => (0, 8),
         };
+
+    /// <summary>Whether the open file is being READ as layer-3 graphics — the depth decides, not
+    /// the bin, so a custom ExGFX switched to 2bpp gets the group picker too.</summary>
+    private bool GfxIsLayer3 => session.GfxPixels?.Bpp == 2;
+
+    /// <summary>The picker's value for the open file: a palette group when it is 2bpp, the
+    /// 16-colour row otherwise. Group g is row g/4 with the offset (g%4)*4 — the two together
+    /// are what <see cref="GfxEdit.BaseColor"/> adds up.</summary>
+    private int GfxPalValue => session.GfxPixels is not { } g ? 0
+        : GfxIsLayer3 ? g.PalRow * 4 + g.ColorOffset / Layer3.PaletteColors : g.PalRow;
+
+    private void SetGfxPalValue(GfxEdit g, int value)
+    {
+        if (GfxIsLayer3) { g.PalRow = value / 4; g.ColorOffset = value % 4 * Layer3.PaletteColors; }
+        else { g.PalRow = value; g.ColorOffset = 0; }
+    }
 
     /// <summary>Fill the row picker with what this bin allows and land on the nearest legal row to
     /// the one being painted with. The items ARE the row numbers, so a list starting at 8 does not
@@ -2169,7 +2189,7 @@ public partial class MainWindow : Window
         }
         gfxPalRow.SelectedIndex = row - want.First;
         refillingGfxRows = false;
-        if (session.GfxPixels is { } g) g.PalRow = row;      // the clamp has to reach the editor
+        if (session.GfxPixels is { } g) SetGfxPalValue(g, row);   // the clamp has to reach the editor
     }
 
     /// <summary>Take the colour under a sheet pixel as the paint colour — the eyedropper tool and
@@ -2235,7 +2255,7 @@ public partial class MainWindow : Window
         // Nothing to paint on: an empty BIN offers Load, no bin at all offers nothing.
         gfxEmptyLoad.IsVisible = !none && g.Layout.Tiles == 0;
         SetGfxTool(g.Current);
-        RefreshGfxPalRows(g.PalRow);      // the rows this bin allows, before anything reads one
+        RefreshGfxPalRows(GfxPalValue);   // the rows this bin allows, before anything reads one
         // The depth box shows what the sheet is being READ as, override or not — so switching
         // files moves it back to whatever that file is, which is what dropping the override did.
         // A 3bpp-stored file reads as tile data, and tile data displays 4bpp: same entry.
@@ -2244,17 +2264,25 @@ public partial class MainWindow : Window
         refillingGfxRows = false;
         RefreshGfxSheet(none);
 
-        // The WHOLE 16-colour row as paint swatches: a tile displays 4bpp on the SNES, so the
-        // back half is part of the palette even where a 3bpp-stored file cannot reach it —
-        // IsDisabled greys those rather than hiding them. Index 0 keeps the sheet's grey
-        // convention: in a tile it means transparent, and a black swatch would read as black.
-        var row = new uint[16];
+        // For tile data, the WHOLE 16-colour row: a tile displays 4bpp on the SNES, so the back
+        // half is part of the palette even where a 3bpp-stored file cannot reach it — IsDisabled
+        // greys those rather than hiding them. For a 2bpp layer-3 file it is FOUR, the size of a
+        // palette group, because there is no back half to grey: the other twelve belong to other
+        // groups this file could equally be drawn in, and showing them as unreachable colours of
+        // "this" palette was the wrong picture. Index 0 keeps the sheet's grey convention.
+        int count = GfxIsLayer3 ? Layer3.PaletteColors : 16;
+        var row = new uint[count];
         var pal = session.PaletteRgba;
-        for (int i = 0; i < 16; i++)
-            row[i] = i == 0 ? 0xFF303030u : pal[g.PalRow * 16 + i];
-        gfxColors.Cols = 16;
+        for (int i = 0; i < count; i++)
+            row[i] = i == 0 ? 0xFF303030u : pal[g.BaseColor + i];
+        gfxColors.Cols = count;
         gfxColors.Colors = row;
         gfxColors.InvalidateMeasure();
+        gfxPalNote.Text = GfxIsLayer3
+            ? $"CGRAM {g.BaseColor:X2}-{g.BaseColor + count - 1:X2}"
+              + (Layer3.IsLayer3Palette(GfxPalValue) ? " — layer 3's own colours"
+                                                     : " — the level's background palette")
+            : "";
         gfxColors.Select(g.Current == GfxEdit.Tool.Eraser ? 0 : g.Color);
 
         RefreshGfxBins();          // the bins list IS the file picker now
@@ -2282,7 +2310,7 @@ public partial class MainWindow : Window
             bins.Add(($"E{0x60 + i:X2}", 2, 0x60 + i, 0x7F, session.Rom is { } r && (r.ImportedGfx.ContainsKey(0x60 + i) || r.LmAltExGfx(i) > 0) ? 0x60 + i : 0x7F, 0, 0));
         foreach (var bin in bins)
         {
-            int bypWord = bin.BypWord, palRow = bin.PalRow, file = bin.File;
+            int bypWord = bin.BypWord, palRow = bin.PalRow, file = bin.File, palOff = bin.ColorOffset;
             bool altFile = bypWord >= 0x60;
             int openFile = altFile ? Convert.ToInt32(bin.Name[1..], 16) : file;   // "E60" → 0x60
             // Two headed groups after the ten VRAM bins: the level's layer-3 window, then the
@@ -2337,9 +2365,9 @@ public partial class MainWindow : Window
 
             // The SELECTED bin previews in the row being painted with, so the drawer and the editor
             // show the same colours; the others keep the row the level actually loads them under.
-            int previewRow = bin.BypWord == gfxSlot && session.GfxPixels is { } sel
-                ? sel.PalRow : bin.PalRow;
-            var (px, w, h) = session.GfxFileSheet(bin.File, previewRow, bin.ColorOffset, bin.Bpp);
+            var (previewRow, previewOff) = bin.BypWord == gfxSlot && session.GfxPixels is { } sel
+                ? (sel.PalRow, sel.ColorOffset) : (bin.PalRow, bin.ColorOffset);
+            var (px, w, h) = session.GfxFileSheet(bin.File, previewRow, previewOff, bin.Bpp);
             if (px.Length > 0)
                 block.Children.Add(new PixelImage
                 {
@@ -2375,7 +2403,7 @@ public partial class MainWindow : Window
             card.PointerPressed += (_, _) =>
             {
                 gfxSlot = bypWord;
-                EditGfxFile(openFile, palRow, bin.Bpp);
+                EditGfxFile(openFile, palRow, bin.Bpp, palOff);
             };
             gfxBins.Children.Add(card);
         }
@@ -2388,12 +2416,12 @@ public partial class MainWindow : Window
     /// <summary>Open a bin's file in the GFX canvas mode. An unused bin (0x7F) resolves nowhere and
     /// is opened all the same: the canvas then shows its Load button instead of the last file's
     /// pixels, which is the honest answer to "what is in this bin".</summary>
-    private void EditGfxFile(int file, int palRow, int bpp = 0)
+    private void EditGfxFile(int file, int palRow, int bpp = 0, int palOff = 0)
     {
         if (session.GfxPixels is not { } g) return;
         CommitGfxFloat();                    // into the file it was floating over
         g.Open(file);
-        g.PalRow = palRow;                 // the bin's own row; the picker follows in RefreshGfx
+        g.PalRow = palRow; g.ColorOffset = palOff;   // the bin's own row; the picker follows in RefreshGfx
         // A bin can KNOW its depth where the file cannot: layer 3 is 2bpp because of where it is
         // loaded, so an ExGFX file a bypassed LG slot points at opens 2bpp too, not at the ROM's
         // depth. Open() cleared any previous override, so this is the one that sticks.

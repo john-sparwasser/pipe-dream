@@ -881,6 +881,52 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         Assert.InRange(session.GfxPixels!.PalRow, 0, 7);
     }
 
+    /// <summary>
+    /// A 2bpp file picks a palette GROUP, not a row — the same paradigm the Background footer and
+    /// the palette page's "Layer 3 only" use, because it is the same fact: four colours tile
+    /// CGRAM 00-1F eight ways, and eight groups is what a layer-3 tilemap word can name.
+    ///
+    /// The old model offered rows 0-1 and drew from `PalRow * 16 + colour`, which put the editor
+    /// on CGRAM 00-03 while the drawer card for the very same bin used 08-0B. That is the bug
+    /// this pins: BaseColor is now the one place row and offset are added up, so the sheet, the
+    /// swatches and the bin preview cannot disagree.
+    /// </summary>
+    [AvaloniaFact]
+    public void a_2bpp_file_picks_a_palette_group_of_four_rather_than_a_row_of_sixteen()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeGfx").RaiseEvent(
+            new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var session = SessionOf(w);
+        var rows = w.GetControl<ComboBox>("GfxPalRow");
+        var swatches = w.GetControl<PaletteGridView>("GfxColors");
+        Assert.Equal(16, swatches.Cols);                       // tile data: the whole row
+
+        session.GfxPixels!.Open(Layer3.VanillaGfx[0]);         // GFX28, a layer-3 file
+        session.GfxPixels.ViewAs(2);
+        typeof(MainWindow).GetMethod("RefreshGfx",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.Invoke(w, null);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(Layer3.PaletteGroups, rows.ItemCount);
+        Assert.Equal(Layer3.PaletteColors, swatches.Cols);
+        Assert.Contains("CGRAM", w.GetControl<TextBlock>("GfxPalNote").Text);
+
+        // Group 6 is CGRAM 18-1B: row 1, offset 8 — and BaseColor has to agree with both.
+        rows.SelectedIndex = 6;
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(1, session.GfxPixels.PalRow);
+        Assert.Equal(8, session.GfxPixels.ColorOffset);
+        Assert.Equal(0x18, session.GfxPixels.BaseColor);
+        Assert.Equal(Layer3.PaletteBase(6), session.GfxPixels.BaseColor);
+    }
+
     /// <summary>Up/Down cycle the paint palette row while drawing — the row is the thing you change
     /// most, and the combo box being the state is what carries it to the editor, the sheet and the
     /// drawer's preview of the selected bin in one go. It clamps rather than wrapping: row 0 is the

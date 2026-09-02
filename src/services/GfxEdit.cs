@@ -138,10 +138,25 @@ public sealed class GfxEdit
         }
     }
 
+    /// <summary>
+    /// Where this file's colour 0 sits INSIDE its palette row. Zero for tile data, which uses a
+    /// whole 16-colour row; for a 2bpp layer-3 file it is what selects one of the four groups a
+    /// row holds, because 2bpp reads four colours and eight groups tile CGRAM 00-1F.
+    ///
+    /// It was previously carried only by the drawer's bin card, which is why an LG bin's preview
+    /// was drawn in CGRAM 08+ while the file open in the editor was drawn in 00-03: the same
+    /// file, two palettes, and nothing saying which one the game uses.
+    /// </summary>
+    public int ColorOffset { get; set; }
+
+    /// <summary>The CGRAM index this file's colour 0 lands on. The one place row and offset are
+    /// combined, so a preview, a paint swatch and the sheet cannot disagree about it.</summary>
+    public int BaseColor => (PalRow & 0x0F) * 16 + ColorOffset;
+
     /// <summary>The sheet as RGBA, coloured by the chosen palette row.</summary>
     public (uint[] Px, int W, int H) Sheet(Palette pal)
         => Bytes is { } b && b.Length >= Gfx.TileBytes(Bpp)
-            ? Gfx.TileSheet(b, Bpp, pal, PalRow) : ([], 0, 0);
+            ? Gfx.TileSheet(b, Bpp, pal, PalRow, colorOffset: ColorOffset) : ([], 0, 0);
 
     /// <summary>The colour index at a sheet pixel — right-click eyedrop.</summary>
     public int? ColorAt(int px, int py)

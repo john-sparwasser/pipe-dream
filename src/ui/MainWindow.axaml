@@ -634,6 +634,8 @@
             <Path Classes="kind" Data="{StaticResource IconPalette}"/>
             <ComboBox x:Name="GfxPalRow" Classes="palrow"/>
             <ui:PaletteGridView x:Name="GfxColors" VerticalAlignment="Center"/>
+            <TextBlock x:Name="GfxPalNote" Classes="dim" VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis"/>
           </StackPanel>
         </DockPanel>
       </Border>
