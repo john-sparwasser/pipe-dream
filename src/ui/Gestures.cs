@@ -5,18 +5,25 @@ using Avalonia.Media;
 namespace PipeDream.Ui;
 
 /// <summary>The pointer shapes the canvases show, made once. A canvas that builds a Cursor per
-/// pointer move allocates on every pixel of travel for nothing.</summary>
+/// pointer move allocates on every pixel of travel for nothing.
+///
+/// Made on first use, NOT in static initializers: a Cursor needs the platform's ICursorFactory,
+/// and a static initializer that throws is cached by the runtime — so one touch from a plain
+/// unit test with no Avalonia platform up poisoned every later cursor in the process, and three
+/// unrelated hover tests failed on CI with "unable to locate ICursorFactory".</summary>
 internal static class UiCursors
 {
-    public static readonly Cursor Hand = new(StandardCursorType.Hand);
+    private static Cursor? hand, grab, move, we, ns, nwse, nesw;
+
+    public static Cursor Hand => hand ??= new(StandardCursorType.Hand);
     // ponytail: Windows has no stock open/closed-hand cursors; Hand + DragMove are the nearest
     // native pair. Custom bitmap cursors if the real grab hands ever matter.
-    public static readonly Cursor Grab = new(StandardCursorType.DragMove);
-    public static readonly Cursor Move = new(StandardCursorType.SizeAll);
-    public static readonly Cursor SizeWE = new(StandardCursorType.SizeWestEast);
-    public static readonly Cursor SizeNS = new(StandardCursorType.SizeNorthSouth);
-    public static readonly Cursor SizeNWSE = new(StandardCursorType.TopLeftCorner);
-    public static readonly Cursor SizeNESW = new(StandardCursorType.TopRightCorner);
+    public static Cursor Grab => grab ??= new(StandardCursorType.DragMove);
+    public static Cursor Move => move ??= new(StandardCursorType.SizeAll);
+    public static Cursor SizeWE => we ??= new(StandardCursorType.SizeWestEast);
+    public static Cursor SizeNS => ns ??= new(StandardCursorType.SizeNorthSouth);
+    public static Cursor SizeNWSE => nwse ??= new(StandardCursorType.TopLeftCorner);
+    public static Cursor SizeNESW => nesw ??= new(StandardCursorType.TopRightCorner);
 }
 
 /// <summary>
