@@ -2445,7 +2445,7 @@ public partial class MainWindow : Window
     private void PreviewLayer3Palette(bool on)
         => paletteGrid.Preview = on && paletteLayer3.IsChecked != true
             ? [.. Enumerable.Range(0, Layer3.PaletteGroups)
-                            .Select(g => (Layer3.PaletteBase(g), Layer3.PaletteColors))]
+                            .Select(g => (Layer3.PaletteBase(g), Layer3.PaletteColors, $"{g}"))]
             : null;
 
     /// <summary>Narrow the palette page to what layer 3 can reach, and back. A selection outside

@@ -121,13 +121,16 @@ public class PaletteGridView : Control
     /// showing: eight groups of four is what layer 3's palette space is, and a single rectangle
     /// over rows 0-1 would say only "these thirty-two". Null = draw the grid plainly.
     /// </summary>
-    public (int Start, int Count)[]? Preview
+    /// <remarks><c>Label</c> is drawn in the run's FIRST swatch — for a run of four that is the
+    /// only place a number fits, and it is where the eye already goes. The control does not know
+    /// what a run means, so the caller names it.</remarks>
+    public (int Start, int Count, string Label)[]? Preview
     {
         get => preview;
         set { preview = value; InvalidateVisual(); }
     }
 
-    private (int Start, int Count)[]? preview;
+    private (int Start, int Count, string Label)[]? preview;
 
     private bool InPreview(int i)
         => preview is null || preview.Any(p => i >= p.Start && i < p.Start + p.Count);
@@ -161,7 +164,8 @@ public class PaletteGridView : Control
             }
         }
         // The rings go over every swatch, so a run that wraps a row still reads as one run.
-        foreach (var (start, count) in preview ?? [])
+        foreach (var (start, count, label) in preview ?? [])
+        {
             for (int i = start; i < start + count; i += Cols - i % Cols)
             {
                 int run = Math.Min(count - (i - start), Cols - i % Cols);
@@ -169,6 +173,18 @@ public class PaletteGridView : Control
                 ctx.DrawRectangle(null, new Pen(Brushes.Black, 3), box);
                 ctx.DrawRectangle(null, new Pen(UiColors.Selection, 1.5), box);
             }
+            if (label.Length == 0) continue;
+            // Which run this is, in its first swatch. Ink chosen against that swatch, except on
+            // the hidden index 0 — nothing is painted there, so the panel behind it decides.
+            var first = new Rect(start % Cols * c, start / Cols * c, c, c);
+            bool blank = (HideFirst && start == 0) || start >= Colors.Length;
+            var over = blank ? Color.FromRgb(0x10, 0x12, 0x16)     // the panel shows through
+                             : UiColors.FromRgba(Colors[start]);
+            var text = new FormattedText(label, System.Globalization.CultureInfo.InvariantCulture,
+                                         FlowDirection.LeftToRight, Typeface.Default, c * 0.5,
+                                         Luminance(over) < 0.55 ? Brushes.White : Brushes.Black);
+            ctx.DrawText(text, new Point(first.Center.X - text.Width / 2, first.Center.Y - text.Height / 2));
+        }
 
         if (Selected >= 0 && Selected < Count && !(HideFirst && Selected == 0))
         {

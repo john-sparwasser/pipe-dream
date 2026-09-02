@@ -262,6 +262,10 @@ public class PaletteTabTests(ITestOutputHelper log) : IDisposable
         // Contiguous from 0, so between them the runs are exactly CGRAM 00-1F.
         Assert.Equal(Enumerable.Range(0, Layer3.PaletteGroups).Select(g => g * Layer3.PaletteColors),
                      runs.Select(r => r.Start));
+        // Each run carries its group number, drawn in its first swatch — four colours is too few
+        // to guess which group you are looking at from position alone once the rings are on.
+        Assert.Equal(Enumerable.Range(0, Layer3.PaletteGroups).Select(g => $"{g}"),
+                     runs.Select(r => r.Label));
 
         Preview(w, false);
         Assert.Null(grid.Preview);
