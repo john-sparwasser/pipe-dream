@@ -640,32 +640,25 @@ public class LevelView : Control
         {
             // Sprites highlight over their whole PIXEL display, not their spawn cell — the
             // cell is often nowhere near what you can see.
-            var fill = UiColors.SpriteFill;
-            var pen = new Pen(UiColors.Sprite, 2);
             foreach (int i in spv.Selection)
             {
                 if (i >= spv.Sprites.Sprites.Count) continue;
                 var (x0, y0, x1, y1) = spv.PixelRect(i);
-                ctx.DrawRectangle(fill, pen, PixelRect(x0, y0, x1 - x0, y1 - y0, z));
+                ctx.DrawRectangle(UiColors.SpriteFill, SpritePen, PixelRect(x0, y0, x1 - x0, y1 - y0, z));
             }
-            if (PixelBand is { } pb)
-                ctx.DrawRectangle(null, new Pen(UiColors.Band, 1.5), PixelRect(pb.X, pb.Y, pb.W, pb.H, z));
+            if (PixelBand is { } pb) Overlay.Band(ctx, PixelRect(pb.X, pb.Y, pb.W, pb.H, z));
         }
-        // Selection: the object's real footprint, from the tracked render.
+        // Selection: the object's real footprint, from the tracked render, in the same filled
+        // ring the Map16 and background canvases use — "these tiles are selected" reads the
+        // same in every editor.
         else if (Edit is { } ed)
-        {
-            // Filled, not just ringed — the same light blue the Map16 canvas uses for ITS
-            // selection, so "these tiles are selected" reads the same in both editors.
-            var pen = new Pen(UiColors.Selection, 1.5);
             foreach (int i in ed.Selection)
-                if (ed.BBox(i) is { } b)
-                    ctx.DrawRectangle(UiColors.SelectionFill, pen, CellRect(b.X, b.Y, b.W, b.H, z));
-        }
+                if (ed.BBox(i) is { } b) Overlay.Selection(ctx, CellRect(b.X, b.Y, b.W, b.H, z));
 
         // Resize preview while dragging an edge, then handles on a lone idle selection.
         if (resizeDrag is { } rd && bandEnd is { } rc && Edit is { } re
             && re.PreviewResizeBox(rd.Obj, Grips.Mask(rd.Edge), rc.X - rd.Cx, rc.Y - rd.Cy) is { } pv)
-            ctx.DrawRectangle(null, new Pen(UiColors.Selection, 1.5), CellRect(pv.X, pv.Y, pv.W, pv.H, z));
+            Overlay.Outline(ctx, CellRect(pv.X, pv.Y, pv.W, pv.H, z));
         else if (Edit is { Selection.Count: 1 } he && bandStart is null && moveStart is null)
             DrawHandles(ctx, he, z);
 
@@ -674,13 +667,13 @@ public class LevelView : Control
         if (grabbing)
         {
             if (Band is { } band && bandStart is not null)
-                ctx.DrawRectangle(null, new Pen(UiColors.Grab, 1.5),
-                                  CellRect(band.X, band.Y, band.W, band.H, z));
+                Overlay.Grab(ctx, CellRect(band.X, band.Y, band.W, band.H, z));
         }
         else if (PixelBand is { } lasso && bandStart is not null)
-            ctx.DrawRectangle(null, new Pen(UiColors.Band, 1.5),
-                              PixelRect(lasso.X, lasso.Y, lasso.W, lasso.H, z));
+            Overlay.Band(ctx, PixelRect(lasso.X, lasso.Y, lasso.W, lasso.H, z));
     }
+
+    private static readonly Pen SpritePen = new(UiColors.Sprite, 2);
 
     private Rect CellRect(int x, int y, int w, int h, double z)
         => new(x * 16 * z - Origin.X, y * 16 * z - Origin.Y, w * 16 * z, h * 16 * z);
@@ -725,9 +718,7 @@ public class LevelView : Control
             if (r.Width > 0) ctx.DrawRectangle(null, border, r);
         }
 
-        if (HoverCell is { } hc)
-            ctx.DrawRectangle(UiColors.SelectionFill, new Pen(UiColors.Selection, 2),
-                              ScreenRect(ScreenOf(hc), z));
+        if (HoverCell is { } hc) Overlay.Selection(ctx, ScreenRect(ScreenOf(hc), z));
 
         badges.Clear();
         const double size = 13, padX = 6, padY = 4;

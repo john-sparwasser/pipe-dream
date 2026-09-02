@@ -320,11 +320,7 @@ public class GfxCanvasView : Control
     }
 
     private static void Marquee(DrawingContext ctx, (int X, int Y, int W, int H) s, double z)
-    {
-        var r = new Rect(s.X * z, s.Y * z, s.W * z, s.H * z);
-        ctx.DrawRectangle(null, new Pen(Brushes.Black, 1), r);
-        ctx.DrawRectangle(null, new Pen(Brushes.White, 1) { DashStyle = DashStyle.Dash }, r);
-    }
+        => Overlay.Marquee(ctx, new Rect(s.X * z, s.Y * z, s.W * z, s.H * z));
 
     public override void Render(DrawingContext ctx)
     {
@@ -374,8 +370,7 @@ public class GfxCanvasView : Control
         // No reticle under the pointer tool: it paints nothing, so a crosshair on the pixel it
         // would land only competes with the marquee it is actually there to drag.
         if (Selecting || Hover is not { } h) return;
-        ctx.DrawRectangle(null, new Pen(UiColors.Selection, 1.5), new Rect(h.X * z, h.Y * z, z, z));
-        ctx.DrawRectangle(null, new Pen(UiColors.Band, 1),
-                          new Rect((h.X & ~7) * z, (h.Y & ~7) * z, 8 * z, 8 * z));
+        Overlay.Outline(ctx, new Rect(h.X * z, h.Y * z, z, z));
+        Overlay.Band(ctx, new Rect((h.X & ~7) * z, (h.Y & ~7) * z, 8 * z, 8 * z));
     }
 }

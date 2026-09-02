@@ -353,19 +353,13 @@ public class Map16CanvasView : Control
         if ((lassoStart ?? moveStart) is { } s0 && lassoEnd is { } s1)
         {
             var l = Snapped(s0, s1);
-            ctx.DrawRectangle(null, new Pen(UiColors.Band, 1.5), Cells(l.X, l.Y, l.W, l.H, qs));
+            Overlay.Band(ctx, Cells(l.X, l.Y, l.W, l.H, qs));
         }
-        if (Selection is { } sel)
-        {
-            var r = Cells(sel.X, sel.Y, sel.W, sel.H, qs);
-            ctx.FillRectangle(UiColors.SelectionFill, r);
-            ctx.DrawRectangle(null, new Pen(UiColors.Selection, 2), r);
-        }
+        if (Selection is { } sel) Overlay.Selection(ctx, Cells(sel.X, sel.Y, sel.W, sel.H, qs));
         else if (SelectedTile is { } armed && armed / Map16Layout.BankTiles == Bank)
         {
             int idx = armed % Map16Layout.BankTiles;
-            ctx.DrawRectangle(null, new Pen(UiColors.Selection, 2),
-                              Cells(idx % Map16Layout.Cols, idx / Map16Layout.Cols, 1, 1, ts));
+            Overlay.Outline(ctx, Cells(idx % Map16Layout.Cols, idx / Map16Layout.Cols, 1, 1, ts));
         }
 
         // The cursor: the brush footprint in QUADRANTS at 8x8 — a cell-sized outline would lie
@@ -375,8 +369,7 @@ public class Map16CanvasView : Control
         {
             double cw = Grain == TileGrain.Quad8 ? BrushW * qs : ts;
             double ch = Grain == TileGrain.Quad8 ? BrushH * qs : ts;
-            ctx.DrawRectangle(null, new Pen(UiColors.Brush, 1.5),
-                              new Rect(brushOrigin.X, brushOrigin.Y, cw, ch));
+            Overlay.Brush(ctx, new Rect(brushOrigin.X, brushOrigin.Y, cw, ch));
         }
     }
 
