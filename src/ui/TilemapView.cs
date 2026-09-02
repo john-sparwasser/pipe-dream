@@ -215,8 +215,11 @@ public sealed class TilemapView : Control
             ctx.DrawRectangle(null, new Pen(UiColors.Band, 1.5),
                               new Rect(h.Col * Step, h.Row * Step, Step, Step));
         if (LiveDrag is { } drag) DrawDragPreview(ctx, drag);
-        if (Selection is { } grips && !PickOnLeft) DrawHandles(ctx, grips);
+        if (Selection is { } grips && !PickOnLeft) Grips.Draw(ctx, CellRect(grips), GripPx);
     }
+
+    private Rect CellRect((int X, int Y, int W, int H) r)
+        => new(r.X * Step, r.Y * Step, r.W * Step, r.H * Step);
 
     /// <summary>The drag as it stands right now, or null between drags — the same value that will
     /// be raised on release, which is what lets the preview and the result be the same thing.</summary>
@@ -279,27 +282,8 @@ public sealed class TilemapView : Control
     private static Color Rgba(uint c)
         => Color.FromArgb((byte)(c >> 24), (byte)c, (byte)(c >> 8), (byte)(c >> 16));
 
-    /// <summary>The eight grips, drawn ON the selection's border so the thing you grab is the
-    /// thing you see. Sized in screen pixels, not cells: a 64x64 layer 3 zoomed out has cells
-    /// smaller than a comfortable grab, and the grip has to stay grabbable either way.</summary>
-    private void DrawHandles(DrawingContext ctx, (int X, int Y, int W, int H) s)
-    {
-        double g = GripPx, x0 = s.X * Step, y0 = s.Y * Step;
-        double x1 = x0 + s.W * Step, y1 = y0 + s.H * Step;
-        var fill = UiColors.Selection;
-        foreach (var (dx, dy) in Handles)
-        {
-            double cx = dx < 0 ? x0 : dx > 0 ? x1 : (x0 + x1) / 2;
-            double cy = dy < 0 ? y0 : dy > 0 ? y1 : (y0 + y1) / 2;
-            var r = new Rect(cx - g / 2, cy - g / 2, g, g);
-            ctx.FillRectangle(fill, r);
-            ctx.DrawRectangle(null, new Pen(Brushes.Black, 1), r);
-        }
-    }
-
-    private static readonly (int DX, int DY)[] Handles =
-        [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
-
+    /// <summary>Grip size in screen pixels — a 64x64 layer 3 zoomed out has cells smaller than
+    /// a comfortable grab.</summary>
     private const double GripPx = 9;
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
@@ -331,10 +315,13 @@ public sealed class TilemapView : Control
         var at = e.GetPosition(this);
         var cell = At(at);
         if (cell != hover) { hover = cell; if (!PickOnLeft) InvalidateVisual(); }
-        // The grab hand says the selection is draggable before you press, the same tell the GFX
+        // The move arrows say the selection is draggable before you press, the same tell the GFX
         // canvas gives; a grip says which way it would grow.
-        Cursor = PickOnLeft || painting ? null
-               : Dragging || GrabAt(at) != Grab.Lasso ? DragCursor : null;
+        Cursor = PickOnLeft || painting || lassoStart is not null ? null
+               : dragFrom is not null ? Grips.CursorFor(dragEdge) ?? UiCursors.Move
+               : Selection is { } sel && Grips.EdgeAt(at, CellRect(sel), GripPx) is var edge && edge != (0, 0)
+                   ? Grips.CursorFor(edge)
+               : GrabAt(at) == Grab.Move ? UiCursors.Move : null;
         if (!painting) { MoveTo(at); return; }
         if (cell is not { } c) return;
         // Every cell the stroke crosses, not just the ones a move event lands on.
@@ -364,8 +351,6 @@ public sealed class TilemapView : Control
 
     public enum Grab { Lasso, Move, Resize }
 
-    private static readonly Cursor DragCursor = new(StandardCursorType.SizeAll);
-
     private (int Col, int Row)? lassoStart;
     private (int X, int Y, int W, int H)? dragFrom;     // the rect the drag started from
     private (int Col, int Row) dragGrab;                // the cell the pointer grabbed
@@ -380,21 +365,8 @@ public sealed class TilemapView : Control
          : EdgeAt(p, s) != (0, 0) ? Grab.Resize
          : At(p) is { } c && Lasso.Contains(s, c) ? Grab.Move : Grab.Lasso;
 
-    /// <summary>Which grip is under the point, as a direction per axis. Screen pixels, so the
-    /// grab zone is the same size however far the view is zoomed out.</summary>
     private (int DX, int DY) EdgeAt(Point p, (int X, int Y, int W, int H) s)
-    {
-        double x0 = s.X * Step, y0 = s.Y * Step, x1 = x0 + s.W * Step, y1 = y0 + s.H * Step;
-        // Never wider than a third of the rect: on a small selection an over-eager grip would
-        // swallow the middle and there would be nowhere left to grab it by.
-        double g = Math.Min(GripPx, Math.Min(x1 - x0, y1 - y0) / 3);
-        int dx = Math.Abs(p.X - x0) <= g ? -1 : Math.Abs(p.X - x1) <= g ? 1 : 0;
-        int dy = Math.Abs(p.Y - y0) <= g ? -1 : Math.Abs(p.Y - y1) <= g ? 1 : 0;
-        // Only ON the border: a point level with an edge but far above the rectangle is not a grip.
-        if (p.X < x0 - g || p.X > x1 + g) return (0, 0);
-        if (p.Y < y0 - g || p.Y > y1 + g) return (0, 0);
-        return (dx, dy);
-    }
+        => Grips.EdgeAt(p, CellRect(s), GripPx);
 
     public void PressAt(Point p)
     {
@@ -418,21 +390,10 @@ public sealed class TilemapView : Control
             // Clamped: a fast drag past an edge lands ON the edge rather than stopping dead.
             if (Lasso.Clamped(p, Step, Cols, Rows) is not { } cell) return;
             SetSelection(dragEdge == (0, 0) ? Lasso.Moved(from, dragGrab, cell, Cols, Rows)
-                                            : Resized(from, cell));
+                                            : Grips.Resized(from, dragEdge, cell));
             return;
         }
         if (lassoStart is not null && At(p) is { } l) ExtendSelection(l.Col, l.Row);
-    }
-
-    /// <summary>The grabbed edge follows the pointer; the opposite one stays put.</summary>
-    private (int X, int Y, int W, int H) Resized((int X, int Y, int W, int H) from, (int Col, int Row) to)
-    {
-        int x0 = from.X, x1 = from.X + from.W - 1, y0 = from.Y, y1 = from.Y + from.H - 1;
-        if (dragEdge.DX < 0) x0 = Math.Min(to.Col, x1);
-        if (dragEdge.DX > 0) x1 = Math.Max(to.Col, x0);
-        if (dragEdge.DY < 0) y0 = Math.Min(to.Row, y1);
-        if (dragEdge.DY > 0) y1 = Math.Max(to.Row, y0);
-        return (x0, y0, x1 - x0 + 1, y1 - y0 + 1);
     }
 
     public void Release()

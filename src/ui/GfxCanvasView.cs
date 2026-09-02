@@ -106,10 +106,7 @@ public class GfxCanvasView : Control
         InvalidateVisual();
     }
 
-    // ponytail: Windows has no stock open/closed-hand cursors; Hand + DragMove are the nearest
-    // native pair. Custom bitmap cursors if the real grab hands ever matter.
-    private static readonly Cursor OpenHand = new(StandardCursorType.Hand);
-    private static readonly Cursor ClosedHand = new(StandardCursorType.DragMove);
+    private static readonly Cursor OpenHand = UiCursors.Hand, ClosedHand = UiCursors.Grab;
 
     private WriteableBitmap? sheet;
     private int sheetW, sheetH;

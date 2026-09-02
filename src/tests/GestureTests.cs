@@ -47,6 +47,35 @@ public class GestureTests
     }
 
     [Fact]
+    public void a_grip_is_on_the_border_only_and_shrinks_on_a_small_selection()
+    {
+        var r = new Rect(100, 100, 200, 100);
+        Assert.Equal((-1, 0), Grips.EdgeAt(new Point(103, 150), r, 9));
+        Assert.Equal((1, 1), Grips.EdgeAt(new Point(297, 197), r, 9));
+        Assert.Equal((0, -1), Grips.EdgeAt(new Point(200, 95), r, 9));
+        Assert.Equal((0, 0), Grips.EdgeAt(new Point(200, 150), r, 9));           // the middle moves
+        Assert.Equal((0, 0), Grips.EdgeAt(new Point(103, 30), r, 9));            // level with an edge, off the rect
+        Assert.Equal((0, 0), Grips.EdgeAt(new Point(103, 150), r, 9, wOk: false)); // axis that cannot resize
+        // A 12px-wide selection keeps a 4px grip, so its middle is still grabbable.
+        var small = new Rect(0, 0, 12, 60);
+        Assert.Equal((-1, 0), Grips.EdgeAt(new Point(3, 30), small, 9));
+        Assert.Equal((0, 0), Grips.EdgeAt(new Point(6, 30), small, 9));
+    }
+
+    [Fact]
+    public void resizing_moves_the_grabbed_edge_and_pins_the_opposite_one()
+    {
+        Assert.Equal((2, 2, 6, 2), Grips.Resized((4, 2, 4, 2), (-1, 0), (2, 9)));
+        Assert.Equal((4, 2, 4, 5), Grips.Resized((4, 2, 4, 2), (0, 1), (0, 6)));
+        Assert.Equal((7, 2, 1, 2), Grips.Resized((4, 2, 4, 2), (-1, 0), (12, 2)));  // dragged through: one cell
+        Assert.Equal(1 | 8, Grips.Mask((-1, 1)));
+        Assert.Equal(2 | 4, Grips.Mask((1, -1)));
+        Assert.Null(Grips.CursorFor((0, 0)));
+        Assert.Same(Grips.CursorFor((-1, -1)), Grips.CursorFor((1, 1)));
+        Assert.Same(Grips.CursorFor((1, -1)), Grips.CursorFor((-1, 1)));
+    }
+
+    [Fact]
     public void a_stroke_between_two_samples_has_no_holes_and_skips_the_start()
     {
         var steps = Lasso.Between((0, 0), (5, 2)).ToList();
