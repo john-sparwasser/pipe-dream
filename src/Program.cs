@@ -14,7 +14,10 @@ namespace PipeDream.Ui;
 /// Local-development flags (what the repo's .vscode F5 profile passes):
 ///   --dev             dev mode: the Debug menu appears, and a .pdp argument that does not
 ///                     exist yet is created from the vanilla ROM instead of failing
-///   --vanilla <smc>   configure the vanilla base ROM before the first-run prompt can ask
+///   --vanilla <smc>   configure the vanilla base ROM before the first-run prompt can ask.
+///                     A --dev run without it falls back to <see cref="ReferenceRoms.Vanilla"/>,
+///                     so the F5 profile carries no ROM path and PIPEDREAM_SMW_ROOT is the
+///                     only thing to set on a new machine.
 ///
 /// One executable rather than two. The commands themselves are storage-layer work reached
 /// through <see cref="EditorSession.RunCommandLine"/>, so this stays a composition root: it
@@ -43,6 +46,10 @@ public static partial class Program
             else if (args[i] == "--vanilla" && i + 1 < args.Length) VanillaPath = args[++i];
             else if (!args[i].StartsWith('-')) positional.Add(args[i]);
         }
+        // PIPEDREAM_SMW_ROOT already resolves this per-machine, which keeps the platform
+        // difference out of launch.json. Not applied outside dev mode: a shipped install has
+        // no reference-ROM root and must reach the first-run prompt.
+        if (DevMode) VanillaPath ??= ReferenceRoms.Vanilla;
         RomPath = positional.FirstOrDefault();
         if (positional.Count > 1 && int.TryParse(positional[1], System.Globalization.NumberStyles.HexNumber,
                                                  null, out int lv)) LevelNum = lv;

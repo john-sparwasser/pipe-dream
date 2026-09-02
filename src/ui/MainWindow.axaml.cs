@@ -686,7 +686,13 @@ public partial class MainWindow : Window
         Opened -= OnFirstOpened;
         // --vanilla configures the base ROM before anything can ask for it — the dev launch's
         // way of never seeing the first-run prompt, even on a config the test suite reset.
-        if (Program.VanillaPath is { } van && EditorSession.FileExists(van)) session.SetVanillaRom(van);
+        //
+        // Only when nothing usable is saved. The flag exists to SKIP that prompt, never to
+        // overwrite the ROM picked in File → Set vanilla ROM… — and since --dev now supplies
+        // it from PIPEDREAM_SMW_ROOT, an unconditional set would silently rewrite the saved
+        // path on every F5. A saved path that has since gone missing is still repaired.
+        if (!EditorSession.FileExists(session.VanillaRomPath)
+            && Program.VanillaPath is { } van && EditorSession.FileExists(van)) session.SetVanillaRom(van);
         if (session.NeedsVanillaRom)
         {
             var dlg = new FirstRunWindow();

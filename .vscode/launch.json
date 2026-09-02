@@ -4,16 +4,17 @@
     {
       // F5: local dev build. --dev shows the Debug menu; the dev project under dev/ is
       // created from the vanilla ROM automatically on the first launch.
+      //
+      // The .dll rather than the apphost: the apphost is PipeDream.exe on Windows and
+      // PipeDream everywhere else, and coreclr launches a managed dll on any platform.
+      // The vanilla ROM is not passed here — a --dev build falls back to ReferenceRoms,
+      // so PIPEDREAM_SMW_ROOT is the one place the ROM root is configured.
       "name": "pipe-dream (dev)",
       "type": "coreclr",
       "request": "launch",
       "preLaunchTask": "build",
-      "program": "${workspaceFolder}/src/bin/Debug/net10.0/PipeDream.exe",
-      "args": [
-        "--dev",
-        "--vanilla", "C:\\SMW\\Projects\\.resources\\SMW.smc",
-        "${workspaceFolder}\\dev\\project.pdp"
-      ],
+      "program": "${workspaceFolder}/src/bin/Debug/net10.0/PipeDream.dll",
+      "args": ["--dev", "${workspaceFolder}/dev/project.pdp"],
       "cwd": "${workspaceFolder}",
       "console": "internalConsole",
       "logging": { "moduleLoad": false }
