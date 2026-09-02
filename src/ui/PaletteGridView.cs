@@ -134,11 +134,12 @@ public class PaletteGridView : Control
     private bool InPreview(int i)
         => preview is null || preview.Any(p => i >= p.Start && i < p.Start + p.Count);
 
+    private static readonly Pen GridPen = new(new SolidColorBrush(Color.FromArgb(0x30, 0, 0, 0)));
+    private static readonly IBrush Veil = new SolidColorBrush(Color.FromArgb(0xA8, 0x10, 0x12, 0x16));
+
     public override void Render(DrawingContext ctx)
     {
         double c = Cell;
-        var grid = new Pen(new SolidColorBrush(Color.FromArgb(0x30, 0, 0, 0)));
-        var veil = new SolidColorBrush(Color.FromArgb(0xA8, 0x10, 0x12, 0x16));
         for (int i = 0; i < Count; i++)
         {
             if (HideFirst && i == 0) continue;
@@ -148,8 +149,8 @@ public class PaletteGridView : Control
             var swatch = UiColors.FromRgba(v);
             ctx.FillRectangle(new SolidColorBrush(swatch), r);
             bool off = IsDisabled?.Invoke(i) == true || !InPreview(i);
-            if (off) ctx.FillRectangle(veil, r);
-            ctx.DrawRectangle(null, grid, r);
+            if (off) ctx.FillRectangle(Veil, r);
+            ctx.DrawRectangle(null, GridPen, r);
             if (IsEdited?.Invoke(i) == true)
                 ctx.FillRectangle(UiColors.Selection, new Rect(r.Right - 5, r.Top + 2, 3, 3));
             // The index, inside the swatch it names, in whichever of black/white the swatch
@@ -165,8 +166,7 @@ public class PaletteGridView : Control
             {
                 int run = Math.Min(count - (i - start), Cols - i % Cols);
                 var box = new Rect(i % Cols * c, i / Cols * c, run * c, c);
-                ctx.DrawRectangle(null, new Pen(Brushes.Black, 3), box);
-                ctx.DrawRectangle(null, new Pen(UiColors.Selection, 1.5), box);
+                Overlay.SelectionRing(ctx, box);
             }
             if (label.Length == 0) continue;
             // Which run this is, in its first swatch. Ink chosen against that swatch, except on

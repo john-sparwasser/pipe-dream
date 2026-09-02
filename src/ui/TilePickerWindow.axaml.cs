@@ -140,9 +140,10 @@ public partial class TilePickerWindow : Window
     /// <summary>The tile under the pointer, when the whole footprint from it fits the sheet.</summary>
     private int? TileAt(Point p)
     {
-        int cx = (int)(p.X / (8 * Scale)), cy = (int)(p.Y / (8 * Scale));
-        if (cx < 0 || cy < 0 || cx >= sheetCols) return null;
-        int t = cy * sheetCols + cx;
+        // Lasso.CellAt floors; the cast this replaced truncated toward zero, so a point half a
+        // pixel left of the sheet landed on column 0 instead of off it.
+        if (Lasso.CellAt(p, 8 * Scale, sheetCols, sheetCols == 0 ? 0 : sheetTiles / sheetCols) is not { } c) return null;
+        int t = c.Y * sheetCols + c.X;
         foreach (int off in offsets)
             if (t + off >= limit || t + off < 0) return null;
         return t;
