@@ -234,8 +234,7 @@ public class GfxCanvasView : Control
         }
         if (bandAnchor is { } a && ClampedPixelAt(e.GetPosition(this)) is { } cp)
         {
-            if (e.KeyModifiers.HasFlag(KeyModifiers.Control)
-                || e.KeyModifiers.HasFlag(KeyModifiers.Meta))
+            if (Hotkeys.Command(e.KeyModifiers))
                 cp = Squared(a, cp);
             Selection = Lasso.Span(a, cp);
             return;

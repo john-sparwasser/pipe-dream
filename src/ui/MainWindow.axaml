@@ -255,12 +255,17 @@
 
     <Menu x:Name="MainMenu" DockPanel.Dock="Top">
       <MenuItem Header="_File">
-        <MenuItem Header="_New Project…" Click="OnNewProject" InputGesture="Ctrl+N"/>
-        <MenuItem Header="_Open Project…" Click="OnOpenProject" InputGesture="Ctrl+O"/>
+        <!-- HotKey, not InputGesture: an InputGesture is a caption Avalonia never wires up, and for
+             years these were captions. A HotKey registers the key on the window and fires the item —
+             menu closed or open — and the caption follows it. Platform-switched because a HotKey is
+             one gesture: Ctrl here, Cmd on a Mac. Save/Undo/Redo stay in OnWindowKeyDown instead,
+             which takes Ctrl AND Cmd on every platform; their gestures below are captions only. -->
+        <MenuItem Header="_New Project…" Click="OnNewProject" HotKey="{OnPlatform Ctrl+N, macOS=Cmd+N}"/>
+        <MenuItem Header="_Open Project…" Click="OnOpenProject" HotKey="{OnPlatform Ctrl+O, macOS=Cmd+O}"/>
         <MenuItem x:Name="RecentMenu" Header="_Recent Projects"/>
         <Separator/>
-        <MenuItem Header="_Save" Click="OnSave" InputGesture="Ctrl+S"/>
-        <MenuItem Header="_Build ROM" Click="OnBuild" InputGesture="Ctrl+B"/>
+        <MenuItem Header="_Save" Click="OnSave" InputGesture="{OnPlatform Ctrl+S, macOS=Cmd+S}"/>
+        <MenuItem Header="_Build ROM" Click="OnBuild" HotKey="{OnPlatform Ctrl+B, macOS=Cmd+B}"/>
         <MenuItem x:Name="RunEmulatorItem" Header="_Run in emulator" Click="OnRunEmulator" InputGesture="F4"/>
         <MenuItem Header="Export _BPS patch" Click="OnExportBps"/>
         <Separator/>
@@ -272,12 +277,12 @@
         <MenuItem Header="E_xit" Click="OnExit"/>
       </MenuItem>
       <MenuItem Header="_Edit">
-        <MenuItem x:Name="EditUndo" Header="_Undo" Click="OnUndo" InputGesture="Ctrl+Z"/>
-        <MenuItem x:Name="EditRedo" Header="_Redo" Click="OnRedo" InputGesture="Ctrl+Y"/>
+        <MenuItem x:Name="EditUndo" Header="_Undo" Click="OnUndo" InputGesture="{OnPlatform Ctrl+Z, macOS=Cmd+Z}"/>
+        <MenuItem x:Name="EditRedo" Header="_Redo" Click="OnRedo" InputGesture="{OnPlatform Ctrl+Y, macOS=Cmd+Shift+Z}"/>
       </MenuItem>
       <MenuItem Header="_Level">
-        <MenuItem Header="_Properties…" Click="OnLevelProperties" InputGesture="Ctrl+L"/>
-        <MenuItem Header="_Reload from project" Click="OnReloadLevel" InputGesture="Ctrl+R"/>
+        <MenuItem Header="_Properties…" Click="OnLevelProperties" HotKey="{OnPlatform Ctrl+L, macOS=Cmd+L}"/>
+        <MenuItem Header="_Reload from project" Click="OnReloadLevel" HotKey="{OnPlatform Ctrl+R, macOS=Cmd+R}"/>
         <!-- The whole exit TABLE, with the water/secondary flags and the way into the secondary
              entrance records. The canvas's Exits mode is the everyday route — it sets a
              destination per screen; this is for the parts a badge cannot show. -->
@@ -287,8 +292,8 @@
         <MenuItem Header="Sprite _data…" Click="OnSpriteData"/>
       </MenuItem>
       <MenuItem Header="_View">
-        <MenuItem Header="Toggle _palette" Click="OnTogglePalette" InputGesture="Ctrl+P"/>
-        <MenuItem Header="Screen _grid" Click="OnToggleGrid" InputGesture="Ctrl+G"/>
+        <MenuItem Header="Toggle _palette" Click="OnTogglePalette" HotKey="{OnPlatform Ctrl+P, macOS=Cmd+P}"/>
+        <MenuItem x:Name="ViewGridItem" Header="Screen _grid" Click="OnToggleGrid" HotKey="{OnPlatform Ctrl+G, macOS=Cmd+G}"/>
         <Separator/>
         <MenuItem x:Name="SpriteOverlayItem" Header="_Sprite overlay" Click="OnToggleSprites"/>
         <MenuItem x:Name="AnimateItem" Header="_Animate tiles" Click="OnToggleAnimate"/>

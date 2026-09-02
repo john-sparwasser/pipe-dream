@@ -317,7 +317,7 @@ public class LevelView : Control
             if (props.IsRightButtonPressed)
             {
                 // Same rule as objects: right-click places, Ctrl+right duplicates.
-                bool did = e.KeyModifiers.HasFlag(KeyModifiers.Control) && sp.Selection.Count > 0
+                bool did = Hotkeys.Command(e.KeyModifiers) && sp.Selection.Count > 0
                          ? sp.DuplicateSelected(cell.X, cell.Y)
                          : CatalogSprite >= 0 && sp.Place(CatalogSprite, cell.X, cell.Y);
                 if (did) SpritesChanged?.Invoke(this, EventArgs.Empty);
@@ -325,7 +325,7 @@ public class LevelView : Control
             else if (props.IsLeftButtonPressed)
             {
                 int hit = sp.SpriteAt(lp.X, lp.Y);
-                if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
+                if (Hotkeys.Command(e.KeyModifiers))
                 {
                     // Ctrl+left toggles one sprite in or out, so a selection can be picked
                     // rather than lassoed. No band and no drag: Ctrl is the toggle here, not
@@ -358,7 +358,7 @@ public class LevelView : Control
             // Right-click is PLACE, whatever is selected: pick a tile in the drawer, right-click,
             // it lands. Duplicating a selection moved to Ctrl+right — having a stray selection
             // silently turn every right-click into a duplicate is what made placing look broken.
-            if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && Edit is { Selection.Count: > 0 })
+            if (Hotkeys.Command(e.KeyModifiers) && Edit is { Selection.Count: > 0 })
                 DuplicateRequested?.Invoke(this, cell);
             else if (CatalogObject >= 0) PlaceRequested?.Invoke(this, cell);
             else
@@ -369,7 +369,7 @@ public class LevelView : Control
         }
         else if (props.IsLeftButtonPressed)
         {
-            grabbing = e.KeyModifiers.HasFlag(KeyModifiers.Control);
+            grabbing = Hotkeys.Command(e.KeyModifiers);
             var edge = grabbing ? (0, 0) : HandleEdgeAt(e.GetPosition(this));
             if (edge != (0, 0) && Edit is { Selection.Count: 1 } ed)
                 resizeDrag = (ed.Selection.First(), edge, cell.X, cell.Y);
