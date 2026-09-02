@@ -16,6 +16,11 @@
       "program": "${workspaceFolder}/src/bin/Debug/net10.0/PipeDream.dll",
       "args": ["--dev", "${workspaceFolder}/dev/project.pdp"],
       "cwd": "${workspaceFolder}",
+      // Where the reference ROMs live on a Mac, per ReferenceRoms ("e.g. ~/smw"): a --dev
+      // launch takes its vanilla ROM from here when nothing is saved, so a wiped config.json
+      // can no longer put the first-run prompt in front of F5. Windows keeps ReferenceRoms'
+      // C:\SMW\Projects default — an env override here would replace it.
+      "osx": { "env": { "PIPEDREAM_SMW_ROOT": "${env:HOME}/smw" } },
       "console": "internalConsole",
       "logging": { "moduleLoad": false }
     }
