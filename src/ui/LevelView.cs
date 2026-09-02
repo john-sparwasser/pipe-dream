@@ -229,7 +229,7 @@ public class LevelView : Control
     /// the same undo entry and a release is a drag, not a stationary click.</summary>
     private bool moved;
     private (int X, int Y)? lastPainted;
-    private (int Obj, int Edges, int Cx, int Cy)? resizeDrag;
+    private (int Obj, (int DX, int DY) Edge, int Cx, int Cy)? resizeDrag;
     // The lasso works in LEVEL PIXELS, not cells — it follows the cursor exactly instead of
     // snapping to the 16px grid. (Sprites are also SELECTED by pixel: a sprite is picked by
     // what it draws, and its drawn area rarely lines up with its spawn cell.)
@@ -238,39 +238,19 @@ public class LevelView : Control
     private (int X, int Y) LevelPixel(Point p)
         => ((int)((p.X + Origin.X) / Zoom), (int)((p.Y + Origin.Y) / Zoom));
 
-    /// <summary>Edge bitmask under a screen point for the single selected object: 1 left,
-    /// 2 right, 4 top, 8 bottom (corners combine). 0 = not on a handle. Mirrors the ImGui
-    /// tool's 6px tolerance and its "nearest edge wins" tie-break.</summary>
-    private int HandleEdgesAt(Point m)
+    /// <summary>The ImGui tool's 6px grip tolerance.</summary>
+    private const double GripPx = 6;
+
+    /// <summary>The grip under a screen point on the single selected object, on the axes it can
+    /// resize along; (0, 0) when there is none.</summary>
+    private (int DX, int DY) HandleEdgeAt(Point m)
     {
-        if (Edit is not { Selection.Count: 1 } ed) return 0;
+        if (Edit is not { Selection.Count: 1 } ed) return (0, 0);
         int sel = ed.Selection.First();
-        if (ed.BBox(sel) is not { } b || sel >= ed.Objects.Count) return 0;
+        if (ed.BBox(sel) is not { } b || sel >= ed.Objects.Count) return (0, 0);
         var (wOk, hOk) = ed.CanResize(sel);
-        if (!wOk && !hOk) return 0;
-
-        var r = CellRect(b.X, b.Y, b.W, b.H, Zoom);
-        const double t = 6;
-        bool inX = m.X > r.Left - t && m.X < r.Right + t;
-        bool inY = m.Y > r.Top - t && m.Y < r.Bottom + t;
-        int e = 0;
-        if (wOk && inY && Math.Abs(m.X - r.Left) <= t) e |= 1;
-        if (wOk && inY && Math.Abs(m.X - r.Right) <= t) e |= 2;
-        if (hOk && inX && Math.Abs(m.Y - r.Top) <= t) e |= 4;
-        if (hOk && inX && Math.Abs(m.Y - r.Bottom) <= t) e |= 8;
-        if ((e & 3) == 3) e &= Math.Abs(m.X - r.Left) < Math.Abs(m.X - r.Right) ? ~2 : ~1;
-        if ((e & 12) == 12) e &= Math.Abs(m.Y - r.Top) < Math.Abs(m.Y - r.Bottom) ? ~8 : ~4;
-        return e;
+        return Grips.EdgeAt(m, CellRect(b.X, b.Y, b.W, b.H, Zoom), GripPx, wOk, hOk);
     }
-
-    private static Cursor CursorForEdges(int e) => new(e switch
-    {
-        1 or 2 => StandardCursorType.SizeWestEast,
-        4 or 8 => StandardCursorType.SizeNorthSouth,
-        5 or 10 => StandardCursorType.TopLeftCorner,      // TL / BR
-        6 or 9 => StandardCursorType.TopRightCorner,      // TR / BL
-        _ => StandardCursorType.Arrow,
-    });
 
     /// <summary>The sprite lasso rectangle, in level pixels.</summary>
     public (int X, int Y, int W, int H)? PixelBand =>
@@ -395,9 +375,9 @@ public class LevelView : Control
         else if (props.IsLeftButtonPressed)
         {
             grabbing = e.KeyModifiers.HasFlag(KeyModifiers.Control);
-            int edges = grabbing ? 0 : HandleEdgesAt(e.GetPosition(this));
-            if (edges != 0 && Edit is { Selection.Count: 1 } ed)
-                resizeDrag = (ed.Selection.First(), edges, cell.X, cell.Y);
+            var edge = grabbing ? (0, 0) : HandleEdgeAt(e.GetPosition(this));
+            if (edge != (0, 0) && Edit is { Selection.Count: 1 } ed)
+                resizeDrag = (ed.Selection.First(), edge, cell.X, cell.Y);
             // Grabbing always bands, even over a selected object — Ctrl+drag is "take these
             // tiles", not "move this".
             else if (!grabbing && Edit?.ObjectAt(cell.X, cell.Y) is int hit && Edit.Selection.Contains(hit))
@@ -425,17 +405,16 @@ public class LevelView : Control
         // A badge is a link, so it says so under the cursor — otherwise nothing distinguishes it
         // from the rest of the screen, which opens the prompt instead.
         if (Mode == EditMode.Exits)
-            Cursor = new Cursor(BadgeAt(e.GetPosition(this)) is null
-                ? StandardCursorType.Arrow : StandardCursorType.Hand);
+            Cursor = BadgeAt(e.GetPosition(this)) is null ? Cursor.Default : UiCursors.Hand;
 
         if (Mode == EditMode.Entrances)
         {
             var p = e.GetPosition(this);
             var badge = EditBadgeAt(p);
             var over = EntranceAt(p, Zoom);
-            Cursor = new Cursor(badge is not null ? StandardCursorType.Hand
-                              : dragEntrance is not null || over is not null ? StandardCursorType.SizeAll
-                              : StandardCursorType.Arrow);
+            Cursor = badge is not null ? UiCursors.Hand
+                   : dragEntrance is not null || over is not null ? UiCursors.Move
+                   : Cursor.Default;
             var hov = over ?? badge ?? LabelAt(p);
             if (hov != hoverEntrance) { hoverEntrance = hov; InvalidateVisual(); }
             // The drag PREVIEWS by moving the marker: the drop snaps to what the ROM can store,
@@ -497,20 +476,15 @@ public class LevelView : Control
             {
                 // Same affordance objects get: the hand says this one is draggable.
                 var hp = LevelPixel(e.GetPosition(this));
-                Cursor = sp.SelectionCovers(hp.X, hp.Y) ? new Cursor(StandardCursorType.Hand)
-                                                        : Cursor.Default;
+                Cursor = sp.SelectionCovers(hp.X, hp.Y) ? UiCursors.Hand : Cursor.Default;
             }
             return;
         }
         // Hovering an edge of a lone selection shows the resize cursor, as the ImGui tool does.
         if (resizeDrag is null && bandStart is null && moveStart is null)
-        {
-            int edges = HandleEdgesAt(e.GetPosition(this));
-            Cursor = edges != 0 ? CursorForEdges(edges)
-                   : Edit?.ObjectAt(c.X, c.Y) is int ov && Edit.Selection.Contains(ov)
-                       ? new Cursor(StandardCursorType.Hand)
-                       : Cursor.Default;
-        }
+            Cursor = Grips.CursorFor(HandleEdgeAt(e.GetPosition(this)))
+                  ?? (Edit?.ObjectAt(c.X, c.Y) is int ov && Edit.Selection.Contains(ov)
+                        ? UiCursors.Hand : Cursor.Default);
 
         if (resizeDrag is not null || bandStart is not null || moveStart is not null)
         {
@@ -577,7 +551,7 @@ public class LevelView : Control
 
         if (resizeDrag is { } rd && bandEnd is { } rc)
         {
-            if (Edit?.Resize(rd.Obj, rd.Edges, rc.X - rd.Cx, rc.Y - rd.Cy) == true)
+            if (Edit?.Resize(rd.Obj, Grips.Mask(rd.Edge), rc.X - rd.Cx, rc.Y - rd.Cy) == true)
                 SelectionChanged?.Invoke(this, EventArgs.Empty);
         }
         else if (bandStart is { } a && bandEnd is { } b)
@@ -690,7 +664,7 @@ public class LevelView : Control
 
         // Resize preview while dragging an edge, then handles on a lone idle selection.
         if (resizeDrag is { } rd && bandEnd is { } rc && Edit is { } re
-            && re.PreviewResizeBox(rd.Obj, rd.Edges, rc.X - rd.Cx, rc.Y - rd.Cy) is { } pv)
+            && re.PreviewResizeBox(rd.Obj, Grips.Mask(rd.Edge), rc.X - rd.Cx, rc.Y - rd.Cy) is { } pv)
             ctx.DrawRectangle(null, new Pen(UiColors.Selection, 1.5), CellRect(pv.X, pv.Y, pv.W, pv.H, z));
         else if (Edit is { Selection.Count: 1 } he && bandStart is null && moveStart is null)
             DrawHandles(ctx, he, z);
@@ -721,18 +695,7 @@ public class LevelView : Control
         int sel = ed.Selection.First();
         if (ed.BBox(sel) is not { } b || sel >= ed.Objects.Count) return;
         var (wOk, hOk) = ed.CanResize(sel);
-        if (!wOk && !hOk) return;
-
-        var r = CellRect(b.X, b.Y, b.W, b.H, z);
-        var fill = UiColors.Selection;
-        var edge = new Pen(Brushes.Black);
-        void Knob(double x, double y)
-            => ctx.DrawRectangle(fill, edge, new Rect(x - 3, y - 3, 6, 6));
-
-        double mx = (r.Left + r.Right) / 2, my = (r.Top + r.Bottom) / 2;
-        if (wOk) { Knob(r.Left, my); Knob(r.Right, my); }
-        if (hOk) { Knob(mx, r.Top); Knob(mx, r.Bottom); }
-        Knob(r.Left, r.Top); Knob(r.Right, r.Top); Knob(r.Left, r.Bottom); Knob(r.Right, r.Bottom);
+        if (wOk || hOk) Grips.Draw(ctx, CellRect(b.X, b.Y, b.W, b.H, z), GripPx, wOk, hOk);
     }
 
     /// <summary>The screen's own rectangle, in cells: a full-height column of the level (a
