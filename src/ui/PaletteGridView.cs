@@ -156,12 +156,8 @@ public class PaletteGridView : Control
             // The index, inside the swatch it names, in whichever of black/white the swatch
             // itself does not drown — a fixed ink colour vanishes on half a palette.
             if (ShowHoverIndex && i == hoverIndex)
-            {
-                var ink = off || Luminance(swatch) < 0.55 ? Brushes.White : Brushes.Black;
-                var text = new FormattedText($"{i}", System.Globalization.CultureInfo.InvariantCulture,
-                                             FlowDirection.LeftToRight, Typeface.Default, c * 0.55, ink);
-                ctx.DrawText(text, new Point(r.Center.X - text.Width / 2, r.Center.Y - text.Height / 2));
-            }
+                Overlay.Label(ctx, $"{i}", c * 0.55, r.Center,
+                              off || Luminance(swatch) < 0.55 ? Brushes.White : Brushes.Black);
         }
         // The rings go over every swatch, so a run that wraps a row still reads as one run.
         foreach (var (start, count, label) in preview ?? [])
@@ -180,10 +176,7 @@ public class PaletteGridView : Control
             bool blank = (HideFirst && start == 0) || start >= Colors.Length;
             var over = blank ? Color.FromRgb(0x10, 0x12, 0x16)     // the panel shows through
                              : UiColors.FromRgba(Colors[start]);
-            var text = new FormattedText(label, System.Globalization.CultureInfo.InvariantCulture,
-                                         FlowDirection.LeftToRight, Typeface.Default, c * 0.5,
-                                         Luminance(over) < 0.55 ? Brushes.White : Brushes.Black);
-            ctx.DrawText(text, new Point(first.Center.X - text.Width / 2, first.Center.Y - text.Height / 2));
+            Overlay.Label(ctx, label, c * 0.5, first.Center, Luminance(over) < 0.55 ? Brushes.White : Brushes.Black);
         }
 
         if (Selected >= 0 && Selected < Count && !(HideFirst && Selected == 0))
