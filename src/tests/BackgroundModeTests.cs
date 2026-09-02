@@ -1,3 +1,5 @@
+using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Threading;
@@ -379,6 +381,42 @@ public class BackgroundModeTests(ITestOutputHelper log)
         var sheet2 = Open(0x105, layer3: false).GetControl<TilemapView>("BgSheet");
         sheet2.Measure(new Avalonia.Size(520, double.PositiveInfinity));
         Assert.Equal(520, sheet2.DesiredSize.Width, 1);
+    }
+
+    /// <summary>
+    /// Undo on the Background tab follows the LAYER on screen, from the key AND the Edit menu.
+    /// The menu used to call the level-object editor's undo whatever mode was showing, so
+    /// Edit ▸ Undo after a layer-3 stroke rewound nothing you could see — "layer 3 has no undo".
+    /// Both entry points now share one dispatch, and this pins that they stay shared.
+    /// </summary>
+    [AvaloniaFact]
+    public void layer_3_strokes_undo_and_redo_from_the_key_and_the_edit_menu()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var w = Open(0x009, layer3: true);
+        var map = SessionOf(w).Layer3Map!;
+        int before = map.At(9, 9);
+        int word = before == (3 << 10 | 0x1A5) ? 3 << 10 | 0x1A6 : 3 << 10 | 0x1A5;
+        Assert.True(map.Stamp(9, 9, word));
+        Assert.True(map.EndStroke());
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(word, map.At(9, 9));
+
+        w.KeyPressQwerty(PhysicalKey.Z, RawInputModifiers.Control);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(before, map.At(9, 9));
+        w.KeyPressQwerty(PhysicalKey.Z, RawInputModifiers.Control | RawInputModifiers.Shift);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(word, map.At(9, 9));
+
+        static void Menu(MainWindow w, string name) =>
+            w.GetControl<MenuItem>(name).RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(MenuItem.ClickEvent));
+        Menu(w, "EditUndo");
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(before, map.At(9, 9));
+        Menu(w, "EditRedo");
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(word, map.At(9, 9));
     }
 
     /// <summary>

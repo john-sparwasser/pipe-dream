@@ -886,64 +886,7 @@ public partial class MainWindow : Window
         }
         if (e.Key == Key.Z && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
-            bool redo = e.KeyModifiers.HasFlag(KeyModifiers.Shift);
-            // Undo follows what you are LOOKING AT. Each editor keeps its own history — a single
-            // stack across all of them is a bigger piece of work, and undoing a level edit while
-            // looking at pixels would be worse than this.
-            //
-            // The Palette tab is checked first because it is a drawer tab rather than a canvas
-            // mode: with it open the canvas is still in Level mode, so testing the mode first
-            // would send Ctrl+Z to the level while the user is editing colours.
-            if (paletteTabs.SelectedIndex == PaletteTabIndex)
-            {
-                // Close any open stroke FIRST, so what the picker has already done becomes the
-                // entry that undo then takes back. (This used to re-apply the last picked colour
-                // through a stale pending value, which turned the second Ctrl+Z into a redo.)
-                session.EndPaletteStroke();
-                if (redo ? session.PaletteRedo() : session.PaletteUndo())
-                {
-                    AdoptSession();
-                }
-            }
-            else if (modeGfx.IsChecked == true)
-            {
-                // An un-dropped paste never reached the bytes, so undoing it is just taking the
-                // float down — the history stays for the next Ctrl+Z.
-                if (!redo && gfxCanvas.Float is not null)
-                    DiscardGfxFloat();
-                else if (redo ? session.GfxPixels?.Redo() == true : session.GfxPixels?.Undo() == true)
-                {
-                    // A cut/paste/move walks the marquee back (or forward) with its pixels.
-                    if (session.GfxPixels!.SelectionHint is (true, var rect))
-                        gfxCanvas.Selection = rect;
-                    RefreshGfx();
-                }
-            }
-            else if (modeMap16.IsChecked == true)
-            {
-                if (redo ? map16?.Redo() == true : map16?.Undo() == true) RefreshMap16Sheet();
-            }
-            // The background layers keep a history each, so undo follows the layer on screen
-            // for the same reason it follows the canvas mode: rewinding the level's objects
-            // while looking at a tilemap would be the wrong thing every time.
-            else if (modeBg.IsChecked == true && BgLayerEdit is { } bgMap)
-            {
-                if (redo ? bgMap.Redo() : bgMap.Undo()) { RefreshBg(); UpdateTitle(); }
-            }
-            // Sprite mode has its own history — without this branch Ctrl+Z in sprite mode fell
-            // through and silently rewound the OBJECT stack instead.
-            else if (canvas.Mode == LevelView.EditMode.Sprites && session.Sprites is { } sp)
-            {
-                if (redo ? sp.Redo() : sp.Undo())
-                {
-                    session.RefreshSprites();
-                    PushSpritePixels();
-                }
-            }
-            else if (redo ? edit?.Redo() == true : edit?.Undo() == true)
-            {
-                PushDirty();
-            }
+            UndoRedo(redo: e.KeyModifiers.HasFlag(KeyModifiers.Shift));
             e.Handled = true;
         }
         // GFX selection clipboard. The clipboard lives in GfxEdit as colour indices, so a copy
@@ -1761,15 +1704,76 @@ public partial class MainWindow : Window
         if (modeBg?.IsChecked == true && bgLayer3.IsChecked != true) RefreshBg();
     }
 
-    private void OnUndo(object? sender, RoutedEventArgs e)
+    /// <summary>
+    /// Undo follows what you are LOOKING AT. Each editor keeps its own history — a single
+    /// stack across all of them is a bigger piece of work, and undoing a level edit while
+    /// looking at pixels would be worse than this.
+    ///
+    /// The Palette tab is checked first because it is a drawer tab rather than a canvas
+    /// mode: with it open the canvas is still in Level mode, so testing the mode first
+    /// would send Ctrl+Z to the level while the user is editing colours.
+    ///
+    /// ONE dispatch for the key and the Edit menu. The menu items used to call the level-object
+    /// editor's undo directly, whatever was on screen — so Edit ▸ Undo after a layer-3 stroke
+    /// rewound nothing you could see, which from the outside was "layer 3 has no undo".
+    /// </summary>
+    private void UndoRedo(bool redo)
     {
-        if (edit?.Undo() == true) PushDirty();
+        if (paletteTabs.SelectedIndex == PaletteTabIndex)
+        {
+            // Close any open stroke FIRST, so what the picker has already done becomes the
+            // entry that undo then takes back. (This used to re-apply the last picked colour
+            // through a stale pending value, which turned the second Ctrl+Z into a redo.)
+            session.EndPaletteStroke();
+            if (redo ? session.PaletteRedo() : session.PaletteUndo())
+            {
+                AdoptSession();
+            }
+        }
+        else if (modeGfx.IsChecked == true)
+        {
+            // An un-dropped paste never reached the bytes, so undoing it is just taking the
+            // float down — the history stays for the next Ctrl+Z.
+            if (!redo && gfxCanvas.Float is not null)
+                DiscardGfxFloat();
+            else if (redo ? session.GfxPixels?.Redo() == true : session.GfxPixels?.Undo() == true)
+            {
+                // A cut/paste/move walks the marquee back (or forward) with its pixels.
+                if (session.GfxPixels!.SelectionHint is (true, var rect))
+                    gfxCanvas.Selection = rect;
+                RefreshGfx();
+            }
+        }
+        else if (modeMap16.IsChecked == true)
+        {
+            if (redo ? map16?.Redo() == true : map16?.Undo() == true) RefreshMap16Sheet();
+        }
+        // The background layers keep a history each, so undo follows the layer on screen
+        // for the same reason it follows the canvas mode: rewinding the level's objects
+        // while looking at a tilemap would be the wrong thing every time.
+        else if (modeBg.IsChecked == true && BgLayerEdit is { } bgMap)
+        {
+            if (redo ? bgMap.Redo() : bgMap.Undo()) { RefreshBg(); UpdateTitle(); }
+        }
+        // Sprite mode has its own history — without this branch Ctrl+Z in sprite mode fell
+        // through and silently rewound the OBJECT stack instead.
+        else if (canvas.Mode == LevelView.EditMode.Sprites && session.Sprites is { } sp)
+        {
+            if (redo ? sp.Redo() : sp.Undo())
+            {
+                session.RefreshSprites();
+                PushSpritePixels();
+            }
+        }
+        else if (redo ? edit?.Redo() == true : edit?.Undo() == true)
+        {
+            PushDirty();
+        }
     }
 
-    private void OnRedo(object? sender, RoutedEventArgs e)
-    {
-        if (edit?.Redo() == true) PushDirty();
-    }
+    private void OnUndo(object? sender, RoutedEventArgs e) => UndoRedo(redo: false);
+
+    private void OnRedo(object? sender, RoutedEventArgs e) => UndoRedo(redo: true);
 
     private void OnTogglePalette(object? sender, RoutedEventArgs e) => drawer.IsVisible = !drawer.IsVisible;
 
