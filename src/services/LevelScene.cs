@@ -121,14 +121,19 @@ public sealed class LevelScene
                 // level's CGADSUB / Subscreen settings) is what lets it show THROUGH the level
                 // at all, which is why a level with neither is meant to look hidden.
                 var tiles = Layer3.Tiles(rom, levelNum);
-                var screens = Layer3.ScreenSetup(rom, level.Header.LevelMode,
-                                                 rom.LmLayer3Advanced(levelNum));
+                var adv = rom.LmLayer3Advanced(levelNum);
+                var screens = Layer3.ScreenSetup(rom, level.Header.LevelMode, adv);
+                // Where the level parks layer 3 to begin with. With a scroll rate of None that is
+                // where it stays, so the canvas is exact; with any other rate it is the frame the
+                // level opens on, which is the one frame a still picture can be right about.
+                var (ox, oy) = adv is { } a
+                    ? (Layer3.XPositions[a.XPos & 3] * 16, a.Y * 16) : (0, 0);
                 bool bg3Priority = level.Header.Layer3Priority != 0;
                 // Backdrop 0: the gaps have to stay transparent, or the preview would paint the
                 // level's own back-area colour over layer 2.
                 var (lp, lw, lh) = Layer3.Render(l3map, tiles, pal, 0, bg3Priority ? 0 : null);
                 var front = bg3Priority ? Layer3.Render(l3map, tiles, pal, 0, 1).Px : null;
-                l3 = new Map16.Layer3Draw(lp, front, lw, lh, screens);
+                l3 = new Map16.Layer3Draw(lp, front, lw, lh, screens, ox, oy);
             }
 
             var (img, pw, ph) = Map16.ComposeLevel(caches[p], pal.Rgba[0], grid,

@@ -437,6 +437,9 @@ public sealed class EditorSession
             Project.MarkDirty();
         }
         touched.Add(LevelNum);
+        // These are visible on the level canvas now — where layer 3 sits, and whether it covers
+        // the background image or adds into it — so the picture has to follow the dialog.
+        RecomposeScene();
         Report(adv is null ? "advanced layer 3 settings off"
              : $"advanced layer 3: {Layer3.VScrollNames[adv.Value.VScroll]} / "
              + $"{Layer3.HScrollNames[adv.Value.HScroll]}"
@@ -1872,6 +1875,9 @@ public sealed class EditorSession
         touched.Add(LevelNum);
         // A new height is a new canvas: the engine sizes its grid to it, so reparse like a header.
         if (entry.HeightIndex != had.HeightIndex) { StashCurrent(); ShowLevel(LevelNum); }
+        // The Layer 3 Option picks which tilemap the level draws — including none — and the level
+        // canvas draws it, so the picture has to follow the dropdown.
+        else if (entry.Layer3Option != had.Layer3Option) RecomposeScene();
     }
 
     public bool HasHeaderOverride => Rom?.LevelHeaderOverrides.ContainsKey(LevelNum) == true;

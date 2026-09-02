@@ -215,6 +215,48 @@ public class BackgroundEditTests(ITestOutputHelper log)
         Assert.Equal(previewed, s.Phases[0]);
     }
 
+    /// <summary>
+    /// The advanced settings are meant to be readable off the canvas, not just off the dialog.
+    /// Two of them change the picture on their own: the CGADSUB box decides whether layer 3
+    /// covers the background image or adds into it, and the Initial Y Position moves it.
+    ///
+    /// The CGADSUB direction matters. LM's routine SETS $40 bit 2 when the box is ticked and
+    /// CLEARS it when it is not, so on a mode whose own table had layer 3 in colour math (mode 0
+    /// does) an unticked box takes it back out — a blank record is not "leave it alone".
+    /// </summary>
+    [Fact]
+    public void the_translucency_box_and_the_y_position_change_the_level_canvas()
+    {
+        // $002 is mode 0 — main $15, sub $02 — so it HAS a subscreen for layer 3 to add. A mode
+        // with sub $00 would answer the same either way, and prove nothing.
+        if (Open(0x002) is not { } s) return;
+        var blank = new Layer3.Advanced(CgAdSub: false, Subscreen: false, FixScrollSync: false,
+                                        VScroll: 0, HScroll: 0, XPos: 0, Y: 0);
+
+        Assert.True(s.ApplyLayer3Advanced(blank));
+        var opaque = (uint[])s.Phases[0]!.Clone();
+
+        Assert.True(s.ApplyLayer3Advanced(blank with { CgAdSub = true }));
+        var blended = (uint[])s.Phases[0]!.Clone();
+        Assert.NotEqual(opaque, blended);
+
+        // Blended means ADDED, not replaced: no pixel can come out darker than it was.
+        int lit = 0;
+        for (int i = 0; i < opaque.Length; i++)
+            if (opaque[i] != blended[i]) lit++;
+        Assert.True(lit > 100, $"colour math moved only {lit} pixels");
+
+        Assert.True(s.ApplyLayer3Advanced(blank with { CgAdSub = true, Y = 3 }));
+        Assert.NotEqual(blended, s.Phases[0]);          // three tiles down is a different picture
+
+        Assert.True(s.ApplyLayer3Advanced(blank with { CgAdSub = true }));
+        Assert.Equal(blended, s.Phases[0]);             // and putting it back is exact
+
+        // And the Layer 3 Option itself: Blank means the level draws none, on the canvas too.
+        s.ApplyEntry(s.MainEntrance!.Value with { Layer3Option = 0 });
+        Assert.NotEqual(blended, s.Phases[0]);
+    }
+
     [Fact]
     public void a_level_with_no_layer_3_previews_nothing()
     {

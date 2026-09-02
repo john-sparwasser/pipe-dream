@@ -177,14 +177,19 @@ public static class Map16
     /// names layer 3 a colour-math target so the subscreen adds into it.</param>
     /// <param name="half">The maths' half bit: the sum is halved rather than saturating. SMW's
     /// own mode-0 value ($24) does NOT set it, so an ordinary level's layer 3 comes out bright.</param>
+    /// <param name="ox">Layer 3's own scroll, in pixels: the console shows tilemap pixel
+    /// x + $22 at screen x, so a positive offset moves the picture LEFT. Same for
+    /// <paramref name="oy"/> and $24. This is where the level's Initial X/Y Position lands.</param>
     public static void DrawLayer3(uint[] img, int W, int H, uint[] l3, int l3W, int l3H,
-                                  bool blend = false, bool half = false)
+                                  bool blend = false, bool half = false, int ox = 0, int oy = 0)
     {
         if (l3W <= 0 || l3H <= 0) return;
+        ox = ((ox % l3W) + l3W) % l3W;                  // negative offsets wrap the other way
+        oy = ((oy % l3H) + l3H) % l3H;
         for (int y = 0; y < H; y++)
             for (int x = 0; x < W; x++)
             {
-                uint c = l3[(y % l3H) * l3W + (x % l3W)];
+                uint c = l3[((y + oy) % l3H) * l3W + (x + ox) % l3W];
                 if (c == 0) continue;               // colour 0 is transparent on BG3
                 img[y * W + x] = blend ? Add(img[y * W + x], c, half) : c;
             }
@@ -228,7 +233,7 @@ public static class Map16
     /// math has them blend with what they meet rather than cover it.
     /// </summary>
     public readonly record struct Layer3Draw(uint[] Back, uint[]? Front, int W, int H,
-                                             Layer3.Screens Screens);
+                                             Layer3.Screens Screens, int OffX = 0, int OffY = 0);
 
     /// <summary>Compose a level canvas from precomputed caches (fast; for live edits).</summary>
     public static (uint[] px, int w, int h) ComposeLevel(uint[][] cache, uint backdrop, Map16Grid grid,
@@ -259,7 +264,7 @@ public static class Map16
         // cells are the exception, and only when the header sets mode 1's BG3-priority bit: then
         // they come out on top of everything instead.
         void L3(uint[] px, Layer3Draw d)
-            => DrawLayer3(img, W, H, px, d.W, d.H, d.Screens.Blend, d.Screens.Half);
+            => DrawLayer3(img, W, H, px, d.W, d.H, d.Screens.Blend, d.Screens.Half, d.OffX, d.OffY);
 
         if (layer3 is { Screens.AboveBg2: false } under) L3(under.Back, under);
         if (bgImg is not null && bgCache is not null) DrawBgImage(img, W, H, grid.Width, bgImg, bgCache);

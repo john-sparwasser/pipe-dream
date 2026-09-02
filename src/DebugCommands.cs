@@ -165,6 +165,7 @@ static class DebugCommands
         // puts layer 3 THROUGH the level, priority puts it in front, neither leaves it behind.
         Console.WriteLine("  advanced = " + (rom.LmLayer3Advanced(level) is { } adv
             ? $"CGADSUB {adv.CgAdSub}, subscreen {adv.Subscreen}, "
+            + $"X {Layer3.XPositions[adv.XPos & 3]}, Y {adv.Y}, "
             + $"V {Layer3.VScrollNames[adv.VScroll]} / H {Layer3.HScrollNames[adv.HScroll]}"
             : "none"));
         Console.WriteLine($"  LG1-4 = {string.Join(" ", files.Select(f => $"{f:X2}"))}"

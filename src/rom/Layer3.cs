@@ -358,8 +358,12 @@ public static class Layer3
         int sub = rom.ReadByte(SubScreenTable + (mode & 0x1F));
         int math = rom.ReadByte(CgAdSubTable + (mode & 0x1F));
         bool onSub = adv?.Subscreen == true;
+        // The advanced record REPLACES the mode's answer rather than adding to it: LM's routine
+        // sets $40 bit 2 when its CGADSUB box is ticked and CLEARS it when it is not, so an
+        // unticked box takes layer 3 out of colour math on a mode whose table had put it in.
+        bool inMath = adv is { } a ? a.CgAdSub : (math & Bg3Bit) != 0;
         // Nothing to add when the subscreen is empty, which is what the modes with sub $00 say.
-        bool blend = onSub || ((math & Bg3Bit) != 0 || adv?.CgAdSub == true) && sub != 0;
+        bool blend = onSub || (inMath && sub != 0);
         return new Screens(AboveBg2: onSub || (main & Bg2Bit) == 0, blend, (math & HalfBit) != 0);
     }
 
