@@ -109,8 +109,7 @@ public class ChrPaletteView : Control
         // Dragging takes a RECTANGLE of 8x8 tiles as the brush, so a 2x2 block can be stamped
         // into a whole Map16 tile in one go.
         if (dragStart is not { } a || TileAt(e.GetPosition(this)) is not { } t) return;
-        int bx = t % Cols, by = t / Cols;
-        Brush = (Math.Min(a.X, bx), Math.Min(a.Y, by), Math.Abs(bx - a.X) + 1, Math.Abs(by - a.Y) + 1);
+        Brush = Lasso.Span(a, (t % Cols, t / Cols));
         BrushChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
     }

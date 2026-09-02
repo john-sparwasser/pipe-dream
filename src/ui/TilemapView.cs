@@ -314,6 +314,7 @@ public sealed class TilemapView : Control
         else if (props.IsRightButtonPressed)
         {
             painting = true;
+            lastPainted = cell;
             e.Pointer.Capture(this);
             Painted?.Invoke(this, cell);
         }
@@ -334,9 +335,15 @@ public sealed class TilemapView : Control
         // canvas gives; a grip says which way it would grow.
         Cursor = PickOnLeft || painting ? null
                : Dragging || GrabAt(at) != Grab.Lasso ? DragCursor : null;
-        if (painting && cell is { } c) Painted?.Invoke(this, c);
-        else MoveTo(at);
+        if (!painting) { MoveTo(at); return; }
+        if (cell is not { } c) return;
+        // Every cell the stroke crosses, not just the ones a move event lands on.
+        if (lastPainted is { } prev) foreach (var s in Lasso.Between(prev, c)) Painted?.Invoke(this, s);
+        else Painted?.Invoke(this, c);
+        lastPainted = c;
     }
+
+    private (int Col, int Row)? lastPainted;
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
@@ -344,6 +351,7 @@ public sealed class TilemapView : Control
         Release();
         if (!painting) return;
         painting = false;
+        lastPainted = null;
         StrokeEnded?.Invoke(this, EventArgs.Empty);
     }
 
@@ -370,8 +378,7 @@ public sealed class TilemapView : Control
     public Grab GrabAt(Point p)
         => Selection is not { } s ? Grab.Lasso
          : EdgeAt(p, s) != (0, 0) ? Grab.Resize
-         : At(p) is { } c && c.Col >= s.X && c.Col < s.X + s.W && c.Row >= s.Y && c.Row < s.Y + s.H
-           ? Grab.Move : Grab.Lasso;
+         : At(p) is { } c && Lasso.Contains(s, c) ? Grab.Move : Grab.Lasso;
 
     /// <summary>Which grip is under the point, as a direction per axis. Screen pixels, so the
     /// grab zone is the same size however far the view is zoomed out.</summary>
@@ -408,24 +415,14 @@ public sealed class TilemapView : Control
     {
         if (dragFrom is { } from)
         {
-            if (ClampedAt(p) is not { } cell) return;
-            SetSelection(dragEdge == (0, 0) ? Moved(from, cell) : Resized(from, cell));
+            // Clamped: a fast drag past an edge lands ON the edge rather than stopping dead.
+            if (Lasso.Clamped(p, Step, Cols, Rows) is not { } cell) return;
+            SetSelection(dragEdge == (0, 0) ? Lasso.Moved(from, dragGrab, cell, Cols, Rows)
+                                            : Resized(from, cell));
             return;
         }
         if (lassoStart is not null && At(p) is { } l) ExtendSelection(l.Col, l.Row);
     }
-
-    /// <summary>The cell under a point, clamped into the grid — a fast drag past an edge should
-    /// land ON the edge rather than stop dead, as the GFX canvas already does.</summary>
-    private (int Col, int Row)? ClampedAt(Point p)
-        => Cols <= 0 || Rows <= 0 ? null
-         : (Math.Clamp((int)Math.Floor(p.X / Step), 0, Cols - 1),
-            Math.Clamp((int)Math.Floor(p.Y / Step), 0, Rows - 1));
-
-    private (int X, int Y, int W, int H) Moved((int X, int Y, int W, int H) from, (int Col, int Row) to)
-        => (Math.Clamp(from.X + to.Col - dragGrab.Col, 0, Math.Max(0, Cols - from.W)),
-            Math.Clamp(from.Y + to.Row - dragGrab.Row, 0, Math.Max(0, Rows - from.H)),
-            from.W, from.H);
 
     /// <summary>The grabbed edge follows the pointer; the opposite one stays put.</summary>
     private (int X, int Y, int W, int H) Resized((int X, int Y, int W, int H) from, (int Col, int Row) to)
@@ -470,9 +467,7 @@ public sealed class TilemapView : Control
 
     private void SetLasso((int Col, int Row) to)
     {
-        if (lassoStart is not { } from) return;
-        SetSelection((X: Math.Min(from.Col, to.Col), Y: Math.Min(from.Row, to.Row),
-                      W: Math.Abs(to.Col - from.Col) + 1, H: Math.Abs(to.Row - from.Row) + 1));
+        if (lassoStart is { } from) SetSelection(Lasso.Span(from, to));
     }
 
     private void SetSelection((int X, int Y, int W, int H) next)
