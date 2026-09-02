@@ -195,25 +195,14 @@ public sealed class TilemapView : Control
         if (bmp is null) { ctx.FillRectangle(Brushes.Black, full); return; }
         blit.Draw(this, ctx, bmp, new Rect(0, 0, surfW, surfH), full, VisualRoot?.RenderScaling ?? 1);
 
-        if (Selected is { } sel && Cols > 0)
-        {
-            var r = new Rect(sel % Cols * Step, sel / Cols * Step, Step, Step);
-            ctx.FillRectangle(UiColors.SelectionFill, r);
-            ctx.DrawRectangle(null, new Pen(UiColors.Selection, 2), r);
-        }
-        if (Selection is { } lasso)
-        {
-            var r = new Rect(lasso.X * Step, lasso.Y * Step, lasso.W * Step, lasso.H * Step);
-            ctx.FillRectangle(UiColors.SelectionFill, r);
-            ctx.DrawRectangle(null, new Pen(UiColors.Selection, 2), r);
-        }
+        // The armed tile wears the same ring as the Map16 and 8x8 drawers' picks.
+        if (Selected is { } sel && Cols > 0) Overlay.Armed(ctx, CellRect((sel % Cols, sel / Cols, 1, 1)));
+        if (Selection is { } lasso) Overlay.Selection(ctx, CellRect(lasso));
         // The cursor, one cell, and ONLY when there is no lasso. It used to outline the whole
         // stamp footprint instead, which with a lasso up put a second rectangle of exactly the
         // selection's size chasing the pointer around the selection itself — two reticles for
         // one gesture, and the drawn one is the one you can grab.
-        if (hover is { } h && !PickOnLeft && Selection is null)
-            ctx.DrawRectangle(null, new Pen(UiColors.Band, 1.5),
-                              new Rect(h.Col * Step, h.Row * Step, Step, Step));
+        if (hover is { } h && !PickOnLeft && Selection is null) Overlay.Band(ctx, CellRect((h.Col, h.Row, 1, 1)));
         if (LiveDrag is { } drag) DrawDragPreview(ctx, drag);
         if (Selection is { } grips && !PickOnLeft) Grips.Draw(ctx, CellRect(grips), GripPx);
     }

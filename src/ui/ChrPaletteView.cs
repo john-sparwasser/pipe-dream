@@ -138,8 +138,6 @@ public class ChrPaletteView : Control
             blit.Draw(this, ctx, bmp, new Rect(0, 0, sheetW, Math.Min(sheetH, Count / Cols * 8)),
                       full, VisualRoot?.RenderScaling ?? 1);
 
-        if (HasSelection)
-            ctx.DrawRectangle(null, new Pen(UiColors.Accent, 2),
-                              new Rect(Brush.X * c, Brush.Y * c, Brush.W * c, Brush.H * c));
+        if (HasSelection) Overlay.Armed(ctx, new Rect(Brush.X * c, Brush.Y * c, Brush.W * c, Brush.H * c));
     }
 }

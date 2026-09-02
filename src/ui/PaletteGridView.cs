@@ -188,10 +188,7 @@ public class PaletteGridView : Control
 
         if (Selected >= 0 && Selected < Count && !(HideFirst && Selected == 0))
         {
-            var sel = new Rect(Selected % Cols * c, Selected / Cols * c, c, c);
-            // Black under white: a ring in one colour disappears against a swatch of that colour.
-            ctx.DrawRectangle(null, new Pen(Brushes.Black, 3), sel);
-            ctx.DrawRectangle(null, new Pen(Brushes.White, 1.5), sel);
+            Overlay.Ring(ctx, new Rect(Selected % Cols * c, Selected / Cols * c, c, c));
         }
     }
 

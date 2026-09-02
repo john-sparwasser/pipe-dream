@@ -147,8 +147,7 @@ public class Map16PaletteView : Control
         if (Selected / Map16Layout.BankTiles == Bank)
         {
             int idx = Selected % Map16Layout.BankTiles;
-            ctx.DrawRectangle(null, new Pen(UiColors.Accent, 2),
-                              new Rect(idx % 16 * cell, idx / 16 * cell, cell, cell));
+            Overlay.Armed(ctx, new Rect(idx % 16 * cell, idx / 16 * cell, cell, cell));
         }
     }
 }

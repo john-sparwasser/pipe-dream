@@ -200,8 +200,6 @@ public class ColorPickerView : Control
         ctx.DrawEllipse(null, new Pen(Brushes.White, 1.5), new Point(cx, cy), 6, 6);
 
         double hy = strip.Y + hue * strip.Height;
-        var caret = new Rect(strip.X - 2, hy - 2.5, strip.Width + 4, 5);
-        ctx.DrawRectangle(null, new Pen(Brushes.Black, 3), caret);
-        ctx.DrawRectangle(null, new Pen(Brushes.White, 1.5), caret);
+        Overlay.Ring(ctx, new Rect(strip.X - 2, hy - 2.5, strip.Width + 4, 5));
     }
 }
