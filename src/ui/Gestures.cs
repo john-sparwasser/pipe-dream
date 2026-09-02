@@ -20,6 +20,37 @@ internal static class UiCursors
 }
 
 /// <summary>
+/// One paint stroke: every cell a button-held drag crosses, painted through the one callback,
+/// with the gaps a fast pointer leaves filled in. Each canvas used to keep a painting flag and a
+/// last-cell field and re-derive the interpolation; the stroke is the same on all of them, so
+/// this is it. The owner still captures the pointer and seals the undo entry on <see cref="End"/>.
+/// </summary>
+internal sealed class Stroke(Action<(int X, int Y)> paint)
+{
+    private (int X, int Y)? last;
+
+    public bool Active => last is not null;
+
+    public void Begin((int X, int Y) at) { last = at; paint(at); }
+
+    /// <summary>Continue to a cell, painting every cell between the last one and it.</summary>
+    public void MoveTo((int X, int Y) at)
+    {
+        if (last is not { } prev) return;
+        foreach (var s in Lasso.Between(prev, at)) paint(s);
+        last = at;
+    }
+
+    /// <summary>True when a stroke was running — the caller seals the undo entry.</summary>
+    public bool End()
+    {
+        if (last is null) return false;
+        last = null;
+        return true;
+    }
+}
+
+/// <summary>
 /// The grips on a selection's border — where they are, what grabbing one does, and how they are
 /// drawn — for every canvas whose selection can be resized. An edge is a direction per axis:
 /// (-1, 0) is the left edge, (1, 1) the bottom-right corner, (0, 0) no grip at all.

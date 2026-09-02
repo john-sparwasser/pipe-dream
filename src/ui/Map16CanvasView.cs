@@ -104,6 +104,7 @@ public class Map16CanvasView : Control
     {
         Focusable = true;
         HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center;
+        stroke = new(q => PaintQuad(q));
     }
 
     public void SetSheet(uint[]?[] px, int w, int h, int tileCount)
@@ -124,11 +125,9 @@ public class Map16CanvasView : Control
     /// <summary>Screen point → (bank-local column/row, absolute tile, visual quadrant).</summary>
     public (int Col, int Row, int Tile, int Quad)? At(Point p)
     {
-        double ts = TileSize, qs = QuadSize;
-        int col = (int)((p.X + Origin.X) / ts), row = (int)((p.Y + Origin.Y) / ts);
-        if (col is < 0 or >= Map16Layout.Cols || row < 0 || row >= Map16Layout.BankRows) return null;
-        int qcol = (int)((p.X + Origin.X) / qs), qrow = (int)((p.Y + Origin.Y) / qs);
-        int quad = ((qrow & 1) << 1) | (qcol & 1);           // visual TL, TR, BL, BR
+        if (QuadAt(p) is not { } q) return null;
+        int col = q.Col / 2, row = q.Row / 2;
+        int quad = ((q.Row & 1) << 1) | (q.Col & 1);          // visual TL, TR, BL, BR
         return (col, row, Bank * Map16Layout.BankTiles + row * Map16Layout.Cols + col, quad);
     }
 
@@ -137,19 +136,14 @@ public class Map16CanvasView : Control
 
     // ---- interaction ----
 
-    private bool painting;
+    private readonly Stroke stroke;
     private (int Col, int Row)? lassoStart, lassoEnd, moveStart;
     private Point brushOrigin;
 
     /// <summary>Point → bank-local QUADRANT column/row, or null when off the sheet. The unit the
-    /// lasso works in at both grains; <see cref="Lasso"/> snaps it out to tiles at 16x16.</summary>
+    /// lasso works in at both grains; <see cref="Snapped"/> grows it out to tiles at 16x16.</summary>
     private (int Col, int Row)? QuadAt(Point p)
-    {
-        double qs = QuadSize;
-        int col = (int)((p.X + Origin.X) / qs), row = (int)((p.Y + Origin.Y) / qs);
-        return col is < 0 or >= Map16Layout.Cols * 2 || row < 0 || row >= Map16Layout.BankRows * 2
-            ? null : (col, row);
-    }
+        => Lasso.CellAt(p + Origin, QuadSize, Map16Layout.Cols * 2, Map16Layout.BankRows * 2);
 
     /// <summary>The rectangle two dragged quadrants make, in quadrants — grown out to whole
     /// tiles at 16x16, where a selection that cut a tile in half would be a lie.</summary>
@@ -182,10 +176,8 @@ public class Map16CanvasView : Control
             }
             else if (Grain == TileGrain.Quad8)
             {
-                painting = true;
-                lastPainted = h;
+                stroke.Begin(h);
                 e.Pointer.Capture(this);
-                PaintQuad(h);
             }
         }
         else if (props.IsLeftButtonPressed)
@@ -217,26 +209,15 @@ public class Map16CanvasView : Control
         { HoverQuad = hq; brushOrigin = snapped; InvalidateVisual(); }
 
         if (QuadAt(p) is not { } c) return;
-        if (painting)
-        {
-            // Every quadrant the stroke crosses, as on the level and GFX canvases.
-            if (lastPainted is { } prev) foreach (var s in Lasso.Between(prev, c)) PaintQuad(s);
-            else PaintQuad(c);
-            lastPainted = c;
-            return;
-        }
+        if (stroke.Active) { stroke.MoveTo(c); return; }
         if (lassoStart is not null || moveStart is not null) { lassoEnd = c; InvalidateVisual(); }
     }
-
-    private (int Col, int Row)? lastPainted;
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
-        if (painting)
+        if (stroke.End())
         {
-            painting = false;
-            lastPainted = null;
             e.Pointer.Capture(null);
             StrokeEnded?.Invoke(this, EventArgs.Empty);
             return;

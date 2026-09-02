@@ -33,7 +33,7 @@ public sealed class TilemapView : Control
     private Avalonia.Media.Imaging.WriteableBitmap? bmp;
     private bool stale = true;
     private int surfW, surfH;
-    private bool painting;
+    private readonly Stroke stroke;
     private (int Col, int Row)? hover;
 
     public int Cols { get; set; }
@@ -121,6 +121,7 @@ public sealed class TilemapView : Control
         Focusable = true;
         HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left;
         VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top;
+        stroke = new(c => Painted?.Invoke(this, c));
     }
 
     /// <summary>Rebuild the surface on the next render. Called after anything that changes what
@@ -152,11 +153,7 @@ public sealed class TilemapView : Control
     /// readout asks for.</summary>
     public (int Col, int Row)? Hover => hover;
 
-    public (int Col, int Row)? At(Point p)
-    {
-        int col = (int)(p.X / Step), row = (int)(p.Y / Step);
-        return (uint)col < Cols && (uint)row < Rows ? (col, row) : null;
-    }
+    public (int Col, int Row)? At(Point p) => Lasso.CellAt(p, Step, Cols, Rows);
 
     private void Compose()
     {
@@ -286,10 +283,8 @@ public sealed class TilemapView : Control
         }
         else if (props.IsRightButtonPressed)
         {
-            painting = true;
-            lastPainted = cell;
+            stroke.Begin(cell);
             e.Pointer.Capture(this);
-            Painted?.Invoke(this, cell);
         }
         else if (props.IsLeftButtonPressed)
         {
@@ -306,29 +301,20 @@ public sealed class TilemapView : Control
         if (cell != hover) { hover = cell; if (!PickOnLeft) InvalidateVisual(); }
         // The move arrows say the selection is draggable before you press, the same tell the GFX
         // canvas gives; a grip says which way it would grow.
-        Cursor = PickOnLeft || painting || lassoStart is not null ? null
+        Cursor = PickOnLeft || stroke.Active || lassoStart is not null ? null
                : dragFrom is not null ? Grips.CursorFor(dragEdge) ?? UiCursors.Move
                : Selection is { } sel && Grips.EdgeAt(at, CellRect(sel), GripPx) is var edge && edge != (0, 0)
                    ? Grips.CursorFor(edge)
                : GrabAt(at) == Grab.Move ? UiCursors.Move : null;
-        if (!painting) { MoveTo(at); return; }
-        if (cell is not { } c) return;
-        // Every cell the stroke crosses, not just the ones a move event lands on.
-        if (lastPainted is { } prev) foreach (var s in Lasso.Between(prev, c)) Painted?.Invoke(this, s);
-        else Painted?.Invoke(this, c);
-        lastPainted = c;
+        if (!stroke.Active) MoveTo(at);
+        else if (cell is { } c) stroke.MoveTo(c);
     }
-
-    private (int Col, int Row)? lastPainted;
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         e.Pointer.Capture(null);
         Release();
-        if (!painting) return;
-        painting = false;
-        lastPainted = null;
-        StrokeEnded?.Invoke(this, EventArgs.Empty);
+        if (stroke.End()) StrokeEnded?.Invoke(this, EventArgs.Empty);
     }
 
     // ---- selection drags ----

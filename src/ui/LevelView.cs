@@ -202,6 +202,7 @@ public class LevelView : Control
         Focusable = true;
         HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center;
         VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center;
+        stroke = new(c => CellPainted?.Invoke(this, c));
     }
 
     /// <summary>
@@ -215,20 +216,16 @@ public class LevelView : Control
 
     /// <summary>Screen point → 16x16 cell, or null when outside the composed level.</summary>
     public (int X, int Y)? CellAt(Point p)
-    {
-        if (Source is not { HasImages: true } src || Zoom <= 0) return null;
-        int lx = (int)((p.X + Origin.X) / Zoom), ly = (int)((p.Y + Origin.Y) / Zoom);
-        if (lx < 0 || ly < 0 || lx >= src.PxW || ly >= src.PxH) return null;
-        return (lx / 16, ly / 16);
-    }
+        => Source is { HasImages: true } src && Lasso.CellAt(p + Origin, Zoom, src.PxW, src.PxH) is { } px
+           ? (px.X / 16, px.Y / 16) : null;
 
     // ---- drag state, mirroring the ImGui tool's dragStart/dragEnd/moveDrag/resizeDrag ----
     private (int X, int Y)? bandStart, bandEnd, moveStart;
-    private bool painting, grabbing, sampling;
+    private bool grabbing, sampling;
     /// <summary>A move drag has already applied at least one step, so the rest coalesce into
     /// the same undo entry and a release is a drag, not a stationary click.</summary>
     private bool moved;
-    private (int X, int Y)? lastPainted;
+    private readonly Stroke stroke;
     private (int Obj, (int DX, int DY) Edge, int Cx, int Cy)? resizeDrag;
     // The lasso works in LEVEL PIXELS, not cells — it follows the cursor exactly instead of
     // snapping to the 16px grid. (Sprites are also SELECTED by pixel: a sprite is picked by
@@ -366,10 +363,8 @@ public class LevelView : Control
             else if (CatalogObject >= 0) PlaceRequested?.Invoke(this, cell);
             else
             {
-                painting = true;
-                lastPainted = cell;
+                stroke.Begin(cell);
                 e.Pointer.Capture(this);
-                CellPainted?.Invoke(this, cell);
             }
         }
         else if (props.IsLeftButtonPressed)
@@ -438,15 +433,7 @@ public class LevelView : Control
         if (sampling) { SampleRequested?.Invoke(this, LevelPixel(e.GetPosition(this))); return; }
         if (cell is not { } c) return;
 
-        if (painting)
-        {
-            // Every cell the drag crosses stamps, not just the ones a move event lands on —
-            // at speed the pointer skips cells and a stroke with holes in it is a bug.
-            if (lastPainted is { } prev) foreach (var s in Lasso.Between(prev, c)) CellPainted?.Invoke(this, s);
-            else CellPainted?.Invoke(this, c);
-            lastPainted = c;
-            return;
-        }
+        if (stroke.Active) { stroke.MoveTo(c); return; }
 
         if (Mode == EditMode.Sprites && Sprites is { } sp)
         {
@@ -529,10 +516,8 @@ public class LevelView : Control
             e.Pointer.Capture(null);
             return;
         }
-        if (painting)
+        if (stroke.End())
         {
-            painting = false;
-            lastPainted = null;
             e.Pointer.Capture(null);
             StrokeEnded?.Invoke(this, EventArgs.Empty);
             return;

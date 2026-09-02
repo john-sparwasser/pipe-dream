@@ -114,7 +114,11 @@ public class GfxCanvasView : Control
 
     public (int X, int Y)? Hover { get; private set; }
 
-    public GfxCanvasView() => Focusable = true;
+    public GfxCanvasView()
+    {
+        Focusable = true;
+        stroke = new(px => PixelPainted?.Invoke(this, px));
+    }
 
     public void SetSheet(uint[] px, int w, int h)
     {
@@ -127,20 +131,14 @@ public class GfxCanvasView : Control
 
     /// <summary>Screen point → sheet pixel, or null outside the tiles the file actually has.</summary>
     public (int X, int Y)? PixelAt(Point p)
-    {
-        if (Zoom <= 0 || sheetW == 0) return null;
-        int x = (int)(p.X / Zoom), y = (int)(p.Y / Zoom);
-        if (x < 0 || y < 0 || x >= sheetW || y >= sheetH) return null;
-        return (y / 8) * 16 + x / 8 < Tiles ? (x, y) : null;
-    }
+        => Lasso.CellAt(p, Zoom, sheetW, sheetH) is { } px && (px.Y / 8) * 16 + px.X / 8 < Tiles ? px : null;
 
     /// <summary>Screen point → nearest sheet pixel, for drags that run past the edge.</summary>
     private (int X, int Y)? ClampedPixelAt(Point p) => Lasso.Clamped(p, Zoom, sheetW, sheetH);
 
     protected override Size MeasureOverride(Size available) => new(sheetW * Zoom, sheetH * Zoom);
 
-    private bool painting;
-    private (int X, int Y)? lastPainted;
+    private readonly Stroke stroke;
 
     /// <summary>Drag out a SHAPE instead of painting pixel by pixel (the Rect and Ellipse
     /// tools). Set alongside <see cref="Selecting"/> by whoever owns the tool; never both.</summary>
@@ -209,10 +207,8 @@ public class GfxCanvasView : Control
             return;
         }
 
-        painting = true;
-        lastPainted = px;
+        stroke.Begin(px);
         e.Pointer.Capture(this);
-        PixelPainted?.Invoke(this, px);
     }
 
     /// <summary>The hover ends with the pointer, as on the level canvas.</summary>
@@ -252,13 +248,7 @@ public class GfxCanvasView : Control
             InvalidateVisual();
             return;
         }
-        if (!painting || at is not { } px) return;
-        // Interpolate: at speed the pointer skips pixels, and a stroke with gaps in it is a bug
-        // rather than a style. Same rule as the level canvas.
-        if (lastPainted is { } prev)
-            foreach (var step in Lasso.Between(prev, px)) PixelPainted?.Invoke(this, step);
-        else PixelPainted?.Invoke(this, px);
-        lastPainted = px;
+        if (stroke.Active && at is { } px) stroke.MoveTo(px);
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
@@ -287,9 +277,7 @@ public class GfxCanvasView : Control
             if (done is { } r) ShapeDragged?.Invoke(this, r);
             return;
         }
-        if (!painting) return;
-        painting = false;
-        lastPainted = null;
+        if (!stroke.End()) return;
         e.Pointer.Capture(null);
         StrokeEnded?.Invoke(this, EventArgs.Empty);
     }

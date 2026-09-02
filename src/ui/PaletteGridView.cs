@@ -68,9 +68,8 @@ public class PaletteGridView : Control
 
     public int? IndexAt(Point p)
     {
-        int col = (int)(p.X / Cell), row = (int)(p.Y / Cell);
-        if (col < 0 || col >= Cols || row < 0 || row >= Rows) return null;
-        int i = row * Cols + col;
+        if (Lasso.CellAt(p, Cell, Cols, Rows) is not { } c) return null;
+        int i = c.Y * Cols + c.X;
         return HideFirst && i == 0 ? null : i;
     }
 

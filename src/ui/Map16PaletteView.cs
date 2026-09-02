@@ -50,11 +50,8 @@ public class Map16PaletteView : Control
     /// <summary>Tile under a screen point, or null past the end of the bank.</summary>
     public int? TileAt(Point p)
     {
-        if (Zoom <= 0) return null;
-        int col = (int)(p.X / (16 * Zoom)), row = (int)(p.Y / (16 * Zoom));
-        if (col is < 0 or >= 16 || row < 0) return null;
-        int idx = row * 16 + col;
-        return idx >= Map16Layout.BankTiles ? null : Bank * Map16Layout.BankTiles + idx;
+        if (Lasso.CellAt(p, 16 * Zoom, Map16Layout.Cols, Map16Layout.BankRows) is not { } c) return null;
+        return Bank * Map16Layout.BankTiles + c.Y * Map16Layout.Cols + c.X;
     }
 
     /// <summary>Margin around the sheet inside the drawer (matches the XAML).</summary>
