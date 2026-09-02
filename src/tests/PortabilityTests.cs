@@ -25,8 +25,8 @@ public class PortabilityTests
     [Fact]
     public void the_last_project_opened_is_the_head_of_the_recent_list()
     {
-        // Nonexistent paths on purpose: Touch writes through to the user's config, and the
-        // session's getter prunes anything that is not there, so these leave nothing behind.
+        // Touch writes through to config.json — the run's temp copy, not the real user's
+        // (TestConfigDir), which is what makes writing from a test safe at all.
         string a = Path.Combine(Path.GetTempPath(), "pd-recent-a", "project.pdp");
         string b = Path.Combine(Path.GetTempPath(), "pd-recent-b", "project.pdp");
         var c = new Config();
@@ -71,6 +71,24 @@ public class PortabilityTests
             Assert.Equal(Path.Combine(@"C:\SMW\Projects", ".resources", "SMW.smc"), ReferenceRoms.Vanilla);
         }
         finally { Environment.SetEnvironmentVariable(key, saved); }
+    }
+
+    /// <summary>What keeps the two tests above from eating the real user's settings. Save()
+    /// serialises the instance it is called on, so a defaults-only Config saved against the
+    /// live path wipes the vanilla ROM, emulator and recents — which is exactly what happened
+    /// until TestConfigDir redirected the run. Delete that initializer and this fails instead
+    /// of somebody's config.</summary>
+    [Fact]
+    public void the_test_run_never_writes_the_real_user_config()
+    {
+        string real = Config.DirFor(
+            OperatingSystem.IsMacOS(),
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+
+        Assert.NotEqual(real, Config.Dir);
+        Assert.StartsWith(Path.GetTempPath(), Config.Dir);
+        Assert.StartsWith(Config.Dir, Config.FilePath);
     }
 
     // The monospace-font probe that used to live here went with the ImGui layer: Avalonia

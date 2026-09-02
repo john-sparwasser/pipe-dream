@@ -40,10 +40,17 @@ internal sealed class Config
         isMacOS ? Path.Combine(home, "Library", "Application Support", "PipeDream")
                 : Path.Combine(appData, "PipeDream");
 
-    internal static string Dir => DirFor(
-        OperatingSystem.IsMacOS(),
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+    /// <summary>Where config.json actually lives. PIPEDREAM_CONFIG_DIR overrides it, the way
+    /// PIPEDREAM_SMW_ROOT overrides the reference-ROM root: the test suite points it at a temp
+    /// folder, because <see cref="Save"/> serialises whatever instance it is called on and a
+    /// test holding a fresh <c>new Config()</c> would otherwise write DEFAULTS over the real
+    /// user's vanilla ROM path, emulator and recents. Nothing else sets it.</summary>
+    internal static string Dir =>
+        Environment.GetEnvironmentVariable("PIPEDREAM_CONFIG_DIR") is { Length: > 0 } d
+            ? d
+            : DirFor(OperatingSystem.IsMacOS(),
+                     Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                     Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
 
     internal static string FilePath => Path.Combine(Dir, "config.json");
 
