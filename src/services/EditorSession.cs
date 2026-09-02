@@ -646,6 +646,11 @@ public sealed class EditorSession
     /// </summary>
     public async Task<UpdateInfo?> FindUpdate(bool userAsked, CancellationToken ct = default)
     {
+        if (!UpdateCheck.Supported)
+        {
+            if (userAsked) Report("updates: no build is published for this platform yet");
+            return null;
+        }
         if (!UpdateCheck.Due(userAsked, Config.CheckForUpdates, Config.LastUpdateCheckUtc, DateTime.UtcNow))
             return null;
 

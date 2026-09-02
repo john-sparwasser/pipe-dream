@@ -68,6 +68,18 @@ public class UpdateCheckTests
     public void each_platform_takes_only_its_own_asset(string name, bool windows, bool wanted)
         => Assert.Equal(wanted, UpdateCheck.WantsAsset(name, windows));
 
+    /// <summary>A platform CI ships no asset for is offered nothing — before this a Mac was handed
+    /// the Linux binary, and Apply() would have moved it over the running app.</summary>
+    [Fact]
+    public async Task an_unsupported_platform_is_offered_no_update()
+    {
+        Assert.Equal(OperatingSystem.IsWindows() || OperatingSystem.IsLinux(), UpdateCheck.Supported);
+        if (UpdateCheck.Supported) return;                       // the rest is the Mac's half
+        var s = new EditorSession();
+        Assert.Null(await s.FindUpdate(userAsked: true));        // and no request went out to decide it
+        Assert.Contains("no build is published", s.Status);
+    }
+
     [Fact]
     public void asking_explicitly_always_checks()
     {
