@@ -3021,17 +3021,15 @@ public partial class MainWindow : Window
                 }
         for (int r = to.Y; r < to.Y + to.H; r++)
             for (int c = to.X; c < to.X + to.W; c++)
-                changed |= map.Stamp(c, r, src[Wrap(r - from.Y, from.H) * from.W
-                                              + Wrap(c - from.X, from.W)]);
+            {
+                var (sc, sr) = d.Source(c, r);
+                changed |= map.Stamp(c, r, src[(sr - from.Y) * from.W + (sc - from.X)]);
+            }
         if (!changed || !map.EndStroke()) return;
         bgView.Invalidate();
         RefreshBg();
         UpdateTitle();
     }
-
-    /// <summary>Index into a repeating pattern, for offsets that run negative — growing a
-    /// selection LEFTWARDS is the case C#'s % gets wrong on its own.</summary>
-    private static int Wrap(int i, int n) => n <= 0 ? 0 : (i % n + n) % n;
 
     /// <summary>Mouse up: the stroke becomes one undo entry and the level's data changes. A drag
     /// that painted nothing new settles into nothing, so it cannot clear the redo stack.</summary>

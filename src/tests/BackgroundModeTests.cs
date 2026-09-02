@@ -416,15 +416,22 @@ public class BackgroundModeTests(ITestOutputHelper log)
         Assert.Equal([A, B, A, B], new[] { map.At(4, 4), map.At(5, 4), map.At(6, 4), map.At(7, 4) });
         Assert.Equal(depth + 2, map.UndoDepth);           // the paint, then the grow
 
-        // Now drag it four rows down by its middle.
+        // Now drag it by its middle, one column right as well as four rows down. The sideways
+        // step is the half that matters: a move follows the block, so A B A B has to arrive as
+        // A B A B — reading it through the repeat's own wrap would rotate it to B A B A.
         view.PressAt(new Avalonia.Point(5.5 * step, 4.5 * step));
-        view.MoveTo(new Avalonia.Point(5.5 * step, 8.5 * step));
+        view.MoveTo(new Avalonia.Point(6.5 * step, 8.5 * step));
         view.Release();
-        Assert.Equal((4, 8, 4, 1), view.Selection);
-        Assert.Equal([A, B, A, B], new[] { map.At(4, 8), map.At(5, 8), map.At(6, 8), map.At(7, 8) });
+        Assert.Equal((5, 8, 4, 1), view.Selection);
+        Assert.Equal([A, B, A, B], new[] { map.At(5, 8), map.At(6, 8), map.At(7, 8), map.At(8, 8) });
         Assert.All(new[] { map.At(4, 4), map.At(5, 4), map.At(6, 4), map.At(7, 4) },
                    v => Assert.Equal(-1, v));             // and left nothing behind
         Assert.Equal(depth + 3, map.UndoDepth);
+
+        // What the drag SHOWED is what it wrote: the preview asks the same mapping.
+        var drag = new TilemapView.SelectionDrag((4, 4, 4, 1), (5, 8, 4, 1), Move: true);
+        Assert.Equal((4, 4), drag.Source(5, 8));
+        Assert.Equal((7, 4), drag.Source(8, 8));
     }
 
     /// <summary>Fire a Click handler the way the button would, with the sender it checks.</summary>

@@ -81,7 +81,25 @@ public sealed class TilemapView : Control
     /// a move needs no case of its own — only the extra step of clearing what it left.
     /// </summary>
     public readonly record struct SelectionDrag(
-        (int X, int Y, int W, int H) From, (int X, int Y, int W, int H) To, bool Move);
+        (int X, int Y, int W, int H) From, (int X, int Y, int W, int H) To, bool Move)
+    {
+        /// <summary>
+        /// Which source cell fills destination cell (<paramref name="col"/>, <paramref name="row"/>).
+        /// The one place this mapping lives: the drag preview and the write that lands on release
+        /// have to agree, and "what you saw is what you got" is the whole point of the preview.
+        ///
+        /// A move follows the block, so the offset is straight. A grow REPEATS, and the repeat is
+        /// phased on the old rectangle's own origin rather than the new one's, so the cells that
+        /// were already there do not shift while the space beside them fills in.
+        /// </summary>
+        public (int Col, int Row) Source(int col, int row)
+            => Move ? (From.X + col - To.X, From.Y + row - To.Y)
+                    : (From.X + Wrap(col - From.X, From.W), From.Y + Wrap(row - From.Y, From.H));
+
+        /// <summary>Index into a repeating pattern, for offsets that run negative — growing a
+        /// selection LEFTWARDS is the case C#'s % gets wrong on its own.</summary>
+        private static int Wrap(int i, int n) => n <= 0 ? 0 : (i % n + n) % n;
+    }
 
     public event EventHandler<(int Col, int Row)>? Painted;
     public event EventHandler? StrokeEnded;
@@ -196,8 +214,70 @@ public sealed class TilemapView : Control
         if (hover is { } h && !PickOnLeft && Selection is null)
             ctx.DrawRectangle(null, new Pen(UiColors.Band, 1.5),
                               new Rect(h.Col * Step, h.Row * Step, Step, Step));
+        if (LiveDrag is { } drag) DrawDragPreview(ctx, drag);
         if (Selection is { } grips && !PickOnLeft) DrawHandles(ctx, grips);
     }
+
+    /// <summary>The drag as it stands right now, or null between drags — the same value that will
+    /// be raised on release, which is what lets the preview and the result be the same thing.</summary>
+    public SelectionDrag? LiveDrag
+        => dragFrom is { } f && Selection is { } t && t != f
+           ? new SelectionDrag(f, t, dragEdge == (0, 0)) : null;
+
+    private readonly PixelBlit dragBlit = new();
+    private Avalonia.Media.Imaging.WriteableBitmap? dragBmp, dragRetired;
+    private SelectionDrag? dragBmpFor;
+
+    /// <summary>
+    /// The tiles under the drag, drawn where they are going while you are still dragging. Without
+    /// it the rectangle moves and its contents do not, and a repeat cannot be judged at all until
+    /// it has already been written.
+    ///
+    /// A move also empties where it came from, because that is what it will do: seeing the gap
+    /// open is how you tell a move from a copy without letting go first.
+    /// </summary>
+    private void DrawDragPreview(DrawingContext ctx, SelectionDrag d)
+    {
+        if (CellAt is not { } at || CellPixels is not { } pixels) return;
+        if (d.Move)
+            ctx.FillRectangle(new SolidColorBrush(Rgba(Backdrop)),
+                              new Rect(d.From.X * Step, d.From.Y * Step,
+                                       d.From.W * Step, d.From.H * Step));
+
+        int w = d.To.W * CellPx, h = d.To.H * CellPx;
+        if (w <= 0 || h <= 0) return;
+        // Rebuilt only when the drag actually moves a cell — a repaint at the same rectangle
+        // (the tile animation stepping, say) reuses the bitmap.
+        if (dragBmp is null || dragBmpFor != d)
+        {
+            var px = new uint[w * h];               // 0 is transparent: the canvas shows through
+            for (int r = 0; r < d.To.H; r++)
+                for (int c = 0; c < d.To.W; c++)
+                {
+                    var (sc, sr) = d.Source(d.To.X + c, d.To.Y + r);
+                    int v = at(sc, sr);
+                    if (v < 0 || pixels(v) is not { } tile) continue;
+                    for (int y = 0; y < CellPx; y++)
+                        for (int x = 0; x < CellPx; x++)
+                            if (tile[y * CellPx + x] is var col && col != 0)
+                                px[(r * CellPx + y) * w + c * CellPx + x] = col;
+                }
+            // Parked rather than disposed on the spot: the draw that used it was RECORDED this
+            // frame and runs later, and freeing it under the compositor is the crash PixelBlit
+            // documents. One frame of grace is enough, and one bitmap is the whole backlog.
+            dragRetired?.Dispose();
+            dragRetired = dragBmp;
+            dragBmp = LevelBitmap.FromPixels(px, w, h);
+            dragBmpFor = d;
+        }
+        dragBlit.Draw(this, ctx, dragBmp, new Rect(0, 0, w, h),
+                      new Rect(d.To.X * Step, d.To.Y * Step, d.To.W * Step, d.To.H * Step),
+                      VisualRoot?.RenderScaling ?? 1);
+    }
+
+    /// <summary>Composition packs 0xAABBGGRR, which is not the order Color takes.</summary>
+    private static Color Rgba(uint c)
+        => Color.FromArgb((byte)(c >> 24), (byte)c, (byte)(c >> 8), (byte)(c >> 16));
 
     /// <summary>The eight grips, drawn ON the selection's border so the thing you grab is the
     /// thing you see. Sized in screen pixels, not cells: a 64x64 layer 3 zoomed out has cells
@@ -363,6 +443,9 @@ public sealed class TilemapView : Control
         lassoStart = null;
         if (dragFrom is not { } from) return;
         dragFrom = null;
+        dragRetired?.Dispose();
+        dragRetired = dragBmp;                     // the preview's job is over; the map has it now
+        dragBmp = null; dragBmpFor = null;
         InvalidateVisual();                       // the grips move with it
         if (Selection is not { } to) return;
         // A press inside the selection that never moved is a click, and a click is how you
