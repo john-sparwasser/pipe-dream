@@ -161,6 +161,12 @@ static class DebugCommands
         var files = Layer3.GfxFiles(rom, level);
         Console.WriteLine($"level {level:X3}: mode {header.LevelMode}, option {option} "
                         + $"({Layer3.OptionNames[option]}), priority {header.Layer3Priority}");
+        // Which of these are on decides what the level canvas can honestly draw: colour math
+        // puts layer 3 THROUGH the level, priority puts it in front, neither leaves it behind.
+        Console.WriteLine("  advanced = " + (rom.LmLayer3Advanced(level) is { } adv
+            ? $"CGADSUB {adv.CgAdSub}, subscreen {adv.Subscreen}, "
+            + $"V {Layer3.VScrollNames[adv.VScroll]} / H {Layer3.HScrollNames[adv.HScroll]}"
+            : "none"));
         Console.WriteLine($"  LG1-4 = {string.Join(" ", files.Select(f => $"{f:X2}"))}"
                         + (rom.LmLayer3Gfx(level) is null ? "  (vanilla)" : "  (LM bypass, record w0 bit 14)"));
         // A BUILT rom carries its custom tilemap as an ordinary GFX file named by the record, so

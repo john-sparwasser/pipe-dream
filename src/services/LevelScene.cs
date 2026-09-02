@@ -109,15 +109,26 @@ public sealed class LevelScene
 
             // Layer 3 does not animate, so one surface serves every phase — but it is rendered
             // per phase anyway because the palette can differ, and it is cheap next to the level.
-            (uint[] Px, int W, int H, bool Front)? l3 = null;
+            Map16.Layer3Draw? l3 = null;
             if (previewLayer3
                 && Layer3.LevelTilemap(rom, levelNum, level.Header.LevelMode,
                                        Layer3.Option(rom, levelNum)) is { } l3map)
             {
+                // The console's own rules, as far as a still picture can carry them. The header's
+                // Layer 3 Priority is mode 1's BG3-priority bit ($3E = $09 rather than $01 at
+                // $05:8570), which does NOT lift the whole layer: it lifts the cells whose own
+                // priority bit is set, and leaves the rest at the very back. Colour math (the
+                // level's CGADSUB / Subscreen settings) is what lets it show THROUGH the level
+                // at all, which is why a level with neither is meant to look hidden.
+                var tiles = Layer3.Tiles(rom, levelNum);
+                var screens = Layer3.ScreenSetup(rom, level.Header.LevelMode,
+                                                 rom.LmLayer3Advanced(levelNum));
+                bool bg3Priority = level.Header.Layer3Priority != 0;
                 // Backdrop 0: the gaps have to stay transparent, or the preview would paint the
                 // level's own back-area colour over layer 2.
-                var (lp, lw, lh) = Layer3.Render(l3map, Layer3.Tiles(rom, levelNum), pal, 0);
-                l3 = (lp, lw, lh, level.Header.Layer3Priority != 0);
+                var (lp, lw, lh) = Layer3.Render(l3map, tiles, pal, 0, bg3Priority ? 0 : null);
+                var front = bg3Priority ? Layer3.Render(l3map, tiles, pal, 0, 1).Px : null;
+                l3 = new Map16.Layer3Draw(lp, front, lw, lh, screens);
             }
 
             var (img, pw, ph) = Map16.ComposeLevel(caches[p], pal.Rgba[0], grid,

@@ -179,40 +179,49 @@ public class BackgroundEditTests(ITestOutputHelper log)
     // ---- the level-canvas preview ----
 
     /// <summary>
-    /// Layer 3 previews on the LEVEL canvas, composed behind layer 2 and layer 1 — not painted
-    /// over the finished canvas, which could only ever hide the level. It is off by default,
-    /// because the level canvas is otherwise exactly what the level's own data draws.
+    /// Layer 3 is drawn on the LEVEL canvas by default, composed into the picture rather than
+    /// painted over the finished one — the console puts it under the level's own tiles, and
+    /// nothing painted on top can go underneath.
+    ///
+    /// $009 is a ghost house: no Layer 3 Priority in its header, so every one of its layer-3
+    /// cells stays behind layer 1, and a cell layer 1 filled has to read identically with the
+    /// preview on and off. That is the assertion that fails if this ever becomes an overlay.
     /// </summary>
     [Fact]
-    public void the_level_canvas_can_preview_layer_3_behind_the_level()
+    public void the_level_canvas_draws_layer_3_under_the_level()
     {
         if (Open(0x009) is not { } s) return;
-        Assert.False(s.PreviewLayer3);
-        var plain = (uint[])s.Phases[0]!.Clone();
+        Assert.True(s.PreviewLayer3);                      // on by default: the level draws one
+        var previewed = (uint[])s.Phases[0]!.Clone();
 
-        Assert.True(s.SetPreviewLayer3(true));
-        Assert.False(s.SetPreviewLayer3(true));            // idempotent: no needless recompose
-        var previewed = s.Phases[0]!;
+        Assert.True(s.SetPreviewLayer3(false));
+        Assert.False(s.SetPreviewLayer3(false));           // idempotent: no needless recompose
+        var plain = s.Phases[0]!;
         Assert.Equal(plain.Length, previewed.Length);
         Assert.NotEqual(plain, previewed);
 
-        // BEHIND: every pixel layer 1 or layer 2 already drew is untouched, so the level itself
-        // reads the same. Only what was bare backdrop can have changed.
-        uint backdrop = s.Scene!.Backdrop[0];
-        for (int i = 0; i < plain.Length; i++)
-            if (plain[i] != backdrop) Assert.Equal(plain[i], previewed[i]);
+        // UNDER: compose layer 1 by itself, and every pixel it actually paints — not every cell
+        // it fills, since a Map16 tile is mostly transparent — has to read the same either way.
+        var scene = s.Scene!;
+        uint backdrop = scene.Backdrop[0];
+        var (l1, _, _) = Map16.ComposeLevel(scene.TileCaches[0], backdrop, scene.Grid,
+                                            visibleRows: scene.VisibleRows);
+        int touched = 0;
+        for (int i = 0; i < l1.Length; i++)
+            if (l1[i] != backdrop) { Assert.Equal(plain[i], previewed[i]); touched++; }
+        Assert.True(touched > 1000, $"layer 1 painted only {touched} pixels — nothing was proved");
 
-        Assert.True(s.SetPreviewLayer3(false));
-        Assert.Equal(plain, s.Phases[0]);
+        Assert.True(s.SetPreviewLayer3(true));
+        Assert.Equal(previewed, s.Phases[0]);
     }
 
     [Fact]
     public void a_level_with_no_layer_3_previews_nothing()
     {
         if (Open(0x105) is not { } s) return;                // no layer 3 at all
-        var plain = (uint[])s.Phases[0]!.Clone();
-        Assert.True(s.SetPreviewLayer3(true));
-        Assert.Equal(plain, s.Phases[0]);
+        var previewed = (uint[])s.Phases[0]!.Clone();
+        Assert.True(s.SetPreviewLayer3(false));
+        Assert.Equal(previewed, s.Phases[0]);
     }
 
     // ---- layer 2: the edit reaches the level canvas and the built ROM ----

@@ -173,15 +173,34 @@ public static class Map16
     /// modelled — this repeats it from the top-left, the way the background image repeats, so
     /// the whole canvas shows something rather than one 512px corner.
     /// </summary>
-    public static void DrawLayer3(uint[] img, int W, int H, uint[] l3, int l3W, int l3H)
+    /// <param name="blend">Add what is already there instead of covering it — CGADSUB, which
+    /// names layer 3 a colour-math target so the subscreen adds into it.</param>
+    /// <param name="half">The maths' half bit: the sum is halved rather than saturating. SMW's
+    /// own mode-0 value ($24) does NOT set it, so an ordinary level's layer 3 comes out bright.</param>
+    public static void DrawLayer3(uint[] img, int W, int H, uint[] l3, int l3W, int l3H,
+                                  bool blend = false, bool half = false)
     {
         if (l3W <= 0 || l3H <= 0) return;
         for (int y = 0; y < H; y++)
             for (int x = 0; x < W; x++)
             {
                 uint c = l3[(y % l3H) * l3W + (x % l3W)];
-                if (c != 0) img[y * W + x] = c;      // colour 0 is transparent on BG3
+                if (c == 0) continue;               // colour 0 is transparent on BG3
+                img[y * W + x] = blend ? Add(img[y * W + x], c, half) : c;
             }
+    }
+
+    /// <summary>Two colours added channel by channel, saturating — or halved first, which is
+    /// what the maths' half bit does. Alpha stays opaque.</summary>
+    private static uint Add(uint a, uint b, bool half)
+    {
+        uint o = 0xFF000000;
+        for (int s = 0; s <= 16; s += 8)
+        {
+            int v = (int)(a >> s & 0xFF) + (int)(b >> s & 0xFF);
+            o |= (uint)(half ? v >> 1 : Math.Min(v, 255)) << s;
+        }
+        return o;
     }
 
     /// <summary>Draw a Map16 grid onto an existing canvas (transparent pixels leave it).</summary>
@@ -203,10 +222,18 @@ public static class Map16
             }
     }
 
+    /// <summary>
+    /// A level's layer 3, ready to compose: the cells that stay at the back, the cells that come
+    /// out in front (null unless the header grants BG3 priority), and whether the level's colour
+    /// math has them blend with what they meet rather than cover it.
+    /// </summary>
+    public readonly record struct Layer3Draw(uint[] Back, uint[]? Front, int W, int H,
+                                             Layer3.Screens Screens);
+
     /// <summary>Compose a level canvas from precomputed caches (fast; for live edits).</summary>
     public static (uint[] px, int w, int h) ComposeLevel(uint[][] cache, uint backdrop, Map16Grid grid,
         ushort[]? bgImg = null, uint[][]? bgCache = null, Map16Grid? l2 = null, int visibleRows = 27,
-        (uint[] Px, int W, int H, bool Front)? layer3 = null)
+        Layer3Draw? layer3 = null)
     {
         int rows = Math.Min(visibleRows, grid.Height);
         int W = grid.Width * 16, H = rows * 16;
@@ -222,19 +249,24 @@ public static class Map16
     /// </summary>
     public static uint[] ComposeLevelInto(uint[] img, uint[][] cache, uint backdrop, Map16Grid grid,
         ushort[]? bgImg, uint[][]? bgCache, Map16Grid? l2, int visibleRows,
-        (uint[] Px, int W, int H, bool Front)? layer3 = null)
+        Layer3Draw? layer3 = null)
     {
         int rows = Math.Min(visibleRows, grid.Height);
         int W = grid.Width * 16, H = rows * 16;
         Array.Fill(img, backdrop);
-        // Layer 3 sits BEHIND layer 2 and layer 1 unless the header gives it priority, which is
-        // the whole reason a preview has to go through the compose rather than being painted
-        // over the finished canvas: on top it would hide the level it is meant to sit behind.
-        if (layer3 is { Front: false } back) DrawLayer3(img, W, H, back.Px, back.W, back.H);
+        // Layer 3 sits BEHIND layer 2 and layer 1, which is the whole reason a preview has to go
+        // through the compose rather than being painted over the finished canvas. Its priority
+        // cells are the exception, and only when the header sets mode 1's BG3-priority bit: then
+        // they come out on top of everything instead.
+        void L3(uint[] px, Layer3Draw d)
+            => DrawLayer3(img, W, H, px, d.W, d.H, d.Screens.Blend, d.Screens.Half);
+
+        if (layer3 is { Screens.AboveBg2: false } under) L3(under.Back, under);
         if (bgImg is not null && bgCache is not null) DrawBgImage(img, W, H, grid.Width, bgImg, bgCache);
         else if (l2 is not null) DrawGrid(img, W, H, l2, cache);
+        if (layer3 is { Screens.AboveBg2: true } over) L3(over.Back, over);
         DrawGrid(img, W, H, grid, cache);
-        if (layer3 is { Front: true } front) DrawLayer3(img, W, H, front.Px, front.W, front.H);
+        if (layer3 is { Front: { } fp } front) L3(fp, front);
         return img;
     }
 

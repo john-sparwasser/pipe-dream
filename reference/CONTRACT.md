@@ -1798,6 +1798,36 @@ Evidence: `.resources/layer3/l3_k.smc` (step B in isolation, off `l3_e`).
 Evidence: `.resources/layer3/l3_0.smc` (pre-hack baseline), `l3_b.smc` (hack + GFX bypass,
 LG1=29), `l3_c.smc` (LG1=30), `l3_e.smc` (+ Tileset Specific).
 
+### Where layer 3 lands on screen is the LEVEL MODE's screen registers, not priority alone  [CONFIRMED]
+
+`$058505-$058517` reads three 0x20-byte tables indexed by the **level mode** into `$0D9D`
+(main screen, `$212C`), `$0D9E` (subscreen, `$212D`) and `$40` (CGADSUB, `$2131`).
+
+For **mode 0** — the ordinary horizontal level — those bytes are `main $15`, `sub $02`,
+`cgadsub $24`:
+
+| register | value | meaning |
+|---|---|---|
+| `$212C` main   | `$15` | BG1 + **BG3** + sprites |
+| `$212D` sub    | `$02` | **BG2 only** |
+| `$2131` CGADSUB| `$24` | backdrop and **BG3** add the subscreen; no half bit, so it saturates |
+
+So **the background image is not on the main screen at all**. It cannot cover layer 3 — layer 3
+sits above it and the image *adds into* layer 3 through colour math, which is the opposite of
+what mode 1's priority order alone would suggest. Modes with `main $17` / `sub $00` (mode 2 and
+friends) put the image back on the main screen with no subscreen, and there layer 3 is the one
+underneath with nothing to blend against.
+
+The level header's **Layer 3 Priority** is a separate axis: `$058566` reads header byte 3 bit 7
+into `$3E` as `$09` rather than `$01`, i.e. mode 1's BG3-priority bit. It does not lift the whole
+layer — it lifts the cells whose **own** priority bit (tilemap word bit 13) is set, and leaves
+the rest at the very back. Vanilla's tide levels (`002`, `0BE`, `0C1`, `102`, `127`) are the
+levels that set it.
+
+`Layer3.ScreenSetup` reads all three tables so a hack that rewrites them is followed rather than
+assumed, and the level canvas composes layer 3 by that answer. Pinned by
+`the_level_mode_decides_whether_layer_3_sits_over_the_background_image`.
+
 ## 13. Object expansion via emulation  [IMPLEMENTED — vanilla-layout ROMs]
 
 Instead of hand-porting every bank-0D handler, the editor EXECUTES the ROM's own

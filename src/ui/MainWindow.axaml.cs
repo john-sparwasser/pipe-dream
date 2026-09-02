@@ -631,6 +631,7 @@ public partial class MainWindow : Window
         spriteOverlayItem = this.GetControl<MenuItem>("SpriteOverlayItem");
         animateItem = this.GetControl<MenuItem>("AnimateItem");
         layer3PreviewItem = this.GetControl<MenuItem>("Layer3PreviewItem");
+        if (session.PreviewLayer3) layer3PreviewItem.Icon = new TextBlock { Text = "✓" };
         SetAnimating(true);             // tiles animate as the game does; View ▸ Animate tiles stops it
         // Rebuilt when the menu opens rather than kept in sync: the recent list changes behind
         // this window's back (a project opened elsewhere in the session reorders it), and pruning

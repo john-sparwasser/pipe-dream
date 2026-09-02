@@ -131,6 +131,10 @@ public static class Layer3
     public static int[]? LevelTilemap(Rom rom, int level, int levelMode, int option)
         => option is < 1 or > 3 ? null
          : rom.Layer3Tilemaps.TryGetValue(level, out var raw) ? FromBytes(raw)
+         // A BUILT rom carries its custom tilemap as an ordinary GFX file named by the level's
+         // record. Without this, opening one shows the picture the build replaced.
+         : rom.LmLayer3Tilemap(level) is { } lt3 && Gfx.Cached(rom, lt3.File) is { } file
+           ? FromBytes(file)
          : Tilemap(rom, levelMode, option);
 
     /// <summary>
@@ -323,6 +327,42 @@ public static class Layer3
         bool CgAdSub, bool Subscreen, bool FixScrollSync,
         int VScroll, int HScroll, int XPos, int Y);
 
+    /// <summary>
+    /// Vanilla's screen setup, picked by LEVEL MODE rather than by level: $05:8505-8517 reads
+    /// three 0x20-byte tables into $0D9D (main screen, $212C), $0D9E (subscreen, $212D) and
+    /// $40 (CGADSUB, $2131). LM's <see cref="Advanced"/> record is the per-level override.
+    ///
+    /// Mode 0 is the one worth knowing by heart: main $15 = BG1 + BG3 + sprites, sub $02 = BG2,
+    /// CGADSUB $24 = backdrop and BG3 add the subscreen. So in an ordinary level the background
+    /// image is NOT on the main screen at all — layer 3 sits above it and the image adds into
+    /// it, which is the opposite of what mode 1's priority order alone would suggest.
+    /// </summary>
+    public const int MainScreenTable = 0x058437, SubScreenTable = 0x058457, CgAdSubTable = 0x058477;
+
+    /// <summary>BG3's bit in every one of the three screen registers.</summary>
+    private const int Bg3Bit = 0x04, Bg2Bit = 0x02, HalfBit = 0x40;
+
+    /// <summary>Where layer 3 lands relative to the background image, and whether it adds to
+    /// what is under it rather than covering it.</summary>
+    public readonly record struct Screens(bool AboveBg2, bool Blend, bool Half);
+
+    /// <summary>
+    /// Read that setup for one level. LM's CGADSUB box adds BG3 to the colour-math targets; its
+    /// Subscreen box takes BG3 off the main screen, which in practice is how a hack asks for a
+    /// layer 3 that floats over everything — modelled here as "above the image, blended" rather
+    /// than by following the subscreen through the maths.
+    /// </summary>
+    public static Screens ScreenSetup(Rom rom, int mode, Advanced? adv)
+    {
+        int main = rom.ReadByte(MainScreenTable + (mode & 0x1F));
+        int sub = rom.ReadByte(SubScreenTable + (mode & 0x1F));
+        int math = rom.ReadByte(CgAdSubTable + (mode & 0x1F));
+        bool onSub = adv?.Subscreen == true;
+        // Nothing to add when the subscreen is empty, which is what the modes with sub $00 say.
+        bool blend = onSub || ((math & Bg3Bit) != 0 || adv?.CgAdSub == true) && sub != 0;
+        return new Screens(AboveBg2: onSub || (main & Bg2Bit) == 0, blend, (math & HalfBit) != 0);
+    }
+
     /// <summary>LM's vertical scroll dropdown, in its own order. "Constant" scrolls in place
     /// with layer 1, the Mediums and Slows are fractions of it, "Fast" is 1.2x, and the
     /// auto-scrolls move on their own at the speeds in LM's table at $109D3B.</summary>
@@ -489,8 +529,14 @@ public static class Layer3
     /// <paramref name="backdrop"/> — the back-area colour for a standalone view, or 0 to leave
     /// the gaps transparent so it can be composed UNDER a level. Colour 0 of a BG3 palette is
     /// never drawn either way.
+    ///
+    /// <paramref name="priority"/> keeps only the cells whose priority bit matches, which is what
+    /// splits the layer in two on the console: with mode 1's BG3-priority bit set (the level
+    /// header's Layer 3 Priority), a priority cell draws in FRONT of every other layer while its
+    /// neighbour without the bit stays at the very back. Null draws both.
     /// </summary>
-    public static (uint[] Px, int W, int H) Render(int[] map, byte[]?[] tiles, Palette pal, uint backdrop)
+    public static (uint[] Px, int W, int H) Render(int[] map, byte[]?[] tiles, Palette pal, uint backdrop,
+                                                  int? priority = null)
     {
         int w = Cols * 8, h = Rows * 8;
         var px = new uint[w * h];
@@ -499,6 +545,7 @@ public static class Layer3
         {
             int word = map[i], chr = word & 0x3FF;
             if (word < 0 || chr >= TileCount || tiles[chr] is not { } t) continue;
+            if (priority is { } want && (word >> 13 & 1) != want) continue;
             var (tx, ty) = At(i);
             int color = (word >> 10 & 7) * 4;
             bool fx = (word & 0x4000) != 0, fy = (word & 0x8000) != 0;

@@ -314,10 +314,16 @@ public sealed class EditorSession
     /// what every word draws as.</summary>
     private void InvalidateLayer3Cells() { layer3Cells.Clear(); layer3Tiles = null; }
 
-    /// <summary>Draw the level's layer 3 on the LEVEL canvas too — behind layer 2 and layer 1,
-    /// or in front when the header gives it priority. A view setting, off by default, and a
-    /// PREVIEW: the real thing scrolls at its own rate, which is not modelled.</summary>
-    public bool PreviewLayer3 { get; private set; }
+    /// <summary>Draw the level's layer 3 on the LEVEL canvas too, where the console puts it —
+    /// above the background image or below it as the level mode's screen registers say, blended
+    /// where its colour math says, and in front of the level for the cells the header's Layer 3
+    /// Priority lifts. ON by default: a layer the level really draws is part of the picture, and
+    /// off it looked like the level simply had none.
+    ///
+    /// Still a PREVIEW in one respect: layer 3 scrolls at its own rate, so where it sits over a
+    /// LEVEL is a moving target. It is drawn from the level's top-left and wraps every 512px,
+    /// which is what the console's 64x64 tilemap does.</summary>
+    public bool PreviewLayer3 { get; private set; } = true;
 
     /// <summary>Turn the preview on or off and recompose. False when nothing changed.</summary>
     public bool SetPreviewLayer3(bool on)

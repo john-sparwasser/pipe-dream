@@ -193,4 +193,36 @@ public class Layer3VramBoundsTests(ITestOutputHelper log)
                 Assert.All(writes, w => Assert.InRange(w.Word, L3MapLo, L1MapLo - 1));
             }
     }
+
+    /// <summary>
+    /// Where layer 3 lands on screen is not mode 1's priority order alone — it is the three
+    /// screen registers the level MODE picks. Mode 0 keeps the background image off the main
+    /// screen entirely (main $15, sub $02), so layer 3 is ABOVE it and the image adds into layer
+    /// 3 through colour math; mode 2 puts the image on the main screen with no subscreen at all,
+    /// and then layer 3 is the one underneath with nothing to blend with.
+    ///
+    /// Reading it from the ROM is the point: these are three tables SMW indexes by mode, and a
+    /// hack is free to rewrite them.
+    /// </summary>
+    [RealRomFact]
+    public void the_level_mode_decides_whether_layer_3_sits_over_the_background_image()
+    {
+        var rom = Rom.Load(TestRom.RealRomPath);
+
+        var m0 = Layer3.ScreenSetup(rom, 0, null);
+        Assert.True(m0.AboveBg2);
+        Assert.True(m0.Blend);
+        Assert.False(m0.Half);          // SMW's $24: add, not average — layer 3 comes out bright
+
+        var m2 = Layer3.ScreenSetup(rom, 2, null);
+        Assert.False(m2.AboveBg2);
+        Assert.False(m2.Blend);         // subscreen $00: nothing to add
+
+        // LM's advanced record is the per-level override, and either box lifts layer 3 clear.
+        var forced = Layer3.ScreenSetup(rom, 2, new Layer3.Advanced(
+            CgAdSub: false, Subscreen: true, FixScrollSync: false,
+            VScroll: 0, HScroll: 0, XPos: 0, Y: 0));
+        Assert.True(forced.AboveBg2);
+        Assert.True(forced.Blend);
+    }
 }
