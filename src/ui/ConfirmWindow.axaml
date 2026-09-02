@@ -8,7 +8,7 @@
     <TextBlock x:Name="Prompt" TextWrapping="Wrap"
                Foreground="{DynamicResource TextBrush}"/>
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-      <Button Content="Cancel" Click="OnCancel" IsCancel="True"/>
+      <Button x:Name="Cancel" Content="Cancel" Click="OnCancel" IsCancel="True"/>
       <Button x:Name="Action" Click="OnConfirm" IsDefault="True"/>
     </StackPanel>
   </StackPanel>

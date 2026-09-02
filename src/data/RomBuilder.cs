@@ -222,7 +222,9 @@ internal static class RomBuilder
                           + (warnings.Count > 0 ? "  —  " + string.Join("; ", warnings) : "");
             return (status, outPath);
         }
-        catch (Exception e) { return ("build failed: " + e.Message, null); }
+        // A file that cannot be read or written is the caller's to explain — it knows what the
+        // user was doing and owns the dialog. Everything else is still a build failure here.
+        catch (Exception e) when (!FileProblem.IsFile(e)) { return ("build failed: " + e.Message, null); }
     }
 
     /// <summary>Build, then export export\&lt;name&gt;.bps. For a prepped project the patch
