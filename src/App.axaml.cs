@@ -4,6 +4,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 
 namespace PipeDream.Ui;
 
@@ -25,7 +26,24 @@ public partial class App : Application
         // Headless tests boot the same App with no desktop lifetime, so the window is only
         // created when there actually is one to show.
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
             desktop.MainWindow = new MainWindow();
+            InstallFileProblemNet(p => (desktop.MainWindow as MainWindow)?.ShowProblem(p));
+        }
         base.OnFrameworkInitializationCompleted();
     }
+
+    /// <summary>
+    /// The last line of defence for a file that could not be read or written somewhere nobody
+    /// guarded: an exception that escapes an event handler ends the process, and the user's
+    /// unsaved work with it. Only file problems are caught — anything else is a bug and stays
+    /// loud, because a swallowed bug is one nobody fixes.
+    /// </summary>
+    internal static void InstallFileProblemNet(Action<FileProblem> show)
+        => Dispatcher.UIThread.UnhandledException += (_, e) =>
+        {
+            if (!FileProblem.IsFile(e.Exception)) return;
+            e.Handled = true;
+            show(FileProblem.From(e.Exception, "finish the last action"));
+        };
 }

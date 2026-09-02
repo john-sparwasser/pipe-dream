@@ -655,6 +655,7 @@ public partial class MainWindow : Window
         // Without it a GFX pixel commit — which rebuilds — left the canvas editing a discarded
         // object list: the delete happened, nothing on screen changed, and the edit was lost.
         session.SceneRebuilt += (_, _) => AdoptSession();
+        session.Problem += (_, p) => ShowProblem(p);
 
         this.GetControl<MenuItem>("DebugMenu").IsVisible = Program.DevMode;
 
@@ -1319,11 +1320,21 @@ public partial class MainWindow : Window
     /// possible failure for a feature the base cannot carry: the edit is in the project, the
     /// build drops it on the floor, and the only way to find out was to run the game.
     /// </summary>
+    /// <summary>A file the session could not read or write, in front of the user: which file,
+    /// why, and what to try. Posted rather than shown inline because it can fire from inside
+    /// another handler or an open dialog, and a modal opened re-entrantly there is the freeze the
+    /// native-picker fix documents. Before the window is up the status line has it.</summary>
+    internal void ShowProblem(FileProblem p) => Dispatcher.UIThread.Post(async () =>
+    {
+        if (!IsVisible) return;
+        await ConfirmWindow.Notice(p.Title, p.Message).ShowDialog(this);
+    });
+
     private async void OnBuild(object? sender, RoutedEventArgs e)
     {
         session.Build();
         UpdateTitle();
-        await new ConfirmWindow("Build ROM", session.Status, "OK").ShowDialog(this);
+        await ConfirmWindow.Notice("Build ROM", session.Status).ShowDialog(this);
     }
 
     private async void OnExportBps(object? sender, RoutedEventArgs e)

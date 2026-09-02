@@ -73,6 +73,25 @@ public sealed class EditorSession
 
     private void Report(string s) { Status = s; Changed?.Invoke(this, EventArgs.Empty); }
 
+    /// <summary>A file could not be read or written. The status line gets the one-line form; the
+    /// UI subscribes here to put the whole thing — file, reason, way forward — in front of the
+    /// user, because a failed save cannot be a line in the corner.</summary>
+    public event EventHandler<FileProblem>? Problem;
+
+    private void Fail(FileProblem p) { Report(p.OneLine); Problem?.Invoke(this, p); }
+
+    /// <summary>Run a file operation; a file failure becomes a <see cref="Problem"/> rather than
+    /// an exception. Every save, build and open routes through here, so a read-only folder, a
+    /// moved file or a ROM an emulator still holds is reported once, the same way, instead of
+    /// ending the process from whichever handler happened to be running.</summary>
+    private bool Guard(string doing, Action act, string? path = null)
+    {
+        try { act(); return true; }
+        catch (Exception e) when (FileProblem.IsFile(e)) { Fail(FileProblem.From(e, doing, path)); return false; }
+    }
+
+    private void SaveConfig() => Guard("save your settings", Config.Save, Config.FilePath);
+
     public bool HasUnsavedWork => Project is { Dirty: true } || touched.Count > 0 || LevelDirty;
 
     /// <summary>Whether the CURRENT level holds work the project snapshot does not have yet.
@@ -358,6 +377,7 @@ public sealed class EditorSession
         if (Rom is null || !HasLevel) { Report("no level open"); return false; }
         byte[] bytes;
         try { bytes = File.ReadAllBytes(path); }
+        catch (Exception e) when (FileProblem.IsFile(e)) { Fail(FileProblem.From(e, "read the file", path)); return false; }
         catch (Exception e) { Report($"import failed: {e.Message}"); return false; }
 
         return ImportLayer3Bytes(bytes, Path.GetFileName(path));
@@ -403,8 +423,7 @@ public sealed class EditorSession
     public bool ExportLayer3Tilemap(string path)
     {
         if (Layer3Map is not { } map) { Report("this level has no layer 3 to export"); return false; }
-        try { File.WriteAllBytes(path, Layer3.ToBytes(map.Cells)); }
-        catch (Exception e) { Report($"could not write {Path.GetFileName(path)}: {e.Message}"); return false; }
+        if (!Guard("export the tilemap", () => File.WriteAllBytes(path, Layer3.ToBytes(map.Cells)), path)) return false;
         Report($"wrote {Path.GetFileName(path)} — 0x{Layer3.MapWords * 2:X} bytes, "
              + $"{Layer3.Cols}x{Layer3.Rows} words");
         return true;
@@ -581,7 +600,7 @@ public sealed class EditorSession
     public void SetVanillaRom(string path)
     {
         Config.VanillaRomPath = path;
-        Config.Save();
+        SaveConfig();
     }
 
     /// <summary>
@@ -601,6 +620,11 @@ public sealed class EditorSession
                 : "Warning: not the known vanilla US ROM. It is used as-is (an LM-prepared base "
                 + "works fully), and collaborators will need this exact file.";
         }
+        catch (Exception e) when (FileProblem.IsFile(e))
+        {
+            var problem = FileProblem.From(e, "read the ROM", path);   // inline in the dialog, so prose not a title
+            return $"{problem.Why} {problem.Next}";
+        }
         catch (Exception e) { return "Could not read file: " + e.Message; }
     }
 
@@ -612,7 +636,7 @@ public sealed class EditorSession
     public bool CheckForUpdates
     {
         get => Config.CheckForUpdates;
-        set { Config.CheckForUpdates = value; Config.Save(); }
+        set { Config.CheckForUpdates = value; SaveConfig(); }
     }
 
     /// <summary>
@@ -628,7 +652,7 @@ public sealed class EditorSession
         // Stamped before the result is known: a check that went out counts, or a machine that is
         // offline for a week would retry on every single launch.
         Config.LastUpdateCheckUtc = DateTime.UtcNow;
-        Config.Save();
+        SaveConfig();
 
         return await UpdateCheck.Latest(UpdateCheck.Current, Config.SkippedUpdate,
                                         OperatingSystem.IsWindows(), ct);
@@ -638,7 +662,7 @@ public sealed class EditorSession
     public void SkipUpdate(UpdateInfo u)
     {
         Config.SkippedUpdate = u.Display;
-        Config.Save();
+        SaveConfig();
     }
 
     /// <summary>The running build's version, for the about/update dialog.</summary>
@@ -660,7 +684,7 @@ public sealed class EditorSession
     public string GfxBrowserView
     {
         get => Config.GfxBrowserView;
-        set { Config.GfxBrowserView = value; Config.Save(); }
+        set { Config.GfxBrowserView = value; SaveConfig(); }
     }
 
     // ---- opening a project whose base ROM is missing ----
@@ -753,7 +777,7 @@ public sealed class EditorSession
             if (gone.Count > 0)
             {
                 foreach (string p in gone) Config.RecentProjects.Remove(p);
-                Config.Save();
+                SaveConfig();
             }
             return Config.RecentProjects;
         }
@@ -896,6 +920,7 @@ public sealed class EditorSession
         if (Rom is null) return (-1, "no ROM open");
         byte[] bytes;
         try { bytes = File.ReadAllBytes(path); }
+        catch (Exception e) when (FileProblem.IsFile(e)) { Fail(FileProblem.From(e, "import the graphics file", path)); return (-1, Status); }
         catch (Exception e) { return (-1, $"import failed: {e.Message}"); }
 
         int bpp = Gfx.DetectBpp(bytes);
@@ -1289,6 +1314,7 @@ public sealed class EditorSession
             Report($"{Path.GetFileName(path)} — {Rom.Title.Trim()} (no project: File ▸ New Project to save edits)");
             return true;
         }
+        catch (Exception ex) when (FileProblem.IsFile(ex)) { Fail(FileProblem.From(ex, "open the ROM", path)); return false; }
         catch (Exception ex) { Report("could not open: " + ex.Message); return false; }
     }
 
@@ -1316,8 +1342,7 @@ public sealed class EditorSession
             Project = p;
             touched.Clear();
             p.SyncBeforeSave = Sync;
-            Config.TouchRecentProject(p.FilePath);
-            Config.Save();
+            Guard("save your settings", () => Config.TouchRecentProject(p.FilePath), Config.FilePath);
 
             NewGfxEdit();
             string? warn = ProjectSession.Hydrate(Rom, p.Data);
@@ -1326,6 +1351,7 @@ public sealed class EditorSession
                    + (prepNote is null ? "" : " — base not updated: " + prepNote));
             return true;
         }
+        catch (Exception ex) when (FileProblem.IsFile(ex)) { Fail(FileProblem.From(ex, "open the project", pdpPath)); return false; }
         catch (Exception ex) { Report("could not open project: " + ex.Message); return false; }
     }
 
@@ -1352,7 +1378,8 @@ public sealed class EditorSession
             // A folder with base.smc and no project.pdp is a puzzle to find later, and blocks the
             // name for the retry (ProjectFolderFor steps to "-2"). Take back only what we made.
             if (fresh) try { Directory.Delete(folder, recursive: true); } catch { }
-            Report($"could not create project: {ex.Message} ({ex.GetType().Name})");
+            if (FileProblem.IsFile(ex)) Fail(FileProblem.From(ex, "create the project", folder));
+            else Report($"could not create project: {ex.Message} ({ex.GetType().Name})");
             return false;
         }
     }
@@ -1368,7 +1395,11 @@ public sealed class EditorSession
         // EVERY kind of edit counts, not just objects. Gating this on the object list alone lost
         // sprite and palette work silently — you would place a sprite, switch level, come back,
         // and find the base ROM's sprites.
-        if (num != LevelNum && LevelDirty) { StashCurrent(); Project?.Save(); }
+        if (num != LevelNum && LevelDirty)
+        {
+            StashCurrent();
+            if (Project is { } pr) Guard("save the project", pr.Save, pr.FilePath);
+        }
         LevelNum = num;
         try
         {
@@ -1917,7 +1948,7 @@ public sealed class EditorSession
     {
         byte[] data;
         try { data = File.ReadAllBytes(path); }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Report($"could not read {path}: {e.Message}"); return false; }
+        catch (Exception e) when (FileProblem.IsFile(e)) { Fail(FileProblem.From(e, "import the animation graphics", path)); return false; }
         return SetExAnimSource(index, data);
     }
 
@@ -2289,7 +2320,7 @@ public sealed class EditorSession
     public string Save()
     {
         if (Project is null) return "no project open — File ▸ New Project first";
-        Project.Save();                       // SyncBeforeSave folds the live level in
+        if (!Guard("save the project", Project.Save, Project.FilePath)) return Status;   // SyncBeforeSave folds the live level in
         touched.Clear();
         // Everything that meant "the project snapshot does not have this yet" is now on disk,
         // so the live editors stop claiming it. Without this the title kept its unsaved marker
@@ -2304,9 +2335,12 @@ public sealed class EditorSession
     public string Build()
     {
         if (Project is null) return "no project open";
-        Project.Save();
-        var (status, path) = RomBuilder.Build(Project);
-        Report(path is null ? status : $"built {Path.GetFileName(path)} — {status}");
+        if (!Guard("save the project", Project.Save, Project.FilePath)) return Status;
+        Guard("build the ROM", () =>
+        {
+            var (status, path) = RomBuilder.Build(Project);
+            Report(path is null ? status : $"built {Path.GetFileName(path)} — {status}");
+        }, Path.Combine(Project.Folder, "build"));
         return Status;
     }
 
@@ -2344,7 +2378,7 @@ public sealed class EditorSession
     public void SetEmulator(string? path)
     {
         Config.EmulatorPath = path;
-        Config.Save();
+        SaveConfig();
     }
 
     /// <summary>File → Run in emulator (F4), Lunar Magic's habit: build, then launch the ROM in

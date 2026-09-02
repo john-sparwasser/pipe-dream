@@ -19,6 +19,14 @@ public partial class ConfirmWindow : Window
         this.GetControl<Button>("Action").Content = action;
     }
 
+    /// <summary>A message with one button — a result or a problem, not a choice.</summary>
+    public static ConfirmWindow Notice(string title, string text)
+    {
+        var w = new ConfirmWindow(title, text, "OK");
+        w.GetControl<Button>("Cancel").IsVisible = false;
+        return w;
+    }
+
     private void OnCancel(object? sender, RoutedEventArgs e) => Close();
     private void OnConfirm(object? sender, RoutedEventArgs e) { Confirmed = true; Close(); }
 }
