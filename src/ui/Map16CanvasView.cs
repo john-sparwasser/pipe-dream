@@ -40,11 +40,10 @@ public class Map16CanvasView : Control
 
     public double Zoom { get; set; } = 2.0;
     public int Bank { get; set; }
-    public int TileCount { get; private set; }
+    public int TileCount => sheet.TileCount;
     public Point Origin { get; set; }
 
-    private readonly LevelBitmap sheet = new();
-    private int sheetW, sheetH;
+    private readonly Map16Sheet sheet = new();
 
     /// <summary>Which animation phase to draw — stepped with every other surface, so a tile
     /// built from animated graphics animates while it is being edited.</summary>
@@ -109,21 +108,12 @@ public class Map16CanvasView : Control
 
     public void SetSheet(uint[]?[] px, int w, int h, int tileCount)
     {
-        sheetW = w; sheetH = h; TileCount = tileCount;
-        sheet.SetImages(px, w, h, Phase);
+        sheet.SetSheet(px, w, h, tileCount, Phase);
         InvalidateVisual();
         InvalidateMeasure();
     }
 
-    /// <summary>The empty-page tile per phase: every FG page without defs yet is drawn as a
-    /// field of these, the way LM shows its unused pages, and painting one creates the page.</summary>
-    private readonly Bitmap?[] placeholder = new Bitmap?[4];
-
-    public void SetPlaceholder(uint[]?[] px)
-    {
-        for (int p = 0; p < 4; p++) placeholder[p] = px[p] is { } img ? LevelBitmap.FromPixels(img, 16, 16) : null;
-        InvalidateVisual();
-    }
+    public void SetPlaceholder(uint[]?[] px) { sheet.SetPlaceholder(px); InvalidateVisual(); }
 
     /// <summary>Deselect everything — the lasso AND the armed tile.</summary>
     public void ClearSelection() { Selection = null; SelectedTile = null; InvalidateVisual(); }
@@ -317,35 +307,10 @@ public class Map16CanvasView : Control
 
     // ---- rendering ----
 
-    private readonly PixelBlit blit = new();
-
     public override void Render(DrawingContext ctx)
     {
         double ts = TileSize;
-        var full = new Rect(0, 0, Map16Layout.Cols * ts, Map16Layout.BankRows * ts);
-        // Empty pages are ordinary black tiles, not a roped-off region.
-        ctx.FillRectangle(Brushes.Black, full);
-        // ...and in the FG banks they are LM's default tile, tiled: the page exists the moment
-        // it is painted, so it should look like one before that too.
-        if (Bank < 2 && placeholder[Phase & 3] is { } ph)
-            ctx.FillRectangle(new ImageBrush(ph)
-            {
-                TileMode = TileMode.Tile, Stretch = Stretch.Fill,
-                DestinationRect = new RelativeRect(0, 0, ts, ts, RelativeUnit.Absolute),
-            }, full);
-
-        if (sheet.For(Phase) is { } bmp && sheetH > 0)
-        {
-            var (v0, v1, rows, _) = Map16Layout.SheetWindow(Bank, sheetH, TileCount);
-            if (rows > 0)
-                blit.Draw(this, ctx, bmp, new Rect(0, v0 * sheetH, sheetW, (v1 - v0) * sheetH),
-                          new Rect(0, 0, Map16Layout.Cols * ts, rows * ts), VisualRoot?.RenderScaling ?? 1);
-        }
-
-        // Page separators every 16 rows, LM-style.
-        var line = new Pen(new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)));
-        for (int page = 1; page < Map16Layout.BankTiles / 0x100; page++)
-            ctx.DrawLine(line, new Point(0, page * 16 * ts), new Point(Map16Layout.Cols * ts, page * 16 * ts));
+        sheet.Draw(this, ctx, Bank, Phase, ts);
 
         // Live lasso, then the settled selection, then the armed tile. Both are in QUADRANTS —
         // at 16x16 they are snapped out to whole tiles, so they draw on the tile grid anyway.
