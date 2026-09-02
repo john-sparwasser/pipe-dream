@@ -381,6 +381,52 @@ public class BackgroundModeTests(ITestOutputHelper log)
         Assert.Equal(520, sheet2.DesiredSize.Width, 1);
     }
 
+    /// <summary>
+    /// What the two selection drags do to the TILES, driven through the canvas the way the mouse
+    /// drives it. Growing repeats the block into the space the grip opened — phased on the block's
+    /// own origin, so what was already there does not shift while the new space fills. Moving
+    /// takes the block with it and leaves the layer's blank behind, which on layer 3 is a word
+    /// the tilemap never wrote.
+    ///
+    /// Both are one undo entry, because both are one gesture.
+    /// </summary>
+    [AvaloniaFact]
+    public void growing_a_selection_repeats_it_and_moving_one_takes_the_tiles_along()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var w = Open(0x009, layer3: true);
+        var view = View(w);
+        var map = SessionOf(w).Layer3Map!;
+        int depth = map.UndoDepth;
+        double step = view.CellPx * view.Zoom;
+
+        const int A = 6 << 10 | 0x111, B = 6 << 10 | 0x222;
+        map.Stamp(4, 4, A);
+        map.Stamp(5, 4, B);
+        Assert.True(map.EndStroke());
+
+        // Lasso the pair, then drag the right grip two cells out: A B A B.
+        view.BeginSelection(4, 4);
+        view.ExtendSelection(5, 4);
+        view.Release();
+        view.PressAt(new Avalonia.Point(6 * step, 4.5 * step));
+        view.MoveTo(new Avalonia.Point(7.5 * step, 4.5 * step));
+        view.Release();
+        Assert.Equal((4, 4, 4, 1), view.Selection);
+        Assert.Equal([A, B, A, B], new[] { map.At(4, 4), map.At(5, 4), map.At(6, 4), map.At(7, 4) });
+        Assert.Equal(depth + 2, map.UndoDepth);           // the paint, then the grow
+
+        // Now drag it four rows down by its middle.
+        view.PressAt(new Avalonia.Point(5.5 * step, 4.5 * step));
+        view.MoveTo(new Avalonia.Point(5.5 * step, 8.5 * step));
+        view.Release();
+        Assert.Equal((4, 8, 4, 1), view.Selection);
+        Assert.Equal([A, B, A, B], new[] { map.At(4, 8), map.At(5, 8), map.At(6, 8), map.At(7, 8) });
+        Assert.All(new[] { map.At(4, 4), map.At(5, 4), map.At(6, 4), map.At(7, 4) },
+                   v => Assert.Equal(-1, v));             // and left nothing behind
+        Assert.Equal(depth + 3, map.UndoDepth);
+    }
+
     /// <summary>Fire a Click handler the way the button would, with the sender it checks.</summary>
     private static void Click(MainWindow w, string method, object? sender) => typeof(MainWindow)
         .GetMethod(method, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!

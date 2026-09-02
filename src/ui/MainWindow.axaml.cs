@@ -158,6 +158,7 @@ public partial class MainWindow : Window
         bgView.Painted += (_, c) => BgPaint(c.Col, c.Row);
         bgView.StrokeEnded += (_, _) => BgStrokeEnded();
         bgView.SelectionChanged += (_, _) => RefreshBgNote();
+        bgView.SelectionDragged += (_, d) => BgSelectionDragged(d);
         bgSheet.Picked += (_, c) => BgBrushPicked(c.Col, c.Row);
         bgNote = this.GetControl<TextBlock>("BgNote");
         bgDrawerTitle = this.GetControl<TextBlock>("BgDrawerTitle");
@@ -2988,6 +2989,49 @@ public partial class MainWindow : Window
         else changed = map.Stamp(col, row, bgLayer3.IsChecked == true ? bgBrushL3 : bgBrush);
         if (changed) bgView.Invalidate();
     }
+
+    /// <summary>
+    /// A selection was dragged to a new place, or grown by a grip. Both are the same write: fill
+    /// the new rectangle by REPEATING the old one, which for an equal-sized rectangle is a plain
+    /// copy and for a grown one tiles the pattern out along whichever axis was dragged. The
+    /// repeat is phased on the old rectangle's own origin, so the block that was there does not
+    /// shift under the cursor while the space beside it fills in.
+    ///
+    /// A move then clears what it left behind — to -1 on layer 3, which is a word the tilemap
+    /// never wrote and builds as the transparent tile, and to tile 0 on layer 2, which has no
+    /// "unwritten": its cells are bytes and every one of them draws something.
+    /// </summary>
+    private void BgSelectionDragged(TilemapView.SelectionDrag d)
+    {
+        if (BgLayerEdit is not { } map) return;
+        var (from, to) = (d.From, d.To);
+        var src = new int[from.W * from.H];
+        for (int j = 0; j < from.H; j++)
+            for (int i = 0; i < from.W; i++)
+                src[j * from.W + i] = map.At(from.X + i, from.Y + j);
+
+        bool changed = false;
+        if (d.Move)
+            for (int j = 0; j < from.H; j++)
+                for (int i = 0; i < from.W; i++)
+                {
+                    int c = from.X + i, r = from.Y + j;
+                    if (c >= to.X && c < to.X + to.W && r >= to.Y && r < to.Y + to.H) continue;
+                    changed |= map.Stamp(c, r, bgLayer3.IsChecked == true ? -1 : 0);
+                }
+        for (int r = to.Y; r < to.Y + to.H; r++)
+            for (int c = to.X; c < to.X + to.W; c++)
+                changed |= map.Stamp(c, r, src[Wrap(r - from.Y, from.H) * from.W
+                                              + Wrap(c - from.X, from.W)]);
+        if (!changed || !map.EndStroke()) return;
+        bgView.Invalidate();
+        RefreshBg();
+        UpdateTitle();
+    }
+
+    /// <summary>Index into a repeating pattern, for offsets that run negative — growing a
+    /// selection LEFTWARDS is the case C#'s % gets wrong on its own.</summary>
+    private static int Wrap(int i, int n) => n <= 0 ? 0 : (i % n + n) % n;
 
     /// <summary>Mouse up: the stroke becomes one undo entry and the level's data changes. A drag
     /// that painted nothing new settles into nothing, so it cannot clear the redo stack.</summary>

@@ -113,6 +113,61 @@ public class BackgroundEditTests(ITestOutputHelper log)
         Assert.Equal((1, 1), view.Brush);
     }
 
+    /// <summary>
+    /// A settled lasso is a handled object: its grips resize it, its middle drags it, and only a
+    /// press outside starts a new one. The three are told apart by WHERE the press lands, so this
+    /// pins the hit test as much as the drags — a grip that swallowed the middle would leave no
+    /// way to move a small selection, and one that never fired would leave no way to grow it.
+    /// </summary>
+    [Avalonia.Headless.XUnit.AvaloniaFact]
+    public void a_grip_resizes_the_lasso_and_its_middle_moves_it()
+    {
+        var view = new TilemapView { Cols = 32, Rows = 27, CellPx = 16, Zoom = 2 };  // 32px a cell
+        TilemapView.SelectionDrag? got = null;
+        view.SelectionDragged += (_, d) => got = d;
+
+        view.BeginSelection(2, 3);
+        view.ExtendSelection(5, 6);                       // (2,3) 4x4
+        view.Release();                                   // the lasso drag ends like any other
+        Assert.Equal((2, 3, 4, 4), view.Selection);
+        Assert.False(view.Dragging);
+
+        // On the right edge, midway down: a grip, and only on the horizontal axis.
+        var rightEdge = new Avalonia.Point(6 * 32, 5 * 32);
+        Assert.Equal(TilemapView.Grab.Resize, view.GrabAt(rightEdge));
+        Assert.Equal(TilemapView.Grab.Move, view.GrabAt(new Avalonia.Point(4 * 32, 5 * 32)));
+        Assert.Equal(TilemapView.Grab.Lasso, view.GrabAt(new Avalonia.Point(20 * 32, 5 * 32)));
+
+        view.PressAt(rightEdge);
+        Assert.True(view.Dragging);
+        view.MoveTo(new Avalonia.Point(9 * 32 + 5, 5 * 32));
+        Assert.Equal((2, 3, 8, 4), view.Selection);       // grew right; the left edge stayed
+        view.Release();
+        Assert.False(view.Dragging);
+        Assert.Equal(new TilemapView.SelectionDrag((2, 3, 4, 4), (2, 3, 8, 4), Move: false), got);
+
+        // The middle drags the whole thing, and it is a MOVE rather than a repeat.
+        got = null;
+        view.PressAt(new Avalonia.Point(5 * 32, 5 * 32));
+        view.MoveTo(new Avalonia.Point(7 * 32, 8 * 32));
+        Assert.Equal((4, 6, 8, 4), view.Selection);
+        view.Release();
+        Assert.Equal(new TilemapView.SelectionDrag((2, 3, 8, 4), (4, 6, 8, 4), Move: true), got);
+
+        // A move drag clamps to the grid rather than walking off it.
+        view.PressAt(new Avalonia.Point(5 * 32, 8 * 32));
+        view.MoveTo(new Avalonia.Point(60 * 32, 60 * 32));
+        Assert.Equal((32 - 8, 27 - 4, 8, 4), view.Selection);
+
+        // A press inside that never moves is still a click, so the one-cell eyedropper survives
+        // being aimed at the selection.
+        got = null;
+        view.PressAt(new Avalonia.Point(25 * 32 + 8, 24 * 32 + 8));
+        view.Release();
+        Assert.Equal((25, 24, 1, 1), view.Selection);
+        Assert.Null(got);
+    }
+
     [Avalonia.Headless.XUnit.AvaloniaFact]
     public void the_cell_under_a_point_follows_the_zoom()
     {
