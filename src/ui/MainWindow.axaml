@@ -272,8 +272,8 @@
         <MenuItem Header="E_xit" Click="OnExit"/>
       </MenuItem>
       <MenuItem Header="_Edit">
-        <MenuItem Header="_Undo" Click="OnUndo" InputGesture="Ctrl+Z"/>
-        <MenuItem Header="_Redo" Click="OnRedo" InputGesture="Ctrl+Y"/>
+        <MenuItem x:Name="EditUndo" Header="_Undo" Click="OnUndo" InputGesture="Ctrl+Z"/>
+        <MenuItem x:Name="EditRedo" Header="_Redo" Click="OnRedo" InputGesture="Ctrl+Y"/>
       </MenuItem>
       <MenuItem Header="_Level">
         <MenuItem Header="_Properties…" Click="OnLevelProperties" InputGesture="Ctrl+L"/>
