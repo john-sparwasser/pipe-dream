@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Headless.XUnit;
 using PipeDream.Ui;
 using Xunit;
 
@@ -62,7 +63,10 @@ public class GestureTests
         Assert.Equal((0, 0), Grips.EdgeAt(new Point(6, 30), small, 9));
     }
 
-    [Fact]
+    /// <summary>AvaloniaFact, not Fact: the cursor assertions build real Cursors, which need
+    /// the platform's cursor factory. As a plain Fact this failed on CI whenever it ran before
+    /// any headless test had brought the platform up — and took two hover tests with it.</summary>
+    [AvaloniaFact]
     public void resizing_moves_the_grabbed_edge_and_pins_the_opposite_one()
     {
         Assert.Equal((2, 2, 6, 2), Grips.Resized((4, 2, 4, 2), (-1, 0), (2, 9)));
