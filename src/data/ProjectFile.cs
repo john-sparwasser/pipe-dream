@@ -45,6 +45,21 @@ public sealed class ProjectFile
     /// list's. Source files 60-63 live in <see cref="Gfx"/> under their ids.</summary>
     public ExAnimationState ExAnimation { get; set; } = new();
 
+    /// <summary>Named tilemaps kept to reuse across levels — a layer-2 background (the low
+    /// bytes a <see cref="LevelState.BgTilemap"/> holds) or a layer-3 map (LM's LT3 shape, as
+    /// <see cref="LevelState.Layer3Tilemap"/>) — keyed by the user's name. Project-scoped like
+    /// Map16, so it travels in the .pdp with the levels that use it.</summary>
+    public Dictionary<string, TilemapPreset> Tilemaps { get; set; } = new();
+
+    public sealed class TilemapPreset
+    {
+        /// <summary>2 for a layer-2 background, 3 for a layer-3 tilemap.</summary>
+        public int Layer { get; set; }
+        /// <summary>Base64 of the raw bytes, in exactly the shape the per-level field stores —
+        /// applying one IS the per-level import, from memory.</summary>
+        public string Data { get; set; } = "";
+    }
+
     public sealed class ExAnimationState
     {
         public Dictionary<string, string> Levels { get; set; } = new();

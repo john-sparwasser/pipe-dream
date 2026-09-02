@@ -433,6 +433,77 @@ public class BackgroundEditTests(ITestOutputHelper log)
     }
 
     /// <summary>
+    /// The level canvas composes layer 3 INTO the scene's pixels at build time, so a layer-3
+    /// stroke has to rebuild the scene the way a layer-2 stroke already does. Without it the
+    /// Background tab shows the paint, the level canvas keeps the old picture until something
+    /// unrelated rebuilds it, and the built ROM — which reads the same store — is the first
+    /// place the edit can be seen. From the outside that is "it doesn't save in the editor,
+    /// maybe it saves in-game", and the project file had the edit the whole time.
+    /// </summary>
+    [RealRomFact]
+    public void a_layer_3_stroke_rebuilds_the_level_canvas_as_a_layer_2_stroke_does()
+    {
+        if (Open(0x009) is not { Layer3Map: { } map } s) return;
+        int rebuilt = 0;
+        s.SceneRebuilt += (_, _) => rebuilt++;
+        int word = 3 << 10 | 0x1A5;
+        Assert.True(map.Stamp(9, 9, map.At(9, 9) == word ? word ^ 1 : word));
+        Assert.True(map.EndStroke());
+        Assert.Equal(1, rebuilt);
+    }
+
+    /// <summary>
+    /// A saved tilemap is a PROJECT thing: named, kept in the .pdp, and put onto any level of
+    /// the right layer. Four things have to hold or the library is a trap — the bytes that come
+    /// back are the ones saved, a name cannot straddle layers (or a layer-3 save would replace a
+    /// layer-2 map of the same name), it survives save → reopen, and deleting one deletes it.
+    /// </summary>
+    [RealRomFact]
+    public void a_saved_tilemap_applies_to_a_level_on_either_layer_and_lives_in_the_project()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "pdtm-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            var s = new EditorSession();
+            Assert.True(s.NewProject(Path.Combine(dir, "proj"), Vanilla), s.Status);
+
+            // Layer 3: paint, save, drop the level back to the shared map, apply — the paint is back.
+            s.ShowLevel(0x009);
+            int word = 3 << 10 | 0x1A5;
+            Assert.True(s.Layer3Map!.Stamp(9, 9, word));
+            Assert.True(s.Layer3Map.EndStroke());
+            Assert.True(s.SaveTilemapPreset("cave", 3), s.Status);
+            Assert.True(s.ClearLayer3Tilemap());
+            Assert.NotEqual(word, s.Layer3Map!.At(9, 9));
+            Assert.True(s.ApplyTilemapPreset("cave"), s.Status);
+            Assert.Equal(word, s.Layer3Map!.At(9, 9));
+
+            // Layer 2: paint, save, undo, apply — same shape, other grain.
+            s.ShowLevel(0x105);
+            var bg = s.BgMap!;
+            int before = bg.At(3, 4), brush = before == 0x25 ? 0x30 : 0x25;
+            Assert.True(bg.Stamp(3, 4, brush));
+            Assert.True(bg.EndStroke());
+            Assert.True(s.SaveTilemapPreset("hills", 2), s.Status);
+            Assert.True(s.BgMap!.Undo());
+            Assert.Equal(before, s.BgMap!.At(3, 4));
+            Assert.True(s.ApplyTilemapPreset("hills"), s.Status);
+            Assert.Equal(brush, s.BgMap!.At(3, 4));
+
+            Assert.False(s.SaveTilemapPreset("cave", 2));          // the name is layer 3's
+
+            s.Save();
+            var s2 = new EditorSession();
+            Assert.True(s2.OpenProject(Path.Combine(dir, "proj", "project.pdp")), s2.Status);
+            Assert.Equal(new[] { "cave" }, s2.TilemapPresets(3));
+            Assert.Equal(new[] { "hills" }, s2.TilemapPresets(2));
+            Assert.True(s2.DeleteTilemapPreset("hills"));
+            Assert.Empty(s2.TilemapPresets(2));
+        }
+        finally { try { Directory.Delete(dir, true); } catch { } }
+    }
+
+    /// <summary>
     /// Export is the mirror of import, so the file it writes has to be one import takes back —
     /// a "save" that only this editor can read is not a save. It exports what the level DRAWS,
     /// so a level still on its mode's shared tilemap exports that rather than refusing.

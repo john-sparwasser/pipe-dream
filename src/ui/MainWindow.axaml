@@ -876,6 +876,12 @@
               <!-- Painting is saved with the project like every other level edit, so these two
                    are about FILES, and having only one of them read as "a tilemap can only come
                    from a file". -->
+              <!-- The project's saved tilemaps, for whichever layer is on screen: click one to put
+                   it on this level, or keep this level's as a new one. Files are the two buttons
+                   beside it; this is the library. -->
+              <Button x:Name="BgTilemaps" DockPanel.Dock="Right" Content="Tilemaps ▾"
+                      VerticalAlignment="Center" Margin="0,0,6,0"
+                      ToolTip.Tip="Saved tilemaps in this project — apply one here, or save this level's"/>
               <Button x:Name="BgExportMap" DockPanel.Dock="Right" Content="Export…"
                       VerticalAlignment="Center" IsVisible="False" Margin="0,0,6,0"
                       Click="OnExportLayer3Tilemap"

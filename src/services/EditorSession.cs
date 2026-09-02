@@ -286,6 +286,11 @@ public sealed class EditorSession
                     Project.MarkDirty();
                 }
                 touched.Add(LevelNum);
+                // The level canvas composes layer 3 INTO the scene's pixels (LevelScene.Build),
+                // so like the layer-2 commit above it has to rebuild the scene — otherwise the
+                // Background tab shows the paint and the level canvas keeps the old picture until
+                // something unrelated rebuilds it, which read as "the edit did not save".
+                RecomposeScene();
             };
         }
     }
@@ -355,9 +360,16 @@ public sealed class EditorSession
         try { bytes = File.ReadAllBytes(path); }
         catch (Exception e) { Report($"import failed: {e.Message}"); return false; }
 
+        return ImportLayer3Bytes(bytes, Path.GetFileName(path));
+    }
+
+    /// <summary>The import proper, from bytes already in hand — a file, or a saved tilemap.</summary>
+    private bool ImportLayer3Bytes(byte[] bytes, string what)
+    {
+        if (Rom is null || !HasLevel) { Report("no level open"); return false; }
         if (!Layer3.IsTilemapSize(bytes.Length))
         {
-            Report($"import rejected: {Path.GetFileName(path)} is 0x{bytes.Length:X} bytes — "
+            Report($"import rejected: {what} is 0x{bytes.Length:X} bytes — "
                  + "a layer-3 tilemap is 0x800, 0x1000 or 0x2000");
             return false;
         }
@@ -370,9 +382,11 @@ public sealed class EditorSession
         touched.Add(LevelNum);
         // The paintable grid is built from the tilemap at ShowLevel time, so it still holds the
         // OLD map until it is rebuilt — an import that did not do this looked like it had done
-        // nothing until the level was switched away and back.
+        // nothing until the level was switched away and back. The level canvas has the same
+        // problem for the same reason (layer 3 is composed into the scene), hence the recompose.
         OpenBackgroundEdits();
-        Report($"layer 3 tilemap ← {Path.GetFileName(path)} (0x{bytes.Length:X} bytes)");
+        RecomposeScene();
+        Report($"layer 3 tilemap ← {what} (0x{bytes.Length:X} bytes)");
         return true;
     }
 
@@ -407,7 +421,77 @@ public sealed class EditorSession
         }
         touched.Add(LevelNum);
         OpenBackgroundEdits();                    // same reason as the import: rebuild what is painted on
+        RecomposeScene();
         Report("layer 3 tilemap ← the base ROM's");
+        return true;
+    }
+
+    // ---- saved tilemaps ----
+    // A project-scoped library of named maps for either layer, so a background painted once can
+    // go onto any level. It lives in the .pdp beside the levels that use it, in exactly the bytes
+    // the per-level field holds — applying one is the import path, from memory.
+
+    /// <summary>The saved tilemaps for <paramref name="layer"/> (2 or 3), by name.</summary>
+    public IEnumerable<string> TilemapPresets(int layer)
+        => Project is null ? []
+         : Project.Data.Tilemaps.Where(kv => kv.Value.Layer == layer).Select(kv => kv.Key)
+                               .OrderBy(n => n, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Keep the current level's map for <paramref name="layer"/> under a name. What the level
+    /// DRAWS, the export rule: a level still on vanilla's shared layer 3 can be the start of a
+    /// library entry too. A name belongs to one layer — reusing it across layers would let a
+    /// layer-3 save silently replace a layer-2 map of the same name.
+    /// </summary>
+    public bool SaveTilemapPreset(string name, int layer)
+    {
+        if (Project is null) { Report("no project open"); return false; }
+        name = name.Trim();
+        if (name.Length == 0) { Report("a tilemap needs a name"); return false; }
+        if (Project.Data.Tilemaps.TryGetValue(name, out var had) && had.Layer != layer)
+        { Report($"“{name}” is already a layer {had.Layer} tilemap"); return false; }
+        byte[]? bytes = layer switch
+        {
+            3 => Layer3Map is { } m ? Layer3.ToBytes(m.Cells) : null,
+            2 => BgMap is { } b ? [.. b.Cells.Select(v => (byte)v)] : null,
+            _ => null,
+        };
+        if (bytes is null) { Report($"this level has no layer {layer} to save"); return false; }
+        Project.Data.Tilemaps[name] = new() { Layer = layer, Data = Convert.ToBase64String(bytes) };
+        Project.MarkDirty();
+        Report($"saved layer {layer} tilemap “{name}”");
+        return true;
+    }
+
+    /// <summary>Put a saved map on the current level. Layer 3 is the file import from memory;
+    /// layer 2 needs the level to have a background image, and one of the same size.</summary>
+    public bool ApplyTilemapPreset(string name)
+    {
+        if (Project is null || Rom is null || !HasLevel) { Report("no level open"); return false; }
+        if (!Project.Data.Tilemaps.TryGetValue(name, out var preset))
+        { Report($"no saved tilemap “{name}”"); return false; }
+        var bytes = Convert.FromBase64String(preset.Data);
+        if (preset.Layer == 3) return ImportLayer3Bytes(bytes, $"“{name}”");
+
+        if (BgMap is not { } bg)
+        { Report("this level's layer 2 is an object stream — there is no background to replace"); return false; }
+        if (bytes.Length != bg.Cells.Length)
+        { Report($"“{name}” holds {bytes.Length} cells; this level's background has {bg.Cells.Length}"); return false; }
+        Rom.BgTilemaps[LevelNum] = bytes;
+        Project.Data.Level(LevelNum).BgTilemap = preset.Data;
+        Project.MarkDirty();
+        touched.Add(LevelNum);
+        OpenBackgroundEdits();
+        RecomposeScene();
+        Report($"layer 2 background ← “{name}”");
+        return true;
+    }
+
+    public bool DeleteTilemapPreset(string name)
+    {
+        if (Project is null || !Project.Data.Tilemaps.Remove(name)) return false;
+        Project.MarkDirty();
+        Report($"deleted tilemap “{name}”");
         return true;
     }
 

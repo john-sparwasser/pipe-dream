@@ -88,7 +88,7 @@ public partial class MainWindow : Window
     private DockPanel animPane = null!, animToolPanel = null!;
     private DockPanel bgPane = null!, bgToolPanel = null!;
     private ToggleButton bgLayer2 = null!, bgLayer3 = null!;
-    private Button bgOptions = null!, bgImportMap = null!, bgExportMap = null!;
+    private Button bgOptions = null!, bgImportMap = null!, bgExportMap = null!, bgTilemaps = null!;
     private TilemapView bgView = null!, bgSheet = null!;
 
     /// <summary>What a stamp writes: a BG Map16 tile on layer 2, a whole BG3 word on layer 3
@@ -149,6 +149,8 @@ public partial class MainWindow : Window
         bgOptions = this.GetControl<Button>("BgOptions");
         bgImportMap = this.GetControl<Button>("BgImportMap");
         bgExportMap = this.GetControl<Button>("BgExportMap");
+        bgTilemaps = this.GetControl<Button>("BgTilemaps");
+        bgTilemaps.Click += (_, _) => ShowTilemapMenu();
         bgView = this.GetControl<TilemapView>("BgView");
         bgSheet = this.GetControl<TilemapView>("BgSheet");
         bgSheet.PickOnLeft = true;
@@ -2678,6 +2680,51 @@ public partial class MainWindow : Window
     /// this is where you SEE it, which is most of what authoring one needs.</summary>
     /// <summary>Save the level's layer-3 tilemap to a file. Painting it is already saved with
     /// the project — this is for getting it OUT: into Lunar Magic, another level, or a backup.</summary>
+    /// <summary>
+    /// The Tilemaps menu, built fresh each time it opens so it always shows the library as it
+    /// stands: the saved maps for the layer on screen (click one to apply it), then Save as…,
+    /// then Delete. One menu for both layers — the layer toggle decides which half you see.
+    /// </summary>
+    private void ShowTilemapMenu()
+    {
+        int layer = bgLayer3.IsChecked == true ? 3 : 2;
+        var names = session.TilemapPresets(layer).ToList();
+        var menu = new MenuFlyout();
+        foreach (string n in names)
+        {
+            var item = new MenuItem { Header = n };
+            item.Click += (_, _) => { if (session.ApplyTilemapPreset(n)) { RefreshBg(); UpdateTitle(); } };
+            menu.Items.Add(item);
+        }
+        if (names.Count == 0)
+            menu.Items.Add(new MenuItem { Header = $"No saved layer {layer} tilemaps", IsEnabled = false });
+        menu.Items.Add(new Separator());
+        var save = new MenuItem { Header = "Save this level's as…", IsEnabled = BgLayerEdit is not null };
+        save.Click += async (_, _) => await SaveTilemapPreset(layer);
+        menu.Items.Add(save);
+        if (names.Count > 0)
+        {
+            var delete = new MenuItem { Header = "Delete" };
+            foreach (string n in names)
+            {
+                var item = new MenuItem { Header = n };
+                item.Click += (_, _) => { if (session.DeleteTilemapPreset(n)) UpdateTitle(); };
+                delete.Items.Add(item);
+            }
+            menu.Items.Add(delete);
+        }
+        menu.ShowAt(bgTilemaps);
+    }
+
+    private async Task SaveTilemapPreset(int layer)
+    {
+        var dlg = new TextPromptWindow($"Name for this layer {layer} tilemap",
+                                       $"level {session.LevelNum:X3} layer {layer}");
+        await dlg.ShowDialog(this);
+        if (dlg.Result is not { } name) return;              // cancelled: nothing saved
+        if (session.SaveTilemapPreset(name, layer)) UpdateTitle();
+    }
+
     private async void OnExportLayer3Tilemap(object? sender, RoutedEventArgs e)
     {
         if (await PickSaveFile("Export this level's layer-3 tilemap",
@@ -2736,7 +2783,7 @@ public partial class MainWindow : Window
         bool layer3 = bgLayer3.IsChecked == true;
         bgDrawerTitle.Text = layer3 ? "Layer 3 tiles" : "BG Map16 — pages 80-81";
         bgOptions.IsVisible = bgImportMap.IsVisible = bgExportMap.IsVisible = layer3;
-        bgOptions.IsEnabled = bgImportMap.IsEnabled = session.HasLevel;
+        bgOptions.IsEnabled = bgImportMap.IsEnabled = bgTilemaps.IsEnabled = session.HasLevel;
         // Export needs something to write; the other two are how you get there.
         bgExportMap.IsEnabled = session.Layer3Map is not null;
         bgView.Backdrop = session.PaletteRgba is { Length: > 0 } pal ? pal[0] : 0xFF000000u;
