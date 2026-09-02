@@ -39,6 +39,12 @@ public sealed class TilemapView : Control
     public int CellPx { get; set; } = 16;
     public double Zoom { get; set; } = 2;
 
+    /// <summary>Take the whole width offered instead of a fixed <see cref="Zoom"/> — what a
+    /// drawer sheet wants, where the width is the splitter's to decide and a fixed zoom leaves
+    /// dead desk beside the tiles. Zoom then follows the drawer, including a splitter drag,
+    /// because measure runs again on every resize.</summary>
+    public bool FitWidth { get; set; }
+
     /// <summary>What shows where a cell has nothing — the level's back-area colour, which is
     /// exactly what the console shows through a transparent tile.</summary>
     public uint Backdrop { get; set; } = 0xFF000000;
@@ -100,7 +106,13 @@ public sealed class TilemapView : Control
     private double Step => CellPx * Zoom;
 
     protected override Size MeasureOverride(Size availableSize)
-        => new(Cols * Step, Rows * Step);
+    {
+        // Never below 1: a drawer dragged narrower than one tile per cell would otherwise shrink
+        // the sheet away rather than scroll it.
+        if (FitWidth && Cols > 0 && CellPx > 0 && double.IsFinite(availableSize.Width))
+            Zoom = Math.Max(1, availableSize.Width / (Cols * CellPx));
+        return new(Cols * Step, Rows * Step);
+    }
 
     /// <summary>Screen point → the cell under it, or null past the grid.</summary>
     /// <summary>The cell under the pointer, or null when it is off the grid — what the gutter

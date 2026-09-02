@@ -152,6 +152,7 @@ public partial class MainWindow : Window
         bgView = this.GetControl<TilemapView>("BgView");
         bgSheet = this.GetControl<TilemapView>("BgSheet");
         bgSheet.PickOnLeft = true;
+        bgSheet.FitWidth = true;          // the sheet is the drawer's width, not a fixed 256px
         // Wired ONCE: RefreshBg runs on every phase tick and mode switch, and re-subscribing
         // there would stack a handler per refresh. The handlers look the layer up instead.
         bgView.Painted += (_, c) => BgPaint(c.Col, c.Row);
@@ -2767,7 +2768,6 @@ public partial class MainWindow : Window
             bgSheet.CellAt = (c, r) => (bgBrushL3 & ~0x3FF) | (r * SheetCols + c);
             bgSheet.CellPixels = session.Layer3CellPixels;
             bgSheet.Selected = bgBrushL3 & 0x3FF;
-            bgSheet.Zoom = 2;
             bgSheet.Reshape(SheetCols, Layer3.TileCount / SheetCols, 8);
 
             bgNoteBase = $"{Layer3.Cols}x{Layer3.Rows} tiles — {Layer3.OptionNames[opt]}"
@@ -2797,7 +2797,6 @@ public partial class MainWindow : Window
         bgSheet.CellAt = (c, r) => r * SheetCols + c;
         bgSheet.CellPixels = t => session.BgCellPixels(t, ph);
         bgSheet.Selected = bgBrush & 0x1FF;
-        bgSheet.Zoom = 1;
         bgSheet.Reshape(SheetCols, EditorSession.BgSheetTiles / SheetCols, 16);
 
         bgNoteBase = $"{EditorSession.BgCols}x{EditorSession.BgRows} tiles — two screens, repeats"

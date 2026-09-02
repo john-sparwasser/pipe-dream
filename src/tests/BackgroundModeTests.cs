@@ -356,6 +356,31 @@ public class BackgroundModeTests(ITestOutputHelper log)
         Assert.Equal(word & ~0x1C00, now & ~0x1C00);      // tile, both flips, priority: untouched
     }
 
+    /// <summary>
+    /// Both drawer sheets fill the drawer rather than sitting at a fixed 256px with dead desk
+    /// beside them. Layer 3's tiles are 8px and layer 2's are 16, so a single zoom cannot serve
+    /// both — the fit is per-sheet, and asserting the WIDTH rather than the zoom is what says so.
+    /// </summary>
+    [AvaloniaFact]
+    public void the_drawer_sheet_fills_the_width_the_drawer_gives_it_on_both_layers()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var w = Open(0x009, layer3: true);
+        var sheet = w.GetControl<TilemapView>("BgSheet");
+
+        foreach (double width in new[] { 300.0, 520.0 })
+        {
+            sheet.Measure(new Avalonia.Size(width, double.PositiveInfinity));
+            Assert.Equal(width, sheet.DesiredSize.Width, 1);
+        }
+
+        // Layer 2 needs a level that HAS a background image — $009 puts objects there, and an
+        // empty drawer fills nothing.
+        var sheet2 = Open(0x105, layer3: false).GetControl<TilemapView>("BgSheet");
+        sheet2.Measure(new Avalonia.Size(520, double.PositiveInfinity));
+        Assert.Equal(520, sheet2.DesiredSize.Width, 1);
+    }
+
     /// <summary>Fire a Click handler the way the button would, with the sender it checks.</summary>
     private static void Click(MainWindow w, string method, object? sender) => typeof(MainWindow)
         .GetMethod(method, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
