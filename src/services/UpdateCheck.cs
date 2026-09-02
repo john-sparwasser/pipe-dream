@@ -71,6 +71,12 @@ public static class UpdateCheck
         return Version.TryParse(t, out var v) ? Normalise(v) : null;
     }
 
+    /// <summary>The platforms build.yml publishes an asset for. Nothing else is offered an update:
+    /// WantsAsset's non-Windows branch means Linux, and on a Mac it would have picked the Linux
+    /// binary and Apply() would have moved it over the running app. macOS stays out until there
+    /// is an Apple developer licence to sign a build with.</summary>
+    public static bool Supported => OperatingSystem.IsWindows() || OperatingSystem.IsLinux();
+
     /// <summary>Which release asset this platform installs. Windows takes the installer, Linux
     /// the bare executable; both are matched on the names build.yml actually uploads.</summary>
     internal static bool WantsAsset(string name, bool isWindows) =>
