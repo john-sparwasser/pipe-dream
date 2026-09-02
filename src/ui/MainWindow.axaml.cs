@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.LogicalTree;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
@@ -657,6 +658,12 @@ public partial class MainWindow : Window
         session.SceneRebuilt += (_, _) => AdoptSession();
         session.Problem += (_, p) => ShowProblem(p);
 
+        // A HotKey is what FIRES; the caption a MenuItem draws is its InputGesture, and Avalonia
+        // derives neither from the other. One pass so every shortcut the menu shows is one that
+        // works — and a new item only needs a HotKey.
+        foreach (var item in this.GetLogicalDescendants().OfType<MenuItem>())
+            if (item.HotKey is { } hotKey && item.InputGesture is null) item.InputGesture = hotKey;
+
         this.GetControl<MenuItem>("DebugMenu").IsVisible = Program.DevMode;
 
         // An explicit ROM argument opens projectless — that is the test suite's and the
@@ -878,24 +885,30 @@ public partial class MainWindow : Window
             e.Handled = true;
             return;
         }
-        // File → Save. The menu item's InputGesture only DRAWS "Ctrl+S"; Avalonia does not
-        // register a gesture from it, so the key has to be handled here like F4. This is a
-        // bubbling handler, so a focused text box still gets first refusal.
-        if (e.Key == Key.S && e.KeyModifiers == KeyModifiers.Control)
+        // File → Save. Handled here rather than as the menu item's HotKey so that BOTH Ctrl+S and
+        // Cmd+S save on a Mac (a HotKey is one gesture); the item's InputGesture only draws the
+        // caption. This is a bubbling handler, so a focused text box still gets first refusal.
+        if (e.Key == Key.S && Hotkeys.CommandOnly(e.KeyModifiers))
         {
             OnSave(this, e);
             e.Handled = true;
             return;
         }
-        if (e.Key == Key.Z && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        if (e.Key == Key.Z && Hotkeys.Command(e.KeyModifiers))
         {
             UndoRedo(redo: e.KeyModifiers.HasFlag(KeyModifiers.Shift));
+            e.Handled = true;
+        }
+        // Ctrl+Y is the redo the Edit menu has always advertised; until now nothing answered it.
+        else if (e.Key == Key.Y && Hotkeys.CommandOnly(e.KeyModifiers))
+        {
+            UndoRedo(redo: true);
             e.Handled = true;
         }
         // GFX selection clipboard. The clipboard lives in GfxEdit as colour indices, so a copy
         // in one bin pastes into whichever bin is open when Ctrl+V lands. A focused TextBox (a
         // bin's id field) keeps its own Ctrl+C/X/V.
-        else if (modeGfx.IsChecked == true && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+        else if (modeGfx.IsChecked == true && Hotkeys.Command(e.KeyModifiers)
                  && e.Key is Key.C or Key.X or Key.V && session.GfxPixels is { } gp
                  && FocusManager?.GetFocusedElement() is not TextBox)
         {

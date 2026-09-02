@@ -4,6 +4,22 @@ using Avalonia.Media;
 
 namespace PipeDream.Ui;
 
+/// <summary>
+/// The command modifier: Ctrl, or Cmd on a Mac, which Avalonia reports as Meta. Accepted on every
+/// platform rather than switched on the OS — a Windows habit still works on a Mac, and a test
+/// presses whichever it likes. The menu's own HotKeys are platform-switched instead (Ctrl+G on
+/// Windows and Linux, Cmd+G on a Mac), because a HotKey is one gesture and the menu shows it.
+/// </summary>
+internal static class Hotkeys
+{
+    public static bool Command(KeyModifiers m)
+        => m.HasFlag(KeyModifiers.Control) || m.HasFlag(KeyModifiers.Meta);
+
+    /// <summary>The command key and nothing else — no Shift, no Alt.</summary>
+    public static bool CommandOnly(KeyModifiers m)
+        => Command(m) && (m & ~(KeyModifiers.Control | KeyModifiers.Meta)) == 0;
+}
+
 /// <summary>The pointer shapes the canvases show, made once. A canvas that builds a Cursor per
 /// pointer move allocates on every pixel of travel for nothing.
 ///

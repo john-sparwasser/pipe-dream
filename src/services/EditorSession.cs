@@ -95,10 +95,10 @@ public sealed class EditorSession
     public bool HasUnsavedWork => Project is { Dirty: true } || touched.Count > 0 || LevelDirty;
 
     /// <summary>Whether the CURRENT level holds work the project snapshot does not have yet.
-    /// Palette edits count as dirty even when they were hydrated from the project — stashing
-    /// them again writes back the same values, which is cheaper than a rule that can lose them.</summary>
-    private bool LevelDirty => Edit is { Dirty: true } || Sprites is { Dirty: true }
-                               || paletteEdits.Count > 0;
+    /// The palette has its own flag rather than "any edit at all": counting hydrated edits as
+    /// dirty meant a level with a custom colour could never read as saved — Ctrl+S wrote the
+    /// file and the title kept its marker, which looked like the save had not happened.</summary>
+    private bool LevelDirty => Edit is { Dirty: true } || Sprites is { Dirty: true } || paletteDirty;
 
     /// <summary>Sprite editing for the current level.
     ///
@@ -1085,6 +1085,9 @@ public sealed class EditorSession
     // has to be in place before composition rather than tinted afterwards.
 
     private readonly Dictionary<int, ushort> paletteEdits = [];
+    /// <summary>A palette change the project snapshot does not have yet. Set by every edit, undo
+    /// and reset; cleared when the level is stashed or its edits are hydrated back in.</summary>
+    private bool paletteDirty;
 
     public int PaletteEditCount => paletteEdits.Count;
 
@@ -1126,6 +1129,7 @@ public sealed class EditorSession
         if (stroke is { } s) s.TryAdd(index, Edited(index));
         else PushPalette([(index, Edited(index), after)]);
         if (after is { } v) paletteEdits[index] = v; else paletteEdits.Remove(index);
+        paletteDirty = true;
         Project?.MarkDirty();
         touched.Add(LevelNum);
         Recolour(livePhaseOnly: InPaletteStroke);
@@ -1181,6 +1185,7 @@ public sealed class EditorSession
         // Reset is one history entry, so it is undoable rather than a cliff.
         PushPalette([.. paletteEdits.Select(kv => (kv.Key, (ushort?)kv.Value, (ushort?)null))]);
         paletteEdits.Clear();
+        paletteDirty = true;
         Project?.MarkDirty();
         touched.Add(LevelNum);
         Recolour();
@@ -1229,6 +1234,7 @@ public sealed class EditorSession
             if ((redo ? after : before) is { } c) paletteEdits[i] = c;
             else paletteEdits.Remove(i);
         }
+        paletteDirty = true;
         to.Push(entry);
         Project?.MarkDirty();
         touched.Add(LevelNum);
@@ -1425,6 +1431,7 @@ public sealed class EditorSession
             stroke = null;                 // an open picker belongs to the level being left
             if (saved is not null)
                 foreach (var (k, v) in saved.Palette) paletteEdits[k] = (ushort)v;
+            paletteDirty = false;                        // what is here now IS the snapshot
 
             // Built without sprites when the project has its own list, so the ROM's parse is
             // not composed in and then painted over.
@@ -2312,6 +2319,7 @@ public sealed class EditorSession
             Sprites = Sprites?.Sprites ?? Scene?.Sprites,   // the live list, not the ROM's parse
         };
         foreach (var (k, v) in paletteEdits) state.PaletteEdits[k] = v;
+        paletteDirty = false;                            // the snapshot has them; Project.Dirty says whether disk does
         state.Stash(Project.Data, Rom, LevelNum);
         Project.MarkDirty();
         touched.Add(LevelNum);

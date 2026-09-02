@@ -311,6 +311,70 @@ public class ControlParityTests(ITestOutputHelper log)
     }
 
     /// <summary>
+    /// A palette edit, saved. It used to save fine and LOOK unsaved: the level counted as dirty
+    /// for as long as it had any palette edit at all, hydrated ones included, so the title kept
+    /// its marker after Ctrl+S and the save read as having done nothing. And on a Mac the key is
+    /// Cmd, which arrives as Meta — taken alongside Ctrl on every platform now.
+    /// </summary>
+    [AvaloniaFact]
+    public void a_palette_edit_saves_on_cmd_s_and_the_marker_clears()
+    {
+        if (Open() is not { } o) { log.WriteLine("SKIP: no ROM"); return; }
+        var (w, _) = o;
+        string dir = Path.Combine(Path.GetTempPath(), "pdpal-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            var session = SessionOf(w);
+            Assert.True(session.NewProject(Path.Combine(dir, "p"), Prepped!), session.Status);
+            Invoke(w, "AdoptSession");
+            Dispatcher.UIThread.RunJobs();
+
+            int index = 0x0A;                                    // under Layer3.PaletteSpace: a layer-3 colour
+            ushort colour = (ushort)(session.PaletteBgr(index) ^ 0x1F);
+            Assert.True(session.SetPaletteColor(index, colour));
+            Invoke(w, "UpdateTitle");
+            Assert.True(session.HasUnsavedWork);
+            Assert.Contains("*", w.Title);
+
+            w.KeyPressQwerty(PhysicalKey.S, RawInputModifiers.Meta);          // Cmd+S
+            Dispatcher.UIThread.RunJobs();
+            Assert.False(session.HasUnsavedWork, $"Cmd+S left work unsaved: {session.Status}");
+            Assert.DoesNotContain("*", w.Title);
+
+            // And the colour is really in the project, not just no longer flagged.
+            var again = new EditorSession();
+            Assert.True(again.OpenProject(Path.Combine(dir, "p", "project.pdp")), again.Status);
+            again.ShowLevel(session.LevelNum);
+            Assert.Equal(colour, again.PaletteBgr(index));
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
+    }
+
+    /// <summary>The menu's shortcuts are HotKeys now, not captions: they fire from the keyboard
+    /// with the menu closed, on the platform's command key, and the caption the menu shows is
+    /// the gesture that works.</summary>
+    [AvaloniaFact]
+    public void menu_hotkeys_fire_from_the_keyboard()
+    {
+        if (Open() is not { } o) { log.WriteLine("SKIP: no ROM"); return; }
+        var (w, c) = o;
+        var command = OperatingSystem.IsMacOS() ? RawInputModifiers.Meta : RawInputModifiers.Control;
+        bool before = c.ShowGrid;
+
+        w.KeyPressQwerty(PhysicalKey.G, command);
+        Dispatcher.UIThread.RunJobs();
+        Assert.NotEqual(before, c.ShowGrid);
+        w.KeyPressQwerty(PhysicalKey.G, command);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(before, c.ShowGrid);
+
+        var item = w.GetControl<MenuItem>("ViewGridItem");
+        Assert.NotNull(item.HotKey);
+        Assert.NotNull(item.InputGesture);                     // the caption follows the HotKey
+        Assert.Equal(OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control, item.HotKey!.KeyModifiers);
+    }
+
+    /// <summary>
     /// Ctrl+S saves. The File menu draws "Ctrl+S" next to Save, but a MenuItem's InputGesture
     /// in Avalonia is DECORATION — it registers no gesture — so the key only works because
     /// OnWindowKeyDown handles it, and it silently did nothing until it did.
