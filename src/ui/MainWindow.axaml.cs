@@ -816,7 +816,7 @@ public partial class MainWindow : Window
             {
                 CommitGfxFloat();
                 gp.Open(bin.File);
-                gp.PalRow = bin.PalRow; gp.ColorOffset = bin.ColorOffset;
+                (gp.PalRow, gp.ColorOffset) = GfxPalFor(bin.Bpp, bin.PalRow, bin.ColorOffset);
             }
             RefreshGfx();
         }
@@ -1190,7 +1190,8 @@ public partial class MainWindow : Window
         if (slot is { } bin)
         {
             session.SetGfxSlot(gfxSlot, picked);
-            if (session.GfxPixels is { } gp) { gp.PalRow = bin.PalRow; gp.ColorOffset = bin.ColorOffset; }
+            if (session.GfxPixels is { } gp)
+                (gp.PalRow, gp.ColorOffset) = GfxPalFor(bin.Bpp, bin.PalRow, bin.ColorOffset);
             AdoptSession();                     // the level draws through the new file now
         }
         session.GfxPixels?.Open(picked);
@@ -2168,9 +2169,34 @@ public partial class MainWindow : Window
 
     private void SetGfxPalValue(GfxEdit g, int value)
     {
-        if (GfxIsLayer3) { g.PalRow = value / 4; g.ColorOffset = value % 4 * Layer3.PaletteColors; }
-        else { g.PalRow = value; g.ColorOffset = 0; }
+        if (!GfxIsLayer3) { g.PalRow = value; g.ColorOffset = 0; return; }
+        gfxLayer3Group = value;
+        (g.PalRow, g.ColorOffset) = Layer3Pal(value);
     }
+
+    /// <summary>
+    /// The palette group every layer-3 file is SHOWN in — one setting for all four LG bins, not
+    /// one each.
+    ///
+    /// The four bins are one picture: they fill a single 512-tile window that a tilemap addresses
+    /// as one space, and the group is a property of the tilemap word rather than of the file. So
+    /// picking a group means "show layer 3 in this", and cycling LG1-LG4 to compare them keeps
+    /// it. Resetting to each bin's own default made every comparison start by re-picking, and
+    /// since all four bins declare the same default, that default could never have been the
+    /// thing worth remembering.
+    ///
+    /// Group 2 to start with: the first of the four CGRAM holds layer 3's own colours, and the
+    /// value each LG bin used to carry.
+    /// </summary>
+    private int gfxLayer3Group = 2;
+
+    private static (int Row, int Off) Layer3Pal(int group)
+        => (group / 4, group % 4 * Layer3.PaletteColors);
+
+    /// <summary>A bin's (row, offset) to draw in: the remembered group for a layer-3 bin, the
+    /// bin's own for everything else.</summary>
+    private (int Row, int Off) GfxPalFor(int bpp, int binRow, int binOff)
+        => bpp == Layer3.Bpp ? Layer3Pal(gfxLayer3Group) : (binRow, binOff);
 
     /// <summary>Fill the row picker with what this bin allows and land on the nearest legal row to
     /// the one being painted with. The items ARE the row numbers, so a list starting at 8 does not
@@ -2365,8 +2391,11 @@ public partial class MainWindow : Window
 
             // The SELECTED bin previews in the row being painted with, so the drawer and the editor
             // show the same colours; the others keep the row the level actually loads them under.
+            // Every layer-3 bin previews in the group the editor is showing them in, so cycling
+            // LG1-LG4 to compare them is a comparison rather than four different palettes.
             var (previewRow, previewOff) = bin.BypWord == gfxSlot && session.GfxPixels is { } sel
-                ? (sel.PalRow, sel.ColorOffset) : (bin.PalRow, bin.ColorOffset);
+                ? (sel.PalRow, sel.ColorOffset)
+                : GfxPalFor(bin.Bpp, bin.PalRow, bin.ColorOffset);
             var (px, w, h) = session.GfxFileSheet(bin.File, previewRow, previewOff, bin.Bpp);
             if (px.Length > 0)
                 block.Children.Add(new PixelImage
@@ -2421,7 +2450,7 @@ public partial class MainWindow : Window
         if (session.GfxPixels is not { } g) return;
         CommitGfxFloat();                    // into the file it was floating over
         g.Open(file);
-        g.PalRow = palRow; g.ColorOffset = palOff;   // the bin's own row; the picker follows in RefreshGfx
+        (g.PalRow, g.ColorOffset) = GfxPalFor(bpp, palRow, palOff);
         // A bin can KNOW its depth where the file cannot: layer 3 is 2bpp because of where it is
         // loaded, so an ExGFX file a bypassed LG slot points at opens 2bpp too, not at the ROM's
         // depth. Open() cleared any previous override, so this is the one that sticks.

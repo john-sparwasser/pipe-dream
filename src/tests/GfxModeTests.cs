@@ -5,6 +5,7 @@ using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Threading;
+using Avalonia.LogicalTree;
 using PipeDream.Ui;
 using Xunit;
 using Xunit.Abstractions;
@@ -925,6 +926,62 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(8, session.GfxPixels.ColorOffset);
         Assert.Equal(0x18, session.GfxPixels.BaseColor);
         Assert.Equal(Layer3.PaletteBase(6), session.GfxPixels.BaseColor);
+    }
+
+    /// <summary>
+    /// The palette group is remembered across the four layer-3 bins, and every one of them is
+    /// PREVIEWED in it. They fill a single 512-tile window that one tilemap addresses, so "show
+    /// layer 3 in group 6" is a statement about layer 3, not about LG2 — and cycling LG1-LG4 to
+    /// compare them used to reset to each bin's own default on every click, which is also why
+    /// the default could never have been worth keeping: all four declare the same one.
+    /// </summary>
+    [AvaloniaFact]
+    public void the_layer_3_palette_group_is_remembered_across_the_four_lg_bins()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeGfx").RaiseEvent(
+            new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var session = SessionOf(w);
+        var bins = w.GetControl<StackPanel>("GfxBins");
+        var rows = w.GetControl<ComboBox>("GfxPalRow");
+
+        // By LABEL, not by index: the list carries headings between the groups, so the nth bin
+        // is not the nth child once the layer-3 four are in reach.
+        void ClickBin(string name)
+        {
+            var card = bins.Children.OfType<Border>().First(b =>
+                b.GetLogicalDescendants().OfType<TextBlock>().Any(t => t.Text == $"[{name}]"));
+            card.BringIntoView();
+            Dispatcher.UIThread.RunJobs();
+            var at = card.TranslatePoint(new Point(4, 4), w)!.Value;
+            w.MouseDown(at, MouseButton.Left);
+            w.MouseUp(at, MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        ClickBin("LG1");
+        Assert.Equal(Layer3.PaletteGroups, rows.ItemCount);    // groups, not rows
+        Assert.Equal(2, rows.SelectedIndex);                   // layer 3's own first block
+
+        rows.SelectedIndex = 6;
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(Layer3.PaletteBase(6), session.GfxPixels!.BaseColor);
+
+        ClickBin("LG3");                                       // a different bin, same picture
+        Assert.Equal(6, rows.SelectedIndex);
+        Assert.Equal(Layer3.PaletteBase(6), session.GfxPixels!.BaseColor);
+
+        // ...and a bin that is NOT layer 3 keeps its own row: the memory is layer 3's alone.
+        ClickBin("FG1");
+        Assert.Equal(16, w.GetControl<PaletteGridView>("GfxColors").Cols);
+        ClickBin("LG2");
+        Assert.Equal(6, rows.SelectedIndex);
     }
 
     /// <summary>Up/Down cycle the paint palette row while drawing — the row is the thing you change
