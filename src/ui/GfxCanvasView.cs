@@ -111,9 +111,6 @@ public class GfxCanvasView : Control
     private static readonly Cursor OpenHand = new(StandardCursorType.Hand);
     private static readonly Cursor ClosedHand = new(StandardCursorType.DragMove);
 
-    private static bool Inside((int X, int Y, int W, int H)? r, (int X, int Y) p)
-        => r is { } s && p.X >= s.X && p.X < s.X + s.W && p.Y >= s.Y && p.Y < s.Y + s.H;
-
     private WriteableBitmap? sheet;
     private int sheetW, sheetH;
     private readonly PixelBlit blit = new();
@@ -141,10 +138,7 @@ public class GfxCanvasView : Control
     }
 
     /// <summary>Screen point → nearest sheet pixel, for drags that run past the edge.</summary>
-    private (int X, int Y)? ClampedPixelAt(Point p)
-        => Zoom <= 0 || sheetW == 0 || sheetH == 0 ? null
-         : (Math.Clamp((int)(p.X / Zoom), 0, sheetW - 1),
-            Math.Clamp((int)(p.Y / Zoom), 0, sheetH - 1));
+    private (int X, int Y)? ClampedPixelAt(Point p) => Lasso.Clamped(p, Zoom, sheetW, sheetH);
 
     protected override Size MeasureOverride(Size available) => new(sheetW * Zoom, sheetH * Zoom);
 
@@ -186,7 +180,7 @@ public class GfxCanvasView : Control
         {
             if (Float is not null)
             {
-                if (Inside(Float, px))
+                if (Lasso.Contains(Float, px))
                 {
                     floatDrag = ((Float.Value.X, Float.Value.Y), px);
                     Cursor = ClosedHand;
@@ -197,7 +191,7 @@ public class GfxCanvasView : Control
                 // start a fresh selection like any other.
                 FloatDropRequested?.Invoke(this, EventArgs.Empty);
             }
-            if (Inside(Selection, px))
+            if (Lasso.Contains(Selection, px))
             {
                 Cursor = ClosedHand;
                 SelectionMoveStarted?.Invoke(this, Selection!.Value);
@@ -235,15 +229,13 @@ public class GfxCanvasView : Control
         if (at != Hover) { Hover = at; InvalidateVisual(); }
         // The grab hands: closed while dragging, open over anything draggable, default elsewhere.
         Cursor = floatDrag is not null ? ClosedHand
-               : Selecting && at is { } h2 && (Inside(Float, h2) || Inside(Selection, h2)) ? OpenHand
+               : Selecting && at is { } h2 && (Lasso.Contains(Float, h2) || Lasso.Contains(Selection, h2)) ? OpenHand
                : null;
         // Selection drags clamp to the sheet instead of dying past its edge, so a fast drag to
         // a border lands ON the border.
         if (floatDrag is { } fd && Float is { } f && ClampedPixelAt(e.GetPosition(this)) is { } fp)
         {
-            Float = (Math.Clamp(fd.Home.X + fp.X - fd.Grab.X, 0, Math.Max(0, sheetW - f.W)),
-                     Math.Clamp(fd.Home.Y + fp.Y - fd.Grab.Y, 0, Math.Max(0, sheetH - f.H)),
-                     f.W, f.H);
+            Float = Lasso.Moved((fd.Home.X, fd.Home.Y, f.W, f.H), fd.Grab, fp, sheetW, sheetH);
             InvalidateVisual();
             return;
         }
@@ -252,8 +244,7 @@ public class GfxCanvasView : Control
             if (e.KeyModifiers.HasFlag(KeyModifiers.Control)
                 || e.KeyModifiers.HasFlag(KeyModifiers.Meta))
                 cp = Squared(a, cp);
-            Selection = (Math.Min(a.X, cp.X), Math.Min(a.Y, cp.Y),
-                         Math.Abs(cp.X - a.X) + 1, Math.Abs(cp.Y - a.Y) + 1);
+            Selection = Lasso.Span(a, cp);
             return;
         }
         // The shape drag clamps to the sheet like a selection drag, so a fast drag past an
@@ -268,7 +259,7 @@ public class GfxCanvasView : Control
         // Interpolate: at speed the pointer skips pixels, and a stroke with gaps in it is a bug
         // rather than a style. Same rule as the level canvas.
         if (lastPainted is { } prev)
-            foreach (var step in Between(prev, px)) PixelPainted?.Invoke(this, step);
+            foreach (var step in Lasso.Between(prev, px)) PixelPainted?.Invoke(this, step);
         else PixelPainted?.Invoke(this, px);
         lastPainted = px;
     }
@@ -336,14 +327,6 @@ public class GfxCanvasView : Control
         var r = new Rect(s.X * z, s.Y * z, s.W * z, s.H * z);
         ctx.DrawRectangle(null, new Pen(Brushes.Black, 1), r);
         ctx.DrawRectangle(null, new Pen(Brushes.White, 1) { DashStyle = DashStyle.Dash }, r);
-    }
-
-    private static IEnumerable<(int X, int Y)> Between((int X, int Y) a, (int X, int Y) b)
-    {
-        int steps = Math.Max(Math.Abs(b.X - a.X), Math.Abs(b.Y - a.Y));
-        if (steps == 0) { yield return b; yield break; }
-        for (int i = 1; i <= steps; i++)
-            yield return (a.X + (b.X - a.X) * i / steps, a.Y + (b.Y - a.Y) * i / steps);
     }
 
     public override void Render(DrawingContext ctx)

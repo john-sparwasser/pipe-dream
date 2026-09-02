@@ -3034,10 +3034,7 @@ public partial class MainWindow : Window
             // Read the whole rectangle BEFORE writing any of it: stamping a selection over
             // itself is the ordinary case (nudging a pattern along by a cell), and reading as
             // you write smears the first row across the rest.
-            var copy = new int[sel.W * sel.H];
-            for (int j = 0; j < sel.H; j++)
-                for (int i = 0; i < sel.W; i++)
-                    copy[j * sel.W + i] = map.At(sel.X + i, sel.Y + j);
+            var copy = ReadRect(map, sel);
             changed = false;
             for (int j = 0; j < sel.H; j++)
                 for (int i = 0; i < sel.W; i++)
@@ -3062,10 +3059,7 @@ public partial class MainWindow : Window
     {
         if (BgLayerEdit is not { } map) return;
         var (from, to) = (d.From, d.To);
-        var src = new int[from.W * from.H];
-        for (int j = 0; j < from.H; j++)
-            for (int i = 0; i < from.W; i++)
-                src[j * from.W + i] = map.At(from.X + i, from.Y + j);
+        var src = ReadRect(map, from);
 
         bool changed = false;
         if (d.Move)
@@ -3073,7 +3067,7 @@ public partial class MainWindow : Window
                 for (int i = 0; i < from.W; i++)
                 {
                     int c = from.X + i, r = from.Y + j;
-                    if (c >= to.X && c < to.X + to.W && r >= to.Y && r < to.Y + to.H) continue;
+                    if (Lasso.Contains(to, (c, r))) continue;
                     changed |= map.Stamp(c, r, bgLayer3.IsChecked == true ? -1 : 0);
                 }
         for (int r = to.Y; r < to.Y + to.H; r++)
@@ -3086,6 +3080,16 @@ public partial class MainWindow : Window
         bgView.Invalidate();
         RefreshBg();
         UpdateTitle();
+    }
+
+    /// <summary>A rectangle of cells, row-major — a snapshot to stamp from after writes begin.</summary>
+    private static int[] ReadRect(TilemapEdit map, (int X, int Y, int W, int H) r)
+    {
+        var cells = new int[r.W * r.H];
+        for (int j = 0; j < r.H; j++)
+            for (int i = 0; i < r.W; i++)
+                cells[j * r.W + i] = map.At(r.X + i, r.Y + j);
+        return cells;
     }
 
     /// <summary>Mouse up: the stroke becomes one undo entry and the level's data changes. A drag

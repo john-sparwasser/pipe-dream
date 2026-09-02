@@ -163,15 +163,12 @@ public class Map16CanvasView : Control
 
     /// <summary>The rectangle two dragged quadrants make, in quadrants — grown out to whole
     /// tiles at 16x16, where a selection that cut a tile in half would be a lie.</summary>
-    private (int X, int Y, int W, int H) Lasso((int Col, int Row) a, (int Col, int Row) b)
+    private (int X, int Y, int W, int H) Snapped((int Col, int Row) a, (int Col, int Row) b)
     {
-        int x0 = Math.Min(a.Col, b.Col), y0 = Math.Min(a.Row, b.Row);
-        int x1 = Math.Max(a.Col, b.Col) + 1, y1 = Math.Max(a.Row, b.Row) + 1;
-        if (Grain != TileGrain.Quad8)
-        {
-            x0 &= ~1; y0 &= ~1;
-            x1 = (x1 + 1) & ~1; y1 = (y1 + 1) & ~1;
-        }
+        var (x0, y0, w, h) = Lasso.Span(a, b);
+        if (Grain == TileGrain.Quad8) return (x0, y0, w, h);
+        int x1 = (x0 + w + 1) & ~1, y1 = (y0 + h + 1) & ~1;
+        x0 &= ~1; y0 &= ~1;
         return (x0, y0, x1 - x0, y1 - y0);
     }
 
@@ -196,16 +193,16 @@ public class Map16CanvasView : Control
             else if (Grain == TileGrain.Quad8)
             {
                 painting = true;
+                lastPainted = h;
                 e.Pointer.Capture(this);
-                PaintAt(e.GetPosition(this));
+                PaintQuad(h);
             }
         }
         else if (props.IsLeftButtonPressed)
         {
             // Dragging a selection to MOVE it is a 16x16 action: the edit layer moves whole
             // tiles, and there is nothing underneath it that moves quadrants.
-            if (Grain != TileGrain.Quad8 && Selection is { } s
-                && h.Col >= s.X && h.Col < s.X + s.W && h.Row >= s.Y && h.Row < s.Y + s.H)
+            if (Grain != TileGrain.Quad8 && Lasso.Contains(Selection, h))
                 moveStart = (h.Col, h.Row);
             else
                 lassoStart = (h.Col, h.Row);
@@ -229,10 +226,19 @@ public class Map16CanvasView : Control
         if (hq != HoverQuad || snapped != brushOrigin)
         { HoverQuad = hq; brushOrigin = snapped; InvalidateVisual(); }
 
-        if (painting) { PaintAt(p); return; }
-        if ((lassoStart is not null || moveStart is not null) && QuadAt(p) is { } c)
-        { lassoEnd = c; InvalidateVisual(); }
+        if (QuadAt(p) is not { } c) return;
+        if (painting)
+        {
+            // Every quadrant the stroke crosses, as on the level and GFX canvases.
+            if (lastPainted is { } prev) foreach (var s in Lasso.Between(prev, c)) PaintQuad(s);
+            else PaintQuad(c);
+            lastPainted = c;
+            return;
+        }
+        if (lassoStart is not null || moveStart is not null) { lassoEnd = c; InvalidateVisual(); }
     }
+
+    private (int Col, int Row)? lastPainted;
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
@@ -240,6 +246,7 @@ public class Map16CanvasView : Control
         if (painting)
         {
             painting = false;
+            lastPainted = null;
             e.Pointer.Capture(null);
             StrokeEnded?.Invoke(this, EventArgs.Empty);
             return;
@@ -247,7 +254,7 @@ public class Map16CanvasView : Control
 
         if (lassoStart is { } a && lassoEnd is { } b)
         {
-            var r = Lasso(a, b);
+            var r = Snapped(a, b);
             Selection = r;
             // At 16x16 a single-TILE lasso is ALSO a pick: it arms the level brush. It stays a
             // selection as well, so one tile copies on right-click like any other. At 8x8 there
@@ -294,15 +301,13 @@ public class Map16CanvasView : Control
         e.Handled = true;
     }
 
-    private void PaintAt(Point p)
+    /// <summary>Stamp the brush with its top-left at this bank-local quadrant.</summary>
+    private void PaintQuad((int Col, int Row) q)
     {
-        if (At(p) is not { } h) return;
-        double qs = QuadSize;
-        int qcol = (int)((p.X + Origin.X) / qs), qrow = (int)((p.Y + Origin.Y) / qs);
         for (int j = 0; j < BrushH; j++)
             for (int i = 0; i < BrushW; i++)
             {
-                int qx = qcol + i, qy = qrow + j;
+                int qx = q.Col + i, qy = q.Row + j;
                 if (qx >= Map16Layout.Cols * 2 || qy >= Map16Layout.BankRows * 2) continue;
                 int tile = Bank * Map16Layout.BankTiles
                          + (qy >> 1) * Map16Layout.Cols + (qx >> 1);
@@ -347,7 +352,7 @@ public class Map16CanvasView : Control
         double qs = QuadSize;
         if ((lassoStart ?? moveStart) is { } s0 && lassoEnd is { } s1)
         {
-            var l = Lasso(s0, s1);
+            var l = Snapped(s0, s1);
             ctx.DrawRectangle(null, new Pen(UiColors.Band, 1.5), Cells(l.X, l.Y, l.W, l.H, qs));
         }
         if (Selection is { } sel)

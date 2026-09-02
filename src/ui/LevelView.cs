@@ -279,9 +279,7 @@ public class LevelView : Control
             : null;
 
     public (int X, int Y, int W, int H)? Band =>
-        bandStart is { } a && bandEnd is { } b
-            ? (Math.Min(a.X, b.X), Math.Min(a.Y, b.Y), Math.Abs(b.X - a.X) + 1, Math.Abs(b.Y - a.Y) + 1)
-            : null;
+        bandStart is { } a && bandEnd is { } b ? Lasso.Span(a, b) : null;
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
@@ -465,7 +463,7 @@ public class LevelView : Control
         {
             // Every cell the drag crosses stamps, not just the ones a move event lands on —
             // at speed the pointer skips cells and a stroke with holes in it is a bug.
-            if (lastPainted is { } prev) foreach (var s in Between(prev, c)) CellPainted?.Invoke(this, s);
+            if (lastPainted is { } prev) foreach (var s in Lasso.Between(prev, c)) CellPainted?.Invoke(this, s);
             else CellPainted?.Invoke(this, c);
             lastPainted = c;
             return;
@@ -628,15 +626,6 @@ public class LevelView : Control
             DeleteRequested?.Invoke(this, EventArgs.Empty);
             e.Handled = true;
         }
-    }
-
-    /// <summary>Cells on the line between two drag samples, exclusive of the start.</summary>
-    private static IEnumerable<(int X, int Y)> Between((int X, int Y) a, (int X, int Y) b)
-    {
-        int steps = Math.Max(Math.Abs(b.X - a.X), Math.Abs(b.Y - a.Y));
-        if (steps == 0) { yield return b; yield break; }
-        for (int i = 1; i <= steps; i++)
-            yield return (a.X + (b.X - a.X) * i / steps, a.Y + (b.Y - a.Y) * i / steps);
     }
 
     /// <summary>Pixel-art drawing, the same rule every other pixel surface uses. Also the source of
