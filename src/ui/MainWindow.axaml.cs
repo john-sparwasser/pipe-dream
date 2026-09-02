@@ -2478,14 +2478,9 @@ public partial class MainWindow : Window
         paletteGrid.InvalidateVisual();
         paletteBg.Colors = all is { Length: > 0 } pr ? [pr[0]] : [0xFF000000u];
         paletteBg.InvalidateVisual();
-        paletteNote.Text = (l3
-                              ? "CGRAM 00-1F — layer 3's whole reach, one palette group per row. "
-                              + "Groups 2, 3, 6 and 7 are its own colours; 0, 1, 4 and 5 are the "
-                              + "backdrop, white and the level's background palette, which vanilla's "
-                              + "layer 3 uses too.  "
-                              : "CGRAM — rows 0-7 background and foreground, 8-F sprites.  ")
-                         + (session.HasCustomPalette ? "source: LM custom palette"
-                                                     : "source: vanilla (header-assembled)")
+        // Just the provenance: which palette you are editing, and whether you have moved it. The
+        // rest was a paragraph explaining a grid that explains itself.
+        paletteNote.Text = (session.HasCustomPalette ? "LM custom palette" : "vanilla")
                          + (session.PaletteEditCount > 0 ? $"  —  {session.PaletteEditCount} edit(s)" : "");
         ShowPaletteColor(paletteGrid.Selected);
     }
@@ -2563,9 +2558,16 @@ public partial class MainWindow : Window
         RefreshPaletteTab();
     }
 
-    private void OnResetPalette(object? sender, RoutedEventArgs e)
+    /// <summary>Reset throws away every colour edit on the level at once and there is no undo on
+    /// this tab, so it asks first — the one button here whose miss-click cannot be walked back.</summary>
+    private async void OnResetPalette(object? sender, RoutedEventArgs e)
     {
-        if (!session.ResetPalette()) return;
+        var dlg = new ConfirmWindow("Reset palette",
+            session.PaletteEditCount is var n and > 0
+                ? $"Discard {n} colour edit(s) on this level and go back to its original palette?"
+                : "Reset this level's palette to its original colours?", "Reset");
+        await dlg.ShowDialog(this);
+        if (!dlg.Confirmed || !session.ResetPalette()) return;
         AdoptSession();
     }
 

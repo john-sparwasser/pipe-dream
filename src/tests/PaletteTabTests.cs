@@ -228,7 +228,6 @@ public class PaletteTabTests(ITestOutputHelper log) : IDisposable
         // Row g is group g: the swatch at (0, g) is the CGRAM index that group's colour 0 sits at.
         for (int g = 0; g < Layer3.PaletteGroups; g++)
             Assert.Equal(Layer3.PaletteBase(g), g * grid.Cols);
-        Assert.Contains("00-1F", w.GetControl<TextBlock>("PaletteNote").Text);
 
         w.GetControl<CheckBox>("PaletteLayer3").IsChecked = false;
         Dispatcher.UIThread.RunJobs();

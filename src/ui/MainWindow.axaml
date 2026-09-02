@@ -525,18 +525,16 @@
                 <StackPanel Spacing="6">
                   <TextBlock x:Name="PaletteNote" Classes="dim" TextWrapping="Wrap"/>
                   <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock x:Name="PaletteIndex" Classes="mono" Width="96"/>
+                    <TextBlock x:Name="PaletteIndex" Classes="mono" Width="150"/>
                     <Button x:Name="PaletteReset" Content="Reset" Padding="10,2" Click="OnResetPalette"/>
                     <!-- Layer 3 can reach 32 of these 256, and hunting for them in a 16x16 block
                          is the whole problem. Four wide by eight tall over CGRAM 00-1F puts one
                          palette GROUP on each row, which is also the shape of the answer to
                          "which palettes can layer 3 use". -->
-                    <CheckBox x:Name="PaletteLayer3" Content="Layer 3 only"
+                    <CheckBox x:Name="PaletteLayer3" Content="Layer 3"
                               IsCheckedChanged="OnPaletteLayer3Only"
                               ToolTip.Tip="Show only CGRAM 00-1F — the 32 colours a 2bpp layer-3 tile can name, one palette group per row"/>
                   </StackPanel>
-                  <TextBlock Classes="dim" TextWrapping="Wrap"
-                             Text="Click a swatch to open the picker.  Alt+click the level to sample a colour."/>
                 </StackPanel>
               </Border>
               <!-- Colour 0 is the back area colour, broken out on its own: in the grid it reads
