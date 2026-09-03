@@ -105,7 +105,10 @@ public sealed class LevelScene
             caches[p] = Map16.ComposeAll(rom, level.Header, levelNum, p, pal);
             palettes[p] = pal;
             backdrop[p] = pal.Rgba[0];
-            if (bgImage is not null) bgCaches[p] = Map16.ComposeAllBg(rom, level.Header, levelNum, p, pal);
+            // Always, not only when layer 2 is a background image: these 0x200 defs are the Map16
+            // editor's bank 2 and the drawer's BG sheet, which a level whose layer 2 is an object
+            // stream still edits — and until now saw as a black bank.
+            bgCaches[p] = Map16.ComposeAllBg(rom, level.Header, levelNum, p, pal);
 
             // Layer 3 does not animate, so one surface serves every phase — but it is rendered
             // per phase anyway because the palette can differ, and it is cheap next to the level.
@@ -213,7 +216,7 @@ public sealed class LevelScene
             Palettes[p] = pal;
             Backdrop[p] = pal.Rgba[0];
             TileCaches[p] = Map16.ComposeAll(rom, Level.Header, tiles, pal);
-            if (BgImage is not null) BgCaches[p] = Map16.ComposeAllBg(rom, tiles, pal);
+            BgCaches[p] = Map16.ComposeAllBg(rom, tiles, pal);
 
             Phases[p] = Map16.ComposeLevelInto(Phases[p] ?? new uint[Width * Height],
                                                TileCaches[p], pal.Rgba[0], Grid,
@@ -273,12 +276,22 @@ public sealed class LevelScene
                 Array.Resize(ref TileCaches[p], count);
             }
 
+        // A BG definition (0x4000+) lives in its own caches; ComposeInto ignores it, so the bank-2
+        // sheet kept showing the old tile until something rebuilt the scene.
+        bool bgEdited = set.Any(t => t >= Map16.BgTileBase);
         Parallel.For(0, 4, p =>
         {
             var pal = PaletteFor(rom, levelNum, p, edits);
             Palettes[p] = pal;
-            Map16.ComposeInto(TileCaches[p], rom, Level.Header, Fg(rom, levelNum, p), pal, set);
+            var tiles = Fg(rom, levelNum, p);
+            Map16.ComposeInto(TileCaches[p], rom, Level.Header, tiles, pal, set);
+            if (bgEdited) BgCaches[p] = Map16.ComposeAllBg(rom, tiles, pal);
         });
+        // A background image is drawn from those caches, so the level shows the edit too.
+        if (bgEdited && BgImage is not null)
+            for (int p = 0; p < 4; p++)
+                Phases[p] = Map16.ComposeLevelInto(Phases[p] ?? new uint[Width * Height], TileCaches[p],
+                                                   Palettes[p].Rgba[0], Grid, BgImage, BgCaches[p], Layer2, VisibleRows);
 
         // The grid is small (a full-width level is under 14k cells) and scanning it beats
         // tracking a tile→cells index that every object edit would have to maintain.

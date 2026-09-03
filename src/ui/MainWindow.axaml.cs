@@ -818,6 +818,8 @@ public partial class MainWindow : Window
         var (px, w, h) = session.SheetPhases();
         palette.SetSheet(px, w, h, session.Map16TileCount);
         palette.SetPlaceholder(session.PlaceholderPhases());
+        var (bgPx, bgW, bgH) = session.BgSheetPhases();
+        palette.SetBgSheet(bgPx, bgW, bgH);
 
         // Catalogs are rendered with the level's own GFX and palette, so the session has
         // already dropped them; the list has to let go of the old items too.
@@ -3696,6 +3698,8 @@ public partial class MainWindow : Window
         var (px, w, h) = session.SheetPhases();
         map16Canvas.SetSheet(px, w, h, session.Map16TileCount);
         map16Canvas.SetPlaceholder(session.PlaceholderPhases());
+        var (bgPx, bgW, bgH) = session.BgSheetPhases();
+        map16Canvas.SetBgSheet(bgPx, bgW, bgH);
         map16Canvas.Bank = Math.Max(0, bankBox.SelectedIndex);
         RebuildChrSheet();
     }

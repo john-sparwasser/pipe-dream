@@ -116,6 +116,8 @@ public class Map16CanvasView : Control
 
     public void SetPlaceholder(uint[]?[] px) { sheet.SetPlaceholder(px); InvalidateVisual(); }
 
+    public void SetBgSheet(uint[]?[] px, int w, int h) { sheet.SetBgSheet(px, w, h, Phase); InvalidateVisual(); }
+
     /// <summary>Deselect everything — the lasso AND the armed tile.</summary>
     public void ClearSelection() { Selection = null; SelectedTile = null; InvalidateVisual(); }
 
