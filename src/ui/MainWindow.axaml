@@ -261,6 +261,10 @@
              one gesture: Ctrl here, Cmd on a Mac. Save/Undo/Redo stay in OnWindowKeyDown instead,
              which takes Ctrl AND Cmd on every platform; their gestures below are captions only. -->
         <MenuItem Header="_New Project…" Click="OnNewProject" HotKey="{OnPlatform Ctrl+N, macOS=Cmd+N}"/>
+        <!-- New Project takes the configured vanilla ROM without asking, once there is one; this
+             is how an existing hack (an .smc you already have) becomes a project's base. -->
+        <MenuItem x:Name="NewProjectFromRomItem" Header="New Project from _ROM…" Click="OnNewProjectFromRom"
+                  ToolTip.Tip="Start a project from an existing .smc — a hack in progress, or any ROM other than the vanilla one"/>
         <MenuItem Header="_Open Project…" Click="OnOpenProject" HotKey="{OnPlatform Ctrl+O, macOS=Cmd+O}"/>
         <MenuItem x:Name="RecentMenu" Header="_Recent Projects"/>
         <Separator/>
@@ -292,7 +296,6 @@
         <MenuItem Header="Sprite _data…" Click="OnSpriteData"/>
       </MenuItem>
       <MenuItem Header="_View">
-        <MenuItem Header="Toggle _palette" Click="OnTogglePalette" HotKey="{OnPlatform Ctrl+P, macOS=Cmd+P}"/>
         <MenuItem x:Name="ViewGridItem" Header="Screen _grid" Click="OnToggleGrid" HotKey="{OnPlatform Ctrl+G, macOS=Cmd+G}"/>
         <Separator/>
         <MenuItem x:Name="SpriteOverlayItem" Header="_Sprite overlay" Click="OnToggleSprites"/>
@@ -771,6 +774,11 @@
                             Click="OnGrain" ToolTip.Tip="Edit whole 16x16 tiles"/>
               <ToggleButton x:Name="Grain8" MinWidth="52" Content="8x8"
                             Click="OnGrain" ToolTip.Tip="Edit the 8x8 quadrants inside a tile"/>
+              <Rectangle Classes="sep"/>
+              <!-- The drawer's Pages checkbox, for the editor: a toggle button because this bar
+                   keeps every other mode's height (see Priority below). -->
+              <ToggleButton x:Name="M16Pages" Content="Pages"
+                            ToolTip.Tip="Outline and number each Map16 page on the sheet"/>
               <Rectangle Classes="sep"/>
               <!-- Monospaced: proportional hex digits are different widths, so every tile the
                    cursor crosses nudged the whole row along. .mono at the readout's own 12px —

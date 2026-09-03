@@ -423,6 +423,12 @@ public partial class MainWindow : Window
             palette.Bank = Math.Max(0, bankBox.SelectedIndex);
             palette.InvalidateVisual();
         };
+        var m16Pages = this.GetControl<ToggleButton>("M16Pages");
+        m16Pages.IsCheckedChanged += (_, _) =>
+        {
+            map16Canvas.ShowPages = m16Pages.IsChecked == true;
+            map16Canvas.InvalidateVisual();
+        };
         var pagesBox = this.GetControl<CheckBox>("PagesBox");
         pagesBox.IsCheckedChanged += (_, _) =>
         {
@@ -584,13 +590,7 @@ public partial class MainWindow : Window
             : (g.ShapePixels(d.X0, d.Y0, d.X1, d.Y1),
                session.PaletteRgba[g.BaseColor + g.Color]);
         gfxCanvas.ColorPicked += (_, p) => PickGfxColor(p.X, p.Y);
-        // F cycles the tools in enum order rather than toggling two. Counted off the enum so
-        // adding a tool cannot leave the last one unreachable.
-        gfxCanvas.ToolToggled += (_, _) =>
-        {
-            if (session.GfxPixels is { } g)
-                SetGfxTool((GfxEdit.Tool)(((int)g.Current + 1) % Enum.GetValues<GfxEdit.Tool>().Length));
-        };
+        gfxCanvas.ToolToggled += (_, _) => CycleGfxTool();
         // Grabbing a selection LIFTS it onto the floating layer, exactly as a paste arrives
         // there: the block leaves a hole where it was and rides above everything else until it
         // is dropped, so passing it over pixels does not eat them and letting go is not a
@@ -919,6 +919,15 @@ public partial class MainWindow : Window
         else if (e.Key == Key.Y && Hotkeys.CommandOnly(e.KeyModifiers))
         {
             UndoRedo(redo: true);
+            e.Handled = true;
+        }
+        // F cycles the GFX tools from anywhere in the mode. The canvas handles it too when it
+        // has focus; this is for when a bar button or the header took the focus with a click,
+        // which left F doing nothing until the sheet was clicked again.
+        else if (modeGfx.IsChecked == true && e.Key == Key.F && e.KeyModifiers == KeyModifiers.None
+                 && FocusManager?.GetFocusedElement() is not TextBox)
+        {
+            CycleGfxTool();
             e.Handled = true;
         }
         // GFX selection clipboard. The clipboard lives in GfxEdit as colour indices, so a copy
@@ -1331,9 +1340,14 @@ public partial class MainWindow : Window
 
     private async void OnNewProject(object? sender, RoutedEventArgs e) => await NewProjectFlow();
 
+    /// <summary>File ▸ New Project from ROM: the same flow, but the base is always asked for.
+    /// With a vanilla ROM configured, New Project takes it silently — the right default for a
+    /// fresh hack, and no way at all to bring in an .smc you already have.</summary>
+    private async void OnNewProjectFromRom(object? sender, RoutedEventArgs e) => await NewProjectFlow(pickRom: true);
+
     /// <summary>New project: pick the folder to create it in, then the base ROM. A verified
     /// vanilla base is prepped automatically, which is why no "prep?" question is asked.</summary>
-    private async Task NewProjectFlow()
+    private async Task NewProjectFlow(bool pickRom = false)
     {
         await SettleBeforeNativeDialog();
         var dirs = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
@@ -1342,7 +1356,7 @@ public partial class MainWindow : Window
         });
         if (dirs.Count == 0 || dirs[0].TryGetLocalPath() is not { } folder) return;
 
-        string? baseRom = EditorSession.FileExists(session.VanillaRomPath)
+        string? baseRom = !pickRom && EditorSession.FileExists(session.VanillaRomPath)
             ? session.VanillaRomPath : await PickFile("Choose the base ROM", RomType);
         if (baseRom is null) return;
 
@@ -1858,7 +1872,6 @@ public partial class MainWindow : Window
 
     private void OnRedo(object? sender, RoutedEventArgs e) => UndoRedo(redo: true);
 
-    private void OnTogglePalette(object? sender, RoutedEventArgs e) => drawer.IsVisible = !drawer.IsVisible;
 
     /// <summary>Hiding the drawer has to collapse its grid column too, or the canvas keeps
     /// its old width and the space just goes blank. Driven off the visibility property rather
@@ -1939,6 +1952,10 @@ public partial class MainWindow : Window
     // ---- drawer tabs ----
 
     private List<CatalogRow>? spriteCatalog, objectCatalog;
+    /// <summary>The session list the sprite rows were wrapped from. The session drops its list
+    /// whenever the level, its GFX or its palette change; the rows here have to follow it, or
+    /// the list box (emptied on every adopt) is never refilled.</summary>
+    private IReadOnlyList<CatalogItem>? spriteCatalogSource;
     private int objectCatalogTileset = -1;
 
     /// <summary>
@@ -2013,9 +2030,13 @@ public partial class MainWindow : Window
     /// belongs to the level; the session decides when it is stale.</summary>
     private void EnsureSpriteCatalog()
     {
-        if (spriteCatalog is not null) return;
+        // SpriteCatalog() rebuilds only when the session dropped its list, so asking it is what
+        // detects staleness: the same list back means the rows are still good.
         var (items, files) = session.SpriteCatalog();
         if (items.Count == 0) return;
+        if (spriteCatalog is not null && ReferenceEquals(items, spriteCatalogSource)
+            && spriteList.ItemsSource is not null) return;
+        spriteCatalogSource = items;
         spriteCatalog = CatalogRow.Wrap(items);
         spFilesLabel.Text = $"SP {string.Join(" ", files.Select(f => f.ToString("X2")))}";
         ApplySpriteFilter();
@@ -2208,6 +2229,23 @@ public partial class MainWindow : Window
         // pick has to close it or it sits there over the canvas.
         var owner = tool == GfxEdit.Tool.Rect ? gfxRect : gfxEllipse;
         FlyoutBase.GetAttachedFlyout(owner)?.Hide();
+    }
+
+    /// <summary>The tools in the order the bar shows them, left to right — which is the order
+    /// F walks them. The enum's order is not this one, and cycling by enum value had F jumping
+    /// around the bar. Every tool is here, so none is unreachable from the key.</summary>
+    private static readonly GfxEdit.Tool[] GfxToolBarOrder =
+    [
+        GfxEdit.Tool.Select, GfxEdit.Tool.Eraser, GfxEdit.Tool.Fill, GfxEdit.Tool.Pencil,
+        GfxEdit.Tool.Dropper, GfxEdit.Tool.Rect, GfxEdit.Tool.Ellipse, GfxEdit.Tool.Line,
+    ];
+
+    /// <summary>F: the next tool along the bar, wrapping.</summary>
+    private void CycleGfxTool()
+    {
+        if (session.GfxPixels is not { } g) return;
+        int at = Array.IndexOf(GfxToolBarOrder, g.Current);
+        SetGfxTool(GfxToolBarOrder[(at + 1) % GfxToolBarOrder.Length]);
     }
 
     private void OnGfxTool(object? sender, RoutedEventArgs e)

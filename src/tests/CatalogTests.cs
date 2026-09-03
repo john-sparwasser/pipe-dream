@@ -146,6 +146,36 @@ public class CatalogTests(ITestOutputHelper log)
         Assert.Equal(0, tabs.SelectedIndex);
     }
 
+    /// <summary>The Sprites tab stays populated across a level change. The rows are re-made for
+    /// the new level (thumbnails are drawn with its GFX), and the list is never left empty: the
+    /// adopt cleared the list box but the window's cached rows made the refill think it was done.</summary>
+    [AvaloniaFact]
+    public void the_sprite_list_refills_after_a_level_change()
+    {
+        if (Open() is not { } o) { log.WriteLine("SKIP: no ROM"); return; }
+        var (w, _) = o;
+        SelectTab(w, 1);
+        var list = w.GetControl<ListBox>("SpriteList");
+        var before = list.ItemsSource!.Cast<CatalogRow>().ToList();
+        Assert.NotEmpty(before);
+
+        var box = w.GetControl<ComboBox>("LevelBox");
+        int first = box.SelectedIndex, other = first == 0x105 ? 0x009 : 0x105;
+        box.SelectedIndex = other;
+        Dispatcher.UIThread.RunJobs();
+        var after = list.ItemsSource?.Cast<CatalogRow>().ToList();
+        Assert.NotNull(after);
+        Assert.NotEmpty(after);
+        Assert.NotSame(before[0], after[0]);          // this level's own rows, not the old ones
+
+        // ...and a level change while another tab is up: the list is intact when the tab returns.
+        SelectTab(w, 0);
+        box.SelectedIndex = first;
+        Dispatcher.UIThread.RunJobs();
+        SelectTab(w, 1);
+        Assert.NotEmpty(list.ItemsSource!.Cast<CatalogRow>());
+    }
+
     /// <summary>"Loaded only" is LM's "sprites available with the current sprite GFX" filter.</summary>
     [AvaloniaFact]
     public void the_loaded_only_filter_hides_sprites_this_level_cannot_draw()

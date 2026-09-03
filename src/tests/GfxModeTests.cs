@@ -5,6 +5,7 @@ using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Avalonia.LogicalTree;
 using PipeDream.Ui;
 using Xunit;
@@ -1014,6 +1015,54 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(0, rows.SelectedIndex);
         Assert.Equal(0, session.GfxPixels!.PalRow);
+    }
+
+    /// <summary>F walks the tools in the order the bar shows them, left to right, wrapping —
+    /// and it works with the focus on a bar button, not only on the sheet.</summary>
+    [AvaloniaFact]
+    public void f_cycles_the_tools_in_bar_order_from_anywhere_in_the_mode()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeGfx").RaiseEvent(
+            new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        var g = SessionOf(w).GfxPixels!;
+
+        // The bar's tool toggles, in visual order, each mapped to the tool it arms. The flyout
+        // variants (outline / filled) are one tool with a setting, not stops on the cycle.
+        var byName = new Dictionary<string, GfxEdit.Tool>
+        {
+            ["GfxSelect"] = GfxEdit.Tool.Select, ["GfxErase"] = GfxEdit.Tool.Eraser,
+            ["GfxFill"] = GfxEdit.Tool.Fill, ["GfxPencil"] = GfxEdit.Tool.Pencil,
+            ["GfxDropper"] = GfxEdit.Tool.Dropper, ["GfxRect"] = GfxEdit.Tool.Rect,
+            ["GfxEllipse"] = GfxEdit.Tool.Ellipse, ["GfxLine"] = GfxEdit.Tool.Line,
+        };
+        var bar = w.GetControl<Border>("GfxEditorBar").GetVisualDescendants().OfType<ToggleButton>()
+                   .Where(t => t.Name is { } n && byName.ContainsKey(n)).Select(t => byName[t.Name!]).ToList();
+        Assert.Equal(byName.Count, bar.Count);                       // every tool is on the bar once
+
+        // Focus a bar button, as a click on it would, then press F round the whole bar.
+        w.GetControl<ToggleButton>("GfxSelect").Focus();
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(ReferenceEquals(w.FocusManager?.GetFocusedElement(), w.GetControl<GfxCanvasView>("GfxCanvas")));
+
+        var start = g.Current;
+        int at = bar.IndexOf(start);
+        Assert.True(at >= 0);
+        var seen = new List<GfxEdit.Tool>();
+        for (int i = 0; i < bar.Count; i++)
+        {
+            w.KeyPressQwerty(PhysicalKey.F, RawInputModifiers.None);
+            Dispatcher.UIThread.RunJobs();
+            seen.Add(g.Current);
+        }
+        var expected = Enumerable.Range(1, bar.Count).Select(k => bar[(at + k) % bar.Count]).ToList();
+        Assert.Equal(expected, seen);
+        Assert.Equal(start, g.Current);                              // a full lap lands back home
     }
 
     /// <summary>The wheel zooms the sheet one slider step a notch, about the pixel under the

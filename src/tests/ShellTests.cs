@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.LogicalTree;
 using Avalonia.Headless.XUnit;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
@@ -34,6 +35,19 @@ public class ShellTests(ITestOutputHelper log)
 
     private static T Find<T>(MainWindow w, string name) where T : Control
         => w.GetControl<T>(name);
+
+    /// <summary>What the menus offer. New Project takes the configured vanilla ROM without asking,
+    /// so an existing .smc needs its own way in; and the drawer is no longer something to hide.</summary>
+    [AvaloniaFact]
+    public void the_file_menu_imports_a_rom_and_the_view_menu_has_no_palette_toggle()
+    {
+        if (Open() is not { } w) { log.WriteLine($"SKIP: no ROM at {RomPath}"); return; }
+        var headers = w.GetLogicalDescendants().OfType<MenuItem>()
+                       .Select(m => $"{m.Header}").ToList();
+        Assert.Contains("New Project from _ROM…", headers);
+        Assert.DoesNotContain(headers, h => h.Contains("palette", StringComparison.OrdinalIgnoreCase));
+        Assert.NotNull(Find<MenuItem>(w, "NewProjectFromRomItem"));
+    }
 
     [AvaloniaFact]
     public void the_shell_opens_a_rom_and_renders_a_level()
