@@ -51,24 +51,15 @@ public static class LevelParser
 
         // A CUSTOM background carries its own page plane and its own geometry (§10b), so it is
         // decoded whole rather than paired with one page derived from the address.
+        // An edit is already whole tile numbers, whichever kind of stream it started from.
+        if (rom.BgTilemaps.TryGetValue(number, out var edited)) return edited;
+
         if (rom.Layer2IsCustomBackground(number))
-        {
-            if (BgImage.DecodeCustom(rom, rom.Layer2Pointer(number)) is not var (cLow, cPage))
-                return null;
-            if (rom.BgTilemaps.TryGetValue(number, out var over)) cLow = over;
-            var custom = new ushort[cLow.Length];
-            for (int i = 0; i < cLow.Length; i++)
-                custom[i] = (ushort)((i < cPage.Length ? cPage[i] << 8 : 0) | cLow[i]);
-            return custom;
-        }
+            return BgImage.DecodeCustom(rom, rom.Layer2Pointer(number)) is var (cLow, cPage)
+                 ? BgImage.Join(cLow, cPage) : null;
 
         int lo16 = rom.Layer2Pointer(number) & 0xFFFF;
-        int page = BgImage.PageFor(lo16);
-        byte[] low = rom.BgTilemaps.TryGetValue(number, out var edited) ? edited
-                   : BgImage.Decode(rom, lo16, out _);
-        var tiles = new ushort[low.Length];
-        for (int i = 0; i < low.Length; i++) tiles[i] = (ushort)((page << 8) | low[i]);
-        return tiles;
+        return BgImage.WithPage(BgImage.Decode(rom, lo16, out _), BgImage.PageFor(lo16));
     }
 
     /// <summary>Parse an encoded stream buffer (5-byte header + objects + FF) — the

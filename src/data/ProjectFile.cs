@@ -131,6 +131,10 @@ public sealed class ProjectFile
         /// indices. Independent of <see cref="Layer2Background"/>, which only says WHICH stream the
         /// level points at: this is the stream's contents.</summary>
         public string? BgTilemap { get; set; }
+        /// <summary>The page of each cell in <see cref="BgTilemap"/>, base64 of one byte per
+        /// tile, or null for "the page the background already had" — every project saved before
+        /// pages were paintable, hydrated against the stream's own plane.</summary>
+        public string? BgTilemapPages { get; set; }
         /// <summary>An imported layer-3 tilemap for this level, base64 of the raw 16-bit map
         /// (LM's LT3 file shape), or null to use vanilla's (level mode, option) pick.</summary>
         public string? Layer3Tilemap { get; set; }

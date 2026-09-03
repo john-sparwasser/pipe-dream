@@ -92,6 +92,69 @@ public class BackgroundCustomTests(ITestOutputHelper log)
     }
 
     /// <summary>
+    /// A tile from the OTHER page. The drawer offers all 0x200 BG tiles, but a cell used to be one
+    /// byte with the page fixed per background by its address — so a page-1 tile stamped onto a
+    /// page-0 background showed as 0x1A5 on the Background canvas and built (and composed) as
+    /// 0x0A5. With a page per cell it is the same tile everywhere: canvas, level scene, the
+    /// reopened project, and the plane the built ROM's custom stream carries.
+    /// </summary>
+    [Fact]
+    public void a_tile_from_the_other_page_survives_paint_save_and_build()
+    {
+        if (!File.Exists(Vanilla)) { log.WriteLine("SKIP: no ROM"); return; }
+        string dir = Path.Combine(Path.GetTempPath(), "pdbgp-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            var s = new EditorSession();
+            Assert.True(s.NewProject(Path.Combine(dir, "proj"), Vanilla), s.Status);
+            s.ShowLevel(Level);
+            Assert.Null(s.BgFixedPage);                                  // a prepped base takes any page
+            int page = BgImage.PageFor(s.Rom!.Layer2Pointer(Level) & 0xFFFF);
+            int other = (1 - page) << 8 | 0xA5;
+            int idx = 4 * 16 + 3;                                         // screen 0, row 4, col 3
+
+            var bg = s.BgMap!;
+            Assert.True(bg.Stamp(3, 4, s.BgPaintable(other)));
+            Assert.True(bg.EndStroke());
+            Assert.Equal(other, bg.At(3, 4));
+            Assert.Equal(other, s.Scene!.BgImage![idx]);                  // the level canvas agrees
+            Assert.Equal(other, s.Rom.BgTilemaps[Level][idx]);
+            s.Save();
+
+            var again = new EditorSession();
+            Assert.True(again.OpenProject(Path.Combine(dir, "proj", "project.pdp")), again.Status);
+            again.ShowLevel(Level);
+            Assert.Equal(other, again.BgMap!.At(3, 4));
+
+            again.Build();
+            var built = Rom.Load(Path.Combine(dir, "proj", "build", "proj.smc"));
+            Assert.True(built.Layer2IsCustomBackground(Level), again.Status);
+            var (low, pages) = BgImage.DecodeCustom(built, built.Layer2Pointer(Level))!.Value;
+            Assert.Equal(0xA5, low[idx]);
+            Assert.Equal(1 - page, pages[idx]);
+            Assert.Equal(page, pages[idx + 1]);                           // its neighbour kept the background's own page
+        }
+        finally { try { Directory.Delete(dir, true); } catch { } }
+    }
+
+    /// <summary>A base WITHOUT the custom-background hook has one page per background, from its
+    /// address, so the editor remaps a tile picked from the other page to this page's tile of the
+    /// same number at paint time — LM's own rule for an out-of-bank paste (§10c) — instead of
+    /// showing one tile and building another.</summary>
+    [Fact]
+    public void on_a_vanilla_base_the_other_page_remaps_to_the_backgrounds_own()
+    {
+        if (!File.Exists(Vanilla)) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new EditorSession();
+        Assert.True(s.OpenRom(Vanilla), s.Status);
+        s.ShowLevel(Level);
+        int page = BgImage.PageFor(s.Rom!.Layer2Pointer(Level) & 0xFFFF);
+        Assert.Equal(page, s.BgFixedPage);
+        Assert.Equal(page << 8 | 0xA5, s.BgPaintable((1 - page) << 8 | 0xA5));
+        Assert.Equal(page << 8 | 0x12, s.BgPaintable(page << 8 | 0x12));   // its own page is untouched
+    }
+
+    /// <summary>
     /// The end-to-end property the old code could not deliver: an edit BIGGER than the stream it
     /// came from now ships, and reads back as the picture that was edited.
     /// </summary>

@@ -250,11 +250,15 @@ public class BackgroundModeTests(ITestOutputHelper log)
         Assert.Equal(0x30, map.At(5, 5));
         Assert.Equal(0x31, map.At(6, 5));
 
-        // Without a lasso the drawer's tile is what lands, one cell of it.
+        // Without a lasso the drawer's tile is what lands, one cell of it. bgBrush's default is
+        // 0x100 — a PAGE-1 tile — and this is a bare vanilla ROM, where $105's background has one
+        // page from its address, so what lands is that page's tile 0x00: the remap that used to
+        // happen silently in the build now happens, visibly, at paint time.
         view.ClearSelection();
+        int lands = SessionOf(w).BgPaintable(0x100), neighbour = map.At(9, 8);
         Paint(w, 8, 8);
-        Assert.Equal(0x100, map.At(8, 8));         // bgBrush's default
-        Assert.NotEqual(0x100, map.At(9, 8));
+        Assert.Equal(lands, map.At(8, 8));
+        Assert.Equal(neighbour, map.At(9, 8));     // one cell: the next one over is untouched
     }
 
     /// <summary>Stamping a selection over itself is the ordinary case — nudging a pattern along

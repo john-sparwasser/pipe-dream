@@ -102,8 +102,22 @@ public static class BgImage
     /// </summary>
     public static byte[] ToCustomPlanes(ReadOnlySpan<byte> vanillaLow, int page)
     {
+        var uniform = new byte[Tiles];
+        Array.Fill(uniform, (byte)page);
+        return ToCustomPlanes(vanillaLow, uniform);
+    }
+
+    /// <summary>The same relayout with a page PER TILE — what a background edited across pages
+    /// carries. A cell's page rides beside its low byte through the 0x1B0 → 0x200 move, so a
+    /// page-1 tile painted onto a page-0 background builds as the tile that was painted, which
+    /// the uniform plane could not say.</summary>
+    public static byte[] ToCustomPlanes(ReadOnlySpan<byte> vanillaLow, ReadOnlySpan<byte> vanillaPage)
+    {
         var flat = new byte[Tiles * 2];
-        Array.Fill(flat, Blank, 0, Tiles);                  // the five extra rows stay blank
+        Array.Fill(flat, Blank, 0, Tiles);                  // the five extra rows stay blank...
+        // ...on the plane's own page, so a background painted on one page stays on it: those rows
+        // are cells the editor never addresses, and a stray page 0 there is a stray colour.
+        Array.Fill(flat, vanillaPage.Length > 0 ? vanillaPage[0] : (byte)0, Tiles, Tiles);
         for (int screen = 0; screen < 2; screen++)
             for (int row = 0; row < VanillaRows; row++)
                 for (int col = 0; col < 16; col++)
@@ -111,9 +125,53 @@ public static class BgImage
                     int from = screen * VanillaStride + row * 16 + col;
                     int to = screen * CustomStride + row * 16 + col;
                     if (from < vanillaLow.Length) flat[to] = vanillaLow[from];
+                    if (from < vanillaPage.Length) flat[Tiles + to] = vanillaPage[from];
                 }
-        if (page != 0) Array.Fill(flat, (byte)page, Tiles, Tiles);
         return flat;
+    }
+
+    // ---- the editor's view: one 9-bit tile number per cell, page in bit 8 ----
+    // The ROM stores a background as two planes (or one plus an address-derived page); the
+    // editor thinks in whole BG tile numbers 0x000-0x1FF, the way the drawer shows them. These
+    // are the two conversions, so no caller has to know which side of the boundary it is on.
+
+    /// <summary>Low bytes and a page plane as whole tile numbers.</summary>
+    public static ushort[] Join(ReadOnlySpan<byte> low, ReadOnlySpan<byte> page)
+    {
+        var tiles = new ushort[low.Length];
+        for (int i = 0; i < tiles.Length; i++)
+            tiles[i] = (ushort)((i < page.Length ? page[i] << 8 : 0) | low[i]);
+        return tiles;
+    }
+
+    /// <summary>Low bytes with one page for every cell — a vanilla background, whose page comes
+    /// from its address (§10a).</summary>
+    public static ushort[] WithPage(ReadOnlySpan<byte> low, int page)
+    {
+        var tiles = new ushort[low.Length];
+        for (int i = 0; i < tiles.Length; i++) tiles[i] = (ushort)(page << 8 | low[i]);
+        return tiles;
+    }
+
+    /// <summary>Whole tile numbers back to the two planes the ROM and the project store.</summary>
+    public static (byte[] Low, byte[] Page) Split(ReadOnlySpan<ushort> tiles)
+    {
+        var low = new byte[tiles.Length];
+        var page = new byte[tiles.Length];
+        for (int i = 0; i < tiles.Length; i++) { low[i] = (byte)tiles[i]; page[i] = (byte)(tiles[i] >> 8); }
+        return (low, page);
+    }
+
+    /// <summary>The page plane a level's background has BEFORE any edit: per tile from a custom
+    /// stream, or the address-derived page across a vanilla one. What an older project file,
+    /// which stored only low bytes, is hydrated against.</summary>
+    public static byte[] PagePlane(Rom rom, int level)
+    {
+        if (rom.Layer2IsCustomBackground(level)
+            && DecodeCustom(rom, rom.Layer2Pointer(level)) is var (_, page)) return page;
+        var uniform = new byte[Tiles];
+        Array.Fill(uniform, (byte)PageFor(rom.Layer2Pointer(level) & 0xFFFF));
+        return uniform;
     }
 
     /// <summary>

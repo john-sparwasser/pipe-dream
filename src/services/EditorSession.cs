@@ -266,21 +266,24 @@ public sealed class EditorSession
 
         if (s.BgImage is not null)
         {
-            // The page bits come from the stream's ADDRESS, not the data, so the editable value
-            // is the low def index and the page rides along unchanged (CONTRACT §10a).
-            byte[] low = rom.BgTilemaps.TryGetValue(LevelNum, out var edited)
-                ? edited : [.. s.BgImage.Select(t => (byte)(t & 0xFF))];
-            var cells = new int[low.Length];
-            for (int i = 0; i < low.Length; i++) cells[i] = low[i];
+            // Whole BG tile numbers, page in bit 8 — the drawer's 0x000-0x1FF. Cells stayed
+            // bytes for a long time, with the page fixed per background by its address (§10a);
+            // a page-1 tile stamped onto a page-0 background then showed here and built as
+            // page 0's tile of the same number. A custom background carries a page per tile.
+            ushort[] tiles = rom.BgTilemaps.TryGetValue(LevelNum, out var edited) ? edited : s.BgImage;
+            var cells = new int[tiles.Length];
+            for (int i = 0; i < tiles.Length; i++) cells[i] = tiles[i];
             BgMap = new TilemapEdit(cells, BgCols, BgRows, 16,
                                     (c, r) => (c / 16) * 0x1B0 + r * 16 + (c % 16));
             BgMap.Committed += () =>
             {
-                rom.BgTilemaps[LevelNum] = [.. BgMap.Cells.Select(v => (byte)v)];
+                rom.BgTilemaps[LevelNum] = [.. BgMap.Cells.Select(v => (ushort)v)];
                 if (Project is not null)
                 {
-                    Project.Data.Level(LevelNum).BgTilemap =
-                        Convert.ToBase64String(rom.BgTilemaps[LevelNum]);
+                    var (low, page) = BgImage.Split(rom.BgTilemaps[LevelNum]);
+                    var state = Project.Data.Level(LevelNum);
+                    state.BgTilemap = Convert.ToBase64String(low);
+                    state.BgTilemapPages = Convert.ToBase64String(page);
                     Project.MarkDirty();
                 }
                 touched.Add(LevelNum);
@@ -363,6 +366,18 @@ public sealed class EditorSession
 
     /// <summary>True when this level's background is one the project edited.</summary>
     public bool BgTilemapEdited => Rom is { } r && HasLevel && r.BgTilemaps.ContainsKey(LevelNum);
+
+    /// <summary>The one BG page this level's background can use, or null when any page will do.
+    /// A vanilla stream takes its page from its address, and a base without the custom-background
+    /// hook can write nothing else — so on such a base a tile picked from the other page is
+    /// remapped to this page's tile of the same number at paint time, which is what LM does with
+    /// an out-of-bank paste (§10c), rather than showing one tile and building another.</summary>
+    public int? BgFixedPage
+        => Rom is { } r && HasLevel && r.Layer2IsBackground(LevelNum) && !r.HasLmLayer2Custom
+           ? BgImage.PageFor(r.Layer2Pointer(LevelNum) & 0xFFFF) : null;
+
+    /// <summary>The drawer's tile as this level can paint it: itself, or its number on the fixed page.</summary>
+    public int BgPaintable(int tile) => BgFixedPage is { } p ? p << 8 | tile & 0xFF : tile;
 
     /// <summary>
     /// Import a raw layer-3 tilemap for this level — LM's LT3 file shape, a flat little-endian
@@ -472,7 +487,7 @@ public sealed class EditorSession
         byte[]? bytes = layer switch
         {
             3 => Layer3Map is { } m ? Layer3.ToBytes(m.Cells) : null,
-            2 => BgMap is { } b ? [.. b.Cells.Select(v => (byte)v)] : null,
+            2 => BgMap is { } b ? [.. b.Cells.SelectMany(v => new[] { (byte)v, (byte)(v >> 8) })] : null,
             _ => null,
         };
         if (bytes is null) { Report($"this level has no layer {layer} to save"); return false; }
@@ -494,10 +509,22 @@ public sealed class EditorSession
 
         if (BgMap is not { } bg)
         { Report("this level's layer 2 is an object stream — there is no background to replace"); return false; }
-        if (bytes.Length != bg.Cells.Length)
-        { Report($"“{name}” holds {bytes.Length} cells; this level's background has {bg.Cells.Length}"); return false; }
-        Rom.BgTilemaps[LevelNum] = bytes;
-        Project.Data.Level(LevelNum).BgTilemap = preset.Data;
+        // Two bytes a cell now (low, page); a preset saved when it was one byte takes this
+        // level's own pages, which is the only page it could have meant.
+        ushort[] tiles;
+        if (bytes.Length == bg.Cells.Length * 2)
+        {
+            tiles = new ushort[bg.Cells.Length];
+            for (int i = 0; i < tiles.Length; i++) tiles[i] = (ushort)(bytes[2 * i] | bytes[2 * i + 1] << 8);
+        }
+        else if (bytes.Length == bg.Cells.Length) tiles = BgImage.Join(bytes, BgImage.PagePlane(Rom, LevelNum));
+        else { Report($"“{name}” holds {bytes.Length} bytes; this level's background has {bg.Cells.Length} cells"); return false; }
+        if (BgFixedPage is { } fixedPage) for (int i = 0; i < tiles.Length; i++) tiles[i] = (ushort)BgPaintable(tiles[i]);
+        Rom.BgTilemaps[LevelNum] = tiles;
+        var (low, page) = BgImage.Split(tiles);
+        var state = Project.Data.Level(LevelNum);
+        state.BgTilemap = Convert.ToBase64String(low);
+        state.BgTilemapPages = Convert.ToBase64String(page);
         Project.MarkDirty();
         touched.Add(LevelNum);
         OpenBackgroundEdits();
