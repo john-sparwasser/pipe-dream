@@ -85,7 +85,7 @@ public partial class MainWindow : Window
     private TextBlock spFilesLabel = null!, objectHint = null!;
     private Grid split = null!;
     private ToggleButton modeLevel = null!, modeMap16 = null!, modeGfx = null!;
-    private ToggleButton modeAnim = null!, modeBg = null!;
+    private ToggleButton modeAnim = null!, modeBg = null!, modePalette = null!;
     private DockPanel animPane = null!, animToolPanel = null!;
     private DockPanel bgPane = null!, bgToolPanel = null!;
     private ToggleButton bgLayer2 = null!, bgLayer3 = null!;
@@ -95,9 +95,9 @@ public partial class MainWindow : Window
     /// <summary>What a stamp writes: a BG Map16 tile on layer 2, a whole BG3 word on layer 3
     /// (palette group 2 by default — the eyedropper is how any other one is picked up).</summary>
     private int bgBrush = 0x100, bgBrushL3 = 2 << 10;
-    private TextBlock bgNote = null!, bgDrawerTitle = null!, bgPalNote = null!;
+    private TextBlock bgNote = null!, bgDrawerTitle = null!;
     private Border bgPaletteBar = null!;
-    private Button bgApplyPal = null!;
+    private Button bgApplyPal = null!, bgEditPal = null!;
     private ComboBox bgPalRow = null!;
     private PaletteGridView bgColors = null!;
     private bool loadingBgPalRow;
@@ -143,6 +143,7 @@ public partial class MainWindow : Window
         modeGfx = this.GetControl<ToggleButton>("ModeGfx");
         modeAnim = this.GetControl<ToggleButton>("ModeAnim");
         modeBg = this.GetControl<ToggleButton>("ModeBg");
+        modePalette = this.GetControl<ToggleButton>("ModePalette");
         bgPane = this.GetControl<DockPanel>("BgPane");
         bgToolPanel = this.GetControl<DockPanel>("BgToolPanel");
         bgLayer2 = this.GetControl<ToggleButton>("BgLayer2");
@@ -162,12 +163,15 @@ public partial class MainWindow : Window
         bgView.StrokeEnded += (_, _) => BgStrokeEnded();
         bgView.SelectionChanged += (_, _) => RefreshBgNote();
         bgView.SelectionDragged += (_, d) => BgSelectionDragged(d);
+        // The wheel zooms the view about the cursor and the slider follows: the slider IS the
+        // zoom state, so its value is what the next RefreshBg or mode switch reads back.
+        bgView.ZoomChanged += (_, _) => zoomSlider.Value = bgView.Zoom * 100;
         bgSheet.Picked += (_, c) => BgBrushPicked(c.Col, c.Row);
         bgNote = this.GetControl<TextBlock>("BgNote");
         bgDrawerTitle = this.GetControl<TextBlock>("BgDrawerTitle");
         bgPaletteBar = this.GetControl<Border>("BgPaletteBar");
         bgApplyPal = this.GetControl<Button>("BgApplyPal");
-        bgPalNote = this.GetControl<TextBlock>("BgPalNote");
+        bgEditPal = this.GetControl<Button>("BgEditPal");
         bgColors = this.GetControl<PaletteGridView>("BgColors");
         bgColors.Rows = 1;
         bgColors.Cell = 20;
@@ -297,8 +301,8 @@ public partial class MainWindow : Window
             {
                 return;
             }
-            // Land the user where they can act on it: the Palette tab, that swatch selected.
-            paletteTabs.SelectedIndex = PaletteTabIndex;
+            // Land the user where they can act on it: Palette mode, that swatch selected.
+            if (modePalette.IsChecked != true) OnMode(modePalette, new RoutedEventArgs());
             paletteGrid.Select(idx);
             paletteBg.Select(idx == 0 ? 0 : -1);
             ShowPaletteColor(idx);
@@ -651,6 +655,16 @@ public partial class MainWindow : Window
             sv.Offset = new Vector(Math.Max(0, sv.Offset.X + d.Dx), Math.Max(0, sv.Offset.Y + d.Dy));
         };
 
+        // Where the canvas's own wheel is a zoom, the desk around it zooms too — one gesture for
+        // the whole viewport. The level and Map16 sheets scroll on the wheel, so their desk keeps
+        // scrolling. Tunnelling, so it sees the event before the scroll viewer spends it.
+        foreach (var (svName, content) in new (string, Control)[]
+                 { ("BgScroll", bgView), ("GfxSheetScroll", gfxCanvas) })
+        {
+            var sv = this.GetControl<ScrollViewer>(svName);
+            sv.AddHandler(PointerWheelChangedEvent, (_, e) => DeskWheel(sv, content, e), RoutingStrategies.Tunnel);
+        }
+
         // A rebuild swaps in a new scene and new layer editors, and the caches here (edit,
         // canvas.Edit, the bitmap's phase images) all point at the old ones until this runs.
         // Without it a GFX pixel commit — which rebuilds — left the canvas editing a discarded
@@ -991,6 +1005,36 @@ public partial class MainWindow : Window
         }
     }
 
+    private double deskWheel;   // fractional wheel not yet spent: a trackpad sends a notch in pieces
+
+    /// <summary>
+    /// The wheel over the DESK — the checkerboard around a zooming canvas — zooms that canvas,
+    /// one slider step a notch, about the point under the cursor. Over the canvas itself the
+    /// canvas does its own anchoring, and a scrollbar is not the desk. Zooming through the
+    /// slider keeps it the one owner of the value.
+    /// </summary>
+    private void DeskWheel(ScrollViewer sv, Control content, PointerWheelEventArgs e)
+    {
+        if (e.Source is not Visual src || ReferenceEquals(src, content) || content.IsVisualAncestorOf(src)
+            || src.FindAncestorOfType<ScrollBar>(includeSelf: true) is not null) return;
+        deskWheel += e.Delta.Y;
+        int notches = (int)deskWheel;
+        deskWheel -= notches;
+        e.Handled = true;
+        if (notches == 0) return;
+
+        // The point is taken relative to the canvas, off it or not: the canvas scales about its
+        // own origin, so that point lands at p*f after, and the offset moves by the difference.
+        // Layout first — an offset set against the old extent is clamped to it.
+        var p = e.GetPosition(content);
+        double before = zoomSlider.Value;
+        StepZoom(Math.Sign(notches));
+        double f = zoomSlider.Value / before;
+        if (f == 1) return;
+        sv.UpdateLayout();
+        sv.Offset += new Vector(p.X * (f - 1), p.Y * (f - 1));
+    }
+
     /// <summary>One tick of zoom, in the slider's own units — the slider IS the zoom state, so
     /// stepping it keeps the label and whichever canvas it drives in step for free.</summary>
     private void StepZoom(int dir)
@@ -1004,7 +1048,7 @@ public partial class MainWindow : Window
     // whole point of the level view is how much of the level you can see at once; the Map16
     // sheet opens at 3x, since a 16-tile-wide column at 1:1 is a sliver; and GFX at 8 screen
     // pixels per GFX pixel, which is what the ImGui editor opened at.
-    private double levelZoomPct = 100, gfxZoomPct = 800, map16ZoomPct = 300;
+    private double levelZoomPct = 100, gfxZoomPct = 800, map16ZoomPct = 300, bgZoomPct = 200;
 
     /// <summary>Point the zoom control at a mode: its range, its step, and the value it was left
     /// at. Call it AFTER the mode flags flip — this and <see cref="ApplyZoom"/> read them.</summary>
@@ -1013,13 +1057,17 @@ public partial class MainWindow : Window
         bool gfx = modeGfx?.IsChecked == true;
         // Read the wanted value first: narrowing the range coerces Value, which lands in the
         // remembered field on the way through.
-        double want = gfx ? gfxZoomPct : modeMap16?.IsChecked == true ? map16ZoomPct : levelZoomPct;
+        bool bg = modeBg?.IsChecked == true;
+        double want = gfx ? gfxZoomPct : modeMap16?.IsChecked == true ? map16ZoomPct
+                    : bg ? bgZoomPct : levelZoomPct;
         // The level steps in 10%: a fractional zoom is drawn filtered rather than nearest, so it
         // stays clean (LevelView.Unsampled). The GFX sheet steps in whole multiples instead —
-        // pixel editing wants the pixel you click to be exactly the pixel you paint.
+        // pixel editing wants the pixel you click to be exactly the pixel you paint. The
+        // background steps in halves, the same notch its wheel zoom takes.
         (zoomSlider.Minimum, zoomSlider.Maximum, zoomSlider.TickFrequency) =
             gfx ? (400.0, 1600.0, 100.0)      // whole screen pixels per GFX pixel, 4x to 16x
-                : (100.0, 800.0, 10.0);
+            : bg ? (100.0, 800.0, 50.0)
+                 : (100.0, 800.0, 10.0);
         zoomSlider.Value = want;
         ApplyZoom();                          // in case the value never changed
     }
@@ -1038,6 +1086,13 @@ public partial class MainWindow : Window
             gfxCanvas.Zoom = zoom;
             gfxCanvas.InvalidateMeasure();
             gfxCanvas.InvalidateVisual();
+        }
+        else if (modeBg?.IsChecked == true)
+        {
+            bgZoomPct = pct;
+            bgView.Zoom = zoom;
+            bgView.InvalidateMeasure();
+            bgView.InvalidateVisual();
         }
         else if (modeMap16?.IsChecked == true)
         {
@@ -1747,7 +1802,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void UndoRedo(bool redo)
     {
-        if (paletteTabs.SelectedIndex == PaletteTabIndex)
+        if (modePalette.IsChecked == true)
         {
             // Close any open stroke FIRST, so what the picker has already done becomes the
             // entry that undo then takes back. (This used to re-apply the last picked colour
@@ -1892,9 +1947,6 @@ public partial class MainWindow : Window
     /// editing layer 1. Picking a tab therefore switches the mode (and drops the selection that
     /// belonged to the old one), which is why Esc also moves the tab.
     /// </summary>
-    /// <summary>Which drawer tab is the Palette one (see the TabStrip in the XAML).</summary>
-    internal const int PaletteTabIndex = 3;
-
     private void OnPaletteTab()
     {
         // An overlay mode outranks the tabs: it took the canvas from whichever layer was being
@@ -1902,8 +1954,6 @@ public partial class MainWindow : Window
         if (canvas.Mode is LevelView.EditMode.Exits or LevelView.EditMode.Entrances)
         { RefreshDrawer(); return; }
 
-        // The Palette tab belongs to no edit mode (ImGui parity: its tab carries a null mode),
-        // so opening it leaves the canvas doing whatever it was doing.
         var want = paletteTabs.SelectedIndex switch
         {
             1 => LevelView.EditMode.Sprites,
@@ -1933,7 +1983,8 @@ public partial class MainWindow : Window
         bool gfxMode = modeGfx.IsChecked == true;
         bool animMode = modeAnim.IsChecked == true;
         bool bgMode = modeBg.IsChecked == true;
-        bool modal = map16Mode || gfxMode || animMode || bgMode;   // a canvas mode owning the drawer
+        bool paletteMode = modePalette.IsChecked == true;
+        bool modal = map16Mode || gfxMode || animMode || bgMode || paletteMode;   // a canvas mode owning the drawer
         int tab = modal ? -1 : Math.Max(0, paletteTabs.SelectedIndex);
 
         // The tabs choose what the drawer shows FOR THE LEVEL. Map16 and GFX modes own the
@@ -1952,7 +2003,7 @@ public partial class MainWindow : Window
         bgPaletteBar.IsVisible = bgMode;        // four swatches wide there, not sixteen
         spritePanel.IsVisible = tab == 1;
         objectPanel.IsVisible = tab == 2;
-        palettePanel.IsVisible = tab == 3;
+        palettePanel.IsVisible = paletteMode;
         if (spritePanel.IsVisible) EnsureSpriteCatalog();
         if (objectPanel.IsVisible) EnsureObjectCatalog();
         if (palettePanel.IsVisible) RefreshPaletteTab();
@@ -2634,13 +2685,15 @@ public partial class MainWindow : Window
 
     private void OnMode(object? sender, RoutedEventArgs e)
     {
-        foreach (var b in new[] { modeLevel, modeMap16, modeGfx, modeBg, modeAnim })
+        foreach (var b in new[] { modeLevel, modeMap16, modeGfx, modePalette, modeBg, modeAnim })
             b.IsChecked = ReferenceEquals(b, sender);
 
         bool map16 = ReferenceEquals(sender, modeMap16);
         bool gfx = ReferenceEquals(sender, modeGfx);
         bool anim = ReferenceEquals(sender, modeAnim);
         bool bg = ReferenceEquals(sender, modeBg);
+        // Palette mode keeps the level pane: the colours are edited against the level they
+        // colour, and the canvas goes on doing whatever it was doing (it is not an edit mode).
         // Leaving the pixel editor with a stroke still open must not leave bytes behind that no
         // undo entry covers, so it is reverted rather than committed. A floating paste is the
         // opposite case — deliberate content not yet in any bytes — so it is dropped first.
@@ -2844,7 +2897,6 @@ public partial class MainWindow : Window
             SeedBgBrushPalette(map, palCounts);
             bgView.CellAt = map.At;
             bgView.CellPixels = session.Layer3CellPixels;
-            bgView.Zoom = 2;
             bgView.Reshape(map.Cols, map.Rows, map.CellPx);
 
             // The drawer is the SAME control in picker mode: its cells are tile numbers laid out
@@ -2876,7 +2928,6 @@ public partial class MainWindow : Window
         }
         bgView.CellAt = bg.At;
         bgView.CellPixels = t => session.BgCellPixels(t, ph);
-        bgView.Zoom = 2;
         bgView.Reshape(bg.Cols, bg.Rows, bg.CellPx);
 
         bgSheet.CellAt = (c, r) => r * SheetCols + c;
@@ -2948,8 +2999,7 @@ public partial class MainWindow : Window
     {
         bool layer3 = bgLayer3.IsChecked == true;
         var pal = session.PaletteRgba;
-        int group = layer3 ? Layer3.PaletteOf(bgBrushL3)
-                  : map16?.BgTilePalette(bgBrush) ?? -1;
+        int group = BgPaletteGroup();
         int count = layer3 ? Layer3.PaletteColors : 16;
         int at = layer3 ? Layer3.PaletteBase(group) : group * 16;
 
@@ -2974,11 +3024,29 @@ public partial class MainWindow : Window
         bgApplyPal.IsVisible = layer3 && session.Layer3Map is not null;
         bgApplyPal.Content = bgView.Selection is { } s ? $"Apply to {s.W}x{s.H}" : "Apply to all";
 
-        bgPalNote.Text = group < 0 ? ""
-            : !layer3 ? $"CGRAM {at:X2}-{at + count - 1:X2} — the tile's own row; change it in Map16"
-            : $"CGRAM {at:X2}-{at + count - 1:X2}"
-              + (Layer3.IsLayer3Palette(group) ? " — layer 3's own colours"
-                                              : " — the level's background palette, not layer 3's own");
+        bgEditPal.IsVisible = group >= 0;
+    }
+
+    /// <summary>The palette group the strip shows: the brush word's on layer 3, the brush tile's
+    /// own row on layer 2, or -1 when there is no level.</summary>
+    private int BgPaletteGroup() => bgLayer3.IsChecked == true ? Layer3.PaletteOf(bgBrushL3)
+                                  : map16?.BgTilePalette(bgBrush) ?? -1;
+
+    /// <summary>Edit the strip's colours where colours are edited: Palette mode, narrowed to
+    /// layer 3's reach when that is the layer, with the group's first paintable colour selected
+    /// so the picker opens on it.</summary>
+    private void OnEditBgPalette(object? sender, RoutedEventArgs e)
+    {
+        bool layer3 = bgLayer3.IsChecked == true;
+        int group = BgPaletteGroup();
+        if (group < 0) return;
+        int at = (layer3 ? Layer3.PaletteBase(group) : group * 16) + 1;   // colour 0 is transparent
+
+        OnMode(modePalette, new RoutedEventArgs());
+        paletteLayer3.IsChecked = layer3;
+        paletteGrid.Select(at);
+        paletteBg.Select(-1);
+        ShowPaletteColor(at);
     }
 
     /// <summary>

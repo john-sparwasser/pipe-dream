@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.VisualTree;
 
 namespace PipeDream.Ui;
 
@@ -279,6 +280,34 @@ public class GfxCanvasView : Control
         if (!stroke.End()) return;
         e.Pointer.Capture(null);
         StrokeEnded?.Invoke(this, EventArgs.Empty);
+    }
+
+    private double zoomWheel;   // fractional wheel not yet spent: a trackpad sends a notch in pieces
+
+    /// <summary>The wheel zooms, about the pixel under the cursor. The step itself goes out
+    /// through <see cref="ZoomStepped"/> like the [ ] keys, so the gutter slider stays the
+    /// zoom's owner; what is done here is keeping the pointed-at pixel where it was.</summary>
+    protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
+    {
+        base.OnPointerWheelChanged(e);
+        zoomWheel += e.Delta.Y;
+        int notches = (int)zoomWheel;
+        zoomWheel -= notches;
+        e.Handled = true;
+        if (notches == 0) return;
+
+        var p = e.GetPosition(this);
+        double before = Zoom;
+        ZoomStepped?.Invoke(this, Math.Sign(notches));
+        if (Zoom == before) return;
+
+        // The layout pass has to run first: an offset set against the old extent is clamped to it.
+        double f = Zoom / before;
+        if (this.FindAncestorOfType<ScrollViewer>() is { } sv)
+        {
+            sv.UpdateLayout();
+            sv.Offset += new Vector(p.X * (f - 1), p.Y * (f - 1));
+        }
     }
 
     protected override void OnKeyDown(KeyEventArgs e)

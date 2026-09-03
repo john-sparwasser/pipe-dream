@@ -348,6 +348,47 @@ public class ControlParityTests(ITestOutputHelper log)
         Assert.Equal(first, edit.Objects[1]);
     }
 
+    /// <summary>The desk — the checkerboard beside a canvas — takes the wheel the way the canvas
+    /// does. The level's wheel is a scroll, so its desk scrolls and zooms nothing; the GFX
+    /// sheet's wheel is a zoom, so its desk zooms a slider step and keeps the point under the
+    /// cursor where it was.</summary>
+    [AvaloniaFact]
+    public void the_desk_follows_its_canvas_scrolling_beside_the_level_and_zooming_beside_a_sheet()
+    {
+        if (Open() is not { } o) { log.WriteLine("SKIP: no ROM"); return; }
+        var (w, c) = o;
+        var slider = w.GetControl<Slider>("ZoomSlider");
+        var sv = w.GetControl<ScrollViewer>("CanvasScroll");
+        double pct = slider.Value;
+
+        // The level is centred in a taller viewport, so the strip along the bottom is desk.
+        var desk = sv.TranslatePoint(new Point(sv.Bounds.Width / 2, sv.Bounds.Height - 4), w)!.Value;
+        Assert.Null(c.CellAt(w.TranslatePoint(desk, c)!.Value));
+        w.MouseWheel(desk, new Vector(0, 1));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(pct, slider.Value);
+        Assert.Equal(pct / 100, c.Zoom);
+
+        // The GFX sheet: at 15x it outgrows the viewport, so there is room for the anchor to
+        // scroll into, and the desk under the sheet's left edge is where the wheel lands.
+        w.GetControl<Avalonia.Controls.Primitives.ToggleButton>("ModeGfx").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        slider.Value = 1500;
+        Dispatcher.UIThread.RunJobs();
+        var sheet = w.GetControl<GfxCanvasView>("GfxCanvas");
+        var gsv = w.GetControl<ScrollViewer>("GfxSheetScroll");
+        Assert.Equal(15, sheet.Zoom);
+        var local = new Point(-4, 30 * sheet.Zoom + 1);          // just left of the sheet, beside pixel row 30
+        var at = sheet.TranslatePoint(local, w)!.Value;
+        w.MouseWheel(at, new Vector(0, 1));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(16, sheet.Zoom);
+        Assert.Equal(1600, slider.Value);
+        double y = w.TranslatePoint(at, sheet)!.Value.Y;
+        Assert.Equal(30, (int)(y / sheet.Zoom));
+        Assert.True(gsv.Offset.Y > 0);
+    }
+
     /// <summary>
     /// A palette edit, saved. It used to save fine and LOOK unsaved: the level counted as dirty
     /// for as long as it had any palette edit at all, hydrated ones included, so the title kept

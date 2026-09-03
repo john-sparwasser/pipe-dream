@@ -333,6 +333,12 @@
             <TextBlock Text="Graphics" VerticalAlignment="Center"/>
           </StackPanel>
         </ToggleButton>
+        <ToggleButton x:Name="ModePalette" Classes="mode" Click="OnMode">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <Path Data="{StaticResource IconPalette}"/>
+            <TextBlock Text="Palette" VerticalAlignment="Center"/>
+          </StackPanel>
+        </ToggleButton>
         <ToggleButton x:Name="ModeBg" Classes="mode" Click="OnMode">
           <StackPanel Orientation="Horizontal" Spacing="6">
             <Path Data="{StaticResource IconImage}"/>
@@ -406,7 +412,7 @@
                 <StackPanel Orientation="Horizontal" Spacing="6"/>
               </ItemsPanelTemplate>
             </TabStrip.ItemsPanel>
-            <!-- GFX is NOT here: it is a canvas mode, and its bins live with its editor. -->
+            <!-- GFX and Palette are NOT here: they are canvas modes, with their own drawers. -->
             <TabStripItem IsSelected="True">
               <StackPanel Orientation="Horizontal" Spacing="6">
                 <Path Data="{StaticResource IconGrid3x3}"/>
@@ -423,12 +429,6 @@
               <StackPanel Orientation="Horizontal" Spacing="6">
                 <Path Data="{StaticResource IconScanBox}"/>
                 <TextBlock Text="Objects" VerticalAlignment="Center"/>
-              </StackPanel>
-            </TabStripItem>
-            <TabStripItem>
-              <StackPanel Orientation="Horizontal" Spacing="6">
-                <Path Data="{StaticResource IconPalette}"/>
-                <TextBlock Text="Palette" VerticalAlignment="Center"/>
               </StackPanel>
             </TabStripItem>
           </TabStrip>
@@ -686,8 +686,10 @@
                changing the group is the one edit that leaves every tile where it is. -->
           <Button x:Name="BgApplyPal" Click="OnApplyBgPalette" IsVisible="False"
                   ToolTip.Tip="Write this palette group into cells that already have tiles, leaving the tiles alone"/>
-          <TextBlock x:Name="BgPalNote" Classes="dim" VerticalAlignment="Center"
-                     TextTrimming="CharacterEllipsis"/>
+          <!-- The colours themselves are edited on the Palette tab; this lands you there, on this
+               group, with the tab narrowed to what layer 3 can reach. -->
+          <Button x:Name="BgEditPal" Content="Edit" Click="OnEditBgPalette" IsVisible="False"
+                  ToolTip.Tip="Edit this palette group's colours on the Palette tab"/>
         </StackPanel>
       </Border>
 
@@ -1037,7 +1039,7 @@
           <!-- An empty bin has no sheet to draw, so the canvas offers the one thing that can
                change that instead of sitting blank. Same handler as the header's Load. -->
           <Panel Background="{x:Static ui:UiColors.DeskPattern}">
-            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+            <ScrollViewer x:Name="GfxSheetScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
               <ui:GfxCanvasView x:Name="GfxCanvas" Margin="8"/>
             </ScrollViewer>
             <Button x:Name="GfxEmptyLoad" Classes="cta" IsVisible="False" Click="OnBrowseGfx"

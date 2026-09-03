@@ -576,9 +576,9 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         w.Show();
         Dispatcher.UIThread.RunJobs();
 
-        // The drawer's tabs are the LEVEL's views; GFX is not among them any more.
+        // The drawer's tabs are the LEVEL's views; GFX and Palette are canvas modes, not tabs.
         var tabs = w.GetControl<TabStrip>("PaletteTabs");
-        Assert.Equal(4, tabs.ItemCount);
+        Assert.Equal(3, tabs.ItemCount);
         Assert.DoesNotContain("GFX", tabs.Items.OfType<TabStripItem>().Select(t => $"{t.Content}"));
 
         w.GetControl<ToggleButton>("ModeGfx").RaiseEvent(
@@ -1014,6 +1014,47 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(0, rows.SelectedIndex);
         Assert.Equal(0, session.GfxPixels!.PalRow);
+    }
+
+    /// <summary>The wheel zooms the sheet one slider step a notch, about the pixel under the
+    /// cursor, and the gutter slider follows because the step goes through it.</summary>
+    [AvaloniaFact]
+    public void the_wheel_zooms_the_sheet_about_the_cursor_and_the_slider_follows()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeGfx").RaiseEvent(
+            new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var view = w.GetControl<GfxCanvasView>("GfxCanvas");
+        var zoom = w.GetControl<Slider>("ZoomSlider");
+        Assert.True(view.Tiles > 0, "the sheet never loaded a file");
+        // Start where the sheet outgrows the viewport: anchoring needs somewhere to scroll to,
+        // and at the default 8x the whole sheet fits.
+        zoom.Value = 1500;
+        Dispatcher.UIThread.RunJobs();
+        double zoom0 = view.Zoom;
+        Assert.Equal(15, zoom0);
+
+        var local = new Point(30 * zoom0 + 1, 30 * zoom0 + 1);     // on screen, well into the sheet
+        var at = view.TranslatePoint(local, w)!.Value;
+        var px = view.PixelAt(local);
+        Assert.NotNull(px);
+
+        w.MouseWheel(at, new Vector(0, 1));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(zoom0 + 1, view.Zoom);
+        Assert.Equal(view.Zoom * 100, zoom.Value);
+        Assert.Equal(px, view.PixelAt(w.TranslatePoint(at, view)!.Value));
+
+        w.MouseWheel(at, new Vector(0, -1));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(zoom0, view.Zoom);
+        Assert.Equal(px, view.PixelAt(w.TranslatePoint(at, view)!.Value));
     }
 
     /// <summary>One zoom control, two canvases at wildly different scales: each mode keeps its own

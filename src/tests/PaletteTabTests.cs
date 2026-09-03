@@ -126,7 +126,7 @@ public class PaletteTabTests(ITestOutputHelper log) : IDisposable
         w.Show();
         Dispatcher.UIThread.RunJobs();
 
-        w.GetControl<TabStrip>("PaletteTabs").SelectedIndex = 3;
+        w.GetControl<ToggleButton>("ModePalette").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
         Assert.True(w.GetControl<DockPanel>("PalettePanel").IsVisible);
 
@@ -178,7 +178,7 @@ public class PaletteTabTests(ITestOutputHelper log) : IDisposable
         var w = new MainWindow();
         w.Show();
         Dispatcher.UIThread.RunJobs();
-        w.GetControl<TabStrip>("PaletteTabs").SelectedIndex = MainWindow.PaletteTabIndex;
+        w.GetControl<ToggleButton>("ModePalette").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
 
         var grid = w.GetControl<PaletteGridView>("PaletteGrid");
@@ -212,7 +212,7 @@ public class PaletteTabTests(ITestOutputHelper log) : IDisposable
         var w = new MainWindow();
         w.Show();
         Dispatcher.UIThread.RunJobs();
-        w.GetControl<TabStrip>("PaletteTabs").SelectedIndex = MainWindow.PaletteTabIndex;
+        w.GetControl<ToggleButton>("ModePalette").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
 
         var grid = w.GetControl<PaletteGridView>("PaletteGrid");
@@ -248,7 +248,7 @@ public class PaletteTabTests(ITestOutputHelper log) : IDisposable
         var w = new MainWindow();
         w.Show();
         Dispatcher.UIThread.RunJobs();
-        w.GetControl<TabStrip>("PaletteTabs").SelectedIndex = MainWindow.PaletteTabIndex;
+        w.GetControl<ToggleButton>("ModePalette").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
 
         var grid = w.GetControl<PaletteGridView>("PaletteGrid");
@@ -373,7 +373,7 @@ public class PaletteTabTests(ITestOutputHelper log) : IDisposable
         var w = new MainWindow();
         w.Show();
         Dispatcher.UIThread.RunJobs();
-        w.GetControl<TabStrip>("PaletteTabs").SelectedIndex = MainWindow.PaletteTabIndex;
+        w.GetControl<ToggleButton>("ModePalette").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
 
         var session = SessionOf(w);
@@ -495,11 +495,11 @@ public class PaletteTabTests(ITestOutputHelper log) : IDisposable
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(expected, grid.Selected);
-        Assert.Equal(MainWindow.PaletteTabIndex, w.GetControl<TabStrip>("PaletteTabs").SelectedIndex);
+        Assert.True(w.GetControl<ToggleButton>("ModePalette").IsChecked);
         Assert.Empty(session.Edit!.Selection);      // sampling is not selecting
     }
 
-    /// <summary>The Palette tab is not an edit mode: opening it must leave the canvas doing
+    /// <summary>Palette mode is not an edit mode: entering it must leave the canvas doing
     /// whatever it was doing, unlike the Sprites and Objects tabs.</summary>
     [AvaloniaFact]
     public void the_palette_tab_does_not_change_the_canvas_edit_mode()
@@ -516,7 +516,7 @@ public class PaletteTabTests(ITestOutputHelper log) : IDisposable
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(LevelView.EditMode.Sprites, canvas.Mode);
 
-        tabs.SelectedIndex = 3;                     // palette: no opinion
+        w.GetControl<ToggleButton>("ModePalette").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));   // palette: no opinion
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(LevelView.EditMode.Sprites, canvas.Mode);
     }
