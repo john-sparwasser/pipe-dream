@@ -108,6 +108,9 @@ public sealed class TilemapView : Control
     public event EventHandler? SelectionChanged;
     public event EventHandler<SelectionDrag>? SelectionDragged;
 
+    /// <summary>The wheel changed <see cref="Zoom"/>; the owner's zoom control catches up.</summary>
+    public event EventHandler? ZoomChanged;
+
     /// <summary>Drop the lasso — a drawer pick, or a click on the desk beside the grid.</summary>
     public void ClearSelection()
     {
@@ -446,6 +449,7 @@ public sealed class TilemapView : Control
             sv.UpdateLayout();
             sv.Offset += new Vector(p.X * (f - 1), p.Y * (f - 1));
         }
+        ZoomChanged?.Invoke(this, EventArgs.Empty);
     }
 
     protected override void OnPointerExited(PointerEventArgs e)

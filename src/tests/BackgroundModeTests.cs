@@ -82,6 +82,16 @@ public class BackgroundModeTests(ITestOutputHelper log)
         }
         Assert.Equal(zoom0 + 1.5, view.Zoom);
         Assert.Equal(cell, view.At(w.TranslatePoint(at, view)!.Value));
+        // The footer slider is the zoom's owner: it follows the wheel, and a refresh reads it
+        // back instead of snapping the view to a fixed zoom.
+        Assert.Equal((zoom0 + 1.5) * 100, w.GetControl<Slider>("ZoomSlider").Value);
+        Click(w, "BgLayer3"); Click(w, "BgLayer3");           // two refreshes, back on layer 3
+        Assert.Equal(zoom0 + 1.5, view.Zoom);
+        w.GetControl<Slider>("ZoomSlider").Value = 400;
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(4, view.Zoom);
+        w.GetControl<Slider>("ZoomSlider").Value = (zoom0 + 1.5) * 100;
+        Dispatcher.UIThread.RunJobs();
 
         w.MouseWheel(at, new Vector(0, -1));
         Dispatcher.UIThread.RunJobs();
@@ -368,7 +378,7 @@ public class BackgroundModeTests(ITestOutputHelper log)
         Assert.True(w.GetControl<Border>("BgPaletteBar").IsVisible);
         Assert.Equal(Layer3.PaletteColors, colors.Cols);
         Assert.True(w.GetControl<ComboBox>("BgPalRow").IsEnabled);
-        Assert.Contains("CGRAM", w.GetControl<TextBlock>("BgPalNote").Text);
+        Assert.True(w.GetControl<Button>("BgEditPal").IsVisible);
 
         Click(w, "BgLayer2");
         Assert.Equal(16, colors.Cols);
@@ -461,6 +471,68 @@ public class BackgroundModeTests(ITestOutputHelper log)
         Menu(w, "EditRedo");
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(word, map.At(9, 9));
+    }
+
+    /// <summary>The strip's Edit button goes where colours are edited: Palette mode, narrowed
+    /// to layer 3, with this group's first paintable colour selected.</summary>
+    [AvaloniaFact]
+    public void the_palette_strips_edit_button_opens_the_palette_tab_in_layer_3_view()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var w = Open(0x009, layer3: true);
+        int group = w.GetControl<ComboBox>("BgPalRow").SelectedIndex;
+        Assert.True(group >= 0);
+
+        w.GetControl<Button>("BgEditPal").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.True(w.GetControl<ToggleButton>("ModePalette").IsChecked);
+        Assert.True(w.GetControl<DockPanel>("PalettePanel").IsVisible);
+        Assert.True(w.GetControl<CheckBox>("PaletteLayer3").IsChecked);
+        var grid = w.GetControl<PaletteGridView>("PaletteGrid");
+        Assert.Equal(Layer3.PaletteColors, grid.Cols);
+        Assert.Equal(Layer3.PaletteBase(group) + 1, grid.Selected);
+    }
+
+    /// <summary>Cmd+Z (Ctrl+Z) rewinds the background stroke you just painted, on either layer,
+    /// with the view itself focused from the click — arriving from Palette mode, which used to
+    /// be a drawer tab whose hidden index outranked the canvas mode in undo's dispatch.</summary>
+    [AvaloniaTheory]
+    [InlineData(0x009, true, RawInputModifiers.Meta)]
+    [InlineData(0x105, false, RawInputModifiers.Control)]
+    public void a_painted_background_cell_undoes_from_the_key_on_either_layer(int level, bool layer3, RawInputModifiers cmd)
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ComboBox>("LevelBox").SelectedIndex = level;
+        Click(w, "ModePalette");
+        Click(w, "ModeBg");
+        if (layer3) Click(w, "BgLayer3");
+
+        var view = View(w);
+        var map = (layer3 ? SessionOf(w).Layer3Map : SessionOf(w).BgMap)!;
+        // A cell the default brush will visibly change (on a vanilla base the brush lands as
+        // tile 0), inside the part of the map the viewport shows.
+        var (cx, cy) = Enumerable.Range(0, 20 * 30).Select(i => (i % 30, i / 30))
+            .First(c => map.At(c.Item1, c.Item2) != 0);
+        int before = map.At(cx, cy);
+        double step = view.CellPx * view.Zoom;
+        var at = view.TranslatePoint(new Point(cx * step + 2, cy * step + 2), w)!.Value;
+        w.MouseDown(at, MouseButton.Right);
+        w.MouseUp(at, MouseButton.Right);
+        Dispatcher.UIThread.RunJobs();
+        int painted = map.At(cx, cy);
+        Assert.NotEqual(before, painted);
+
+        w.KeyPressQwerty(PhysicalKey.Z, cmd);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(before, map.At(cx, cy));
+        w.KeyPressQwerty(PhysicalKey.Z, cmd | RawInputModifiers.Shift);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(painted, map.At(cx, cy));
     }
 
     /// <summary>
