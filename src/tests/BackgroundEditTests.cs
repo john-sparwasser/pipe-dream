@@ -504,6 +504,23 @@ public class BackgroundEditTests(ITestOutputHelper log)
     }
 
     /// <summary>
+    /// The BG definitions are the Map16 editor's bank 2 and the drawer's BG sheet on EVERY level.
+    /// They were composed only when the level's layer 2 was a background image, so on $009 —
+    /// objects on layer 2 — bank 2 was a black field with nothing to pick or edit.
+    /// </summary>
+    [RealRomFact]
+    public void the_bg_definitions_have_a_sheet_on_a_level_whose_layer_2_is_objects()
+    {
+        if (Open(0x009) is not { } s) return;
+        Assert.Null(s.BgMap);                                            // no background image here...
+        var (px, w, h) = s.BgSheetPhases();
+        Assert.Equal(16 * 16, w);                                        // ...but the 0x200 defs, 16 a row,
+        Assert.Equal(EditorSession.BgSheetTiles / 16 * 16, h);           // two pages tall
+        Assert.All(px, phase => Assert.NotNull(phase));
+        Assert.Contains(px[0]!, c => c != 0);                            // and not a black field
+    }
+
+    /// <summary>
     /// Export is the mirror of import, so the file it writes has to be one import takes back —
     /// a "save" that only this editor can read is not a save. It exports what the level DRAWS,
     /// so a level still on its mode's shared tilemap exports that rather than refusing.

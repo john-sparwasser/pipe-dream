@@ -17,10 +17,10 @@ namespace PipeDream.Ui;
 /// </summary>
 internal sealed class Map16Sheet
 {
-    private readonly LevelBitmap sheet = new();
+    private readonly LevelBitmap sheet = new(), bgSheet = new();
     private readonly Bitmap?[] placeholder = new Bitmap?[4];
     private readonly PixelBlit blit = new();
-    private int w, h;
+    private int w, h, bgW, bgH;
 
     public int TileCount { get; private set; }
 
@@ -28,6 +28,14 @@ internal sealed class Map16Sheet
     {
         this.w = w; this.h = h; TileCount = tileCount;
         sheet.SetImages(px, w, h, phase);
+    }
+
+    /// <summary>The BG definitions' sheet — bank 2, LM's pages 80-81, our 0x4000-0x41FF. Its own
+    /// image because those defs are a fixed table beside the FG sheet, not a window into it.</summary>
+    public void SetBgSheet(uint[]?[] px, int w, int h, int phase)
+    {
+        bgW = w; bgH = h;
+        bgSheet.SetImages(px, w, h, phase);
     }
 
     /// <summary>The empty-page tile per phase: every FG page without defs yet is drawn as a
@@ -54,7 +62,15 @@ internal sealed class Map16Sheet
                 DestinationRect = new RelativeRect(0, 0, tile, tile, RelativeUnit.Absolute),
             }, full);
 
-        if (sheet.For(phase) is { } bmp && h > 0)
+        if (bank == 2)
+        {
+            // The BG table fills the first two pages of the bank; the rest is genuinely empty.
+            if (bgSheet.For(phase) is { } bg && bgH > 0)
+                blit.Draw(owner, ctx, bg, new Rect(0, 0, bgW, bgH),
+                          new Rect(0, 0, Map16Layout.Cols * tile, bgH / 16 * tile),
+                          TopLevel.GetTopLevel(owner)?.RenderScaling ?? 1);
+        }
+        else if (sheet.For(phase) is { } bmp && h > 0)
         {
             var (v0, v1, rows, _) = Map16Layout.SheetWindow(bank, h, TileCount);
             if (rows > 0)
