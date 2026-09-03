@@ -246,6 +246,31 @@ public class Map16ModeTests(ITestOutputHelper log)
 
     // ---- through the window ----
 
+    /// <summary>The editor has the drawer's Pages overlay as a toggle of its own, off until asked.</summary>
+    [AvaloniaFact]
+    public void the_pages_overlay_is_a_toggle_on_the_editor_bar_and_starts_off()
+    {
+        if (PreppedRom.Path is not { } path) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = path;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeMap16").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var canvas = w.GetControl<Map16CanvasView>("Map16Canvas");
+        var pages = w.GetControl<ToggleButton>("M16Pages");
+        Assert.False(canvas.ShowPages);
+        Assert.NotEqual(true, pages.IsChecked);
+
+        pages.IsChecked = true;
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(canvas.ShowPages);
+        pages.IsChecked = false;
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(canvas.ShowPages);
+    }
+
     [AvaloniaFact]
     public void the_map16_mode_swaps_both_the_canvas_and_the_drawer()
     {

@@ -40,6 +40,10 @@ public class Map16CanvasView : Control
 
     public double Zoom { get; set; } = 2.0;
     public int Bank { get; set; }
+
+    /// <summary>Draw a square and number around each Map16 page, as the drawer's toggle does.
+    /// Off by default: the editor's own page separators are enough until you are hunting.</summary>
+    public bool ShowPages { get; set; }
     public int TileCount => sheet.TileCount;
     public Point Origin { get; set; }
 
@@ -294,6 +298,7 @@ public class Map16CanvasView : Control
     {
         double ts = TileSize;
         sheet.Draw(this, ctx, Bank, Phase, ts);
+        if (ShowPages) Map16Sheet.DrawPages(ctx, Bank, ts);
 
         // Live lasso, then the settled selection, then the armed tile. Both are in QUADRANTS —
         // at 16x16 they are snapped out to whole tiles, so they draw on the tile grid anyway.

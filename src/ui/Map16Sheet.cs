@@ -49,6 +49,26 @@ internal sealed class Map16Sheet
 
     /// <summary>Draw <paramref name="bank"/> at <paramref name="tile"/> screen pixels per tile,
     /// from the owner's origin.</summary>
+    private static readonly IBrush PageBrush = new SolidColorBrush(Color.Parse("#205C99"));
+    private static readonly Pen PagePen = new(PageBrush, 2);
+
+    /// <summary>The "Pages" overlay: a square around each Map16 page plus its number, for when
+    /// the faint separators are not enough to keep track of which page a tile lands on. Drawn
+    /// over <see cref="Draw"/> by whichever view has the toggle on.</summary>
+    public static void DrawPages(DrawingContext ctx, int bank, double tile)
+    {
+        int perBank = Map16Layout.BankTiles / 0x100;
+        for (int page = 0; page < perBank; page++)
+        {
+            double y = page * 16 * tile;
+            ctx.DrawRectangle(null, PagePen, new Rect(1, y + 1, 16 * tile - 2, 16 * tile - 2));
+            var ft = Overlay.Text($"{bank * perBank + page:X2}", 12);
+            var badge = new Rect(2, y + 2, ft.Width + 10, ft.Height + 6);
+            ctx.FillRectangle(PageBrush, badge);
+            Overlay.DrawText(ctx, ft, 12, badge.X + 5, badge.Center.Y);
+        }
+    }
+
     public void Draw(Control owner, DrawingContext ctx, int bank, int phase, double tile)
     {
         var full = new Rect(0, 0, Map16Layout.Cols * tile, Map16Layout.BankRows * tile);
