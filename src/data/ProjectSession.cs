@@ -39,7 +39,9 @@ public static class ProjectSession
                 rom.GfxSlotOverrides[(lvl, word)] = file;
             if (state.Header is { } hx) rom.LevelHeaderOverrides[lvl] = Convert.FromHexString(hx);
             if (state.Layer3Tilemap is { } l3) rom.Layer3Tilemaps[lvl] = Convert.FromBase64String(l3);
-            if (state.BgTilemap is { } bg) rom.BgTilemaps[lvl] = Convert.FromBase64String(bg);
+            if (state.BgTilemap is { } bg)
+                rom.BgTilemaps[lvl] = BgImage.Join(Convert.FromBase64String(bg),
+                    state.BgTilemapPages is { } pg ? Convert.FromBase64String(pg) : BgImage.PagePlane(rom, lvl));
             if (state.Layer3Advanced is { } adv) rom.Layer3AdvancedOverrides[lvl] = adv;
             else if (state.Layer3AdvancedOff) rom.Layer3AdvancedOverrides[lvl] = null;
         }
@@ -108,8 +110,13 @@ public sealed class LevelEditState
             ? Convert.ToHexString(hb) : null;
         s.Layer3Tilemap = rom.Layer3Tilemaps.TryGetValue(levelNum, out var l3b)
             ? Convert.ToBase64String(l3b) : null;
-        s.BgTilemap = rom.BgTilemaps.TryGetValue(levelNum, out var bgb)
-            ? Convert.ToBase64String(bgb) : null;
+        if (rom.BgTilemaps.TryGetValue(levelNum, out var bgb))
+        {
+            var (low, page) = BgImage.Split(bgb);
+            s.BgTilemap = Convert.ToBase64String(low);
+            s.BgTilemapPages = Convert.ToBase64String(page);
+        }
+        else s.BgTilemap = s.BgTilemapPages = null;
         bool advEdit = rom.Layer3AdvancedOverrides.TryGetValue(levelNum, out var advo);
         s.Layer3Advanced = advEdit ? advo : null;
         s.Layer3AdvancedOff = advEdit && advo is null;

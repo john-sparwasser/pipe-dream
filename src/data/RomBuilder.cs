@@ -370,12 +370,13 @@ internal static class RomBuilder
         }
         int lo16 = rom.Layer2Pointer(level) & 0xFFFF;
         var low = Convert.FromBase64String(b64);
+        var pages = state.BgTilemapPages is { } pg ? Convert.FromBase64String(pg) : BgImage.PagePlane(rom, level);
 
         if (rom.HasLmLayer2Custom)
         {
-            // The page the vanilla stream was authored for rides across, so the colours do not
-            // change; the re-layout is vanilla's 0x1B0 stride to LM's 0x200 (§10b).
-            var planes = BgImage.ToCustomPlanes(low, BgImage.PageFor(lo16));
+            // Each cell's own page rides across — a tile painted from the other page builds as
+            // that tile (§10b's plane); the re-layout is vanilla's 0x1B0 stride to LM's 0x200.
+            var planes = BgImage.ToCustomPlanes(low, pages);
             int snes = AllocateAutoExpand(rom, BgImage.EncodeCustom(planes));
             rom.SetLayer2Pointer(level, snes);
             int fo = rom.FileOffset(RomPrep.Layer23Settings + level);
@@ -383,6 +384,13 @@ internal static class RomBuilder
             return;
         }
 
+        // A vanilla stream has ONE page, from its address. Cells painted from the other page
+        // have nowhere to say so and build as this page's tile of the same number — what LM
+        // does too ("the equivalent tile number of the current bank", §10c) — so say it.
+        int fixedPage = BgImage.PageFor(lo16), strays = pages.Count(p => p != fixedPage);
+        if (strays > 0)
+            warnings.Add($"level {key}: {strays} background tile(s) painted from page {1 - fixedPage} build as "
+                       + $"page {fixedPage}'s — this base has no custom-background hook (File → Upgrade base)");
         BgImage.Decode(rom, lo16, out int consumed);
         var encoded = BgImage.Encode(low);
         if (encoded.Length > consumed)

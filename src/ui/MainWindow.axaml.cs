@@ -2879,11 +2879,15 @@ public partial class MainWindow : Window
 
         bgSheet.CellAt = (c, r) => r * SheetCols + c;
         bgSheet.CellPixels = t => session.BgCellPixels(t, ph);
-        bgSheet.Selected = bgBrush & 0x1FF;
+        bgSheet.Selected = session.BgPaintable(bgBrush) & 0x1FF;   // the ring is on the tile that will LAND
         bgSheet.Reshape(SheetCols, EditorSession.BgSheetTiles / SheetCols, 16);
 
         bgNoteBase = $"{EditorSession.BgCols}x{EditorSession.BgRows} tiles — two screens, repeats"
-                   + (session.BgTilemapEdited ? ", edited" : "");
+                   + (session.BgTilemapEdited ? ", edited" : "")
+                   // Which page the drawer's tiles land on. Only ONE on a base without the
+                   // custom-background hook: a tile from the other page paints as this page's.
+                   + (session.BgFixedPage is { } fixedPage
+                      ? $", page {fixedPage:X2} only (upgrade the base for both)" : ", pages 80-81");
         RefreshBgNote();
     }
 
@@ -3064,7 +3068,7 @@ public partial class MainWindow : Window
                 for (int i = 0; i < sel.W; i++)
                     changed |= map.Stamp(col + i, row + j, copy[j * sel.W + i]);
         }
-        else changed = map.Stamp(col, row, bgLayer3.IsChecked == true ? bgBrushL3 : bgBrush);
+        else changed = map.Stamp(col, row, bgLayer3.IsChecked == true ? bgBrushL3 : session.BgPaintable(bgBrush));
         if (changed) bgView.Invalidate();
     }
 
