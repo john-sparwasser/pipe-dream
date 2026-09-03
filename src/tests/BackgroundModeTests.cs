@@ -1,6 +1,8 @@
 using Avalonia.Headless;
 using Avalonia.Input;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.VisualTree;
 using Avalonia.Controls.Primitives;
 using Avalonia.Threading;
 using Avalonia.Headless.XUnit;
@@ -53,6 +55,44 @@ public class BackgroundModeTests(ITestOutputHelper log)
 
     private static TilemapView View(MainWindow w) => w.GetControl<TilemapView>("BgView");
     private static TilemapView Sheet(MainWindow w) => w.GetControl<TilemapView>("BgSheet");
+
+    /// <summary>The wheel zooms the map about the cell under the cursor: after a notch, the same
+    /// cell is still under the pointer. The drawer sheet keeps its fit-to-width zoom.</summary>
+    [AvaloniaFact]
+    public void the_wheel_zooms_the_map_about_the_cursor_and_leaves_the_sheet_alone()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var w = Open(0x009, layer3: true);
+        var view = View(w);
+        var sheet = Sheet(w);
+        double zoom0 = view.Zoom, sheetZoom = sheet.Zoom;
+
+        // On screen at the starting zoom, and far enough in that the zoomed map outgrows the
+        // viewport, so the offset has room to follow.
+        double step = view.CellPx * view.Zoom;
+        var local = new Point(24 * step + 3, 24 * step + 3);
+        var at = view.TranslatePoint(local, w)!.Value;
+        var cell = view.At(local);
+        Assert.NotNull(cell);
+
+        for (int i = 0; i < 3; i++)
+        {
+            w.MouseWheel(at, new Vector(0, 1));
+            Dispatcher.UIThread.RunJobs();
+        }
+        Assert.Equal(zoom0 + 1.5, view.Zoom);
+        Assert.Equal(cell, view.At(w.TranslatePoint(at, view)!.Value));
+
+        w.MouseWheel(at, new Vector(0, -1));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(zoom0 + 1.0, view.Zoom);
+        Assert.Equal(cell, view.At(w.TranslatePoint(at, view)!.Value));
+
+        var onSheet = sheet.TranslatePoint(new Point(4, 4), w)!.Value;
+        w.MouseWheel(onSheet, new Vector(0, 1));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(sheetZoom, sheet.Zoom);
+    }
 
     [AvaloniaFact]
     public void background_mode_takes_the_canvas_and_the_drawer()

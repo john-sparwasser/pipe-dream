@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 
 namespace PipeDream.Ui;
 
@@ -412,6 +413,39 @@ public sealed class TilemapView : Control
         Selection = next;
         SelectionChanged?.Invoke(this, EventArgs.Empty);
         InvalidateVisual();
+    }
+
+    private double zoomWheel;   // fractional wheel not yet spent: a trackpad sends a notch in pieces
+
+    /// <summary>The wheel zooms, about the cell under the cursor — the map is a picture, and a
+    /// picture is browsed by leaning in where you are looking. The drawer sheet is exempt: it
+    /// sizes to the drawer's width, so there the wheel stays a scroll.</summary>
+    protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
+    {
+        base.OnPointerWheelChanged(e);
+        if (FitWidth) return;
+        zoomWheel += e.Delta.Y;
+        int notches = (int)zoomWheel;
+        zoomWheel -= notches;
+        e.Handled = true;
+        if (notches == 0) return;
+
+        double before = Zoom;
+        Zoom = Math.Clamp(Zoom + notches * 0.5, 1, 8);
+        if (Zoom == before) return;
+
+        // The point under the cursor is p in this control now and p*f after; the scroll offset
+        // moves by the difference so that cell stays put. The layout pass has to run first —
+        // an offset set against the old extent is clamped to it.
+        var p = e.GetPosition(this);
+        double f = Zoom / before;
+        InvalidateMeasure();
+        InvalidateVisual();
+        if (this.FindAncestorOfType<ScrollViewer>() is { } sv)
+        {
+            sv.UpdateLayout();
+            sv.Offset += new Vector(p.X * (f - 1), p.Y * (f - 1));
+        }
     }
 
     protected override void OnPointerExited(PointerEventArgs e)

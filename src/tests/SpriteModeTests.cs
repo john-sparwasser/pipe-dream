@@ -55,6 +55,30 @@ public class SpriteModeTests(ITestOutputHelper log)
         Assert.Equal((40, 3), h.Cell(vertical: false));
     }
 
+    /// <summary>Reordering moves a selection as a block, stops at the ends, and keeps the
+    /// selection on the same sprites. Pure list work, so no ROM is needed.</summary>
+    [Fact]
+    public void reordering_moves_the_selection_as_a_block_and_stops_at_the_ends()
+    {
+        var data = new SpriteData();
+        for (int n = 0; n < 4; n++) data.Sprites.Add(SpriteEdit.At(n, 0, n, 5, vert: false));
+        var sp = new SpriteEdit(data, null, vertical: false);
+        int[] Numbers() => data.Sprites.Select(s => s.Number).ToArray();
+
+        sp.Selection.Add(1); sp.Selection.Add(2);
+        Assert.True(sp.ReorderSelected(+1));
+        Assert.Equal([0, 3, 1, 2], Numbers());
+        Assert.Equal([2, 3], sp.Selection.Order());
+
+        Assert.False(sp.ReorderSelected(+1));                 // against the end: nothing moved, no undo
+        Assert.Equal(1, sp.UndoDepth);
+
+        Assert.True(sp.ReorderSelected(-1));
+        Assert.Equal([0, 1, 2, 3], Numbers());
+        Assert.True(sp.Undo());
+        Assert.Equal([0, 3, 1, 2], Numbers());
+    }
+
     /// <summary>The core rule: selection is by drawn pixels, so a band that touches a sprite's
     /// graphics selects it even when it never touches its spawn cell.</summary>
     [Fact]
