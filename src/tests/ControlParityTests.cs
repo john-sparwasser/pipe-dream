@@ -310,6 +310,44 @@ public class ControlParityTests(ITestOutputHelper log)
         Assert.Empty(moves);
     }
 
+    /// <summary>Ctrl (Cmd on a Mac) + wheel reorders instead of scrolling: up takes the selected
+    /// object one slot later in the stream — on top of what it passed — and down brings it back.
+    /// One notch is one undo, and the selection follows the object to its new index.</summary>
+    [AvaloniaFact]
+    public void ctrl_wheel_steps_the_selection_through_the_stream()
+    {
+        if (Open() is not { } o) { log.WriteLine("SKIP: no ROM"); return; }
+        var (w, c) = o;
+        var edit = EditOf(w);
+        Assert.True(edit.Objects.Count >= 2);
+        var first = edit.Objects[0];
+        edit.Selection.Clear(); edit.Selection.Add(0);
+        int depth = edit.UndoDepth;
+
+        var moves = new List<(double Dx, double Dy)>();
+        c.ScrollRequested += (_, d) => moves.Add(d);
+        var at = At(c, w, 4, 4);
+
+        w.MouseWheel(at, new Vector(0, 1), RawInputModifiers.Control);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Empty(moves);                                  // reordered, not scrolled
+        Assert.Equal(first, edit.Objects[1]);
+        Assert.Equal([1], edit.Selection);
+        Assert.Equal(depth + 1, edit.UndoDepth);
+
+        w.MouseWheel(at, new Vector(0, -1), RawInputModifiers.Meta);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(first, edit.Objects[0]);
+        Assert.Equal([0], edit.Selection);
+
+        w.MouseWheel(at, new Vector(0, -1), RawInputModifiers.Control);   // already first: not an edit
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(depth + 2, edit.UndoDepth);
+
+        Assert.True(edit.Undo());
+        Assert.Equal(first, edit.Objects[1]);
+    }
+
     /// <summary>
     /// A palette edit, saved. It used to save fine and LOOK unsaved: the level counted as dirty
     /// for as long as it had any palette edit at all, hydrated ones included, so the title kept

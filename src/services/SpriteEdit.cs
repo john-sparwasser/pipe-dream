@@ -133,6 +133,17 @@ public sealed class SpriteEdit(SpriteData sprites, SpriteOverlay? overlay, bool 
         return Commit();
     }
 
+    /// <summary>Step the selection through the list: later entries draw over earlier ones here
+    /// and load first in-game, so this is the sprite's "bring forward / send backward".</summary>
+    public bool ReorderSelected(int step)
+    {
+        var before = new List<Sprite>(Sprites.Sprites);
+        if (!StreamOrder.Nudge(Sprites.Sprites, Selection, step)) return false;
+        undo.Push(before);
+        redo.Clear();
+        return Commit();
+    }
+
     public bool DeleteSelected()
     {
         if (Selection.Count == 0) return false;

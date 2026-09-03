@@ -253,6 +253,21 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         return true;
     }
 
+    /// <summary>Step the selection through the stream — one slot later (+1, draws on top of
+    /// what it passes) or earlier (-1). Stream order IS z-order, so this is "bring forward /
+    /// send backward". A selection moves as a block and stops at the ends; a step that moves
+    /// nothing is not an edit.</summary>
+    public bool ReorderSelected(int step)
+    {
+        var before = new List<LevelObject>(objects);
+        if (!StreamOrder.Nudge(objects, Selection, step)) return false;
+        undo.Push(before);
+        redo.Clear();
+        Dirty = true;
+        Reconcile();
+        return true;
+    }
+
     public bool DeleteSelected()
     {
         if (Selection.Count == 0) return false;
@@ -536,5 +551,33 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
                 if (a.Get(x, y) != b.Get(x, y)) yield return (x, y);
+    }
+}
+
+/// <summary>Moving selected entries of an ordered list one slot, keeping the selection on them.
+/// Shared by objects and sprites, whose z-order is both simply "later wins".</summary>
+internal static class StreamOrder
+{
+    public static bool Nudge<T>(List<T> list, HashSet<int> selection, int step)
+    {
+        if (step is not (1 or -1) || selection.Count == 0) return false;
+        var picked = new bool[list.Count];
+        foreach (int i in selection) if (i >= 0 && i < list.Count) picked[i] = true;
+
+        // Walk from the leading edge so a contiguous block shifts as one and a block already
+        // against the end stays put instead of collapsing onto itself.
+        bool any = false;
+        for (int k = 0; k < list.Count; k++)
+        {
+            int i = step > 0 ? list.Count - 1 - k : k, j = i + step;
+            if (!picked[i] || j < 0 || j >= list.Count || picked[j]) continue;
+            (list[i], list[j]) = (list[j], list[i]);
+            picked[i] = false; picked[j] = true;
+            any = true;
+        }
+        if (!any) return false;
+        selection.Clear();
+        for (int i = 0; i < picked.Length; i++) if (picked[i]) selection.Add(i);
+        return true;
     }
 }

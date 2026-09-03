@@ -910,7 +910,8 @@
                          TextTrimming="CharacterEllipsis" Margin="6,0,10,0"/>
             </DockPanel>
           </Border>
-          <ScrollViewer x:Name="BgScroll" Background="{x:Static ui:UiColors.DeskPattern}">
+          <ScrollViewer x:Name="BgScroll" HorizontalScrollBarVisibility="Auto"
+                        Background="{x:Static ui:UiColors.DeskPattern}">
             <ui:TilemapView x:Name="BgView" Margin="16"/>
           </ScrollViewer>
         </DockPanel>

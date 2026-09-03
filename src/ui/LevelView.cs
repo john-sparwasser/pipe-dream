@@ -225,6 +225,7 @@ public class LevelView : Control
     /// <summary>A move drag has already applied at least one step, so the rest coalesce into
     /// the same undo entry and a release is a drag, not a stationary click.</summary>
     private bool moved;
+    private double orderWheel;                   // fractional Ctrl+wheel not yet spent
     private readonly Stroke stroke;
     private (int Obj, (int DX, int DY) Edge, int Cx, int Cy)? resizeDrag;
     // The lasso works in LEVEL PIXELS, not cells — it follows the cursor exactly instead of
@@ -562,6 +563,23 @@ public class LevelView : Control
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
     {
         base.OnPointerWheelChanged(e);
+        // Ctrl/Cmd+wheel steps the selection through its stream: up brings it forward, down
+        // sends it back. A trackpad delivers a notch as many fractional ticks, so they are
+        // summed and spent one whole notch at a time.
+        if (Hotkeys.Command(e.KeyModifiers))
+        {
+            orderWheel += e.Delta.Y;
+            for (; Math.Abs(orderWheel) >= 1; orderWheel -= Math.Sign(orderWheel))
+            {
+                int dir = Math.Sign(orderWheel);
+                if (Mode == EditMode.Sprites) { if (Sprites?.ReorderSelected(dir) == true) SpritesChanged?.Invoke(this, EventArgs.Empty); }
+                else if (Edit?.ReorderSelected(dir) == true) SelectionChanged?.Invoke(this, EventArgs.Empty);
+            }
+            InvalidateVisual();
+            e.Handled = true;
+            return;
+        }
+        // Horizontal levels scroll sideways        base.OnPointerWheelChanged(e);
         // Horizontal levels scroll sideways with the wheel (Shift = vertical); vertical
         // levels keep the normal up/down wheel. Same rule as the ImGui viewport.
         double step = e.Delta.Y * 64 * Zoom;
