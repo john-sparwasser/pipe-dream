@@ -56,10 +56,11 @@ public class BackgroundModeTests(ITestOutputHelper log)
     private static TilemapView View(MainWindow w) => w.GetControl<TilemapView>("BgView");
     private static TilemapView Sheet(MainWindow w) => w.GetControl<TilemapView>("BgSheet");
 
-    /// <summary>The wheel zooms the map about the cell under the cursor: after a notch, the same
-    /// cell is still under the pointer. The drawer sheet keeps its fit-to-width zoom.</summary>
+    /// <summary>Alt/Cmd+wheel zooms the map about the cell under the cursor: after a notch, the
+    /// same cell is still under the pointer. The plain wheel scrolls, on either layer, and the
+    /// drawer sheet keeps its fit-to-width zoom.</summary>
     [AvaloniaFact]
-    public void the_wheel_zooms_the_map_about_the_cursor_and_leaves_the_sheet_alone()
+    public void alt_wheel_zooms_the_map_about_the_cursor_and_the_plain_wheel_scrolls()
     {
         if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
         var w = Open(0x009, layer3: true);
@@ -77,7 +78,7 @@ public class BackgroundModeTests(ITestOutputHelper log)
 
         for (int i = 0; i < 3; i++)
         {
-            w.MouseWheel(at, new Vector(0, 1));
+            w.MouseWheel(at, new Vector(0, 1), i == 1 ? RawInputModifiers.Meta : RawInputModifiers.Alt);
             Dispatcher.UIThread.RunJobs();
         }
         Assert.Equal(zoom0 + 1.5, view.Zoom);
@@ -93,15 +94,83 @@ public class BackgroundModeTests(ITestOutputHelper log)
         w.GetControl<Slider>("ZoomSlider").Value = (zoom0 + 1.5) * 100;
         Dispatcher.UIThread.RunJobs();
 
-        w.MouseWheel(at, new Vector(0, -1));
+        w.MouseWheel(at, new Vector(0, -1), RawInputModifiers.Alt);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(zoom0 + 1.0, view.Zoom);
         Assert.Equal(cell, view.At(w.TranslatePoint(at, view)!.Value));
+
+        // The plain wheel is a scroll, not a zoom — here on layer 3, and below on a layer 2.
+        var sv = w.GetControl<ScrollViewer>("BgScroll");
+        w.GetControl<Slider>("ZoomSlider").Value = 400;     // in far enough that there is room to scroll
+        Dispatcher.UIThread.RunJobs();
+        double y = sv.Offset.Y;
+        w.MouseWheel(at, new Vector(0, -1));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(4, view.Zoom);
+        Assert.True(sv.Offset.Y > y, $"layer 3: the plain wheel did not scroll (offset {sv.Offset.Y})");
 
         var onSheet = sheet.TranslatePoint(new Point(4, 4), w)!.Value;
         w.MouseWheel(onSheet, new Vector(0, 1));
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(sheetZoom, sheet.Zoom);
+    }
+
+    /// <summary>Layer 2 follows the same rule as layer 3: the plain wheel scrolls the background,
+    /// Alt/Cmd+wheel zooms it. Level 105 has a layer-2 image; level 9 above does not.</summary>
+    [AvaloniaFact]
+    public void layer_2_scrolls_on_the_wheel_and_zooms_on_the_chord()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var w = Open(0x105, layer3: false);
+        var view = View(w);
+        var sv = w.GetControl<ScrollViewer>("BgScroll");
+        Assert.True(view.Rows > 0, "level 105 should have a layer-2 background");
+        w.GetControl<Slider>("ZoomSlider").Value = 400;
+        Dispatcher.UIThread.RunJobs();
+        var at = view.TranslatePoint(new Point(40, 40), w)!.Value;
+
+        double y = sv.Offset.Y;
+        w.MouseWheel(at, new Vector(0, -1));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(4, view.Zoom);
+        Assert.True(sv.Offset.Y > y, $"the plain wheel did not scroll (offset {sv.Offset.Y})");
+
+        w.MouseWheel(at, new Vector(0, 1), RawInputModifiers.Alt);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(4.5, view.Zoom);
+        w.MouseWheel(at, new Vector(0, -1), RawInputModifiers.Meta);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(4, view.Zoom);
+    }
+
+    /// <summary>The drawer's BG Map16 sheet zooms the way the Tiles picker does: Alt/Cmd+wheel over
+    /// it widens or narrows the drawer by half a tile scale, and the sheet, which fits the drawer,
+    /// follows; the range stops it at the floor and the ceiling.</summary>
+    [AvaloniaFact]
+    public void alt_wheel_over_the_drawer_sheet_resizes_the_drawer()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var w = Open(0x105, layer3: false);
+        var sheet = Sheet(w);
+        var col = w.GetControl<Grid>("Split").ColumnDefinitions[0];
+        var at = sheet.TranslatePoint(new Point(8, 8), w)!.Value;
+
+        double width = col.Width.Value, zoom = sheet.Zoom;
+        w.MouseWheel(at, new Vector(0, 1), RawInputModifiers.Alt);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(width + 128, col.Width.Value, 1);
+        Assert.Equal(zoom + 0.5, sheet.Zoom, 2);
+        w.MouseWheel(at, new Vector(0, -1), RawInputModifiers.Meta);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(width, col.Width.Value, 1);
+        Assert.Equal(zoom, sheet.Zoom, 2);
+
+        for (int i = 0; i < 20; i++) w.MouseWheel(at, new Vector(0, -1), RawInputModifiers.Alt);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(col.MinWidth, col.Width.Value, 1);
+        for (int i = 0; i < 40; i++) w.MouseWheel(at, new Vector(0, 1), RawInputModifiers.Alt);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(col.Width.Value <= col.MaxWidth + 0.5 && col.Width.Value > col.MinWidth);
     }
 
     [AvaloniaFact]

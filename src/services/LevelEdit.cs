@@ -238,20 +238,53 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
 
     /// <summary>Shift the selection. <paramref name="coalesce"/> skips the undo snapshot, so a
     /// live drag across twenty cells stays ONE undo entry rather than twenty.</summary>
+    /// <summary>Where the selection sat when the current drag began: a coalesced move is measured
+    /// from HERE, not from where the last step left things. Measured from the last step, a step
+    /// the edge clamped away is never made up — the object falls behind the cursor by that much
+    /// and stays there for the rest of the drag. Null between drags.</summary>
+    private Dictionary<int, LevelObject>? moveAnchor;
+
+    /// <summary>How many times the grid was re-rendered — what a drag test counts to prove that
+    /// a burst of pointer moves was folded into one render.</summary>
+    internal int Reconciles { get; private set; }
+
+    /// <summary>
+    /// Move the selection by (dx, dy) cells. A plain call is one edit: one undo entry, and the
+    /// offset is from where the objects are now. With <paramref name="coalesce"/> the call is a
+    /// later step of the same drag: no new undo entry, and the offset is from where the drag
+    /// STARTED — the caller hands over the cursor's total travel, and the objects land there no
+    /// matter what earlier steps were clamped or skipped. Both axes are clamped to the level: an
+    /// X past the left edge would wrap into screen 31 through the record's 5-bit screen field.
+    /// </summary>
     public bool MoveSelected(int dx, int dy, bool coalesce = false)
     {
-        if (Selection.Count == 0 || (dx == 0 && dy == 0)) return false;
-        if (!coalesce) undo.Push([.. objects]);
+        if (Selection.Count == 0) return false;
+        if (!coalesce || moveAnchor is null)
+        {
+            if (dx == 0 && dy == 0) return false;
+            undo.Push([.. objects]);
+            moveAnchor = Selection.ToDictionary(i => i, i => objects[i]);
+        }
         redo.Clear();
+        int width = Target?.Width ?? Scene.Grid.Width;
+        bool any = false;
         foreach (int i in Selection)
         {
-            var o = objects[i];
-            objects[i] = o.AtCell(o.AbsoluteX + dx, Math.Clamp(o.AbsoluteY + dy, 0, Scene.VisibleRows - 1));
+            var from = moveAnchor.TryGetValue(i, out var a) ? a : objects[i];
+            var to = from.AtCell(Math.Clamp(from.AbsoluteX + dx, 0, width - 1),
+                                 Math.Clamp(from.AbsoluteY + dy, 0, Scene.VisibleRows - 1));
+            if (to.AbsoluteX == objects[i].AbsoluteX && to.AbsoluteY == objects[i].AbsoluteY) continue;
+            objects[i] = to;
+            any = true;
         }
+        if (!any) return false;
         Dirty = true;
         Reconcile();
         return true;
     }
+
+    /// <summary>The drag is over: the next move measures from wherever things are then.</summary>
+    public void EndMove() => moveAnchor = null;
 
     /// <summary>Step the selection through the stream — one slot later (+1, draws on top of
     /// what it passes) or earlier (-1). Stream order IS z-order, so this is "bring forward /
@@ -490,6 +523,7 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
 
     private void Reconcile()
     {
+        Reconciles++;
         // Encode and run the EMULATED engine, which is what produced the baseline grid and
         // what the ImGui editor re-renders with. PortedObjectEngine is a C# reimplementation
         // and does not agree with it cell-for-cell, so mixing the two makes every edit look

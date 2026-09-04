@@ -574,10 +574,26 @@ public static class Gfx
     {
         var ids = custom
             ? rom.ImportedGfx.Keys.Where(id => SourceSnes(rom, id) < 0).ToList()
-            : Enumerable.Range(0, 0x34).ToList();
+            : Enumerable.Range(0, 0x34).Concat(RomExGfx(rom)).ToList();
         ids.Sort();
         if (filter.Length == 0) return ids;
         return ids.Where(id => Matches(rom, id, filter)).ToList();
+    }
+
+    /// <summary>
+    /// The ExGFX ids (0x80-0xFFF) the ROM's OWN tables resolve — files Lunar Magic inserted into
+    /// the base, as opposed to the project's imports. They are base files: not renameable, and an
+    /// edit forks them like any stock sheet. A pointer only counts when it decompresses to whole
+    /// tiles at the ROM's depth, because the tables are not clean on every base: our prep's arm
+    /// stub at $0FF770 sits inside LM's 0x80 table where ids 0xFA-0xFF would live, so those read
+    /// as pointers into code (CONTRACT §7d; RomPrep.GfxArmStub).
+    /// </summary>
+    public static IEnumerable<int> RomExGfx(Rom rom)
+    {
+        int tb = TileBytes(RomBpp(rom));
+        for (int id = 0x80; id <= 0xFFF; id++)
+            if (SourceSnes(rom, id) >= 0 && Cached(rom, id) is { Length: > 0 } d && d.Length % tb == 0)
+                yield return id;
     }
 
     /// <summary>A file matches when the filter appears anywhere in its NAME, or PREFIXES its hex

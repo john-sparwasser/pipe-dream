@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Threading;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.VisualTree;
@@ -23,7 +24,8 @@ namespace PipeDream.Ui;
 ///   ALT + LEFT click   eyedropper: select the CGRAM colour under the pixel
 ///   DELETE             delete the selection
 ///   WHEEL              scroll horizontally (SHIFT: vertically). Vertical levels keep the
-///                      normal up/down wheel.
+///                      normal up/down wheel. ALT/CMD + WHEEL zooms (the window's, about the
+///                      cursor); CTRL + WHEEL reorders the selection in its stream.
 ///
 /// Painting on the LEFT button was the obvious guess and the wrong one — in this editor the
 /// left button belongs to selection, exactly as in Lunar Magic.
@@ -224,7 +226,22 @@ public class LevelView : Control
     private bool grabbing, sampling;
     /// <summary>A move drag has already applied at least one step, so the rest coalesce into
     /// the same undo entry and a release is a drag, not a stationary click.</summary>
-    private bool moved;
+    private bool moved, movePending;
+
+    /// <summary>Apply the drag's latest position: the cursor's whole travel from the press,
+    /// measured by the editor from where the objects started (a step the edge clamps is not
+    /// lost). One render per call, however many pointer moves queued up behind it.</summary>
+    private void FlushMove()
+    {
+        movePending = false;
+        if (moveStart is not { } m || bandEnd is not { } c || Edit is null) return;
+        if (Edit.MoveSelected(c.X - m.X, c.Y - m.Y, moved))
+        {
+            moved = true;
+            SelectionChanged?.Invoke(this, EventArgs.Empty);
+            InvalidateVisual();
+        }
+    }
     private double orderWheel;                   // fractional Ctrl+wheel not yet spent
     private readonly Stroke stroke;
     private (int Obj, (int DX, int DY) Edge, int Cx, int Cy)? resizeDrag;
@@ -428,6 +445,13 @@ public class LevelView : Control
 
         var cell = CellAt(e.GetPosition(this));
         if (cell != HoverCell) { HoverCell = cell; InvalidateVisual(); }
+        // Mid-drag the pointer may leave the level image (the pointer is captured, so the events
+        // keep coming): the drag continues at the nearest cell inside it rather than freezing at
+        // the edge, so an object dragged past the top lands on the top row.
+        if (cell is null && (moveStart is not null || bandStart is not null || resizeDrag is not null)
+            && Source is { HasImages: true } src
+            && Lasso.Clamped(e.GetPosition(this) + Origin, Zoom, src.PxW, src.PxH) is { } px)
+            cell = (px.X / 16, px.Y / 16);
 
         // Dragging the eyedropper reads continuously, so you can sweep it across the artwork and
         // watch the readout rather than clicking once per guess.
@@ -478,13 +502,15 @@ public class LevelView : Control
         {
             if (moveStart is not null)
             {
-                // Live: the selection goes where the cursor goes, one step per cell crossed,
-                // all coalesced into a single undo entry.
-                var prev = bandEnd ?? moveStart.Value;
-                if (c != prev && Edit?.MoveSelected(c.X - prev.X, c.Y - prev.Y, moved) == true)
+                // Live: the selection goes where the cursor goes, all of it one undo entry. Not
+                // applied here, though — a move re-renders the whole level (~10ms), and a fast
+                // drag delivers pointer events far faster than that. Applied once per burst
+                // instead (FlushMove), so the objects land under the cursor rather than
+                // trailing it through every cell it crossed.
+                if (c != (bandEnd ?? moveStart.Value) && !movePending)
                 {
-                    moved = true;
-                    SelectionChanged?.Invoke(this, EventArgs.Empty);
+                    movePending = true;
+                    Dispatcher.UIThread.Post(FlushMove, DispatcherPriority.Background);
                 }
             }
             bandEnd = c;
@@ -545,11 +571,16 @@ public class LevelView : Control
             if (a == b) { Edit?.CycleSelectionAt(a.X, a.Y); SelectionChanged?.Invoke(this, EventArgs.Empty); }
             else if (grabbing && Band is { } g) GrabRequested?.Invoke(this, g);
         }
-        else if (moveStart is { } m && !moved)
+        else if (moveStart is { } m)
         {
-            // Never dragged anywhere: it was a stationary click, so cycle the stack instead.
-            Edit?.CycleSelectionAt(m.X, m.Y);
-            SelectionChanged?.Invoke(this, EventArgs.Empty);
+            FlushMove();                    // whatever the last burst had not applied yet
+            Edit?.EndMove();
+            if (!moved)
+            {
+                // Never dragged anywhere: it was a stationary click, so cycle the stack instead.
+                Edit?.CycleSelectionAt(m.X, m.Y);
+                SelectionChanged?.Invoke(this, EventArgs.Empty);
+            }
         }
 
         bandStart = bandEnd = moveStart = null;
@@ -563,10 +594,11 @@ public class LevelView : Control
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
     {
         base.OnPointerWheelChanged(e);
-        // Ctrl/Cmd+wheel steps the selection through its stream: up brings it forward, down
-        // sends it back. A trackpad delivers a notch as many fractional ticks, so they are
-        // summed and spent one whole notch at a time.
-        if (Hotkeys.Command(e.KeyModifiers))
+        // Ctrl+wheel steps the selection through its stream: up brings it forward, down sends it
+        // back. Ctrl only, not Cmd: Alt/Cmd+wheel is the window's zoom, taken before this runs. A
+        // trackpad delivers a notch as many fractional ticks, so they are summed and spent one
+        // whole notch at a time.
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
             orderWheel += e.Delta.Y;
             for (; Math.Abs(orderWheel) >= 1; orderWheel -= Math.Sign(orderWheel))
@@ -579,20 +611,19 @@ public class LevelView : Control
             e.Handled = true;
             return;
         }
-        // Horizontal levels scroll sideways        base.OnPointerWheelChanged(e);
-        // Horizontal levels scroll sideways with the wheel (Shift = vertical); vertical
-        // levels keep the normal up/down wheel. Same rule as the ImGui viewport.
-        double step = e.Delta.Y * 64 * Zoom;
-        if (Vertical) return;                       // let the scroll viewer handle it
-        if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) ScrollRequested?.Invoke(this, (0, -step));
-        else ScrollRequested?.Invoke(this, (-step, 0));
+        // Horizontal levels scroll sideways with the wheel (Shift = vertical); vertical levels
+        // the other way round. Same rule as the ImGui viewport. Eight tiles a notch: the scroll
+        // viewer's own 50px felt sluggish on a 5,000px level.
+        double step = e.Delta.Y * 128 * Zoom;
+        bool sideways = Vertical == e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+        ScrollRequested?.Invoke(this, sideways ? (-step, 0) : (0, -step));
         e.Handled = true;
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
         base.OnKeyDown(e);
-        if (e.Key != Key.Delete) return;
+        if (e.Key is not (Key.Delete or Key.Back)) return;   // Backspace deletes too: Mac keyboards have no Delete key
         if (Mode == EditMode.Sprites && Sprites is { Selection.Count: > 0 } sp)
         {
             if (sp.DeleteSelected()) SpritesChanged?.Invoke(this, EventArgs.Empty);

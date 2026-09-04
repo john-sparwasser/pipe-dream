@@ -229,8 +229,65 @@ public class ControlParityTests(ITestOutputHelper log)
         Assert.Equal(depth + 1, edit.UndoDepth);             // one drag, one undo
     }
 
+    /// <summary>A drag is measured from where it started, not from the last step: dragged past the
+    /// level's top (where the move is clamped) and back down, the object comes back to the cursor
+    /// instead of staying short by the clamped rows; and a drag past the left edge stops at column
+    /// 0 rather than wrapping into screen 31. A burst of pointer moves before the UI gets a turn is
+    /// folded into ONE re-render, landing at the last position.</summary>
     [AvaloniaFact]
-    public void delete_removes_the_selection()
+    public void a_drag_is_anchored_clamped_and_folds_a_burst_into_one_render()
+    {
+        if (Open() is not { } o) { log.WriteLine("SKIP: no ROM"); return; }
+        var (w, c) = o;
+        var edit = EditOf(w);
+        (int X, int Y)? target = null;
+        for (int y = 2; y < 20 && target is null; y++)
+            for (int x = 4; x < 24; x++)
+                if (edit.ObjectAt(x, y) is not null) { target = (x, y); break; }
+        var (tx, ty) = target!.Value;
+        w.MouseDown(At(c, w, tx, ty), MouseButton.Left);
+        w.MouseUp(At(c, w, tx, ty), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        int sel = edit.Selection.Single();
+        int x0 = edit.Objects[sel].AbsoluteX, y0 = edit.Objects[sel].AbsoluteY;
+
+        // Up past the top by far more rows than exist, then back to two rows above the start.
+        w.MouseDown(At(c, w, tx, ty), MouseButton.Left);
+        w.MouseMove(At(c, w, tx, ty - 60)); Dispatcher.UIThread.RunJobs();
+        Assert.Equal(0, edit.Objects[sel].AbsoluteY);                 // clamped at the top
+        w.MouseMove(At(c, w, tx, ty - 2)); Dispatcher.UIThread.RunJobs();
+        Assert.Equal(y0 - 2, edit.Objects[sel].AbsoluteY);            // back under the cursor, not short by 58
+        // Off the left edge: column 0, never screen 31.
+        w.MouseMove(At(c, w, tx - 40, ty - 2)); Dispatcher.UIThread.RunJobs();
+        Assert.Equal(0, edit.Objects[sel].AbsoluteX);
+        w.MouseUp(At(c, w, tx - 40, ty - 2), MouseButton.Left); Dispatcher.UIThread.RunJobs();
+
+        // A burst: eight pointer moves, one dispatcher turn, one render, final position. Raised as
+        // raw routed events — the headless MouseMove helper pumps the dispatcher after each one,
+        // which is exactly the gap a real burst does not leave.
+        var obj = edit.Objects[sel];
+        int renders = edit.Reconciles;
+        w.MouseDown(At(c, w, obj.AbsoluteX, obj.AbsoluteY), MouseButton.Left);
+        var pointer = new Pointer(Pointer.GetNextFreeId(), PointerType.Mouse, true);
+        for (int i = 1; i <= 8; i++)
+            c.RaiseEvent(new PointerEventArgs(InputElement.PointerMovedEvent, c, pointer, w,
+                                              At(c, w, obj.AbsoluteX + i, obj.AbsoluteY), 0,
+                                              new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.Other),
+                                              KeyModifiers.None));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(obj.AbsoluteX + 8, edit.Objects[sel].AbsoluteX);
+        Assert.Equal(renders + 1, edit.Reconciles);
+        w.MouseUp(At(c, w, obj.AbsoluteX + 8, obj.AbsoluteY), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(obj.AbsoluteX + 8, edit.Objects[sel].AbsoluteX);
+    }
+
+    /// <summary>Backspace is Delete: a Mac keyboard has no Delete key, and either should remove
+    /// what is selected — level objects here, sprites and Map16 tiles through the same check.</summary>
+    [AvaloniaTheory]
+    [InlineData(PhysicalKey.Delete)]
+    [InlineData(PhysicalKey.Backspace)]
+    public void delete_removes_the_selection(PhysicalKey key)
     {
         if (Open() is not { } o) { log.WriteLine("SKIP: no ROM"); return; }
         var (w, c) = o;
@@ -245,11 +302,36 @@ public class ControlParityTests(ITestOutputHelper log)
         Assert.True(selected > 0);
 
         c.Focus();
-        w.KeyPressQwerty(PhysicalKey.Delete, RawInputModifiers.None);
+        w.KeyPressQwerty(key, RawInputModifiers.None);
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(before - selected, edit.Objects.Count);
         Assert.Empty(edit.Selection);
+    }
+
+    /// <summary>A middle-button drag pans the scroll viewer under the pointer, by exactly the drag,
+    /// on every scrollable surface — here the level canvas, but the handler is the window's.</summary>
+    [AvaloniaFact]
+    public void middle_drag_pans_the_view()
+    {
+        if (Open() is not { } o) { log.WriteLine("SKIP: no ROM"); return; }
+        var (w, c) = o;
+        var sv = w.GetControl<ScrollViewer>("CanvasScroll");
+        Dispatcher.UIThread.RunJobs();
+        sv.Offset = new Vector(200, 0);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(200, sv.Offset.X, 1);          // the level is wider than the viewport
+
+        // A point in the viewport's middle: a cell address would have scrolled off under the drawer.
+        var from = sv.TranslatePoint(new Point(sv.Bounds.Width / 2, sv.Bounds.Height / 2), w)!.Value;
+        w.MouseDown(from, MouseButton.Middle);
+        w.MouseMove(from + new Vector(-50, 0));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(250, sv.Offset.X, 1);          // dragging left shows what is to the right
+        w.MouseUp(from + new Vector(-50, 0), MouseButton.Middle);
+        w.MouseMove(from + new Vector(-90, 0));     // released: moving the mouse pans nothing
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(250, sv.Offset.X, 1);
     }
 
     [AvaloniaFact]
@@ -302,17 +384,26 @@ public class ControlParityTests(ITestOutputHelper log)
         Assert.Equal(0, moves[0].Dx);             // shift flips it to vertical
         Assert.NotEqual(0, moves[0].Dy);
 
-        // A VERTICAL level keeps the normal wheel, so the scroll viewer handles it.
+        // A VERTICAL level goes the other way round: the wheel is up/down, Shift sideways. The
+        // canvas scrolls it itself (not the scroll viewer) so both orientations get the same rate.
         moves.Clear();
         c.Vertical = true;
         w.MouseWheel(at, new Vector(0, -1));
         Dispatcher.UIThread.RunJobs();
-        Assert.Empty(moves);
+        Assert.NotEmpty(moves);
+        Assert.Equal(0, moves[0].Dx);
+        Assert.NotEqual(0, moves[0].Dy);
+        moves.Clear();
+        w.MouseWheel(at, new Vector(0, -1), RawInputModifiers.Shift);
+        Dispatcher.UIThread.RunJobs();
+        Assert.NotEqual(0, moves[0].Dx);
+        Assert.Equal(0, moves[0].Dy);
     }
 
-    /// <summary>Ctrl (Cmd on a Mac) + wheel reorders instead of scrolling: up takes the selected
-    /// object one slot later in the stream — on top of what it passed — and down brings it back.
-    /// One notch is one undo, and the selection follows the object to its new index.</summary>
+    /// <summary>Ctrl+wheel reorders instead of scrolling: up takes the selected object one slot
+    /// later in the stream — on top of what it passed — and down brings it back. One notch is one
+    /// undo, and the selection follows the object to its new index. Ctrl only: Cmd+wheel is the
+    /// zoom, on a Mac too.</summary>
     [AvaloniaFact]
     public void ctrl_wheel_steps_the_selection_through_the_stream()
     {
@@ -335,7 +426,7 @@ public class ControlParityTests(ITestOutputHelper log)
         Assert.Equal([1], edit.Selection);
         Assert.Equal(depth + 1, edit.UndoDepth);
 
-        w.MouseWheel(at, new Vector(0, -1), RawInputModifiers.Meta);
+        w.MouseWheel(at, new Vector(0, -1), RawInputModifiers.Control);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(first, edit.Objects[0]);
         Assert.Equal([0], edit.Selection);
@@ -346,6 +437,47 @@ public class ControlParityTests(ITestOutputHelper log)
 
         Assert.True(edit.Undo());
         Assert.Equal(first, edit.Objects[1]);
+    }
+
+    /// <summary>Alt+wheel and Cmd+wheel over the level or the Map16 sheet zoom a slider step, about
+    /// the cursor, and neither scroll nor reorder; the plain wheel over the level still scrolls.</summary>
+    [AvaloniaFact]
+    public void alt_or_cmd_wheel_zooms_the_level_and_map16_views()
+    {
+        if (Open() is not { } o) { log.WriteLine("SKIP: no ROM"); return; }
+        var (w, c) = o;
+        var edit = EditOf(w);
+        var slider = w.GetControl<Slider>("ZoomSlider");
+        var moves = new List<(double Dx, double Dy)>();
+        c.ScrollRequested += (_, d) => moves.Add(d);
+        edit.Selection.Clear(); edit.Selection.Add(0);
+        var first = edit.Objects[0];
+        var at = At(c, w, 4, 4);
+
+        double pct = slider.Value;
+        w.MouseWheel(at, new Vector(0, 1), RawInputModifiers.Alt);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(pct + slider.TickFrequency, slider.Value, 1);
+        Assert.Equal(slider.Value / 100, c.Zoom, 3);
+        w.MouseWheel(at, new Vector(0, -1), RawInputModifiers.Meta);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(pct, slider.Value, 1);
+        Assert.Empty(moves);                                  // zoomed, not scrolled...
+        Assert.Equal(first, edit.Objects[0]);                 // ...and not reordered
+        w.MouseWheel(at, new Vector(0, 1));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Single(moves);                                 // the plain wheel is still a scroll
+        Assert.Equal(pct, slider.Value, 1);
+
+        w.GetControl<Avalonia.Controls.Primitives.ToggleButton>("ModeMap16").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        var m16 = w.GetControl<Map16CanvasView>("Map16Canvas");
+        double m16Pct = slider.Value;
+        var m16At = m16.TranslatePoint(new Point(20, 20), w)!.Value;
+        w.MouseWheel(m16At, new Vector(0, 1), RawInputModifiers.Meta);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(m16Pct + slider.TickFrequency, slider.Value, 1);
+        Assert.Equal(slider.Value / 100, m16.Zoom, 3);
     }
 
     /// <summary>The desk — the checkerboard beside a canvas — takes the wheel the way the canvas

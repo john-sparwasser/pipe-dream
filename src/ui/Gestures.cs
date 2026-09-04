@@ -1,6 +1,9 @@
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 
 namespace PipeDream.Ui;
 
@@ -192,5 +195,47 @@ internal static class Lasso
         if (steps == 0) { yield return b; yield break; }
         for (int i = 1; i <= steps; i++)
             yield return (a.X + (b.X - a.X) * i / steps, a.Y + (b.Y - a.Y) * i / steps);
+    }
+}
+
+/// <summary>
+/// Middle-button drag pans whatever ScrollViewer is under the pointer — the whole window, not one
+/// canvas, because every scrollable thing here (the level, the Map16 sheet, the drawer's picker,
+/// a GFX sheet) is browsed the same way. Tunnelling handlers on the window see the press before
+/// the control under it does, so nothing has to opt in; a control that wants the middle button
+/// for itself does not exist yet.
+/// </summary>
+internal static class MiddlePan
+{
+    public static void Attach(Window top)
+    {
+        Avalonia.Controls.ScrollViewer? sv = null;
+        Point start = default;
+        Vector origin = default;
+
+        top.AddHandler(InputElement.PointerPressedEvent, (_, e) =>
+        {
+            if (!e.GetCurrentPoint(top).Properties.IsMiddleButtonPressed) return;
+            sv = (e.Source as Visual)?.FindAncestorOfType<Avalonia.Controls.ScrollViewer>(includeSelf: true);
+            if (sv is null) return;
+            start = e.GetPosition(top);
+            origin = sv.Offset;
+            e.Pointer.Capture(sv);
+            e.Handled = true;
+        }, RoutingStrategies.Tunnel);
+
+        top.AddHandler(InputElement.PointerMovedEvent, (_, e) =>
+        {
+            if (sv is null) return;
+            sv.Offset = origin - (e.GetPosition(top) - start);   // the viewer clamps to its extent
+            e.Handled = true;
+        }, RoutingStrategies.Tunnel);
+
+        top.AddHandler(InputElement.PointerReleasedEvent, (_, e) =>
+        {
+            if (sv is null || e.InitialPressMouseButton != MouseButton.Middle) return;
+            sv = null;
+            e.Handled = true;
+        }, RoutingStrategies.Tunnel);
     }
 }

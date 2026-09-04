@@ -118,6 +118,37 @@ public class GfxImportTests
         Assert.Equal(0x108000, Gfx.SourceSnes(rom, 0x85));
     }
 
+    /// <summary>An ExGFX Lunar Magic inserted lives in the ROM's own tables, so the browser lists
+    /// it on the base side; a pointer that does not decompress to whole tiles (our prep's arm stub
+    /// overlaps ids 0xFA-0xFF of the 0x80 table) is not a file and stays hidden.</summary>
+    [Fact]
+    public void exgfx_the_rom_itself_carries_is_a_base_candidate()
+    {
+        var rom = TestRom.CreateWithGfx00();                             // RomBpp = 3
+        int hook = rom.FileOffset(0x00AA50);
+        rom.Data[hook] = 0x22; rom.Data[hook + 1] = 0x80; rom.Data[hook + 2] = 0xF7; rom.Data[hook + 3] = 0x0F;
+
+        // 0x85 -> a 2-tile 3bpp file: two byte-fills of 24 zeros (37 00), then FF.
+        const int blob = 0x0FB000;
+        int bo = rom.FileOffset(blob);
+        rom.Data[bo] = 0x37; rom.Data[bo + 1] = 0x00; rom.Data[bo + 2] = 0x37; rom.Data[bo + 3] = 0x00; rom.Data[bo + 4] = 0xFF;
+        int fo = rom.FileOffset(Gfx.ExGfx80Table + (0x85 - 0x80) * 3);
+        rom.Data[fo] = blob & 0xFF; rom.Data[fo + 1] = blob >> 8 & 0xFF; rom.Data[fo + 2] = blob >> 16;
+
+        // 0x86 -> code-shaped bytes: a 1-byte "file", not whole tiles.
+        const int junk = 0x0FB100;
+        int jo = rom.FileOffset(junk);
+        rom.Data[jo] = 0x00; rom.Data[jo + 1] = 0x42; rom.Data[jo + 2] = 0xFF;   // direct copy of 1 byte
+        fo = rom.FileOffset(Gfx.ExGfx80Table + (0x86 - 0x80) * 3);
+        rom.Data[fo] = junk & 0xFF; rom.Data[fo + 1] = junk >> 8 & 0xFF; rom.Data[fo + 2] = junk >> 16;
+
+        var bases = Gfx.Candidates(rom, custom: false, "");
+        Assert.Contains(0x85, bases);
+        Assert.DoesNotContain(0x86, bases);
+        Assert.DoesNotContain(0x85, Gfx.Candidates(rom, custom: true, ""));
+        Assert.Equal([0x85], Gfx.Candidates(rom, custom: false, "85"));
+    }
+
     [RealRomFact]
     public void vanilla_rom_has_no_lm_gfx_loader()
     {

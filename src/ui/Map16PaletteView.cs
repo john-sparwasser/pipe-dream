@@ -24,7 +24,12 @@ public class Map16PaletteView : Control
     /// so a tile animates the same here as it does in the level.</summary>
     public int Phase { get; set; }
 
-    public double Zoom { get; set; } = 2.0;
+    /// <summary>Tile scale. Not set from outside: the picker fits a whole 16-tile row to whatever
+    /// width the drawer gives it, so the splitter IS the zoom control — and so is Alt/Cmd+wheel,
+    /// which the window turns into a drawer resize (MainWindow.DrawerWheel) for every drawer
+    /// sheet that fits its width.</summary>
+    public double Zoom { get; private set; } = DefaultZoom;
+    public const double MinZoom = 1, MaxZoom = 6, DefaultZoom = 2, ZoomStep = 0.5;
     public int Bank { get; set; }
 
     /// <summary>Draw a square around each Map16 page (16 rows).</summary>
@@ -68,7 +73,11 @@ public class Map16PaletteView : Control
     public static double ContentWidth(double zoom) => Map16Layout.Cols * 16 * zoom + Pad * 2;
 
     protected override Size MeasureOverride(Size availableSize)
-        => new(Map16Layout.Cols * 16 * Zoom, Map16Layout.BankRows * 16 * Zoom);
+    {
+        if (double.IsFinite(availableSize.Width))
+            Zoom = Math.Clamp(availableSize.Width / (Map16Layout.Cols * 16), MinZoom, MaxZoom);
+        return new(Map16Layout.Cols * 16 * Zoom, Map16Layout.BankRows * 16 * Zoom);
+    }
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
