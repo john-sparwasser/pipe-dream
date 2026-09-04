@@ -28,7 +28,7 @@ jobs:
       contents: read
       id-token: write            # the OIDC token azure/login trades for an Azure one
     # Step-level `if` cannot read the secrets context, so the signing key is lifted into env
-    # here and the steps below test that — the same trick the Discord step in the release job
+    # here and the steps below test that — the same trick the Discord step in announce.yml
     # uses. Unset (a fork, or before signing is set up) means the signing steps skip and the
     # build still produces an unsigned installer.
     env:
@@ -192,46 +192,26 @@ jobs:
           name: PipeDream-Setup
           path: bin/setup/*.exe
 
-  # Pushing a v* tag publishes the verified builds as a GitHub release — the feed the in-app
-  # updater reads (UpdateCheck.Repo). Both matrix legs must pass first, so a release asset is
-  # always a build whose tests ran and whose installer installed and uninstalled cleanly.
+  # Pushing a v* tag uploads the verified builds as a DRAFT release — the feed the in-app
+  # updater reads (UpdateCheck.Repo) skips drafts, so nothing ships until someone publishes
+  # it. Both matrix legs must pass first, so a release asset is always a build whose tests
+  # ran and whose installer installed and uninstalled cleanly.
+  #
+  # The notes are written by hand, not generated: after the draft appears, write them and
+  # publish in one step —
+  #     gh release edit vX.Y.Z --draft=false --notes-file notes.md
+  # Publishing is what announces it (announce.yml), with those notes as the body.
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    env:
-      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
     steps:
       - uses: actions/download-artifact@v7
         with:
           merge-multiple: true
           path: dist
-      - run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+      - run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --draft --notes ""
         env:
           GH_TOKEN: ${{ github.token }}
-
-      # Announce it in Discord: the generated notes as the embed body, one field per asset
-      # holding its direct download link. gh ships its own jq engine (--jq), so this needs
-      # nothing installed. Skipped when the secret is unset, so a fork tagging a build does
-      # not fail here. The 3800-char slice keeps long notes under Discord's 4096 cap.
-      - name: Announce the release in Discord
-        if: env.DISCORD_WEBHOOK != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json body,url,assets --jq '{
-              embeds: [{
-                title: "Pipe Dream \(env.GITHUB_REF_NAME)",
-                url: .url,
-                color: 3447003,
-                description: ((.body // "") | .[0:3800]),
-                fields: [.assets[] | {
-                  name: .name,
-                  value: "[Download](\(.url)) · \(.size / 1048576 | floor) MB",
-                  inline: true
-                }]
-              }]
-            }' |
-          curl -fsS -X POST -H 'Content-Type: application/json' -d @- "$DISCORD_WEBHOOK"

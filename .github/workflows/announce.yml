@@ -1,0 +1,39 @@
+# Announce a PUBLISHED release in Discord: the release notes as the embed body, one field per
+# asset holding its direct download link. Runs on publish rather than on the tag build so the
+# notes it posts are the hand-written ones, not a draft's empty body (see build.yml, release).
+# gh ships its own jq engine (--jq), so this needs nothing installed. Skipped when the secret
+# is unset, so a fork publishing a release does not fail here.
+name: announce
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  discord:
+    if: ${{ !github.event.release.draft }}
+    runs-on: ubuntu-latest
+    env:
+      DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+    steps:
+      - name: Announce the release in Discord
+        if: env.DISCORD_WEBHOOK != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          # The 3800-char slice keeps long notes under Discord's 4096 cap.
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body,url,assets --jq '{
+              embeds: [{
+                title: "Pipe Dream \(env.TAG)",
+                url: .url,
+                color: 3447003,
+                description: ((.body // "") | .[0:3800]),
+                fields: [.assets[] | {
+                  name: .name,
+                  value: "[Download](\(.url)) · \(.size / 1048576 | floor) MB",
+                  inline: true
+                }]
+              }]
+            }' |
+          curl -fsS -X POST -H 'Content-Type: application/json' -d @- "$DISCORD_WEBHOOK"
