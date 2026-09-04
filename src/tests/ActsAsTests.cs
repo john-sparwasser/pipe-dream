@@ -36,3 +36,29 @@ public class ActsAsTests
         Assert.Equal("", ActsAs.Describe(0x00));
     }
 }
+
+/// <summary>Map16Tiles.json names a TILE per tileset: a tileset's own line beats `all`.</summary>
+public class Map16TilesTests
+{
+    [Fact]
+    public void a_tilesets_own_line_beats_all_and_a_missing_tile_says_nothing()
+    {
+        Map16Tiles.Parse("""
+            { "tiles": { "100": { "actAsTilesets": { "all": "Ground", "0": "Grass ground" } },
+                         "025": { "actAsTilesets": { "all": "Empty" } } } }
+            """);
+        Assert.Equal("Grass ground", Map16Tiles.Describe(0x100, 0));
+        Assert.Equal("Ground", Map16Tiles.Describe(0x100, 1));
+        Assert.Equal("Empty", Map16Tiles.Describe(0x25, 0xF));
+        Assert.Equal("", Map16Tiles.Describe(0x26, 0));
+    }
+
+    /// <summary>The shipped file parses and carries at least the shared tiles.</summary>
+    [Fact]
+    public void the_embedded_table_loads()
+    {
+        Map16Tiles.Parse(new StreamReader(typeof(Map16Tiles).Assembly
+            .GetManifestResourceStream("Map16Tiles.json")!).ReadToEnd());
+        Assert.Equal("Coin", Map16Tiles.Describe(0x2B, 3));
+    }
+}

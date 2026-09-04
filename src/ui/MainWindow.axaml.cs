@@ -116,6 +116,8 @@ public partial class MainWindow : Window
     private TextBlock m16SelLabel = null!, m16ActsNote = null!, m16Unallocated = null!;
     private StackPanel m16Fields = null!;
     private TextBox m16Acts = null!;
+    private Border m16ActsTip = null!;
+    private TextBlock m16ActsTipText = null!, m16TileTipText = null!;
     private ToggleButton m16Priority = null!;
     private ComboBox m16Palette = null!;
     private Border m16PaletteBar = null!;
@@ -265,6 +267,7 @@ public partial class MainWindow : Window
         {
             if (edit is null) return;
             var (tiles, w, h) = edit.GrabTiles(g.X, g.Y, g.W, g.H);
+            palette.ClearSelection();      // the level's block is the brush now, not the drawer's
             SetBrush(tiles, w, h);
         };
         // Moving and resizing raise this too, and they change PIXELS — without the push the
@@ -365,6 +368,11 @@ public partial class MainWindow : Window
         m16Fields = this.GetControl<StackPanel>("M16Fields");
         m16Unallocated = this.GetControl<TextBlock>("M16Unallocated");
         m16Acts = this.GetControl<TextBox>("M16Acts");
+        m16ActsTip = this.GetControl<Border>("M16ActsTip");
+        m16ActsTipText = this.GetControl<TextBlock>("M16ActsTipText");
+        m16TileTipText = this.GetControl<TextBlock>("M16TileTipText");
+        map16Canvas.PointerMoved += (_, _) => ShowActsTip();
+        map16Canvas.PointerExited += (_, _) => m16ActsTip.IsVisible = false;
         m16ActsNote = this.GetControl<TextBlock>("M16ActsNote");
         m16Priority = this.GetControl<ToggleButton>("M16Priority");
         m16Palette = this.GetControl<ComboBox>("M16Palette");
@@ -427,6 +435,25 @@ public partial class MainWindow : Window
             map16Canvas.ShowPages = m16Pages.IsChecked == true;
             map16Canvas.InvalidateVisual();
         };
+        // Hitboxes on both canvases, from the same rule: the tile's acts-as through the ROM's
+        // collision tables, in this level's tileset. The level can also resolve a steep slope's
+        // upper tile from the tile under it; the sheet has no neighbours and shows it as unknown.
+        // One setting with two buttons: turning it on in either mode turns it on in both, so
+        // switching modes never loses it.
+        var m16Hitboxes = this.GetControl<ToggleButton>("M16Hitboxes");
+        var hitboxes = this.GetControl<ToggleButton>("HitboxesToggle");
+        void ShowHitboxes(bool on)
+        {
+            hitboxes.IsChecked = on;
+            m16Hitboxes.IsChecked = on;
+            canvas.Hitboxes = on ? LevelHitbox : null;
+            map16Canvas.Hitboxes = on && session.Rom is { } r
+                ? tile => Hitboxes.Of(r, r.ActsAs(tile), session.Tileset) : null;
+            canvas.InvalidateVisual();
+            map16Canvas.InvalidateVisual();
+        }
+        m16Hitboxes.IsCheckedChanged += (_, _) => ShowHitboxes(m16Hitboxes.IsChecked == true);
+        hitboxes.IsCheckedChanged += (_, _) => ShowHitboxes(hitboxes.IsChecked == true);
         var pagesBox = this.GetControl<CheckBox>("PagesBox");
         pagesBox.IsCheckedChanged += (_, _) =>
         {
@@ -437,6 +464,12 @@ public partial class MainWindow : Window
         {
             selLabel.Text = $"0x{tile:X4}";
             SetBrush(null, 1, 1);          // picking a tile replaces a grabbed brush
+        };
+        // A lassoed block in the drawer is a brush like one grabbed from the level.
+        palette.BrushPicked += (_, b) =>
+        {
+            selLabel.Text = $"{b.W}x{b.H} tiles";
+            SetBrush(b.Tiles, b.W, b.H);
         };
 
         // ---- drawer tabs: Map16 tiles / sprite catalog / object catalog ----
@@ -895,6 +928,7 @@ public partial class MainWindow : Window
         objectList.SelectedIndex = -1;
         canvas.CatalogObject = -1;
         brush = tiles is null ? null : (tiles, w, h);
+        if (tiles is null) palette.ClearSelection();   // no brush, no block to show as one
         canvas.InvalidateVisual();
     }
 
@@ -1856,7 +1890,9 @@ public partial class MainWindow : Window
         }
         else if (modeMap16.IsChecked == true)
         {
-            if (redo ? map16?.Redo() == true : map16?.Undo() == true) RefreshMap16Sheet();
+            // The properties panel shows the selected tile's words and behaviour, which are
+            // exactly what an undo changes.
+            if (redo ? map16?.Redo() == true : map16?.Undo() == true) { RefreshMap16Sheet(); RefreshMap16Props(); }
         }
         // The background layers keep a history each, so undo follows the layer on screen
         // for the same reason it follows the canvas mode: rewinding the level's objects
@@ -3806,6 +3842,34 @@ public partial class MainWindow : Window
         m16Palette.SelectedIndex = def[0].Palette;
         RefreshM16Colors(def[0].Palette);
         loadingM16Props = false;
+    }
+
+    /// <summary>The hitbox of the level cell at (cx, cy): the tile's acts-as through the ROM's
+    /// tables, and for the tile over a steep slope, the slope under it.</summary>
+    private Hitbox LevelHitbox(int cx, int cy)
+    {
+        if (session.Rom is not { } r || session.Scene is not { } sc) return Hitbox.Nothing;
+        int tile = sc.Grid.Get(cx, cy);
+        if (tile == Map16Grid.Empty) return Hitbox.Nothing;
+        var hb = Hitboxes.Of(r, r.ActsAs(tile), session.Tileset);
+        if (hb.Kind != HitKind.SlopeTop) return hb;
+        int below = sc.Grid.Get(cx, cy + 1);
+        return below == Map16Grid.Empty ? hb : Hitboxes.Above(r, r.ActsAs(below), session.Tileset);
+    }
+
+    /// <summary>The hovered tile: what it is in this level's tileset, when the table knows, over
+    /// what it acts as, "ID - description". Nothing when there is no tile or no table under the
+    /// pointer. Same hex form as the bar's field.</summary>
+    private void ShowActsTip()
+    {
+        int? acts = map16 is { } m16 && map16Canvas.HoverQuad is { } h ? m16.ActsAs(h.Tile) : null;
+        m16ActsTip.IsVisible = acts is not null;
+        if (acts is not { } a) return;
+        string name = Map16Tiles.Describe(map16Canvas.HoverQuad!.Value.Tile, session.Tileset);
+        m16TileTipText.Text = name;
+        m16TileTipText.IsVisible = name.Length > 0;
+        string what = ActsAs.Describe(a);
+        m16ActsTipText.Text = what.Length == 0 ? $"{a:X3}" : $"{a:X3} - {what}";
     }
 
     private void ApplyM16Acts()

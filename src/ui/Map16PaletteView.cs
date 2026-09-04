@@ -41,6 +41,18 @@ public class Map16PaletteView : Control
 
     public event EventHandler<int>? SelectionChanged;
 
+    /// <summary>A lassoed block of tiles, in bank-local cells; null when one tile is armed. It
+    /// works the way the Map16 editor's lasso does: drag a rectangle, and the whole block is
+    /// what the level places.</summary>
+    public (int X, int Y, int W, int H)? Selection { get; private set; }
+
+    /// <summary>A lassoed block became the level's brush: its tiles row-major, W by H.</summary>
+    public event EventHandler<(ushort[] Tiles, int W, int H)>? BrushPicked;
+
+    private (int X, int Y)? lassoStart, lassoEnd;
+
+    public void ClearSelection() { Selection = null; InvalidateVisual(); }
+
     public Map16PaletteView() => Focusable = true;
 
     public void SetSheet(uint[]?[] px, int w, int h, int tileCount)
@@ -79,15 +91,51 @@ public class Map16PaletteView : Control
         return new(Map16Layout.Cols * 16 * Zoom, Map16Layout.BankRows * 16 * Zoom);
     }
 
+    private (int X, int Y)? CellAt(Point p) => Lasso.CellAt(p, 16 * Zoom, Map16Layout.Cols, Map16Layout.BankRows);
+
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
-        if (TileAt(e.GetPosition(this)) is { } tile)
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed || CellAt(e.GetPosition(this)) is not { } c) return;
+        lassoStart = lassoEnd = c;
+        e.Pointer.Capture(this);
+        InvalidateVisual();
+    }
+
+    protected override void OnPointerMoved(PointerEventArgs e)
+    {
+        base.OnPointerMoved(e);
+        if (lassoStart is null) return;
+        // Past the edge the band stops at the edge, so a fast drag still lands a full block.
+        var c = Lasso.Clamped(e.GetPosition(this), 16 * Zoom, Map16Layout.Cols, Map16Layout.BankRows);
+        if (c != lassoEnd) { lassoEnd = c; InvalidateVisual(); }
+    }
+
+    protected override void OnPointerReleased(PointerReleasedEventArgs e)
+    {
+        base.OnPointerReleased(e);
+        if (lassoStart is not { } a) return;
+        var r = Lasso.Span(a, lassoEnd ?? a);
+        lassoStart = lassoEnd = null;
+        e.Pointer.Capture(null);
+
+        int TileOf(int x, int y) => Bank * Map16Layout.BankTiles + y * Map16Layout.Cols + x;
+        Selected = TileOf(r.X, r.Y);
+        if (r is { W: 1, H: 1 })
         {
-            Selected = tile;
-            SelectionChanged?.Invoke(this, tile);
-            InvalidateVisual();
+            // One tile is a pick, as it always was.
+            Selection = null;
+            SelectionChanged?.Invoke(this, Selected);
         }
+        else
+        {
+            Selection = r;
+            var tiles = new ushort[r.W * r.H];
+            for (int y = 0; y < r.H; y++)
+                for (int x = 0; x < r.W; x++) tiles[y * r.W + x] = (ushort)TileOf(r.X + x, r.Y + y);
+            BrushPicked?.Invoke(this, (tiles, r.W, r.H));
+        }
+        InvalidateVisual();
     }
 
     public override void Render(DrawingContext ctx)
@@ -96,7 +144,16 @@ public class Map16PaletteView : Control
         sheet.Draw(this, ctx, Bank, Phase, cell);
         if (ShowPages) Map16Sheet.DrawPages(ctx, Bank, cell);
 
-        if (Selected / Map16Layout.BankTiles == Bank)
+        // The live band, else the settled block, else the one armed tile — the Map16 editor's
+        // order, drawn with its pens.
+        if (lassoStart is { } a && lassoEnd is { } b)
+        {
+            var l = Lasso.Span(a, b);
+            Overlay.Band(ctx, new Rect(l.X * cell, l.Y * cell, l.W * cell, l.H * cell));
+        }
+        else if (Selection is { } sel)
+            Overlay.Selection(ctx, new Rect(sel.X * cell, sel.Y * cell, sel.W * cell, sel.H * cell));
+        else if (Selected / Map16Layout.BankTiles == Bank)
         {
             int idx = Selected % Map16Layout.BankTiles;
             Overlay.Armed(ctx, new Rect(idx % 16 * cell, idx / 16 * cell, cell, cell));

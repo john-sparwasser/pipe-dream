@@ -16,7 +16,7 @@ namespace PipeDream.Ui.Tests;
 /// deleted (git history, if the exact behaviour is ever in doubt):
 ///
 ///   RIGHT click/drag   stamp the tile brush — a selection does NOT change that
-///   CTRL+RIGHT click   duplicate the selection at the cursor
+///   RIGHT click        with a selection, duplicate it at the cursor (the level outranks the drawer)
 ///   LEFT click+drag    rubber-band select, live while dragging
 ///   LEFT on selection  drag to move, live under the cursor
 ///   LEFT click, still  cycle the overlap stack under the cursor
@@ -168,11 +168,11 @@ public class ControlParityTests(ITestOutputHelper log)
         Assert.Equal(before + selected, edit.Objects.Count);
     }
 
-    /// <summary>The regression this pass was for: a stray selection used to turn every
-    /// right-click into a duplicate, so picking a Map16 tile and right-clicking placed nothing.
-    /// Stamping has to be what the plain right button does, selection or no selection.</summary>
+    /// <summary>The level's selection outranks the drawer: with tiles selected in the level, a
+    /// plain right-click duplicates them and stamps nothing from the drawer. Drop the selection
+    /// and the same right-click places the drawer's tile again.</summary>
     [AvaloniaFact]
-    public void right_click_stamps_the_drawer_tile_even_with_a_selection()
+    public void a_level_selection_takes_right_click_until_it_is_dropped()
     {
         if (Open() is not { } o) { log.WriteLine("SKIP: no ROM"); return; }
         var (w, c) = o;
@@ -183,13 +183,19 @@ public class ControlParityTests(ITestOutputHelper log)
         w.MouseUp(At(c, w, 20, 20), MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
         Assert.NotEmpty(edit.Selection);
+        int before = edit.Objects.Count, selected = edit.Selection.Count;
 
         int tile = w.GetControl<Map16PaletteView>("Palette").Selected;
+        w.MouseDown(At(c, w, 40, 6), MouseButton.Right);
+        w.MouseUp(At(c, w, 40, 6), MouseButton.Right);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(before + selected, edit.Objects.Count);        // duplicated, not stamped
+
+        edit.Selection.Clear();
         w.MouseDown(At(c, w, 24, 6), MouseButton.Right);
         w.MouseUp(At(c, w, 24, 6), MouseButton.Right);
         Dispatcher.UIThread.RunJobs();
-
-        Assert.Equal(tile, edit.Scene.Grid.Get(24, 6));
+        Assert.Equal(tile, edit.Scene.Grid.Get(24, 6));            // the drawer places again
     }
 
     /// <summary>Dragging a selection moves it WHILE the mouse is down, not on release, and the
@@ -621,5 +627,40 @@ public class ControlParityTests(ITestOutputHelper log)
             Assert.DoesNotContain("*", w.Title);                  // and the title's marker cleared
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { } }
+    }
+
+    /// <summary>The Tiles drawer lassoes like the Map16 editor: a dragged rectangle becomes the
+    /// level's brush, row-major, and one right-click stamps the whole block. A single click is
+    /// still a pick, and picking again drops the block.</summary>
+    [AvaloniaFact]
+    public void a_lasso_in_the_tiles_drawer_is_a_block_brush()
+    {
+        if (Open() is not { } o) return;
+        var (w, c) = o;
+        var edit = EditOf(w);
+        var palette = w.GetControl<Map16PaletteView>("Palette");
+        Point OnSheet(int col, int row) => palette.TranslatePoint(new Point(col * 16 * palette.Zoom + 4, row * 16 * palette.Zoom + 4), w)!.Value;
+
+        // Row 16 is tile 0x100: drag tiles (1,16)-(2,17), a 2x2 block.
+        w.MouseDown(OnSheet(1, 16), MouseButton.Left);
+        w.MouseMove(OnSheet(2, 17));
+        w.MouseUp(OnSheet(2, 17), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal((1, 16, 2, 2), palette.Selection);
+        Assert.Equal(0x101, palette.Selected);
+
+        w.MouseDown(At(c, w, 30, 10), MouseButton.Right);
+        w.MouseUp(At(c, w, 30, 10), MouseButton.Right);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(0x101, edit.Scene.Grid.Get(30, 10));
+        Assert.Equal(0x102, edit.Scene.Grid.Get(31, 10));
+        Assert.Equal(0x111, edit.Scene.Grid.Get(30, 11));
+        Assert.Equal(0x112, edit.Scene.Grid.Get(31, 11));
+
+        w.MouseDown(OnSheet(0, 16), MouseButton.Left);
+        w.MouseUp(OnSheet(0, 16), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Null(palette.Selection);
+        Assert.Equal(0x100, palette.Selected);
     }
 }

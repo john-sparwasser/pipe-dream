@@ -183,7 +183,9 @@ public sealed class LevelScene
     /// like, so the picker shows the same thing before and after allocation.</summary>
     public uint[]? Placeholder(Rom rom, int levelNum, int phase)
         => Palettes[phase & 3] is { } pal
-            ? Map16.Compose(Map16.LmExtendedDef(rom, -1), Fg(rom, levelNum, phase & 3).Fetch, pal) : null;
+            // Through ComposeSheet so its transparent pixels turn the sheet's grey, not the canvas's black.
+            ? Map16.ComposeSheet([Map16.Compose(Map16.LmExtendedDef(rom, -1), Fg(rom, levelNum, phase & 3).Fetch, pal)], cols: 1).px
+            : null;
 
     /// <summary>GFX per phase, kept across recolours. Loading it is the expensive half of a
     /// compose and a colour change cannot move it.</summary>

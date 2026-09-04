@@ -45,6 +45,10 @@ public class Map16CanvasView : Control
     /// <summary>Draw a square and number around each Map16 page, as the drawer's toggle does.
     /// Off by default: the editor's own page separators are enough until you are hunting.</summary>
     public bool ShowPages { get; set; }
+
+    /// <summary>The hitbox of a tile, when the overlay is on; null turns it off. A slope's upper
+    /// tile has no neighbour here, so it shows as the dashed "depends on what is below" box.</summary>
+    public Func<int, Hitbox>? Hitboxes { get; set; }
     public int TileCount => sheet.TileCount;
     public Point Origin { get; set; }
 
@@ -146,6 +150,7 @@ public class Map16CanvasView : Control
     private readonly Stroke stroke;
     private (int Col, int Row)? lassoStart, lassoEnd, moveStart;
     private Point brushOrigin;
+    private (int Col, int Row)? hoverCell;
 
     /// <summary>Point → bank-local QUADRANT column/row, or null when off the sheet. The unit the
     /// lasso works in at both grains; <see cref="Snapped"/> grows it out to tiles at 16x16.</summary>
@@ -174,12 +179,16 @@ public class Map16CanvasView : Control
         {
             // A Map16 selection outranks the drawer's 8x8 brush at BOTH grains: right-click puts
             // a COPY of what is selected under the cursor — snapped to the tile grid at 16x16 —
-            // and the selection stays put, so the next click puts down another copy.
+            // and the selection moves onto the copy, so what you just put down is what is
+            // selected (and what the next right-click copies again).
             if (Selection is { } sel)
             {
                 int qx = Grain == TileGrain.Quad8 ? h.Col : h.Col & ~1;
                 int qy = Grain == TileGrain.Quad8 ? h.Row : h.Row & ~1;
                 DuplicateRequested?.Invoke(this, (sel.X, sel.Y, sel.W, sel.H, qx - sel.X, qy - sel.Y));
+                Selection = (qx, qy, sel.W, sel.H);
+                SelectionChanged?.Invoke(this, EventArgs.Empty);
+                InvalidateVisual();
             }
             else if (Grain == TileGrain.Quad8)
             {
@@ -191,7 +200,7 @@ public class Map16CanvasView : Control
         {
             // Dragging a selection to MOVE it is a 16x16 action: the edit layer moves whole
             // tiles, and there is nothing underneath it that moves quadrants.
-            if (Grain != TileGrain.Quad8 && Lasso.Contains(Selection, h))
+            if (Movable(h))
                 moveStart = (h.Col, h.Row);
             else
                 lassoStart = (h.Col, h.Row);
@@ -215,9 +224,28 @@ public class Map16CanvasView : Control
         if (hq != HoverQuad || snapped != brushOrigin)
         { HoverQuad = hq; brushOrigin = snapped; InvalidateVisual(); }
 
-        if (QuadAt(p) is not { } c) return;
-        if (stroke.Active) { stroke.MoveTo(c); return; }
-        if (lassoStart is not null || moveStart is not null) { lassoEnd = c; InvalidateVisual(); }
+        var c = hoverCell = QuadAt(p);
+        // A selection you can pick up says so: the hand over it, the grab while it is held.
+        Cursor = moveStart is not null ? UiCursors.Grab
+               : c is { } over && Movable(over) ? UiCursors.Hand
+               : Cursor.Default;
+        if (c is not { } at) return;
+        if (stroke.Active) { stroke.MoveTo(at); return; }
+        if (lassoStart is not null || moveStart is not null) { lassoEnd = at; InvalidateVisual(); }
+    }
+
+    /// <summary>Whether a press here would pick the selection up: 16x16 only, inside it.</summary>
+    private bool Movable((int Col, int Row) q) => Grain != TileGrain.Quad8 && Lasso.Contains(Selection, q);
+
+    /// <summary>The whole-tile delta of the drag in progress, in quadrants; zero when not dragging.
+    /// Kept on the sheet the way every canvas keeps a dragged block: a drag past an edge parks it
+    /// against that edge.</summary>
+    private (int Dx, int Dy) MoveDelta()
+    {
+        if (moveStart is not { } m || lassoEnd is not { } n || Selection is not { } sel) return (0, 0);
+        var tiles = (sel.X / 2, sel.Y / 2, sel.W / 2, sel.H / 2);
+        var to = Lasso.Moved(tiles, (m.Col / 2, m.Row / 2), (n.Col / 2, n.Row / 2), Map16Layout.Cols, Map16Layout.BankRows);
+        return ((to.X - tiles.Item1) * 2, (to.Y - tiles.Item2) * 2);
     }
 
     /// <summary>The plain wheel scrolls the sheet at twice the scroll viewer's own rate (Shift:
@@ -258,17 +286,18 @@ public class Map16CanvasView : Control
         else if (moveStart is { } m && lassoEnd is { } n && Selection is { } sel)
         {
             // Whole tiles: this path is 16x16 only, so the quadrant coordinates halve exactly.
-            int dx = n.Col / 2 - m.Col / 2, dy = n.Row / 2 - m.Row / 2;
+            var (dx, dy) = MoveDelta();
             if (dx != 0 || dy != 0)
             {
-                MoveRequested?.Invoke(this, (sel.X / 2, sel.Y / 2, sel.W / 2, sel.H / 2, dx, dy));
-                Selection = (sel.X + dx * 2, sel.Y + dy * 2, sel.W, sel.H);
+                MoveRequested?.Invoke(this, (sel.X / 2, sel.Y / 2, sel.W / 2, sel.H / 2, dx / 2, dy / 2));
+                Selection = (sel.X + dx, sel.Y + dy, sel.W, sel.H);
             }
         }
 
         SelectionChanged?.Invoke(this, EventArgs.Empty);
         lassoStart = lassoEnd = moveStart = null;
         e.Pointer.Capture(null);
+        Cursor = QuadAt(e.GetPosition(this)) is { } q && Movable(q) ? UiCursors.Hand : Cursor.Default;
         InvalidateVisual();
     }
 
@@ -311,16 +340,37 @@ public class Map16CanvasView : Control
         double ts = TileSize;
         sheet.Draw(this, ctx, Bank, Phase, ts);
         if (ShowPages) Map16Sheet.DrawPages(ctx, Bank, ts);
+        if (Hitboxes is { } hit)
+        {
+            var vis = PixelBlit.Visible(this);
+            int r0 = Math.Max(0, (int)((vis.Y + Origin.Y) / ts)), r1 = Math.Min(Map16Layout.BankRows - 1, (int)((vis.Bottom + Origin.Y) / ts));
+            for (int r = r0; r <= r1; r++)
+                for (int c = 0; c < Map16Layout.Cols; c++)
+                    HitboxOverlay.Draw(ctx, hit(Bank * Map16Layout.BankTiles + r * Map16Layout.Cols + c), Cells(c, r, 1, 1, ts));
+        }
 
         // Live lasso, then the settled selection, then the armed tile. Both are in QUADRANTS —
         // at 16x16 they are snapped out to whole tiles, so they draw on the tile grid anyway.
+        // A selection being dragged is drawn where it would land, and nothing else moves.
         double qs = QuadSize;
-        if ((lassoStart ?? moveStart) is { } s0 && lassoEnd is { } s1)
+        if (lassoStart is { } s0 && lassoEnd is { } s1)
         {
             var l = Snapped(s0, s1);
             Overlay.Band(ctx, Cells(l.X, l.Y, l.W, l.H, qs));
         }
-        if (Selection is { } sel) Overlay.Selection(ctx, Cells(sel.X, sel.Y, sel.W, sel.H, qs));
+        var (mx, my) = MoveDelta();
+        if (Selection is { } sel)
+        {
+            var at = Cells(sel.X + mx, sel.Y + my, sel.W, sel.H, qs);
+            // The tiles travel with the drag and leave empties behind, so what you see is what
+            // the drop will do.
+            if (moveStart is not null)
+            {
+                sheet.DrawEmpty(this, ctx, Bank, Phase, sel.W, sel.H, Cells(sel.X, sel.Y, sel.W, sel.H, qs));
+                sheet.DrawQuads(this, ctx, Bank, Phase, sel.X, sel.Y, sel.W, sel.H, at);
+            }
+            Overlay.Selection(ctx, at);
+        }
         else if (SelectedTile is { } armed && armed / Map16Layout.BankTiles == Bank)
         {
             int idx = armed % Map16Layout.BankTiles;
@@ -329,8 +379,11 @@ public class Map16CanvasView : Control
 
         // The cursor: the brush footprint in QUADRANTS at 8x8 — a cell-sized outline would lie
         // about where a stamp lands — and the whole hovered tile at 16x16, where the brush is
-        // not what right-click does.
-        if (HoverQuad is not null && IsPointerOver)
+        // not what right-click does. Not inside the selection, where the selection is what
+        // right-click (and a drag) acts on, and not while a lasso or a move is in progress,
+        // where the band or the travelling tiles are the feedback.
+        if (HoverQuad is not null && IsPointerOver && moveStart is null && lassoStart is null
+            && !(hoverCell is { } hc && Lasso.Contains(Selection, hc)))
         {
             double cw = Grain == TileGrain.Quad8 ? BrushW * qs : ts;
             double ch = Grain == TileGrain.Quad8 ? BrushH * qs : ts;

@@ -492,33 +492,64 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
                 Math.Max(1, b.W + (p.W - p0.W)), Math.Max(1, b.H + (p.H - p0.H)));
     }
 
-    /// <summary>Commit a resize drag. Returns false when the drag produced no change.</summary>
-    public bool Resize(int index, int edges, int dx, int dy)
-    {
-        if (PreviewResize(index, edges, dx, dy) is not { } p) return false;
-        var o = objects[index];
-        var rz = ResizeInfo(o);
-        bool dm = o.IsDm16;
-        var (w0, h0) = DeclaredSize(o, rz);
-        if (p.X == o.AbsoluteX && p.Y == o.AbsoluteY && p.W == w0 && p.H == h0) return false;
+    /// <summary>The object as it was when the current resize drag began, and its index: a
+    /// coalesced step is measured from here, so the drag can be applied live — every step is
+    /// "the start plus the cursor's whole travel", not a delta on top of the last step.</summary>
+    private (int Index, LevelObject Was)? resizeAnchor;
 
-        undo.Push([.. objects]);
-        redo.Clear();
-        var moved = o.AtCell(p.X, p.Y);
-        if (dm) objects[index] = moved.Dm16Resized(p.W, p.H);
-        else
+    /// <summary>
+    /// Resize an object by dragging <paramref name="edges"/> (ImGui bitmask: 1 left, 2 right,
+    /// 4 top, 8 bottom) by (dx, dy) cells. A plain call is one edit: one undo entry, deltas from
+    /// the object as it is. With <paramref name="coalesce"/> it is a later step of the same drag:
+    /// no new undo entry, deltas from where the drag STARTED. Returns false when nothing on screen
+    /// would change.
+    /// </summary>
+    public bool Resize(int index, int edges, int dx, int dy, bool coalesce = false)
+    {
+        if (index < 0 || index >= objects.Count) return false;
+        var shown = objects[index];
+        bool live = coalesce && resizeAnchor is { } a && a.Index == index;
+        if (live) objects[index] = resizeAnchor!.Value.Was;      // measure from the drag's start
+        var resized = Resized(index, edges, dx, dy);
+        objects[index] = shown;
+        if (resized is not { } to || SameBox(to, shown)) return false;
+
+        if (!live)
         {
-            // Same source on both axes (diagonal slopes): one nibble drives both, so apply
-            // whichever the drag actually changed.
-            int b3 = rz.W == rz.H
-                ? ObjectEngine.WithSize(o.Byte3, rz.W, p.W != w0 ? p.W : p.H)
-                : ObjectEngine.WithSize(ObjectEngine.WithSize(o.Byte3, rz.W, p.W), rz.H, p.H);
-            objects[index] = new LevelObject(false, o.Number, (p.X >> 4) & 0x1F, p.X & 15, p.Y & 0x1F,
-                                             b3, o.ExtraByte, o.Dm16Tile, o.Dm16Page, o.Dm16ExtX, o.Dm16ExtH, p.Y >> 5);
+            undo.Push([.. objects]);
+            resizeAnchor = (index, shown);
         }
+        redo.Clear();
+        objects[index] = to;
         Dirty = true;
         Reconcile();
         return true;
+    }
+
+    /// <summary>The drag is over: the next resize measures from wherever the object is then.</summary>
+    public void EndResize() => resizeAnchor = null;
+
+    private bool SameBox(LevelObject a, LevelObject b)
+        => a.AbsoluteX == b.AbsoluteX && a.AbsoluteY == b.AbsoluteY
+           && DeclaredSize(a, ResizeInfo(a)) == DeclaredSize(b, ResizeInfo(b));
+
+    /// <summary>The object at <paramref name="index"/> as a drag would leave it, or null when the
+    /// object cannot be resized that way.</summary>
+    private LevelObject? Resized(int index, int edges, int dx, int dy)
+    {
+        if (PreviewResize(index, edges, dx, dy) is not { } p) return null;
+        var o = objects[index];
+        var rz = ResizeInfo(o);
+        var (w0, h0) = DeclaredSize(o, rz);
+        var moved = o.AtCell(p.X, p.Y);
+        if (o.IsDm16) return moved.Dm16Resized(p.W, p.H);
+        // Same source on both axes (diagonal slopes): one nibble drives both, so apply
+        // whichever the drag actually changed.
+        int b3 = rz.W == rz.H
+            ? ObjectEngine.WithSize(o.Byte3, rz.W, p.W != w0 ? p.W : p.H)
+            : ObjectEngine.WithSize(ObjectEngine.WithSize(o.Byte3, rz.W, p.W), rz.H, p.H);
+        return new LevelObject(false, o.Number, (p.X >> 4) & 0x1F, p.X & 15, p.Y & 0x1F,
+                               b3, o.ExtraByte, o.Dm16Tile, o.Dm16Page, o.Dm16ExtX, o.Dm16ExtH, p.Y >> 5);
     }
 
     private void Reconcile()

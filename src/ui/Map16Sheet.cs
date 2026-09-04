@@ -19,7 +19,9 @@ internal sealed class Map16Sheet
 {
     private readonly LevelBitmap sheet = new(), bgSheet = new();
     private readonly Bitmap?[] placeholder = new Bitmap?[4];
-    private readonly PixelBlit blit = new();
+    // The placeholder gets its own blit: sharing one would have the two draws, at two sizes,
+    // rebuild each other's intermediates every frame.
+    private readonly PixelBlit blit = new(), tailBlit = new(), dragBlit = new(), holeBlit = new();
     private int w, h, bgW, bgH;
 
     public int TileCount { get; private set; }
@@ -39,10 +41,22 @@ internal sealed class Map16Sheet
     }
 
     /// <summary>The empty-page tile per phase: every FG page without defs yet is drawn as a
-    /// field of these, the way LM shows its unused pages, and painting one creates the page.</summary>
+    /// field of these, the way LM shows its unused pages, and painting one creates the page.
+    /// Kept as a whole PAGE (16x16 of the tile) that PixelBlit repeats down the empty tail of
+    /// the bank — one blit, snapped like the sheet's own. A tiled ImageBrush rounded its
+    /// period to whole device pixels and drifted off the grid at any fractional zoom, which
+    /// is every zoom the fit-to-width drawer has.</summary>
     public void SetPlaceholder(uint[]?[] px)
     {
-        for (int p = 0; p < 4; p++) placeholder[p] = px[p] is { } img ? LevelBitmap.FromPixels(img, 16, 16) : null;
+        for (int p = 0; p < 4; p++) placeholder[p] = px[p] is { } img ? LevelBitmap.FromPixels(Page(img), 256, 256) : null;
+    }
+
+    private static uint[] Page(uint[] tile)
+    {
+        var page = new uint[256 * 256];
+        for (int y = 0; y < 256; y++)
+            for (int x = 0; x < 256; x++) page[y * 256 + x] = tile[(y & 15) * 16 + (x & 15)];
+        return page;
     }
 
     private static readonly Pen PageLine = new(new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)));
@@ -69,6 +83,31 @@ internal sealed class Map16Sheet
         }
     }
 
+    /// <summary>A rectangle of <paramref name="bank"/>'s tiles, in QUADRANTS, drawn into
+    /// <paramref name="dst"/>: the selection being dragged, shown where it would land. Only the
+    /// part the sheet has pixels for — an empty page has none to carry.</summary>
+    public void DrawQuads(Control owner, DrawingContext ctx, int bank, int phase,
+                          int qx, int qy, int qw, int qh, Rect dst)
+    {
+        var (bmp, sw, sh, top) = bank == 2 ? (bgSheet.For(phase), bgW, bgH, 0)
+                                           : (sheet.For(phase), w, h, bank * Map16Layout.BankRows * 16);
+        if (bmp is null || sh <= 0) return;
+        var src = new Rect(qx * 8, top + qy * 8, qw * 8, qh * 8).Intersect(new Rect(0, 0, sw, sh));
+        if (src.Width < 1 || src.Height < 1) return;
+        double z = dst.Width / (qw * 8);
+        dragBlit.Draw(owner, ctx, bmp, src, new Rect(dst.X, dst.Y, src.Width * z, src.Height * z),
+                      TopLevel.GetTopLevel(owner)?.RenderScaling ?? 1);
+    }
+
+    /// <summary>What a rectangle of tiles looks like once moved away — the empty-page tile, which
+    /// is what a move leaves behind — drawn over <paramref name="dst"/>, the dragged selection's
+    /// origin. Black in the BG bank, whose empty tiles have no placeholder.</summary>
+    public void DrawEmpty(Control owner, DrawingContext ctx, int bank, int phase, int qw, int qh, Rect dst)
+    {
+        if (bank == 2 || placeholder[phase & 3] is not { } ph) { ctx.FillRectangle(Brushes.Black, dst); return; }
+        holeBlit.Draw(owner, ctx, ph, new Rect(0, 0, qw * 8, qh * 8), dst, TopLevel.GetTopLevel(owner)?.RenderScaling ?? 1);
+    }
+
     public void Draw(Control owner, DrawingContext ctx, int bank, int phase, double tile)
     {
         var full = new Rect(0, 0, Map16Layout.Cols * tile, Map16Layout.BankRows * tile);
@@ -76,11 +115,15 @@ internal sealed class Map16Sheet
         // brings it into existence, so nothing here may make it look unavailable.
         ctx.FillRectangle(Brushes.Black, full);
         if (bank < 2 && placeholder[phase & 3] is { } ph)
-            ctx.FillRectangle(new ImageBrush(ph)
-            {
-                TileMode = TileMode.Tile, Stretch = Stretch.Fill,
-                DestinationRect = new RelativeRect(0, 0, tile, tile, RelativeUnit.Absolute),
-            }, full);
+        {
+            // Only the pages the sheet does not reach; the sheet is opaque over the rest.
+            int from = (h > 0 ? Map16Layout.SheetWindow(bank, h, TileCount).Rows : 0) / 16 * 16;
+            int rows = Map16Layout.BankRows - from;
+            if (rows > 0)
+                tailBlit.Draw(owner, ctx, ph, new Rect(0, 0, 256, rows * 16),
+                              new Rect(0, from * tile, Map16Layout.Cols * tile, rows * tile),
+                              TopLevel.GetTopLevel(owner)?.RenderScaling ?? 1);
+        }
 
         if (bank == 2)
         {
