@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.VisualTree;
 
 namespace PipeDream.Ui;
 
@@ -217,6 +218,17 @@ public class Map16CanvasView : Control
         if (QuadAt(p) is not { } c) return;
         if (stroke.Active) { stroke.MoveTo(c); return; }
         if (lassoStart is not null || moveStart is not null) { lassoEnd = c; InvalidateVisual(); }
+    }
+
+    /// <summary>The plain wheel scrolls the sheet at twice the scroll viewer's own rate (Shift:
+    /// sideways). Chorded wheels are the window's zoom and never arrive here.</summary>
+    protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
+    {
+        base.OnPointerWheelChanged(e);
+        if (this.FindAncestorOfType<ScrollViewer>() is not { } sv) return;
+        var d = new Vector(e.Delta.X, e.Delta.Y) * 100;
+        sv.Offset -= e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? new Vector(d.Y, d.X) : d;
+        e.Handled = true;
     }
 
     protected override void OnPointerReleased(PointerReleasedEventArgs e)

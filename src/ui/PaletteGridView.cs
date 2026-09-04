@@ -26,6 +26,22 @@ public class PaletteGridView : Control
 
     public double Cell { get; set; } = 28;
 
+    /// <summary>Size the swatches to the width on offer instead of to <see cref="Cell"/> — the
+    /// Palette drawer's grid, whose zoom is the drawer's width like every other drawer sheet.
+    /// Swatches are vector squares, so any size is a clean size.</summary>
+    public bool FitWidth { get; set; }
+
+    /// <summary>Number the rows and columns from 0, in a dark band above and to the left of the
+    /// swatches — the Palette drawer, where "row 4, column 2" is how a colour is named. Hex, the
+    /// way the indices are written everywhere else here (swatch 0x42 IS row 4, column 2).</summary>
+    public bool Headers { get; set; }
+
+    /// <summary>How much the header band takes, in layout units: a fraction of a swatch, so it
+    /// scales with the grid. 0 without <see cref="Headers"/>. Also where the swatches start.</summary>
+    public double HeaderSize => Headers ? Cell * HeaderScale : 0;
+    private const double HeaderScale = 0.6;
+    private static readonly IBrush HeaderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x3A));
+
     /// <summary>The colours to draw, RGBA, row-major.</summary>
     public uint[] Colors { get; set; } = new uint[256];
 
@@ -68,12 +84,19 @@ public class PaletteGridView : Control
 
     public int? IndexAt(Point p)
     {
-        if (Lasso.CellAt(p, Cell, Cols, Rows) is not { } c) return null;
+        double h = HeaderSize;
+        if (Lasso.CellAt(new Point(p.X - h, p.Y - h), Cell, Cols, Rows) is not { } c) return null;
         int i = c.Y * Cols + c.X;
         return HideFirst && i == 0 ? null : i;
     }
 
-    protected override Size MeasureOverride(Size available) => new(Cols * Cell, Rows * Cell);
+    protected override Size MeasureOverride(Size available)
+    {
+        // The header band is a fraction of a swatch, so a width fits Cols swatches plus that.
+        double units = Cols + (Headers ? HeaderScale : 0);
+        if (FitWidth && Cols > 0 && double.IsFinite(available.Width)) Cell = available.Width / units;
+        return new(Cols * Cell + HeaderSize, Rows * Cell + HeaderSize);
+    }
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
@@ -99,7 +122,7 @@ public class PaletteGridView : Control
         if (i == hoverIndex) return;
         hoverIndex = i;
         if (Describe is not null) ToolTip.SetTip(this, i >= 0 ? Describe(i) : null);
-        if (ShowHoverIndex) InvalidateVisual();
+        InvalidateVisual();          // the hover ring, and the index when it is shown
     }
 
     protected override void OnPointerExited(PointerEventArgs e)
@@ -107,8 +130,10 @@ public class PaletteGridView : Control
         base.OnPointerExited(e);
         if (hoverIndex < 0) return;
         hoverIndex = -1;
-        if (ShowHoverIndex) InvalidateVisual();
+        InvalidateVisual();
     }
+
+    private static readonly Pen HoverWhite = new(Brushes.White, 1), HoverBlack = new(Brushes.Black, 1);
 
     /// <summary>
     /// Runs of indices to PREVIEW as the survivors of a filter: each is ringed, and everything
@@ -139,7 +164,17 @@ public class PaletteGridView : Control
 
     public override void Render(DrawingContext ctx)
     {
-        double c = Cell;
+        double c = Cell, h = HeaderSize;
+        if (Headers)
+        {
+            ctx.FillRectangle(HeaderBrush, new Rect(0, 0, Cols * c + h, h));
+            ctx.FillRectangle(HeaderBrush, new Rect(0, 0, h, Rows * c + h));
+            double size = Math.Min(h * 0.75, c * 0.5);
+            for (int x = 0; x < Cols; x++) Overlay.Label(ctx, $"{x:X}", size, new Point(h + x * c + c / 2, h / 2));
+            for (int y = 0; y < Rows; y++) Overlay.Label(ctx, $"{y:X}", size, new Point(h / 2, h + y * c + c / 2));
+        }
+        // Everything below is drawn in swatch space: the band, if any, is behind the origin.
+        using var _ = ctx.PushTransform(Matrix.CreateTranslation(h, h));
         for (int i = 0; i < Count; i++)
         {
             if (HideFirst && i == 0) continue;
@@ -181,6 +216,14 @@ public class PaletteGridView : Control
         if (Selected >= 0 && Selected < Count && !(HideFirst && Selected == 0))
         {
             Overlay.Ring(ctx, new Rect(Selected % Cols * c, Selected / Cols * c, c, c));
+        }
+        // A one-pixel ring on the swatch under the pointer, drawn on top so nothing moves. White,
+        // or black on a swatch light enough to drown white — a fixed ink vanishes on half a palette.
+        if (Selectable && hoverIndex >= 0 && hoverIndex < Count && !(HideFirst && hoverIndex == 0))
+        {
+            var r = new Rect(hoverIndex % Cols * c + 0.5, hoverIndex / Cols * c + 0.5, c - 1, c - 1);
+            bool light = hoverIndex < Colors.Length && Luminance(UiColors.FromRgba(Colors[hoverIndex])) >= 0.85;
+            ctx.DrawRectangle(null, light ? HoverBlack : HoverWhite, r);
         }
     }
 

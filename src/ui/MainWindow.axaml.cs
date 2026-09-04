@@ -127,6 +127,7 @@ public partial class MainWindow : Window
 
         // Top-left, not the OS's pick: at 1500x900 the default placement can hang off screen.
         Position = new PixelPoint(0, 0);
+        MiddlePan.Attach(this);
 
         canvas = this.GetControl<LevelView>("Canvas");
         palette = this.GetControl<Map16PaletteView>("Palette");
@@ -163,9 +164,6 @@ public partial class MainWindow : Window
         bgView.StrokeEnded += (_, _) => BgStrokeEnded();
         bgView.SelectionChanged += (_, _) => RefreshBgNote();
         bgView.SelectionDragged += (_, d) => BgSelectionDragged(d);
-        // The wheel zooms the view about the cursor and the slider follows: the slider IS the
-        // zoom state, so its value is what the next RefreshBg or mode switch reads back.
-        bgView.ZoomChanged += (_, _) => zoomSlider.Value = bgView.Zoom * 100;
         bgSheet.Picked += (_, c) => BgBrushPicked(c.Col, c.Row);
         bgNote = this.GetControl<TextBlock>("BgNote");
         bgDrawerTitle = this.GetControl<TextBlock>("BgDrawerTitle");
@@ -460,14 +458,19 @@ public partial class MainWindow : Window
         paletteIndex = this.GetControl<TextBlock>("PaletteIndex");
 
         paletteGrid.IsEdited = session.IsPaletteEdited;
-        paletteGrid.Describe = DescribeSwatch;
+        paletteGrid.Describe = SwatchRgb;       // the hover tip is the colour; the readout below says the rest
         paletteGrid.SelectionChanged += (_, i) => { paletteBg.Select(-1); ShowPaletteColor(i); OpenPicker(); };
         // The background colour (CGRAM 0) lives in its own swatch above the grid; selection is
         // still paletteGrid.Selected — the swatch just points it at index 0.
         paletteBg = this.GetControl<PaletteGridView>("PaletteBg");
         paletteGrid.HideFirst = true;
         paletteBg.IsEdited = _ => session.IsPaletteEdited(0);
-        paletteBg.Describe = _ => DescribeSwatch(0);
+        paletteBg.Describe = _ => SwatchRgb(0);
+        // The grid fits the drawer, so the drawer's width is its zoom (splitter or Alt/Cmd+wheel,
+        // like every drawer sheet); the lone background swatch above it keeps the same cell size.
+        paletteGrid.FitWidth = true;
+        paletteGrid.Headers = true;
+        paletteGrid.SizeChanged += (_, _) => { paletteBg.Cell = paletteGrid.Cell; paletteBg.InvalidateMeasure(); };
         paletteBg.SelectionChanged += (_, _) => { paletteGrid.Select(0); ShowPaletteColor(0); OpenPicker(); };
         picker.ColorChanged += (_, c) => OnPickerColor(c);
         pickerFlyout.Content = picker;
@@ -630,7 +633,8 @@ public partial class MainWindow : Window
             if (e.Property == IsVisibleProperty) OnDrawerVisibilityChanged();
         };
 
-        ApplyDrawerPane(Pane.Level);   // sized for the picker's own zoom, which nothing drives yet
+        ApplyDrawerPane(Pane.Level);
+        drawer.AddHandler(PointerWheelChangedEvent, DrawerWheel, RoutingStrategies.Tunnel);
 
         // ---- menu items that depend on state ----
         recentMenu = this.GetControl<MenuItem>("RecentMenu");
@@ -655,14 +659,17 @@ public partial class MainWindow : Window
             sv.Offset = new Vector(Math.Max(0, sv.Offset.X + d.Dx), Math.Max(0, sv.Offset.Y + d.Dy));
         };
 
-        // Where the canvas's own wheel is a zoom, the desk around it zooms too — one gesture for
-        // the whole viewport. The level and Map16 sheets scroll on the wheel, so their desk keeps
-        // scrolling. Tunnelling, so it sees the event before the scroll viewer spends it.
-        foreach (var (svName, content) in new (string, Control)[]
-                 { ("BgScroll", bgView), ("GfxSheetScroll", gfxCanvas) })
+        // Alt/Cmd+wheel zooms every viewport about the cursor. Where the canvas's own plain wheel
+        // is already a zoom (GFX), the desk around it zooms on the plain wheel too — one gesture
+        // for the whole viewport. The level, Map16 and background sheets scroll on the plain
+        // wheel, so there only the chord zooms. Tunnelling, so it sees the event before the
+        // scroll viewer (or the canvas) spends it.
+        foreach (var (svName, content, deskZooms) in new (string, Control, bool)[]
+                 { ("BgScroll", bgView, false), ("GfxSheetScroll", gfxCanvas, true),
+                   ("CanvasScroll", canvas, false), ("Map16Scroll", map16Canvas, false) })
         {
             var sv = this.GetControl<ScrollViewer>(svName);
-            sv.AddHandler(PointerWheelChangedEvent, (_, e) => DeskWheel(sv, content, e), RoutingStrategies.Tunnel);
+            sv.AddHandler(PointerWheelChangedEvent, (_, e) => DeskWheel(sv, content, deskZooms, e), RoutingStrategies.Tunnel);
         }
 
         // A rebuild swaps in a new scene and new layer editors, and the caches here (edit,
@@ -961,7 +968,7 @@ public partial class MainWindow : Window
         }
         // Delete on a Map16 selection resets the tiles to the base ROM's definitions. A focused
         // TextBox (the acts-like field) keeps its own Delete.
-        else if (e.Key == Key.Delete && modeMap16.IsChecked == true
+        else if (e.Key is Key.Delete or Key.Back && modeMap16.IsChecked == true
                  && FocusManager?.GetFocusedElement() is not TextBox)
         {
             if (session.ResetMap16Tiles(map16Canvas.SelectedTiles())) RefreshMap16Props();
@@ -1022,10 +1029,16 @@ public partial class MainWindow : Window
     /// canvas does its own anchoring, and a scrollbar is not the desk. Zooming through the
     /// slider keeps it the one owner of the value.
     /// </summary>
-    private void DeskWheel(ScrollViewer sv, Control content, PointerWheelEventArgs e)
+    /// <summary>The zoom chord: Alt or Cmd (Meta). Not Ctrl — Ctrl+wheel belongs to the canvas
+    /// underneath (the level's reorder), so it has to pass through untouched.</summary>
+    private static bool ZoomChord(KeyModifiers m)
+        => m.HasFlag(KeyModifiers.Alt) || m.HasFlag(KeyModifiers.Meta);
+
+    private void DeskWheel(ScrollViewer sv, Control content, bool deskZooms, PointerWheelEventArgs e)
     {
-        if (e.Source is not Visual src || ReferenceEquals(src, content) || content.IsVisualAncestorOf(src)
-            || src.FindAncestorOfType<ScrollBar>(includeSelf: true) is not null) return;
+        if (e.Source is not Visual src || src.FindAncestorOfType<ScrollBar>(includeSelf: true) is not null) return;
+        bool overContent = ReferenceEquals(src, content) || content.IsVisualAncestorOf(src);
+        if (!ZoomChord(e.KeyModifiers) && (overContent || !deskZooms)) return;
         deskWheel += e.Delta.Y;
         int notches = (int)deskWheel;
         deskWheel -= notches;
@@ -1930,8 +1943,49 @@ public partial class MainWindow : Window
         Pane.Graphics => Math.Max(GfxBinCardWidth, Map16BarWidth),
         Pane.Animations => Math.Max(GfxBinCardWidth, Map16BarWidth),
         Pane.Background => Map16BarWidth,      // a whole BG Map16 row, like the Map16 drawer
-        _ => Map16PaletteView.ContentWidth(palette.Zoom),
+        _ => Map16PaletteView.ContentWidth(Map16PaletteView.DefaultZoom),
     };
+
+    /// <summary>The widest the drawer goes for a sheet that fits its width: a Map16 row at its
+    /// largest tile size (the CHR grid, half as wide at 1x, reaches 12x in the same room).</summary>
+    private static readonly double DrawerCeiling = DrawerChrome + Map16PaletteView.ContentWidth(Map16PaletteView.MaxZoom);
+
+    /// <summary>How far the splitter may go for a pane. The panes whose content FITS the drawer —
+    /// the level's Tiles picker, the Map16 editor's CHR grid, the background's Map16 sheet, the GFX
+    /// bin cards' stretched previews — have a range, because for them the width is the zoom: the
+    /// ends are the smallest and largest worth having. Level and Background floor at 1x tiles; the
+    /// Map16 pane floors at its control row, which is wider; Graphics at a 2x bin card. The
+    /// Animations pane floors at its content and has no ceiling.</summary>
+    private (double Min, double Max) DrawerRange(Pane pane) => pane switch
+    {
+        Pane.Level or Pane.Background => (DrawerChrome + Map16PaletteView.ContentWidth(Map16PaletteView.MinZoom), DrawerCeiling),
+        Pane.Map16 or Pane.Graphics => (NaturalDrawerWidth(pane), DrawerCeiling),
+        _ => (NaturalDrawerWidth(pane), double.PositiveInfinity),
+    };
+
+    private double drawerWheel;   // fractional wheel not yet spent: a trackpad sends a notch in pieces
+
+    /// <summary>Alt/Cmd+wheel anywhere over the drawer zooms its sheet — by resizing the drawer,
+    /// since every sheet that zooms here fits its width (the splitter is the same control). One
+    /// notch is half a Map16 tile scale of width, inside the pane's range and short of three
+    /// quarters of the window so the canvas is never squeezed out. Tunnelling on the drawer so the
+    /// chord is taken before the sheet's scroll viewer spends it; a pane without a range (the
+    /// animations) has nothing that grows, so there the wheel is left alone.</summary>
+    private void DrawerWheel(object? sender, PointerWheelEventArgs e)
+    {
+        if (!(e.KeyModifiers.HasFlag(KeyModifiers.Alt) || e.KeyModifiers.HasFlag(KeyModifiers.Meta))) return;
+        if (double.IsPositiveInfinity(DrawerRange(drawerPane).Max)) return;
+        e.Handled = true;
+        drawerWheel += e.Delta.Y;
+        int notches = (int)drawerWheel;
+        drawerWheel -= notches;
+        if (notches == 0) return;
+
+        var col = split.ColumnDefinitions[0];
+        double max = Math.Min(col.MaxWidth, split.Bounds.Width * 0.75);
+        col.Width = new GridLength(Math.Clamp(col.Width.Value + Math.Sign(notches) * Map16PaletteView.ZoomStep * Map16Layout.Cols * 16,
+                                              col.MinWidth, Math.Max(col.MinWidth, max)));
+    }
 
     private double WantedDrawerWidth(Pane pane)
         => Math.Max(drawerWidths.GetValueOrDefault(pane), NaturalDrawerWidth(pane));
@@ -1945,7 +1999,7 @@ public partial class MainWindow : Window
         var col = split.ColumnDefinitions[0];
         if (col.Width.IsAbsolute && col.Width.Value > 0) drawerWidths[drawerPane] = col.Width.Value;
         drawerPane = pane;
-        col.MinWidth = NaturalDrawerWidth(pane);
+        (col.MinWidth, col.MaxWidth) = DrawerRange(pane);
         if (drawer.IsVisible) col.Width = new GridLength(WantedDrawerWidth(pane));
     }
 
@@ -2654,6 +2708,15 @@ public partial class MainWindow : Window
     private string DescribeSwatch(int index)
         => $"0x{index:X2} r{index >> 4} c{index & 15}  {session.PaletteBgr(index):X4}"
          + (session.IsPaletteEdited(index) ? "  (edited)" : "");
+
+    /// <summary>A swatch's colour, for the hover tip: the five-bit channels the picker's sliders
+    /// use, then the 24-bit hex they display as.</summary>
+    private string SwatchRgb(int index)
+    {
+        ushort bgr = session.PaletteBgr(index);
+        uint rgba = EditorSession.Rgba(bgr);
+        return $"R{bgr & 31} G{bgr >> 5 & 31} B{bgr >> 10 & 31}  #{rgba & 0xFF:X2}{rgba >> 8 & 0xFF:X2}{rgba >> 16 & 0xFF:X2}";
+    }
 
     /// <summary>Load the picker with the clicked swatch and pop it over the cursor — ImGui
     /// opened its ColorPicker3 in a popup on the swatch, and that is the gesture being restored.

@@ -143,8 +143,8 @@ public class PaletteTabTests(ITestOutputHelper log) : IDisposable
 
         // Click swatch 0x42 (row 4, column 2) the way the user would. Picking it loads the
         // picker and must NOT count as an edit on its own.
-        var at = grid.TranslatePoint(new Point(2 * grid.Cell + grid.Cell / 2,
-                                               4 * grid.Cell + grid.Cell / 2), w)!.Value;
+        var at = grid.TranslatePoint(new Point(grid.HeaderSize + 2 * grid.Cell + grid.Cell / 2,
+                                               grid.HeaderSize + 4 * grid.Cell + grid.Cell / 2), w)!.Value;
         w.MouseDown(at, MouseButton.Left);
         w.MouseUp(at, MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
@@ -182,8 +182,8 @@ public class PaletteTabTests(ITestOutputHelper log) : IDisposable
         Dispatcher.UIThread.RunJobs();
 
         var grid = w.GetControl<PaletteGridView>("PaletteGrid");
-        var at = grid.TranslatePoint(new Point(2 * grid.Cell + grid.Cell / 2,
-                                               4 * grid.Cell + grid.Cell / 2), w)!.Value;
+        var at = grid.TranslatePoint(new Point(grid.HeaderSize + 2 * grid.Cell + grid.Cell / 2,
+                                               grid.HeaderSize + 4 * grid.Cell + grid.Cell / 2), w)!.Value;
         w.MouseDown(at, MouseButton.Left);
         w.MouseUp(at, MouseButton.Left);
         Dispatcher.UIThread.RunJobs();

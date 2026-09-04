@@ -458,7 +458,7 @@
                              VerticalAlignment="Center"/>
                 </StackPanel>
               </Border>
-              <ScrollViewer x:Name="PaletteScroll" HorizontalScrollBarVisibility="Auto">
+              <ScrollViewer x:Name="PaletteScroll" HorizontalScrollBarVisibility="Disabled">
                 <ui:Map16PaletteView x:Name="Palette" Margin="8"/>
               </ScrollViewer>
             </DockPanel>
@@ -551,7 +551,8 @@
                 <ui:PaletteGridView x:Name="PaletteBg" Cols="1" Rows="1"/>
                 <TextBlock Classes="dim" Text="Background Color" VerticalAlignment="Center"/>
               </StackPanel>
-              <ScrollViewer HorizontalScrollBarVisibility="Auto">
+              <!-- Sideways scrolling disabled so the width is a real constraint: the grid fits it. -->
+              <ScrollViewer HorizontalScrollBarVisibility="Disabled">
                 <ui:PaletteGridView x:Name="PaletteGrid" Margin="8"/>
               </ScrollViewer>
             </DockPanel>
