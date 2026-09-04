@@ -80,7 +80,7 @@ public sealed class PixelBlit
         {
             LastDraw = "exact";
             RenderOptions.SetBitmapInterpolationMode(owner, BitmapInterpolationMode.None);
-            ctx.DrawImage(bmp, src, dst);
+            Image(ctx, bmp, src, dst);
             return;
         }
 
@@ -108,7 +108,7 @@ public sealed class PixelBlit
             // wrong pixel widths beats a blurred picture, and it is what this did before.
             LastDraw = "unfiltered";
             RenderOptions.SetBitmapInterpolationMode(owner, BitmapInterpolationMode.None);
-            ctx.DrawImage(bmp, new Rect(sx, sy, sw, sh), into);
+            Image(ctx, bmp, new Rect(sx, sy, sw, sh), into);
             return;
         }
 
@@ -123,13 +123,13 @@ public sealed class PixelBlit
         {
             LastDraw = "unfiltered";
             RenderOptions.SetBitmapInterpolationMode(owner, BitmapInterpolationMode.None);
-            ctx.DrawImage(bmp, new Rect(sx, sy, sw, sh), into);
+            Image(ctx, bmp, new Rect(sx, sy, sw, sh), into);
             return;
         }
 
         using (var dc = rt.CreateDrawingContext())
         using (dc.PushRenderOptions(Options(BitmapInterpolationMode.None)))
-            dc.DrawImage(bmp, new Rect(sx, sy, sw, sh), whole);
+            Image(dc, bmp, new Rect(sx, sy, sw, sh), whole);
 
         using (var dc = f2.CreateDrawingContext())
         using (dc.PushRenderOptions(Options(BitmapInterpolationMode.HighQuality)))
@@ -140,6 +140,28 @@ public sealed class PixelBlit
         ctx.DrawImage(f2, new Rect(0, 0, fw, fh),
                       new Rect(vis.X, vis.Y, fw / scaling, fh / scaling));
         LastDraw = "sharp";
+    }
+
+    /// <summary>
+    /// <paramref name="src"/> may reach past <paramref name="bmp"/>, in which case the bitmap
+    /// REPEATS to cover it — the empty Map16 pages are one page image over up to 0x1F00 tiles.
+    /// Repeating here, at whole source pixels, is what a tiled ImageBrush cannot do: it rounds
+    /// its period to whole device pixels and drifts off the grid at any fractional zoom.
+    /// </summary>
+    private static void Image(DrawingContext dc, IImage bmp, Rect src, Rect dst)
+    {
+        double bw = bmp.Size.Width, bh = bmp.Size.Height;
+        if (src.Right <= bw && src.Bottom <= bh) { dc.DrawImage(bmp, src, dst); return; }
+        double zx = dst.Width / src.Width, zy = dst.Height / src.Height;
+        for (double y = Math.Floor(src.Y / bh) * bh; y < src.Bottom; y += bh)
+            for (double x = Math.Floor(src.X / bw) * bw; x < src.Right; x += bw)
+            {
+                var cell = new Rect(x, y, bw, bh).Intersect(src);
+                if (cell.Width < 1 || cell.Height < 1) continue;
+                dc.DrawImage(bmp, new Rect(cell.X - x, cell.Y - y, cell.Width, cell.Height),
+                             new Rect(dst.X + (cell.X - src.X) * zx, dst.Y + (cell.Y - src.Y) * zy,
+                                      cell.Width * zx, cell.Height * zy));
+            }
     }
 
     private static RenderOptions Options(BitmapInterpolationMode mode)
@@ -212,7 +234,7 @@ public sealed class PixelBlit
     /// wrong about WHERE for one frame; the full level would be wrong about HOW for as long as you
     /// look at it.
     /// </summary>
-    private static Rect Visible(Visual v)
+    internal static Rect Visible(Visual v)
     {
         var all = new Rect(v.Bounds.Size);
         if (v.FindAncestorOfType<ScrollViewer>() is { } sv

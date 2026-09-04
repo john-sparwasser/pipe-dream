@@ -15,7 +15,8 @@ namespace PipeDream.Ui;
 ///   RIGHT click/drag   place: the armed catalog object, else the drawer's Map16 tile as a
 ///                      Direct Map16 object. A selection does NOT change what it does —
 ///                      pick a tile, right-click, it lands there.
-///   CTRL + RIGHT click duplicate the selection at the cursor
+///   RIGHT click        with a selection, duplicate it at the cursor — the level's own tiles
+///                      outrank the drawer's; deselect to place from the drawer again
 ///   LEFT click         on a selected object → drag to move it, live under the cursor
 ///                      elsewhere            → rubber-band select (live, while dragging)
 ///   LEFT click, still  cycle the overlap stack under the cursor (LM-style: topmost, then
@@ -158,6 +159,11 @@ public class LevelView : Control
     public event EventHandler<(int Dx, int Dy)>? SpritesMoved;
     public int Phase { get; set; }
     public bool ShowGrid { get; set; } = true;
+
+    /// <summary>The hitbox of the tile at a cell, when the hitbox overlay is on; null turns it
+    /// off. The window supplies it because the shape comes from the ROM's tables and the level's
+    /// tileset, neither of which this view holds.</summary>
+    public Func<int, int, Hitbox>? Hitboxes { get; set; }
     public bool Vertical { get; set; }
 
     public (int X, int Y)? HoverCell { get; private set; }
@@ -168,7 +174,7 @@ public class LevelView : Control
     public event EventHandler? StrokeEnded;
     public event EventHandler<(int X, int Y)>? CellPressed;
 
-    /// <summary>Ctrl+right-click with a selection: duplicate it here.</summary>
+    /// <summary>Right-click with a selection: duplicate it here.</summary>
     public event EventHandler<(int X, int Y)>? DuplicateRequested;
 
     /// <summary>Right-click with a catalog object armed: place it here.</summary>
@@ -226,21 +232,23 @@ public class LevelView : Control
     private bool grabbing, sampling;
     /// <summary>A move drag has already applied at least one step, so the rest coalesce into
     /// the same undo entry and a release is a drag, not a stationary click.</summary>
-    private bool moved, movePending;
+    private bool moved, dragPending;
 
-    /// <summary>Apply the drag's latest position: the cursor's whole travel from the press,
-    /// measured by the editor from where the objects started (a step the edge clamps is not
-    /// lost). One render per call, however many pointer moves queued up behind it.</summary>
-    private void FlushMove()
+    /// <summary>Apply the drag's latest position — a move or an edge resize: the cursor's whole
+    /// travel from the press, measured by the editor from where the object started (a step the
+    /// edge clamps is not lost). One render per call, however many pointer moves queued up
+    /// behind it.</summary>
+    private void FlushDrag()
     {
-        movePending = false;
-        if (moveStart is not { } m || bandEnd is not { } c || Edit is null) return;
-        if (Edit.MoveSelected(c.X - m.X, c.Y - m.Y, moved))
-        {
-            moved = true;
-            SelectionChanged?.Invoke(this, EventArgs.Empty);
-            InvalidateVisual();
-        }
+        dragPending = false;
+        if (bandEnd is not { } c || Edit is null) return;
+        bool did = resizeDrag is { } rd
+            ? Edit.Resize(rd.Obj, Grips.Mask(rd.Edge), c.X - rd.Cx, c.Y - rd.Cy, moved)
+            : moveStart is { } m && Edit.MoveSelected(c.X - m.X, c.Y - m.Y, moved);
+        if (!did) return;
+        moved = true;
+        SelectionChanged?.Invoke(this, EventArgs.Empty);
+        InvalidateVisual();
     }
     private double orderWheel;                   // fractional Ctrl+wheel not yet spent
     private readonly Stroke stroke;
@@ -373,10 +381,11 @@ public class LevelView : Control
 
         if (props.IsRightButtonPressed)
         {
-            // Right-click is PLACE, whatever is selected: pick a tile in the drawer, right-click,
-            // it lands. Duplicating a selection moved to Ctrl+right — having a stray selection
-            // silently turn every right-click into a duplicate is what made placing look broken.
-            if (Hotkeys.Command(e.KeyModifiers) && Edit is { Selection.Count: > 0 })
+            // What is selected IN THE LEVEL outranks what is armed in the drawer: with a
+            // selection, right-click puts a copy of it here, and the drawer's tile or block only
+            // places again once the selection is dropped. One right button, one meaning at a
+            // time, decided by what the user most recently took hold of.
+            if (Edit is { Selection.Count: > 0 })
                 DuplicateRequested?.Invoke(this, cell);
             else if (CatalogObject >= 0) PlaceRequested?.Invoke(this, cell);
             else
@@ -500,17 +509,17 @@ public class LevelView : Control
 
         if (resizeDrag is not null || bandStart is not null || moveStart is not null)
         {
-            if (moveStart is not null)
+            if (moveStart is not null || resizeDrag is not null)
             {
-                // Live: the selection goes where the cursor goes, all of it one undo entry. Not
-                // applied here, though — a move re-renders the whole level (~10ms), and a fast
-                // drag delivers pointer events far faster than that. Applied once per burst
-                // instead (FlushMove), so the objects land under the cursor rather than
+                // Live: the selection goes (or grows) where the cursor goes, all of it one undo
+                // entry. Not applied here, though — an edit re-renders the whole level (~10ms),
+                // and a fast drag delivers pointer events far faster than that. Applied once per
+                // burst instead (FlushDrag), so the objects land under the cursor rather than
                 // trailing it through every cell it crossed.
-                if (c != (bandEnd ?? moveStart.Value) && !movePending)
+                if (c != bandEnd && !dragPending)
                 {
-                    movePending = true;
-                    Dispatcher.UIThread.Post(FlushMove, DispatcherPriority.Background);
+                    dragPending = true;
+                    Dispatcher.UIThread.Post(FlushDrag, DispatcherPriority.Background);
                 }
             }
             bandEnd = c;
@@ -561,10 +570,10 @@ public class LevelView : Control
             return;
         }
 
-        if (resizeDrag is { } rd && bandEnd is { } rc)
+        if (resizeDrag is not null)
         {
-            if (Edit?.Resize(rd.Obj, Grips.Mask(rd.Edge), rc.X - rd.Cx, rc.Y - rd.Cy) == true)
-                SelectionChanged?.Invoke(this, EventArgs.Empty);
+            FlushDrag();                    // whatever the last burst had not applied yet
+            Edit?.EndResize();
         }
         else if (bandStart is { } a && bandEnd is { } b)
         {
@@ -573,7 +582,7 @@ public class LevelView : Control
         }
         else if (moveStart is { } m)
         {
-            FlushMove();                    // whatever the last burst had not applied yet
+            FlushDrag();
             Edit?.EndMove();
             if (!moved)
             {
@@ -664,6 +673,7 @@ public class LevelView : Control
         blit.Draw(this, ctx, bmp, src, dst, VisualRoot?.RenderScaling ?? 1);
 
         if (ShowGrid) DrawScreenBoundaries(ctx, dst, z);
+        if (Hitboxes is { } hit) DrawHitboxes(ctx, hit, z);
 
         // Exits mode owns the overlay outright: no selection, no handles, no band — the whole
         // point is that the level is being read screen by screen, not edited object by object.
@@ -689,11 +699,9 @@ public class LevelView : Control
             foreach (int i in ed.Selection)
                 if (ed.BBox(i) is { } b) Overlay.Selection(ctx, CellRect(b.X, b.Y, b.W, b.H, z));
 
-        // Resize preview while dragging an edge, then handles on a lone idle selection.
-        if (resizeDrag is { } rd && bandEnd is { } rc && Edit is { } re
-            && re.PreviewResizeBox(rd.Obj, Grips.Mask(rd.Edge), rc.X - rd.Cx, rc.Y - rd.Cy) is { } pv)
-            Overlay.Outline(ctx, CellRect(pv.X, pv.Y, pv.W, pv.H, z));
-        else if (Edit is { Selection.Count: 1 } he && bandStart is null && moveStart is null)
+        // Handles on a lone idle selection. A resize drag applies live, so the selection box
+        // above IS the preview; the handles sit out until the drag lets go.
+        if (Edit is { Selection.Count: 1 } he && bandStart is null && moveStart is null && resizeDrag is null)
             DrawHandles(ctx, he, z);
 
         // Rubber band: cyan while selecting, green while grabbing tiles — the ImGui colours.
@@ -830,6 +838,19 @@ public class LevelView : Control
     private static readonly IBrush MarioRed = new SolidColorBrush(Color.Parse("#D63A2F"));
 
     // SMW screens are 16 cells wide; the boundary lines are the editor's main orientation cue.
+    /// <summary>Hitboxes over the cells in view — only those, a level is thousands wide.</summary>
+    private void DrawHitboxes(DrawingContext ctx, Func<int, int, Hitbox> hit, double z)
+    {
+        var vis = PixelBlit.Visible(this);
+        int cols = (Source?.PxW ?? 0) / 16, rows = (Source?.PxH ?? 0) / 16;
+        double cell = 16 * z;
+        int x0 = Math.Max(0, (int)((vis.X + Origin.X) / cell)), x1 = Math.Min(cols - 1, (int)((vis.Right + Origin.X) / cell));
+        int y0 = Math.Max(0, (int)((vis.Y + Origin.Y) / cell)), y1 = Math.Min(rows - 1, (int)((vis.Bottom + Origin.Y) / cell));
+        for (int cy = y0; cy <= y1; cy++)
+            for (int cx = x0; cx <= x1; cx++)
+                HitboxOverlay.Draw(ctx, hit(cx, cy), CellRect(cx, cy, 1, 1, z));
+    }
+
     private void DrawScreenBoundaries(DrawingContext ctx, Rect dst, double z)
     {
         var pen = new Pen(new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF)));

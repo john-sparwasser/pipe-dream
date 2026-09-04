@@ -163,6 +163,32 @@ public class BrushAndResizeTests(ITestOutputHelper log)
         Assert.NotEqual(0x100, scene.Grid.Get(23, 12));      // the growth is gone
     }
 
+    /// <summary>A live resize drag is steps measured from where the drag began, all in one undo
+    /// entry: the third step's width is the start plus that step's travel, not a pile of deltas;
+    /// a step back to the start is a change (the screen shows the previous step) and the object
+    /// comes back to its original size.</summary>
+    [Fact]
+    public void a_coalesced_resize_measures_from_the_drag_start_as_one_undo()
+    {
+        if (Edit() is not { } r) { log.WriteLine("SKIP: no ROM"); return; }
+        var (_, scene, edit) = r;
+        edit.Paint(20, 10, 0x100);
+        edit.EndStroke();
+        int idx = edit.Objects.Count - 1;
+        int depth = edit.UndoDepth;
+
+        Assert.True(edit.Resize(idx, 2, 1, 0));                       // the drag's first step
+        Assert.True(edit.Resize(idx, 2, 3, 0, coalesce: true));       // cursor now 3 right of the press
+        Assert.Equal(4, edit.Objects[idx].Dm16Size().w);              // 1 + 3, not 1 + 1 + 3
+        Assert.Equal(0x100, scene.Grid.Get(23, 10));
+        Assert.True(edit.Resize(idx, 2, 0, 0, coalesce: true));       // back to where it started
+        Assert.Equal(1, edit.Objects[idx].Dm16Size().w);
+        Assert.NotEqual(0x100, scene.Grid.Get(23, 10));
+        Assert.False(edit.Resize(idx, 2, 0, 0, coalesce: true));      // and staying there is nothing
+        Assert.Equal(depth + 1, edit.UndoDepth);
+        edit.EndResize();
+    }
+
     /// <summary>The drag preview box must sit on the rendered footprint — where the selection
     /// and handles are — not on the object's declared rect, which can differ in both anchor
     /// and size. A zero-delta drag on any object must reproduce its BBox exactly.</summary>

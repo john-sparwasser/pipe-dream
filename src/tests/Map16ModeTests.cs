@@ -148,7 +148,41 @@ public class Map16ModeTests(ITestOutputHelper log)
         Assert.True(s.Map16TileCount > before);
         var (px, _, h) = s.SheetPhases();
         Assert.Equal(s.Map16TileCount / 16 * 16, h);   // the sheet covers the new pages
-        Assert.All(s.PlaceholderPhases(), ph => Assert.NotNull(ph));
+        // Drawn like the sheet's own tiles: transparent pixels are the sheet grey, never see-through.
+        Assert.All(s.PlaceholderPhases(), ph => { Assert.NotNull(ph); Assert.DoesNotContain(0u, ph!); });
+    }
+
+    /// <summary>A copied or moved tile keeps what it acts as, and undoing the copy takes the
+    /// behaviour back with the art. Priority and the flips travel in the definition words.</summary>
+    [Fact]
+    public void a_copy_or_move_carries_the_tiles_behaviour_and_undoes_with_it()
+    {
+        if (Edit() is not { } e) { log.WriteLine("SKIP: no ROM"); return; }
+        var (_, edit) = e;
+        Assert.True(edit.HasActsAs);
+        Assert.Null(edit.EnsurePage(0x220));
+        edit.StampQuad(0x220, 0, 0x2ABC);                            // priority set in the word
+        edit.EndStroke();
+        edit.SetActsAs([0x220], 0x12A);
+        int was = edit.ActsAs(0x222)!.Value;
+        Assert.NotEqual(0x12A, was);
+
+        Assert.Null(edit.CopyQuads(0, 0, 68, 2, 2, 4, 0));           // tile 0x220 → 0x222, whole tile
+        edit.EndStroke();
+        Assert.Equal(0x2ABC, edit.ReadDef(0x222)![0].Raw);
+        Assert.Equal(0x12A, edit.ActsAs(0x222));
+        Assert.True(edit.Undo());
+        Assert.Equal(was, edit.ActsAs(0x222));
+
+        Assert.Null(edit.MoveTiles(0, 0, 34, 1, 1, 3, 0));           // tile 0x220 → 0x223
+        edit.EndStroke();
+        Assert.Equal(0x12A, edit.ActsAs(0x223));
+
+        // A quadrant copy that cuts tiles carries art only.
+        int keep = edit.ActsAs(0x230)!.Value;
+        Assert.Null(edit.CopyQuads(0, 6, 68, 1, 1, 0, 2));            // one quadrant of 0x223 → 0x233
+        edit.EndStroke();
+        Assert.Equal(keep, edit.ActsAs(0x230));
     }
 
     /// <summary>The BG bank is a fixed table, so it explains itself rather than allocating.</summary>
@@ -231,17 +265,25 @@ public class Map16ModeTests(ITestOutputHelper log)
     }
 
     [Fact]
-    public void a_move_onto_unallocated_tiles_is_refused_rather_than_partial()
+    public void a_move_or_copy_onto_an_empty_page_creates_it_like_painting_does()
     {
         if (Edit() is not { } e) { log.WriteLine("SKIP: no ROM"); return; }
-        var (_, edit) = e;
+        var (rom, edit) = e;
         Assert.Null(edit.EnsurePage(0x220));
         edit.StampQuad(0x220, 0, 0xCCCC);
         edit.EndStroke();
 
-        // Somewhere far past what is allocated.
-        Assert.NotNull(edit.MoveTiles(0, 0, 34, 1, 1, 0, 200));
-        Assert.Equal(0xCCCC, edit.ReadDef(0x220)![0].Raw);            // nothing moved
+        // Somewhere far past what is allocated: the page comes into being and the tile lands.
+        Assert.Null(edit.MoveTiles(0, 0, 34, 1, 1, 0, 200));
+        Assert.Equal(0xCCCC, edit.ReadDef(0xEA0)![0].Raw);
+        Assert.Equal(Map16Edit.Empty, edit.ReadDef(0x220)![0].Raw);
+        Assert.True(rom.Map16TileCount > 0xEA0);
+        Assert.Null(edit.CopyQuads(0, 0, 468, 2, 2, 0, 40));           // quadrants of tile 0xEA0, 20 rows down
+        Assert.Equal(0xCCCC, edit.ReadDef(0xEA0 + 20 * 16)![0].Raw);
+
+        // The BG table cannot grow, so a move into its unused rows is refused before anything moves.
+        Assert.NotNull(edit.MoveTiles(2, 0, 0, 1, 1, 0, 40));
+        Assert.Equal(0xCCCC, edit.ReadDef(0xEA0)![0].Raw);
     }
 
     // ---- through the window ----
@@ -496,7 +538,7 @@ public class Map16ModeTests(ITestOutputHelper log)
 
         Assert.Equal(0, painted);                        // the 8x8 brush is not in play here
         Assert.Equal((0, 2, 4, 2, 8, 10), dup);          // in QUADRANTS, top-left under the cursor
-        Assert.Equal((0, 2, 4, 2), v.Selection);         // and stays selected for the next copy
+        Assert.Equal((8, 12, 4, 2), v.Selection);        // the reticle follows the copy
 
         // One tile is a selection too — it arms the level brush AND copies on right-click.
         int picked = -1;
@@ -511,6 +553,7 @@ public class Map16ModeTests(ITestOutputHelper log)
         w.MouseUp(Quad(9, 13), MouseButton.Right);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal((2, 4, 2, 2, 6, 8), dup);           // snapped to the tile grid, not to 9,13
+        Assert.Equal((8, 12, 2, 2), v.Selection);        // and the selection sits on the copy
     }
 
     /// <summary>8x8 is a different mode, not a finer cursor: the lasso selects QUADRANTS and a
@@ -556,6 +599,43 @@ public class Map16ModeTests(ITestOutputHelper log)
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(0, painted);
         Assert.Equal((0, 0, 1, 1, 5, 7), dup);
+    }
+
+    /// <summary>A selection is something you can pick up, and the pointer says so: the hand over
+    /// it, the grab while it is held, and neither anywhere else.</summary>
+    [AvaloniaFact]
+    public void the_hand_shows_over_a_selection_and_the_grab_while_dragging_it()
+    {
+        var (w, v) = Bare(Map16CanvasView.TileGrain.Tile16);
+        Point Quad(int col, int row) => v.TranslatePoint(new Point(col * 16 + 4, row * 16 + 4), w)!.Value;
+
+        w.MouseMove(Quad(1, 3));
+        Assert.Equal(Cursor.Default, v.Cursor);
+        w.MouseDown(Quad(1, 3), MouseButton.Left);
+        w.MouseUp(Quad(1, 3), MouseButton.Left);
+        Assert.Equal((0, 2, 2, 2), v.Selection);
+        Assert.Same(UiCursors.Hand, v.Cursor);
+
+        w.MouseDown(Quad(1, 3), MouseButton.Left);
+        w.MouseMove(Quad(5, 3));
+        Assert.Same(UiCursors.Grab, v.Cursor);
+        w.MouseUp(Quad(5, 3), MouseButton.Left);
+        Assert.Equal((4, 2, 2, 2), v.Selection);            // moved two tiles right
+        Assert.Same(UiCursors.Hand, v.Cursor);                // released over it, still holdable
+
+        w.MouseMove(Quad(12, 12));
+        Assert.Equal(Cursor.Default, v.Cursor);
+
+        // Two tiles wide, grabbed by its right tile and dragged so that tile reaches the left
+        // edge: the selection stops AT the edge rather than hanging off it.
+        w.MouseDown(Quad(8, 3), MouseButton.Left);
+        w.MouseMove(Quad(10, 3));
+        w.MouseUp(Quad(10, 3), MouseButton.Left);
+        Assert.Equal((8, 2, 4, 2), v.Selection);
+        w.MouseDown(Quad(11, 3), MouseButton.Left);
+        w.MouseMove(Quad(0, 3));
+        w.MouseUp(Quad(0, 3), MouseButton.Left);
+        Assert.Equal((0, 2, 4, 2), v.Selection);
     }
 
     /// <summary>A bare canvas in a window — geometry and input, no ROM. Zoom 2: a tile is 32px,

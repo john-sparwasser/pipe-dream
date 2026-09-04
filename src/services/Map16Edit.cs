@@ -99,6 +99,29 @@ public sealed class Map16Edit
         return true;
     }
 
+    /// <summary>Carry what <paramref name="from"/> behaves as over to <paramref name="to"/>, in
+    /// the current stroke: a tile moved or copied keeps its behaviour with its art, and undo
+    /// takes both back together. Acts-like is an FG concept, so BG tiles have nothing to carry.</summary>
+    private void StampActsAs(int to, int from)
+    {
+        if (from < 0x4000) StampActsAs(to, (ushort)rom.ActsAs(from));
+    }
+
+    private void StampActsAs(int to, ushort v)
+    {
+        if (!HasActsAs || to >= 0x4000) return;
+        int fo = rom.FileOffset(rom.LmActsAsBase + to * 2);
+        ushort before = (ushort)(rom.Data[fo] | (rom.Data[fo + 1] << 8));
+        if (before == v) return;
+        rom.Data[fo] = (byte)v;
+        rom.Data[fo + 1] = (byte)(v >> 8);
+        // Not a stroke TILE: behaviour is not art, so an acts-like-only stroke commits as
+        // "nothing visual changed" and costs no recompose.
+        stroke.Add((fo, before, v));
+        project?.Data.Map16.ActsAs.TryAdd(to.ToString("X3"), v);
+        project?.MarkDirty();
+    }
+
     public void EndStroke()
     {
         if (stroke.Count == 0) return;
@@ -245,48 +268,31 @@ public sealed class Map16Edit
         => HasActsAs && tile < 0x4000 ? rom.ActsAs(tile) : null;
 
     /// <summary>
-    /// Remap what the selected tiles behave as. Written straight into the session ROM with the
-    /// tile numbers recorded in the project — the VALUES are re-read from the ROM at save time,
-    /// which is what makes undo need no extra bookkeeping (the same deal as definitions).
+    /// Remap what the selected tiles behave as. One stroke, so a selection's worth is one undo
+    /// entry, and undo takes it back like any definition edit. The tile numbers are recorded in
+    /// the project — the VALUES are re-read from the ROM at save time.
     /// </summary>
     public bool SetActsAs(IEnumerable<int> tiles, int value)
     {
         if (!HasActsAs) return false;
-        bool any = false;
-        foreach (int t in tiles)
-        {
-            if (t >= 0x4000) continue;
-            int fo = rom.FileOffset(rom.LmActsAsBase + t * 2);
-            int before = rom.Data[fo] | (rom.Data[fo + 1] << 8);
-            int v = value & 0x3FFF;
-            if (before == v) continue;
-            rom.Data[fo] = (byte)v;
-            rom.Data[fo + 1] = (byte)(v >> 8);
-            project?.Data.Map16.ActsAs.TryAdd(t.ToString("X3"), v);
-            any = true;
-        }
-        if (!any) return false;
-        project?.MarkDirty();
-        Dirty = true;
-        // Acts-like is behaviour, not art: the bytes changed, no pixel did.
-        CommittedTiles = [];
-        Committed?.Invoke();
+        foreach (int t in tiles) StampActsAs(t, (ushort)(value & 0x3FFF));
+        if (stroke.Count == 0) return false;
+        EndStroke();
         return true;
     }
 
     /// <summary>
     /// Move a rectangle of tiles by a tile delta. Sources are read out first, cleared, then
     /// rewritten at the destination — overlap-safe, and one undo step because every write joins
-    /// the same stroke. Refuses a partial move rather than dropping the tiles that would land on
-    /// unallocated pages.
+    /// the same stroke. Landing on an empty page creates it, as painting there would; refuses
+    /// outright, before anything moves, where a page cannot exist.
     /// </summary>
     public string? MoveTiles(int bank, int x, int y, int w, int h, int dx, int dy)
     {
         int TileAt(int tx, int ty) => bank * Map16Layout.BankTiles + ty * Map16Layout.Cols + tx;
         for (int j = 0; j < h; j++)
             for (int i = 0; i < w; i++)
-                if (QuadOffset(TileAt(x + i + dx, y + j + dy), 0) < 0)
-                    return "move target has unallocated tiles — paint there first.";
+                if (EnsurePage(TileAt(x + i + dx, y + j + dy)) is { } why) return why;
 
         var src = new Map16.Word[w * h][];
         for (int j = 0; j < h; j++)
@@ -297,15 +303,18 @@ public sealed class Map16Edit
                 for (int q = 0; q < 4; q++) StampQuad(TileAt(x + i, y + j), q, Empty);
         for (int j = 0; j < h; j++)
             for (int i = 0; i < w; i++)
+            {
                 for (int q = 0; q < 4; q++) StampQuad(TileAt(x + i + dx, y + j + dy), q, src[j * w + i][q].Raw);
+                StampActsAs(TileAt(x + i + dx, y + j + dy), TileAt(x + i, y + j));
+            }
         return null;
     }
 
     /// <summary>
     /// Copy a rectangle of 8x8 QUADRANTS by a quadrant delta, sources left where they are. Read
     /// out first so an overlapping copy does not eat its own tail, and one undo step because
-    /// every write joins the same stroke. Refuses outright rather than dropping the quadrants
-    /// that would land on unallocated pages.
+    /// every write joins the same stroke. Landing on an empty page creates it, as painting there
+    /// would; refuses outright, before anything is written, where a page cannot exist.
     ///
     /// One operation for both editing grains: a 16x16 selection is an even quadrant rect moved by
     /// an even delta, so copying it quadrant by quadrant lands exactly where copying it tile by
@@ -321,9 +330,9 @@ public sealed class Map16Edit
             for (int i = 0; i < w; i++)
             {
                 int qx = x + i + dx, qy = y + j + dy;
-                if (qx < 0 || qy < 0 || qx >= Map16Layout.Cols * 2 || qy >= Map16Layout.BankRows * 2
-                    || QuadOffset(TileOf(qx, qy), VisualOf(qx, qy)) < 0)
-                    return "copy target has unallocated tiles — paint there first.";
+                if (qx < 0 || qy < 0 || qx >= Map16Layout.Cols * 2 || qy >= Map16Layout.BankRows * 2)
+                    return "copy target is off the sheet.";
+                if (EnsurePage(TileOf(qx, qy)) is { } why) return why;
             }
 
         var src = new ushort[w * h];
@@ -333,12 +342,22 @@ public sealed class Map16Edit
                 int qx = x + i, qy = y + j;
                 src[j * w + i] = ReadDef(TileOf(qx, qy)) is { } def ? def[VisualOf(qx, qy)].Raw : Empty;
             }
+        // Whole tiles carry their behaviour too; a quadrant rect that cuts tiles has no one
+        // behaviour to carry. Read out before the writes, like the art, for overlapping copies.
+        bool wholeTiles = (x | y | w | h | dx | dy) % 2 == 0;
+        var acts = new List<(int To, ushort V)>();
+        if (wholeTiles && HasActsAs)
+            for (int j = 0; j < h; j += 2)
+                for (int i = 0; i < w; i += 2)
+                    if (TileOf(x + i, y + j) is var from && from < 0x4000)
+                        acts.Add((TileOf(x + i + dx, y + j + dy), (ushort)rom.ActsAs(from)));
         for (int j = 0; j < h; j++)
             for (int i = 0; i < w; i++)
             {
                 int qx = x + i + dx, qy = y + j + dy;
                 StampQuad(TileOf(qx, qy), VisualOf(qx, qy), src[j * w + i]);
             }
+        foreach (var (to, v) in acts) StampActsAs(to, v);
         return null;
     }
 }

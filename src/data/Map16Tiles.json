@@ -1,0 +1,18 @@
+{
+  "note": [
+    "What a Map16 TILE is, by tileset, for the editor's readouts.",
+    "",
+    "Keys are hex Map16 tile numbers. Each carries `actAsTilesets`: a description per FG tileset",
+    "id (hex, 0-F) plus `all`, the description for every tileset not named — a tileset's own",
+    "entry overrides `all`. Tiles 000-0FF are shared by every tileset, so they only need `all`;",
+    "100-1FF change with the tileset, so they take one line per tileset they differ in.",
+    "",
+    "Hand-edited. A tile without an entry describes as nothing rather than as a guess."
+  ],
+
+  "tiles": {
+    "025": { "actAsTilesets": { "all": "Empty" } },
+    "02B": { "actAsTilesets": { "all": "Coin" } },
+    "100": { "actAsTilesets": { "all": "Ground", "0": "Grass ground, top-left corner" } }
+  }
+}

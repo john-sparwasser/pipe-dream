@@ -1,3 +1,9 @@
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Headless;
+using Avalonia.Headless.XUnit;
+using Avalonia.Layout;
+using Avalonia.Threading;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -120,12 +126,61 @@ public class Map16PropsTests(ITestOutputHelper log)
         if (Edit() is not { } m16) { log.WriteLine("SKIP: no ROM"); return; }
         if (!m16.HasActsAs) { log.WriteLine("SKIP: base has no LM acts-like table"); return; }
 
+        int was = m16.ActsAs(0x100)!.Value;
         Assert.True(m16.SetActsAs([0x100], 0x130));
         Assert.Equal(0x130, m16.ActsAs(0x100));
         Assert.False(m16.SetActsAs([0x100], 0x130));       // already says that
 
+        // Behaviour is undone and redone like art, one entry per change.
+        Assert.True(m16.Undo());
+        Assert.Equal(was, m16.ActsAs(0x100));
+        Assert.True(m16.Redo());
+        Assert.Equal(0x130, m16.ActsAs(0x100));
+        Assert.Empty(m16.CommittedTiles!);                 // and still reports nothing visual
+
         // The value is masked to the table's 14 bits rather than overflowing into the next entry.
         Assert.True(m16.SetActsAs([0x100], 0xFFFF));
         Assert.Equal(0x3FFF, m16.ActsAs(0x100));
+    }
+
+    /// <summary>Hovering a tile on the sheet names its behaviour in a card at the canvas corner,
+    /// which goes away with the pointer.</summary>
+    [AvaloniaFact]
+    public void hovering_a_tile_shows_what_it_acts_as_in_the_corner_card()
+    {
+        if (PreppedRom.Path is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<Avalonia.Controls.Primitives.ToggleButton>("ModeMap16")
+         .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var sheet = w.GetControl<Map16CanvasView>("Map16Canvas");
+        var tip = w.GetControl<Border>("M16ActsTip");
+        var text = w.GetControl<TextBlock>("M16ActsTipText");
+        Assert.False(tip.IsVisible);
+
+        var name = w.GetControl<TextBlock>("M16TileTipText");
+
+        w.MouseMove(sheet.TranslatePoint(new Point(4, 4), w)!.Value);      // tile 0x000: no name in the table
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(tip.IsVisible);
+        log.WriteLine(text.Text);
+        Assert.Matches("^[0-9A-F]{3}( - .+)?$", text.Text);                // the ID, then the table's word if it has one
+        Assert.False(name.IsVisible);
+
+        // Tile 0x02B (row 2, column 11) is the coin in every tileset, and the card says so.
+        w.MouseMove(sheet.TranslatePoint(new Point(11 * 16 * sheet.Zoom + 4, 2 * 16 * sheet.Zoom + 4), w)!.Value);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(name.IsVisible);
+        Assert.Equal("Coin", name.Text);
+        Assert.Equal(HorizontalAlignment.Right, tip.HorizontalAlignment);
+        Assert.Equal(VerticalAlignment.Bottom, tip.VerticalAlignment);
+
+        w.MouseMove(new Point(1, 1));                         // off the sheet
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(tip.IsVisible);
     }
 }

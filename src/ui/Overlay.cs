@@ -11,8 +11,8 @@ namespace PipeDream.Ui;
 /// </summary>
 internal static class Overlay
 {
-    private static readonly Pen SelectionPen = new(UiColors.Selection, 2);
-    private static readonly Pen BandPen = new(UiColors.Band, 1.5);
+    private static readonly Pen SelectionPen = new(UiColors.Selection, 2.5);
+    private static readonly Pen BandPen = new(UiColors.Band, 2);
     private static readonly Pen GrabPen = new(UiColors.Grab, 1.5);
     private static readonly Pen BrushPen = new(UiColors.Brush, 1.5);
     private static readonly Pen ArmedPen = new(UiColors.Accent, 2);

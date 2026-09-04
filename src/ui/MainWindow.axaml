@@ -746,6 +746,9 @@
               </ToggleButton>
               <!-- Both only exist for a level whose layer 2 this project made editable, so the
                    separator goes with the button rather than hanging on an empty bar. -->
+              <Rectangle Classes="sep"/>
+              <ToggleButton x:Name="HitboxesToggle" Content="Hitboxes"
+                            ToolTip.Tip="Show what each tile is solid as: blocks, ledges, slopes, and what hurts"/>
               <Rectangle Classes="sep" IsVisible="{Binding #DropLayer2.IsVisible}"/>
               <Button x:Name="DropLayer2" Content="−L2" MinWidth="52" Click="OnDropLayer2"
                       ToolTip.Tip="Drop this project's layer-2 objects and restore the base ROM's background image"/>
@@ -780,6 +783,8 @@
                    keeps every other mode's height (see Priority below). -->
               <ToggleButton x:Name="M16Pages" Content="Pages"
                             ToolTip.Tip="Outline and number each Map16 page on the sheet"/>
+              <ToggleButton x:Name="M16Hitboxes" Content="Hitboxes"
+                            ToolTip.Tip="Show what each tile is solid as, from its Act as setting"/>
               <Rectangle Classes="sep"/>
               <!-- Monospaced: proportional hex digits are different widths, so every tile the
                    cursor crosses nudged the whole row along. .mono at the readout's own 12px —
@@ -810,11 +815,24 @@
                          Text="No definition yet — paint on it to create its page."/>
             </StackPanel>
           </Border>
-          <ScrollViewer x:Name="Map16Scroll"
-                        Background="{x:Static ui:UiColors.DeskPattern}"
-                        HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
-            <ui:Map16CanvasView x:Name="Map16Canvas" Margin="8"/>
-          </ScrollViewer>
+          <Panel>
+            <ScrollViewer x:Name="Map16Scroll"
+                          Background="{x:Static ui:UiColors.DeskPattern}"
+                          HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+              <ui:Map16CanvasView x:Name="Map16Canvas" Margin="8"/>
+            </ScrollViewer>
+            <!-- What the tile UNDER THE POINTER is and acts as, in a card at the corner. The
+                 bar's field is the selected tile's; this one answers "and what is that?" without
+                 having to select it. The name line only shows for tiles Map16Tiles.json knows. -->
+            <Border x:Name="M16ActsTip" Classes="panel" CornerRadius="6" BorderThickness="1"
+                    Padding="10,6" Margin="14" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                    IsHitTestVisible="False" IsVisible="False">
+              <StackPanel Spacing="2">
+                <TextBlock x:Name="M16TileTipText" IsVisible="False"/>
+                <TextBlock x:Name="M16ActsTipText" Classes="dim"/>
+              </StackPanel>
+            </Border>
+          </Panel>
         </DockPanel>
         <!-- Animations mode: ExAnimation management. Same skeleton — a bar over the work area,
              under the mode bar. ponytail: skeleton; the body is a readout of what the level

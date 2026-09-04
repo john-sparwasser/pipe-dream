@@ -35,7 +35,7 @@ internal static class UiColors
     public static readonly IBrush Brush = new SolidColorBrush(Color.Parse("#8FD0FF"));
 
     /// <summary>Translucent fill under a selection ring.</summary>
-    public static readonly IBrush SelectionFill = new SolidColorBrush(Color.FromArgb(0x28, 0x4F, 0xC1, 0xE9));
+    public static readonly IBrush SelectionFill = new SolidColorBrush(Color.FromArgb(0x50, 0x4F, 0xC1, 0xE9));
 
     /// <summary>Outline around the colour picker's square and hue strip — matches BorderColor
     /// in Theme.axaml, which the picker cannot reach because it draws itself.</summary>
