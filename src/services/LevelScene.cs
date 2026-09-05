@@ -40,14 +40,6 @@ public sealed class LevelScene
     public int VisibleRows { get; init; } = 27;
 
     /// <summary>
-    /// Parse, render objects, and compose all four animation phases at full fidelity: the
-    /// background image (or layer-2 object stream) behind layer 1, and the sprite overlay in
-    /// front. The per-phase work is independent, so it runs in parallel as the editor does.
-    ///
-    /// A level's layer 2 is a background image OR an object stream, never both — the pointer's
-    /// bank IS the mode (CONTRACT §10), which is why these are an either/or below.
-    /// </summary>
-    /// <summary>
     /// What to do about sprites when composing. Three states rather than a bool because the
     /// expensive part (capturing each sprite's OAM by interpreting its GFX routine) is worth
     /// paying for even when the overlay is HIDDEN — selection hit-tests against it — but not
@@ -55,6 +47,14 @@ public sealed class LevelScene
     /// </summary>
     public enum SpriteDraw { Compose, ParseOnly, Skip }
 
+    /// <summary>
+    /// Parse, render objects, and compose all four animation phases at full fidelity: the
+    /// background image (or layer-2 object stream) behind layer 1, and the sprite overlay in
+    /// front. The per-phase work is independent, so it runs in parallel as the editor does.
+    ///
+    /// A level's layer 2 is a background image OR an object stream, never both — the pointer's
+    /// bank IS the mode (CONTRACT §10), which is why these are an either/or below.
+    /// </summary>
     /// <param name="previewLayer3">Compose the level's layer 3 into the canvas as well — behind
     /// layer 2 and layer 1, or in front when the header gives it priority. Off by default: it is
     /// a view setting, and the level canvas is otherwise exactly what the level's own data
@@ -112,32 +112,7 @@ public sealed class LevelScene
 
             // Layer 3 does not animate, so one surface serves every phase — but it is rendered
             // per phase anyway because the palette can differ, and it is cheap next to the level.
-            Map16.Layer3Draw? l3 = null;
-            if (previewLayer3
-                && Layer3.LevelTilemap(rom, levelNum, level.Header.LevelMode,
-                                       Layer3.Option(rom, levelNum)) is { } l3map)
-            {
-                // The console's own rules, as far as a still picture can carry them. The header's
-                // Layer 3 Priority is mode 1's BG3-priority bit ($3E = $09 rather than $01 at
-                // $05:8570), which does NOT lift the whole layer: it lifts the cells whose own
-                // priority bit is set, and leaves the rest at the very back. Colour math (the
-                // level's CGADSUB / Subscreen settings) is what lets it show THROUGH the level
-                // at all, which is why a level with neither is meant to look hidden.
-                var tiles = Layer3.Tiles(rom, levelNum);
-                var adv = rom.LmLayer3Advanced(levelNum);
-                var screens = Layer3.ScreenSetup(rom, level.Header.LevelMode, adv);
-                // Where the level parks layer 3 to begin with. With a scroll rate of None that is
-                // where it stays, so the canvas is exact; with any other rate it is the frame the
-                // level opens on, which is the one frame a still picture can be right about.
-                var (ox, oy) = adv is { } a
-                    ? (Layer3.XPositions[a.XPos & 3] * 16, a.Y * 16) : (0, 0);
-                bool bg3Priority = level.Header.Layer3Priority != 0;
-                // Backdrop 0: the gaps have to stay transparent, or the preview would paint the
-                // level's own back-area colour over layer 2.
-                var (lp, lw, lh) = Layer3.Render(l3map, tiles, pal, 0, bg3Priority ? 0 : null);
-                var front = bg3Priority ? Layer3.Render(l3map, tiles, pal, 0, 1).Px : null;
-                l3 = new Map16.Layer3Draw(lp, front, lw, lh, screens, ox, oy);
-            }
+            var l3 = previewLayer3 ? Layer3Preview(rom, level, levelNum, pal) : null;
 
             var (img, pw, ph) = Map16.ComposeLevel(caches[p], pal.Rgba[0], grid,
                                                    bgImage, bgCaches[p], layer2, visRows, l3);
@@ -153,6 +128,35 @@ public sealed class LevelScene
             BgImage = bgImage, BgCaches = bgCaches, Layer2 = layer2,
             Sprites = spriteData, Overlay = overlay, VisibleRows = visRows,
         };
+    }
+
+    /// <summary>The level's layer 3 as the composer draws it — back surface, priority-lifted
+    /// front, and where the level parks it. Null when the level has no layer-3 tilemap.</summary>
+    private static Map16.Layer3Draw? Layer3Preview(Rom rom, Level level, int levelNum, Palette pal)
+    {
+        if (Layer3.LevelTilemap(rom, levelNum, level.Header.LevelMode,
+                                Layer3.Option(rom, levelNum)) is not { } l3map)
+            return null;
+        // The console's own rules, as far as a still picture can carry them. The header's
+        // Layer 3 Priority is mode 1's BG3-priority bit ($3E = $09 rather than $01 at
+        // $05:8570), which does NOT lift the whole layer: it lifts the cells whose own
+        // priority bit is set, and leaves the rest at the very back. Colour math (the
+        // level's CGADSUB / Subscreen settings) is what lets it show THROUGH the level
+        // at all, which is why a level with neither is meant to look hidden.
+        var tiles = Layer3.Tiles(rom, levelNum);
+        var adv = rom.LmLayer3Advanced(levelNum);
+        var screens = Layer3.ScreenSetup(rom, level.Header.LevelMode, adv);
+        // Where the level parks layer 3 to begin with. With a scroll rate of None that is
+        // where it stays, so the canvas is exact; with any other rate it is the frame the
+        // level opens on, which is the one frame a still picture can be right about.
+        var (ox, oy) = adv is { } a
+            ? (Layer3.XPositions[a.XPos & 3] * 16, a.Y * 16) : (0, 0);
+        bool bg3Priority = level.Header.Layer3Priority != 0;
+        // Backdrop 0: the gaps have to stay transparent, or the preview would paint the
+        // level's own back-area colour over layer 2.
+        var (lp, lw, lh) = Layer3.Render(l3map, tiles, pal, 0, bg3Priority ? 0 : null);
+        var front = bg3Priority ? Layer3.Render(l3map, tiles, pal, 0, 1).Px : null;
+        return new Map16.Layer3Draw(lp, front, lw, lh, screens, ox, oy);
     }
 
     /// <summary>The Map16 tile sheet for the palette drawer, 16 tiles per row — the same

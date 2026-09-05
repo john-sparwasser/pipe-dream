@@ -12,19 +12,8 @@ public static class RomSelfCheck
 
     public static int Run()
     {
-        int fails = 0;
-        void Check(string name, bool ok)
-        {
-            Console.WriteLine($"  [{(ok ? "PASS" : "FAIL")}] {name}");
-            if (!ok) fails++;
-        }
-
-        Console.WriteLine("LoROM addressing:");
-        Check("SnesToPc($008000) == 0x000000", Rom.SnesToPc(0x008000) == 0x000000);
-        Check("SnesToPc($018000) == 0x008000", Rom.SnesToPc(0x018000) == 0x008000);
-        Check("SnesToPc($058000) == 0x028000", Rom.SnesToPc(0x058000) == 0x028000);
-        Check("SnesToPc($05E000) == 0x02E000", Rom.SnesToPc(0x05E000) == 0x02E000);
-        Check("PcToSnes round-trips 0x2E000", Rom.SnesToPc(Rom.PcToSnes(0x2E000)) == 0x2E000);
+        fails = 0;
+        CheckLoRomAddressing();
 
         // Everything below reads the reference ROMs, which are never redistributed. Most
         // sections guard for that themselves, but several load the clean ROM unguarded and
@@ -36,6 +25,49 @@ public static class RomSelfCheck
             return fails;
         }
 
+        CheckCleanRomHeader();
+        CheckEditedRomRats();
+        CheckLevelParse();
+        CheckObjectEngine();
+        CheckOwnerAttributionAndResize();
+        CheckLmStreamRender();
+        CheckGfxDecompression();
+        CheckTilesPaletteMap16AndSave();
+        CheckLayer2();
+        CheckSprites();
+        CheckLmExtendedMap16Defs();
+        CheckLmGfxBypass();
+        CheckShaoBase();
+        CheckLmCustomPalettes();
+        CheckJuzTableBases();
+        CheckDirectMap16RoundTrip();
+
+        Console.WriteLine(fails == 0 ? "\nALL CHECKS PASSED" : $"\n{fails} CHECK(S) FAILED");
+        return fails == 0 ? 0 : 1;
+    }
+
+    private static int fails;
+
+    private static void Check(string name, bool ok)
+    {
+            Console.WriteLine($"  [{(ok ? "PASS" : "FAIL")}] {name}");
+            if (!ok) fails++;
+    }
+
+    /// <summary>The LoROM address math, no ROM needed.</summary>
+    private static void CheckLoRomAddressing()
+    {
+        Console.WriteLine("LoROM addressing:");
+        Check("SnesToPc($008000) == 0x000000", Rom.SnesToPc(0x008000) == 0x000000);
+        Check("SnesToPc($018000) == 0x008000", Rom.SnesToPc(0x018000) == 0x008000);
+        Check("SnesToPc($058000) == 0x028000", Rom.SnesToPc(0x058000) == 0x028000);
+        Check("SnesToPc($05E000) == 0x02E000", Rom.SnesToPc(0x05E000) == 0x02E000);
+        Check("PcToSnes round-trips 0x2E000", Rom.SnesToPc(Rom.PcToSnes(0x2E000)) == 0x2E000);
+    }
+
+    /// <summary>Clean ROM: header fields, vanilla pointers, no RATS.</summary>
+    private static void CheckCleanRomHeader()
+    {
         if (File.Exists(CleanRom))
         {
             Console.WriteLine($"Clean ROM: {CleanRom}");
@@ -49,7 +81,11 @@ public static class RomSelfCheck
             Check("clean ROM has no RATS (unexpanded)", !RatsWriter.EnumerateRats(r).Any());
         }
         else Console.WriteLine($"(skip) clean ROM not found: {CleanRom}");
+    }
 
+    /// <summary>Edited ROM: expansion size and RATS blocks.</summary>
+    private static void CheckEditedRomRats()
+    {
         if (File.Exists(EditedRom))
         {
             Console.WriteLine($"Edited ROM: {EditedRom}");
@@ -62,7 +98,11 @@ public static class RomSelfCheck
             Console.WriteLine($"    ({rats.Count} valid RATS, first protects {rats.FirstOrDefault().Size} bytes)");
         }
         else Console.WriteLine($"(skip) edited ROM not found: {EditedRom}");
+    }
 
+    /// <summary>Level parse of YI2 (0x105) on the clean ROM.</summary>
+    private static void CheckLevelParse()
+    {
         if (File.Exists(CleanRom))
         {
             Console.WriteLine("Level parse (clean ROM, level 0x105 = Yoshi's Island 2):");
@@ -82,7 +122,11 @@ public static class RomSelfCheck
                 Console.WriteLine($"      {(o.NewScreen ? "*" : " ")} #{o.Number:X2} scr{o.Screen} x{o.XNibble} y{o.Y:X2} b3={o.Byte3:X2}" +
                                   (o.Extended ? $"  [ext {o.ExtendedNumber:X2}]" : $"  {o.Width}x{o.Height}"));
         }
+    }
 
+    /// <summary>Object engine: YI2 to a Map16 grid, plus the handler histogram.</summary>
+    private static void CheckObjectEngine()
+    {
         if (File.Exists(CleanRom))
         {
             Console.WriteLine("Object engine (YI2 → Map16 grid):");
@@ -114,7 +158,11 @@ public static class RomSelfCheck
                 Console.WriteLine($"      obj {gr.Key:X2} × {gr.Count()}" +
                                   (impl.Contains(gr.Key) ? "  [impl]" : "  [TODO handler]"));
         }
+    }
 
+    /// <summary>Tracked render: owner attribution, the resize probe, DM16 brush to objects.</summary>
+    private static void CheckOwnerAttributionAndResize()
+    {
         if (File.Exists(CleanRom))
         {
             Console.WriteLine("Owner attribution + resize probe (tracked render):");
@@ -209,7 +257,11 @@ public static class RomSelfCheck
                 Console.WriteLine($"    W={g.Key.W} H={g.Key.H}: " +
                     string.Join(",", g.Select(t => $"{t.n:X2}")));
         }
+    }
 
+    /// <summary>LM ROM: emulated stream render on captured plane tables, DM16 sizes.</summary>
+    private static void CheckLmStreamRender()
+    {
         if (File.Exists(EditedRom))
         {
             var r = Rom.Load(EditedRom);
@@ -283,7 +335,11 @@ public static class RomSelfCheck
             catch (Exception e) { Check("emulated render on LM ROM (" + e.Message + ")", false); }
         }
         else Console.WriteLine($"(skip) edited ROM not found: {EditedRom}");
+    }
 
+    /// <summary>GFX LC_LZ2 decompression and the ROM-wide depth probe (clean ROM).</summary>
+    private static void CheckGfxDecompression()
+    {
         if (File.Exists(CleanRom))
         {
             Console.WriteLine("GFX LC_LZ2 decompression (clean ROM):");
@@ -304,7 +360,11 @@ public static class RomSelfCheck
             // Depth is ROM-wide, probed from a full base file — vanilla stores 3bpp.
             Check("clean ROM GFX depth is 3bpp", Gfx.RomBpp(r) == 3);
         }
+    }
 
+    /// <summary>Clean ROM: tile decode, palette, tile sheet, Map16 defs and composition, object re-encode, the save path.</summary>
+    private static void CheckTilesPaletteMap16AndSave()
+    {
         if (File.Exists(CleanRom))
         {
             var r = Rom.Load(CleanRom);
@@ -390,7 +450,11 @@ public static class RomSelfCheck
             Check("saved ROM checksum matches byte sum", re.Checksum == (int)(resum & 0xFFFF));
             File.Delete(tmp);
         }
+    }
 
+    /// <summary>Layer 2 (CONTRACT §10).</summary>
+    private static void CheckLayer2()
+    {
         {
             Console.WriteLine("Layer 2 (CONTRACT §10):");
             var r2 = Rom.Load(CleanRom);
@@ -401,7 +465,11 @@ public static class RomSelfCheck
             var l2 = LevelParser.ParseLayer2(r2, 0x105);
             Check("BG-image level has no layer-2 objects", l2 is null);
         }
+    }
 
+    /// <summary>Sprites (CONTRACT §11), on the clean ROM and DogsOfWar.</summary>
+    private static void CheckSprites()
+    {
         {
             Console.WriteLine("Sprites (CONTRACT §11):");
             var rs = Rom.Load(CleanRom);
@@ -432,7 +500,11 @@ public static class RomSelfCheck
                       denc.AsSpan().SequenceEqual(dr.Data.AsSpan(dfo, denc.Length)));
             }
         }
+    }
 
+    /// <summary>LM extended Map16 def read (map16_after.smc).</summary>
+    private static void CheckLmExtendedMap16Defs()
+    {
         string map16After = ReferenceRoms.Resource("map16_after.smc");
         if (File.Exists(map16After))
         {
@@ -457,7 +529,11 @@ public static class RomSelfCheck
                   d166[0].Raw == 0x00DA && d166[1].Raw == 0x08DC && d166[2].Raw == 0x04DB && d166[3].Raw == 0x0CDD);
             Check("acts-as table: 0x166 acts as 0x130", mr.ActsAs(0x166) == 0x130);
         }
+    }
 
+    /// <summary>LM Super GFX Bypass read (gfx_after.smc, CONTRACT §7d).</summary>
+    private static void CheckLmGfxBypass()
+    {
         string gfxAfter = ReferenceRoms.Resource("gfx_after.smc");
         if (File.Exists(gfxAfter))
         {
@@ -488,7 +564,11 @@ public static class RomSelfCheck
             bool differs = Enumerable.Range(0, 0x200).Any(t => !defTiles.Fetch(t).SequenceEqual(bypTiles.Fetch(t)));
             Check("FgTiles.Load(level) applies the bypass (tiles differ from default)", differs);
         }
+    }
 
+    /// <summary>ShaoBase: $06F540 defs, LM-free page allocation, global ExAnimation (CONTRACT §7a-rev/§12f).</summary>
+    private static void CheckShaoBase()
+    {
         string shaoRom = ReferenceRoms.ShaoBase;
         if (File.Exists(shaoRom))
         {
@@ -584,7 +664,11 @@ public static class RomSelfCheck
             Check("some animated tile changes between phase 0 and 2 (overlay applied + animating)",
                   animTiles.Any(t => !fgA.Fetch(t).AsSpan().SequenceEqual(fgB.Fetch(t))));
         }
+    }
 
+    /// <summary>LM custom palettes (DogsOfWar, CONTRACT §7e).</summary>
+    private static void CheckLmCustomPalettes()
+    {
         string dowRom = ReferenceRoms.InProject("DogsOfWar", "dogs_of_war-backup.smc");
         if (File.Exists(dowRom))
         {
@@ -624,7 +708,11 @@ public static class RomSelfCheck
                   w7 is (0x4321, var c7) && c7[0xFF] == 0xFF &&
                   dr.ReadValue(LunarMagic.LmPaletteTable + 0x107 * 3, 3) == ptr107Before);
         }
+    }
 
+    /// <summary>Per-ROM LM table bases (juz).</summary>
+    private static void CheckJuzTableBases()
+    {
         string juzRom = ReferenceRoms.InProject("juz", "SMW.smc");
         if (File.Exists(juzRom))
         {
@@ -635,7 +723,11 @@ public static class RomSelfCheck
             Check("juz acts-like base found per-ROM ($128000)", jr.LmActsAsBase == 0x128000);
             Check("juz ExGFX base found per-ROM ($118000)", jr.LmExGfxBase == 0x118000);
         }
+    }
 
+    /// <summary>Direct Map16 parse, in-app save and erase-on-save (after.smc).</summary>
+    private static void CheckDirectMap16RoundTrip()
+    {
         string afterRom = ReferenceRoms.LmAfter;
         if (File.Exists(afterRom))
         {
@@ -715,8 +807,5 @@ public static class RomSelfCheck
             Check("erased cell reads back as blank sky 0x025", egrid.Get(ex, ey) == 0x025);
             File.Delete(etmp);
         }
-
-        Console.WriteLine(fails == 0 ? "\nALL CHECKS PASSED" : $"\n{fails} CHECK(S) FAILED");
-        return fails == 0 ? 0 : 1;
     }
 }

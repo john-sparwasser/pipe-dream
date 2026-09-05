@@ -31,6 +31,9 @@
     <!-- Lucide `square`. Closed with Z so the same geometry can also be FILLED — Lucide ships
          no filled variant, but a stroked path that closes fills correctly, which is how the
          Rect tool shows its outline/filled state with one icon. -->
+    <StreamGeometry x:Key="IconStickyNote">M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z M15 3v4a2 2 0 0 0 2 2h4</StreamGeometry>
+    <StreamGeometry x:Key="IconSquareDashed">M5 3a2 2 0 0 0-2 2 M19 3a2 2 0 0 1 2 2 M21 19a2 2 0 0 1-2 2 M5 21a2 2 0 0 1-2-2 M9 3h1 M9 21h1 M14 3h1 M14 21h1 M3 9v1 M21 9v1 M3 14v1 M21 14v1</StreamGeometry>
+    <StreamGeometry x:Key="IconFlower2">M12 5a3 3 0 1 1 3 3m-3-3a3 3 0 1 0-3 3m3-3v1M9 8a3 3 0 1 0 3 3M9 8h1m5 0a3 3 0 1 1-3 3m3-3h-1m-2 3v-1 M14 8A2 2 0 1 1 10 8A2 2 0 1 1 14 8 M12 10v12 M12 22c4.2 0 7-1.667 7-5-4.2 0-7 1.667-7 5Z M12 22c-4.2 0-7-1.667-7-5 4.2 0 7 1.667 7 5Z</StreamGeometry>
     <StreamGeometry x:Key="IconSquare">M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z</StreamGeometry>
     <StreamGeometry x:Key="IconLine">M4 20 19 5</StreamGeometry>
     <StreamGeometry x:Key="IconRotateCcw">M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8 M3 3v5h5</StreamGeometry>
@@ -143,7 +146,7 @@
     </Style>
     <!-- Lucide inside a toolbar button, same stroked treatment as the mode toggles. Greys with
          the button so a disabled Save reads as disabled icon and all. -->
-    <Style Selector="Border.bar Button Path">
+    <Style Selector="Border.bar Button Path, Border.bar ToggleButton:not(.mode) Path">
       <Setter Property="Stroke" Value="{DynamicResource TextBrush}"/>
       <Setter Property="StrokeThickness" Value="1.5"/>
       <Setter Property="StrokeLineCap" Value="Round"/>
@@ -153,7 +156,7 @@
       <Setter Property="Stretch" Value="Uniform"/>
       <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
-    <Style Selector="Border.bar Button:disabled Path">
+    <Style Selector="Border.bar Button:disabled Path, Border.bar ToggleButton:not(.mode):disabled Path">
       <Setter Property="Stroke" Value="{DynamicResource TextFaintBrush}"/>
     </Style>
     <!-- The one action an otherwise empty canvas offers: accent-filled, so it reads as the thing
@@ -453,7 +456,11 @@
                     <ComboBoxItem Content="1 FG"/>
                     <ComboBoxItem Content="2 BG"/>
                   </ComboBox>
-                  <CheckBox x:Name="PagesBox" Content="Pages" VerticalAlignment="Center"/>
+                  <CheckBox x:Name="PagesBox" VerticalAlignment="Center"
+                            ToolTip.Tip="Pages — outline and number each Map16 page">
+                    <Path Data="{StaticResource IconStickyNote}" Stroke="{DynamicResource TextBrush}" StrokeThickness="1.5"
+                          StrokeLineCap="Round" StrokeJoin="Round" Width="14" Height="14" Stretch="Uniform"/>
+                  </CheckBox>
                   <TextBlock x:Name="SelLabel" Classes="mono" Margin="4,0,0,0"
                              VerticalAlignment="Center"/>
                 </StackPanel>
@@ -747,8 +754,16 @@
               <!-- Both only exist for a level whose layer 2 this project made editable, so the
                    separator goes with the button rather than hanging on an empty bar. -->
               <Rectangle Classes="sep"/>
-              <ToggleButton x:Name="HitboxesToggle" Content="Hitboxes"
-                            ToolTip.Tip="Show what each tile is solid as: blocks, ledges, slopes, and what hurts"/>
+              <!-- Icon-only overlays: the dashed square is the hitbox outline, the flower is
+                   what a block releases. The tooltip carries the words. -->
+              <ToggleButton x:Name="HitboxesToggle" MinWidth="34"
+                            ToolTip.Tip="Hitboxes — what each tile is solid as: blocks, ledges, slopes, and what hurts">
+                <Path Data="{StaticResource IconSquareDashed}"/>
+              </ToggleButton>
+              <ToggleButton x:Name="SpawnsToggle" MinWidth="34"
+                            ToolTip.Tip="Spawns — the sprite each block releases when hit, here and in the Tiles drawer">
+                <Path Data="{StaticResource IconFlower2}"/>
+              </ToggleButton>
               <Rectangle Classes="sep" IsVisible="{Binding #DropLayer2.IsVisible}"/>
               <Button x:Name="DropLayer2" Content="−L2" MinWidth="52" Click="OnDropLayer2"
                       ToolTip.Tip="Drop this project's layer-2 objects and restore the base ROM's background image"/>
@@ -781,10 +796,18 @@
               <Rectangle Classes="sep"/>
               <!-- The drawer's Pages checkbox, for the editor: a toggle button because this bar
                    keeps every other mode's height (see Priority below). -->
-              <ToggleButton x:Name="M16Pages" Content="Pages"
-                            ToolTip.Tip="Outline and number each Map16 page on the sheet"/>
-              <ToggleButton x:Name="M16Hitboxes" Content="Hitboxes"
-                            ToolTip.Tip="Show what each tile is solid as, from its Act as setting"/>
+              <ToggleButton x:Name="M16Pages" MinWidth="34"
+                            ToolTip.Tip="Pages — outline and number each Map16 page on the sheet">
+                <Path Data="{StaticResource IconStickyNote}"/>
+              </ToggleButton>
+              <ToggleButton x:Name="M16Hitboxes" MinWidth="34"
+                            ToolTip.Tip="Hitboxes — what each tile is solid as, from its Act as setting">
+                <Path Data="{StaticResource IconSquareDashed}"/>
+              </ToggleButton>
+              <ToggleButton x:Name="M16Spawns" MinWidth="34"
+                            ToolTip.Tip="Spawns — the sprite each block releases when hit, from its Act as setting">
+                <Path Data="{StaticResource IconFlower2}"/>
+              </ToggleButton>
               <Rectangle Classes="sep"/>
               <!-- Monospaced: proportional hex digits are different widths, so every tile the
                    cursor crosses nudged the whole row along. .mono at the readout's own 12px —
@@ -815,7 +838,7 @@
                          Text="No definition yet — paint on it to create its page."/>
             </StackPanel>
           </Border>
-          <Panel>
+          <Panel x:Name="Map16Desk">
             <ScrollViewer x:Name="Map16Scroll"
                           Background="{x:Static ui:UiColors.DeskPattern}"
                           HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">

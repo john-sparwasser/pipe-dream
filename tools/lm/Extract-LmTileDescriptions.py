@@ -60,7 +60,9 @@ for t in range(COUNT):
     if text is None: sys.exit('tile %03X: entry is not a string pointer; table layout changed?' % t)
     by = {'all': text}
     by.update({k: v for k, v in old.get('tiles', {}).get('%03X' % t, {}).get('actAsTilesets', {}).items() if k != 'all'})
-    tiles['%03X' % t] = {'actAsTilesets': by}
+    entry = dict(old.get('tiles', {}).get('%03X' % t, {}))    # hand-edited fields (`spawns`) survive too
+    entry['actAsTilesets'] = by
+    tiles['%03X' % t] = entry
 
 doc = {'note': [
     "What a Map16 TILE is, by tileset, for the editor's readouts.",
@@ -72,7 +74,11 @@ doc = {'note': [
     "`all` is Lunar Magic's own sentence for the tile, read out of its exe by",
     "tools/lm/Extract-LmTileDescriptions.py (rerunning it rewrites every `all` line). LM does not",
     "describe tiles per tileset — it says \"A tileset specific tile.\" where the meaning changes —",
-    "so the per-tileset lines are hand-edited and survive a rerun."],
+    "so the per-tileset lines are hand-edited and survive a rerun.",
+    "",
+    "`spawns` is the sprite (hex, SpriteDisplay.json numbering) the block releases when hit, for the",
+    "Spawns overlay. Blocks whose contents depend on their X position name the first option. A",
+    "custom tile borrows the `spawns` of whatever it acts as."],
     'tiles': tiles}
 json.dump(doc, open(OUT, 'w', encoding='utf8'), indent=2, ensure_ascii=False)
 open(OUT, 'a', encoding='utf8').write('\n')

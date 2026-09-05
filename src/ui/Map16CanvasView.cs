@@ -49,6 +49,9 @@ public class Map16CanvasView : Control
     /// <summary>The hitbox of a tile, when the overlay is on; null turns it off. A slope's upper
     /// tile has no neighbour here, so it shows as the dashed "depends on what is below" box.</summary>
     public Func<int, Hitbox>? Hitboxes { get; set; }
+
+    /// <summary>What each block releases when hit, drawn over it; null turns it off.</summary>
+    public SpawnOverlay? Spawns { get; set; }
     public int TileCount => sheet.TileCount;
     public Point Origin { get; set; }
 
@@ -340,13 +343,17 @@ public class Map16CanvasView : Control
         double ts = TileSize;
         sheet.Draw(this, ctx, Bank, Phase, ts);
         if (ShowPages) Map16Sheet.DrawPages(ctx, Bank, ts);
-        if (Hitboxes is { } hit)
+        if (Hitboxes is not null || Spawns is not null)
         {
             var vis = PixelBlit.Visible(this);
             int r0 = Math.Max(0, (int)((vis.Y + Origin.Y) / ts)), r1 = Math.Min(Map16Layout.BankRows - 1, (int)((vis.Bottom + Origin.Y) / ts));
             for (int r = r0; r <= r1; r++)
                 for (int c = 0; c < Map16Layout.Cols; c++)
-                    HitboxOverlay.Draw(ctx, hit(Bank * Map16Layout.BankTiles + r * Map16Layout.Cols + c), Cells(c, r, 1, 1, ts));
+                {
+                    int tile = Bank * Map16Layout.BankTiles + r * Map16Layout.Cols + c;
+                    if (Hitboxes is { } hit) HitboxOverlay.Draw(ctx, hit(tile), Cells(c, r, 1, 1, ts));
+                    Spawns?.Draw(this, ctx, tile, Cells(c, r, 1, 1, ts));
+                }
         }
 
         // Live lasso, then the settled selection, then the armed tile. Both are in QUADRANTS —

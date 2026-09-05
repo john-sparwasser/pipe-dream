@@ -10,6 +10,14 @@ namespace PipeDream;
 public static class Map16Tiles
 {
     private static Dictionary<int, Dictionary<string, string>>? tiles;
+    private static Dictionary<int, int>? spawns;
+
+    /// <summary>The sprite a block releases when hit (SpriteDisplay numbering), or null.</summary>
+    public static int? SpawnOf(int tile)
+    {
+        Load();
+        return spawns!.TryGetValue(tile, out int s) ? s : null;
+    }
 
     public static string Describe(int tile, int tileset)
     {
@@ -23,6 +31,7 @@ public static class Map16Tiles
     {
         if (tiles is not null) return;
         tiles = [];
+        spawns = [];
         try
         {
             using var s = typeof(Map16Tiles).Assembly.GetManifestResourceStream("Map16Tiles.json");
@@ -36,6 +45,7 @@ public static class Map16Tiles
     internal static void Parse(string json)
     {
         tiles = [];
+        spawns = [];
         using var doc = JsonDocument.Parse(json);
         if (!doc.RootElement.TryGetProperty("tiles", out var ts)) return;
         foreach (var t in ts.EnumerateObject())
@@ -43,7 +53,10 @@ public static class Map16Tiles
             var by = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             if (t.Value.TryGetProperty("actAsTilesets", out var sets))
                 foreach (var p in sets.EnumerateObject()) by[p.Name] = p.Value.GetString() ?? "";
-            tiles[Convert.ToInt32(t.Name, 16)] = by;
+            int n = Convert.ToInt32(t.Name, 16);
+            tiles[n] = by;
+            if (t.Value.TryGetProperty("spawns", out var sp) && sp.GetString() is { Length: > 0 } hex)
+                spawns[n] = Convert.ToInt32(hex, 16);
         }
     }
 }

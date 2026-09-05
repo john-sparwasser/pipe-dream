@@ -7,7 +7,7 @@ namespace PipeDream.Ui;
 /// <summary>
 /// The process entry point, for both halves of pipe-dream.
 ///
-///   PipeDream.exe [rom-or-project.pdp] [levelHex]   opens the editor
+///   PipeDream.exe [rom-or-project.pdp]              opens the editor
 ///   PipeDream.exe --headless                        lists the ROM commands
 ///   PipeDream.exe --selfcheck                       runs one (headless is implied)
 ///
@@ -26,7 +26,6 @@ namespace PipeDream.Ui;
 public static partial class Program
 {
     public static string? RomPath;
-    public static int LevelNum = 0x105;
     public static bool DevMode;
     public static string? VanillaPath;
 
@@ -51,8 +50,6 @@ public static partial class Program
         // no reference-ROM root and must reach the first-run prompt.
         if (DevMode) VanillaPath ??= ReferenceRoms.Vanilla;
         RomPath = positional.FirstOrDefault();
-        if (positional.Count > 1 && int.TryParse(positional[1], System.Globalization.NumberStyles.HexNumber,
-                                                 null, out int lv)) LevelNum = lv;
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         return 0;
     }

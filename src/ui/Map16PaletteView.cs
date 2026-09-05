@@ -53,6 +53,9 @@ public class Map16PaletteView : Control
 
     public void ClearSelection() { Selection = null; InvalidateVisual(); }
 
+    /// <summary>What each block releases when hit, drawn over it; null turns it off.</summary>
+    public SpawnOverlay? Spawns { get; set; }
+
     public Map16PaletteView() => Focusable = true;
 
     public void SetSheet(uint[]?[] px, int w, int h, int tileCount)
@@ -143,6 +146,14 @@ public class Map16PaletteView : Control
         double cell = 16 * Zoom;
         sheet.Draw(this, ctx, Bank, Phase, cell);
         if (ShowPages) Map16Sheet.DrawPages(ctx, Bank, cell);
+        if (Spawns is { } spawns)
+        {
+            var vis = PixelBlit.Visible(this);
+            int r0 = Math.Max(0, (int)(vis.Y / cell)), r1 = Math.Min(Map16Layout.BankRows - 1, (int)(vis.Bottom / cell));
+            for (int r = r0; r <= r1; r++)
+                for (int c = 0; c < Map16Layout.Cols; c++)
+                    spawns.Draw(this, ctx, Bank * Map16Layout.BankTiles + r * Map16Layout.Cols + c, new Rect(c * cell, r * cell, cell, cell));
+        }
 
         // The live band, else the settled block, else the one armed tile — the Map16 editor's
         // order, drawn with its pens.

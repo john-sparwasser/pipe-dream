@@ -164,6 +164,11 @@ public class LevelView : Control
     /// off. The window supplies it because the shape comes from the ROM's tables and the level's
     /// tileset, neither of which this view holds.</summary>
     public Func<int, int, Hitbox>? Hitboxes { get; set; }
+
+    /// <summary>What each block releases when hit, drawn over it, with the tile at a cell to
+    /// ask it about; both null turns it off.</summary>
+    public SpawnOverlay? Spawns { get; set; }
+    public Func<int, int, int>? TileAt { get; set; }
     public bool Vertical { get; set; }
 
     public (int X, int Y)? HoverCell { get; private set; }
@@ -296,35 +301,10 @@ public class LevelView : Control
         // Exits mode owns the canvas: a click picks a SCREEN, and nothing else in here runs.
         // The badge is the exception — it is a link to where the exit goes, so it gets the
         // click before the screen under it does.
-        if (Mode == EditMode.Exits)
-        {
-            if (props.IsLeftButtonPressed)
-            {
-                if (BadgeAt(e.GetPosition(this)) is { } dest) ExitBadgeClicked?.Invoke(this, dest);
-                else ExitScreenClicked?.Invoke(this, ScreenOf(cell));
-            }
-            e.Handled = true;
-            return;
-        }
+        if (Mode == EditMode.Exits) { PressExit(e, cell, props); return; }
         // Entrances owns the canvas too: a press on a marker picks it up, and a press anywhere
         // else is swallowed rather than reaching the layer underneath.
-        if (Mode == EditMode.Entrances)
-        {
-            var p = e.GetPosition(this);
-            if (props.IsLeftButtonPressed && EditBadgeAt(p) is { } badge)
-                EntranceEditRequested?.Invoke(this, badge);
-            else if (props.IsLeftButtonPressed && EntranceAt(p, Zoom) is { } hit)
-            {
-                if (e.ClickCount == 2) EntranceEditRequested?.Invoke(this, hit);
-                else
-                {
-                    dragEntrance = (hit, p - new Point(hit.X * Zoom - Origin.X, hit.Y * Zoom - Origin.Y));
-                    e.Pointer.Capture(this);
-                }
-            }
-            e.Handled = true;
-            return;
-        }
+        if (Mode == EditMode.Entrances) { PressEntrance(e, props); return; }
 
         // Alt+left is the eyedropper, in every mode. A modifier rather than an armed tool: a
         // mode you can forget you are in costs more than a key you have to hold.
@@ -337,48 +317,84 @@ public class LevelView : Control
             return;
         }
 
-        if (Mode == EditMode.Sprites && Sprites is { } sp)
-        {
-            var lp = LevelPixel(e.GetPosition(this));
-            if (props.IsRightButtonPressed)
-            {
-                // Same rule as objects: right-click places, Ctrl+right duplicates.
-                bool did = Hotkeys.Command(e.KeyModifiers) && sp.Selection.Count > 0
-                         ? sp.DuplicateSelected(cell.X, cell.Y)
-                         : CatalogSprite >= 0 && sp.Place(CatalogSprite, cell.X, cell.Y);
-                if (did) SpritesChanged?.Invoke(this, EventArgs.Empty);
-            }
-            else if (props.IsLeftButtonPressed)
-            {
-                int hit = sp.SpriteAt(lp.X, lp.Y);
-                if (Hotkeys.Command(e.KeyModifiers))
-                {
-                    // Ctrl+left toggles one sprite in or out, so a selection can be picked
-                    // rather than lassoed. No band and no drag: Ctrl is the toggle here, not
-                    // the grab it is over objects.
-                    if (hit >= 0 && !sp.Selection.Remove(hit)) sp.Selection.Add(hit);
-                    SelectionChanged?.Invoke(this, EventArgs.Empty);
-                }
-                // Pressing on what a selected sprite DRAWS drags it, like a selected object.
-                // The test is by pixel because that is how sprites are selected and drawn.
-                else if (sp.SelectionCovers(lp.X, lp.Y)) { moveStart = cell; bandEnd = cell; e.Pointer.Capture(this); }
-                else
-                {
-                    // A press picks the sprite under that pixel and nothing when there is
-                    // nothing there, so clicking empty space clears the selection. The band
-                    // overwrites this the moment you actually drag.
-                    sp.Selection.Clear();
-                    if (hit >= 0) sp.Selection.Add(hit);
-                    SelectionChanged?.Invoke(this, EventArgs.Empty);
-                    pixelStart = pixelEnd = lp;
-                    bandEnd = cell;
-                    e.Pointer.Capture(this);
-                }
-            }
-            InvalidateVisual();
-            return;
-        }
+        if (Mode == EditMode.Sprites && Sprites is { } sp) { PressSprite(e, cell, props, sp); return; }
+        PressObject(e, cell, props);
+    }
 
+    /// <summary>Exits mode: a click picks a SCREEN, or follows the badge on it.</summary>
+    private void PressExit(PointerPressedEventArgs e, (int X, int Y) cell, PointerPointProperties props)
+    {
+        if (props.IsLeftButtonPressed)
+        {
+            if (BadgeAt(e.GetPosition(this)) is { } dest) ExitBadgeClicked?.Invoke(this, dest);
+            else ExitScreenClicked?.Invoke(this, ScreenOf(cell));
+        }
+        e.Handled = true;
+    }
+
+    /// <summary>Entrances mode: a press on a marker picks it up (double-click edits it).</summary>
+    private void PressEntrance(PointerPressedEventArgs e, PointerPointProperties props)
+    {
+        var p = e.GetPosition(this);
+        if (props.IsLeftButtonPressed && EditBadgeAt(p) is { } badge)
+            EntranceEditRequested?.Invoke(this, badge);
+        else if (props.IsLeftButtonPressed && EntranceAt(p, Zoom) is { } hit)
+        {
+            if (e.ClickCount == 2) EntranceEditRequested?.Invoke(this, hit);
+            else
+            {
+                dragEntrance = (hit, p - new Point(hit.X * Zoom - Origin.X, hit.Y * Zoom - Origin.Y));
+                e.Pointer.Capture(this);
+            }
+        }
+        e.Handled = true;
+    }
+
+    /// <summary>Sprite mode: right places or duplicates, left selects, toggles or starts a drag.</summary>
+    private void PressSprite(PointerPressedEventArgs e, (int X, int Y) cell, PointerPointProperties props, SpriteEdit sp)
+    {
+        var lp = LevelPixel(e.GetPosition(this));
+        if (props.IsRightButtonPressed)
+        {
+            // Same rule as objects: right-click places, Ctrl+right duplicates.
+            bool did = Hotkeys.Command(e.KeyModifiers) && sp.Selection.Count > 0
+                     ? sp.DuplicateSelected(cell.X, cell.Y)
+                     : CatalogSprite >= 0 && sp.Place(CatalogSprite, cell.X, cell.Y);
+            if (did) SpritesChanged?.Invoke(this, EventArgs.Empty);
+        }
+        else if (props.IsLeftButtonPressed)
+        {
+            int hit = sp.SpriteAt(lp.X, lp.Y);
+            if (Hotkeys.Command(e.KeyModifiers))
+            {
+                // Ctrl+left toggles one sprite in or out, so a selection can be picked
+                // rather than lassoed. No band and no drag: Ctrl is the toggle here, not
+                // the grab it is over objects.
+                if (hit >= 0 && !sp.Selection.Remove(hit)) sp.Selection.Add(hit);
+                SelectionChanged?.Invoke(this, EventArgs.Empty);
+            }
+            // Pressing on what a selected sprite DRAWS drags it, like a selected object.
+            // The test is by pixel because that is how sprites are selected and drawn.
+            else if (sp.SelectionCovers(lp.X, lp.Y)) { moveStart = cell; bandEnd = cell; e.Pointer.Capture(this); }
+            else
+            {
+                // A press picks the sprite under that pixel and nothing when there is
+                // nothing there, so clicking empty space clears the selection. The band
+                // overwrites this the moment you actually drag.
+                sp.Selection.Clear();
+                if (hit >= 0) sp.Selection.Add(hit);
+                SelectionChanged?.Invoke(this, EventArgs.Empty);
+                pixelStart = pixelEnd = lp;
+                bandEnd = cell;
+                e.Pointer.Capture(this);
+            }
+        }
+        InvalidateVisual();
+    }
+
+    /// <summary>Layer editing: right stamps, duplicates or places; left selects, moves, resizes or grabs.</summary>
+    private void PressObject(PointerPressedEventArgs e, (int X, int Y) cell, PointerPointProperties props)
+    {
         if (props.IsRightButtonPressed)
         {
             // What is selected IN THE LEVEL outranks what is armed in the drawer: with a
@@ -429,28 +445,7 @@ public class LevelView : Control
         if (Mode == EditMode.Exits)
             Cursor = BadgeAt(e.GetPosition(this)) is null ? Cursor.Default : UiCursors.Hand;
 
-        if (Mode == EditMode.Entrances)
-        {
-            var p = e.GetPosition(this);
-            var badge = EditBadgeAt(p);
-            var over = EntranceAt(p, Zoom);
-            Cursor = badge is not null ? UiCursors.Hand
-                   : dragEntrance is not null || over is not null ? UiCursors.Move
-                   : Cursor.Default;
-            var hov = over ?? badge ?? LabelAt(p);
-            if (hov != hoverEntrance) { hoverEntrance = hov; InvalidateVisual(); }
-            // The drag PREVIEWS by moving the marker: the drop snaps to what the ROM can store,
-            // and seeing that happen is how the 8x16 grid explains itself.
-            if (dragEntrance is { } d)
-            {
-                var at = p - d.Grab;
-                static int Snap(double v) => (int)Math.Round(v / 16) * 16;    // the 16px cell Mario lands in
-                dragEntrance = (d.E with { X = Snap((at.X + Origin.X) / Zoom), Y = Snap((at.Y + Origin.Y) / Zoom) },
-                                d.Grab);
-                InvalidateVisual();
-            }
-            return;
-        }
+        if (Mode == EditMode.Entrances) { MoveEntrance(e); return; }
 
         var cell = CellAt(e.GetPosition(this));
         if (cell != HoverCell) { HoverCell = cell; InvalidateVisual(); }
@@ -469,38 +464,69 @@ public class LevelView : Control
 
         if (stroke.Active) { stroke.MoveTo(c); return; }
 
-        if (Mode == EditMode.Sprites && Sprites is { } sp)
+        if (Mode == EditMode.Sprites && Sprites is { } sp) { MoveSprite(e, c, sp); return; }
+        MoveObject(e, c);
+    }
+
+    /// <summary>Entrances mode: the hand over a badge, the move cursor over a marker, and the drag preview.</summary>
+    private void MoveEntrance(PointerEventArgs e)
+    {
+        var p = e.GetPosition(this);
+        var badge = EditBadgeAt(p);
+        var over = EntranceAt(p, Zoom);
+        Cursor = badge is not null ? UiCursors.Hand
+               : dragEntrance is not null || over is not null ? UiCursors.Move
+               : Cursor.Default;
+        var hov = over ?? badge ?? LabelAt(p);
+        if (hov != hoverEntrance) { hoverEntrance = hov; InvalidateVisual(); }
+        // The drag PREVIEWS by moving the marker: the drop snaps to what the ROM can store,
+        // and seeing that happen is how the 8x16 grid explains itself.
+        if (dragEntrance is { } d)
         {
-            if (pixelStart is not null)
-            {
-                pixelEnd = LevelPixel(e.GetPosition(this));
-                // Live selection, in pixels: what the band touches is selected as you drag.
-                var (rx, ry, rw, rh) = PixelBand!.Value;
-                sp.SelectInPixelRect(rx, ry, rw, rh);
-                SelectionChanged?.Invoke(this, EventArgs.Empty);
-                InvalidateVisual();
-            }
-            else if (moveStart is not null)
-            {
-                // Live: the sprites go where the cursor goes, one step per cell crossed, all
-                // coalesced into a single undo entry.
-                var prev = bandEnd ?? moveStart!.Value;
-                if (c != prev && sp.MoveSelected(c.X - prev.X, c.Y - prev.Y, moved))
-                {
-                    moved = true;
-                    SpritesMoved?.Invoke(this, (c.X - prev.X, c.Y - prev.Y));
-                }
-                bandEnd = c;
-                InvalidateVisual();
-            }
-            else
-            {
-                // Same affordance objects get: the hand says this one is draggable.
-                var hp = LevelPixel(e.GetPosition(this));
-                Cursor = sp.SelectionCovers(hp.X, hp.Y) ? UiCursors.Hand : Cursor.Default;
-            }
-            return;
+            var at = p - d.Grab;
+            static int Snap(double v) => (int)Math.Round(v / 16) * 16;    // the 16px cell Mario lands in
+            dragEntrance = (d.E with { X = Snap((at.X + Origin.X) / Zoom), Y = Snap((at.Y + Origin.Y) / Zoom) },
+                            d.Grab);
+            InvalidateVisual();
         }
+    }
+
+    /// <summary>Sprite mode: the live pixel band, the live move, or the hand over a selected sprite.</summary>
+    private void MoveSprite(PointerEventArgs e, (int X, int Y) c, SpriteEdit sp)
+    {
+        if (pixelStart is not null)
+        {
+            pixelEnd = LevelPixel(e.GetPosition(this));
+            // Live selection, in pixels: what the band touches is selected as you drag.
+            var (rx, ry, rw, rh) = PixelBand!.Value;
+            sp.SelectInPixelRect(rx, ry, rw, rh);
+            SelectionChanged?.Invoke(this, EventArgs.Empty);
+            InvalidateVisual();
+        }
+        else if (moveStart is not null)
+        {
+            // Live: the sprites go where the cursor goes, one step per cell crossed, all
+            // coalesced into a single undo entry.
+            var prev = bandEnd ?? moveStart!.Value;
+            if (c != prev && sp.MoveSelected(c.X - prev.X, c.Y - prev.Y, moved))
+            {
+                moved = true;
+                SpritesMoved?.Invoke(this, (c.X - prev.X, c.Y - prev.Y));
+            }
+            bandEnd = c;
+            InvalidateVisual();
+        }
+        else
+        {
+            // Same affordance objects get: the hand says this one is draggable.
+            var hp = LevelPixel(e.GetPosition(this));
+            Cursor = sp.SelectionCovers(hp.X, hp.Y) ? UiCursors.Hand : Cursor.Default;
+        }
+    }
+
+    /// <summary>Layer editing: the resize/hand cursor when idle, else the live band, move or resize.</summary>
+    private void MoveObject(PointerEventArgs e, (int X, int Y) c)
+    {
         // Hovering an edge of a lone selection shows the resize cursor, as the ImGui tool does.
         if (resizeDrag is null && bandStart is null && moveStart is null)
             Cursor = Grips.CursorFor(HandleEdgeAt(e.GetPosition(this)))
@@ -673,7 +699,7 @@ public class LevelView : Control
         blit.Draw(this, ctx, bmp, src, dst, VisualRoot?.RenderScaling ?? 1);
 
         if (ShowGrid) DrawScreenBoundaries(ctx, dst, z);
-        if (Hitboxes is { } hit) DrawHitboxes(ctx, hit, z);
+        if (Hitboxes is not null || (Spawns is not null && TileAt is not null)) DrawCellOverlays(ctx, z);
 
         // Exits mode owns the overlay outright: no selection, no handles, no band — the whole
         // point is that the level is being read screen by screen, not edited object by object.
@@ -838,17 +864,21 @@ public class LevelView : Control
     private static readonly IBrush MarioRed = new SolidColorBrush(Color.Parse("#D63A2F"));
 
     // SMW screens are 16 cells wide; the boundary lines are the editor's main orientation cue.
-    /// <summary>Hitboxes over the cells in view — only those, a level is thousands wide.</summary>
-    private void DrawHitboxes(DrawingContext ctx, Func<int, int, Hitbox> hit, double z)
+    /// <summary>Hitboxes and spawns over the cells in view — only those, a level is thousands
+    /// wide. Spawns draw a row above their block, so the walk starts one row early.</summary>
+    private void DrawCellOverlays(DrawingContext ctx, double z)
     {
         var vis = PixelBlit.Visible(this);
         int cols = (Source?.PxW ?? 0) / 16, rows = (Source?.PxH ?? 0) / 16;
         double cell = 16 * z;
-        int x0 = Math.Max(0, (int)((vis.X + Origin.X) / cell)), x1 = Math.Min(cols - 1, (int)((vis.Right + Origin.X) / cell));
-        int y0 = Math.Max(0, (int)((vis.Y + Origin.Y) / cell)), y1 = Math.Min(rows - 1, (int)((vis.Bottom + Origin.Y) / cell));
+        int x0 = Math.Max(0, (int)((vis.X + Origin.X) / cell) - 1), x1 = Math.Min(cols - 1, (int)((vis.Right + Origin.X) / cell) + 1);
+        int y0 = Math.Max(0, (int)((vis.Y + Origin.Y) / cell)), y1 = Math.Min(rows - 1, (int)((vis.Bottom + Origin.Y) / cell) + 1);
         for (int cy = y0; cy <= y1; cy++)
             for (int cx = x0; cx <= x1; cx++)
-                HitboxOverlay.Draw(ctx, hit(cx, cy), CellRect(cx, cy, 1, 1, z));
+            {
+                if (Hitboxes is { } hit) HitboxOverlay.Draw(ctx, hit(cx, cy), CellRect(cx, cy, 1, 1, z));
+                if (Spawns is { } sp && TileAt is { } at) sp.Draw(this, ctx, at(cx, cy), CellRect(cx, cy, 1, 1, z));
+            }
     }
 
     private void DrawScreenBoundaries(DrawingContext ctx, Rect dst, double z)

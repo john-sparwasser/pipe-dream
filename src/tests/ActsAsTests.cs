@@ -61,4 +61,16 @@ public class Map16TilesTests
             .GetManifestResourceStream("Map16Tiles.json")!).ReadToEnd());
         Assert.StartsWith("An ordinary coin", Map16Tiles.Describe(0x2B, 3));
     }
+
+    /// <summary>A block's `spawns` names the sprite it releases; blocks without one say nothing.</summary>
+    [Fact]
+    public void spawns_name_the_released_sprite()
+    {
+        Map16Tiles.Parse(new StreamReader(typeof(Map16Tiles).Assembly
+            .GetManifestResourceStream("Map16Tiles.json")!).ReadToEnd());
+        Assert.Equal(0xDA, Map16Tiles.SpawnOf(0x127));       // the green shell
+        Assert.Equal(0x74, Map16Tiles.SpawnOf(0x16B));       // yellow switch block: mushroom
+        Assert.Null(Map16Tiles.SpawnOf(0x130));               // cement holds nothing
+        Assert.Null(Map16Tiles.SpawnOf(0x305));
+    }
 }

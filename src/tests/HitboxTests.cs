@@ -106,4 +106,35 @@ public class HitboxTests(ITestOutputHelper log)
         Assert.Null(level.Hitboxes);
         Assert.Null(sheet.Hitboxes);
     }
+
+    /// <summary>The Spawns toggles arm all three canvases at once and disarm them together.</summary>
+    [AvaloniaFact]
+    public void the_spawn_toggles_arm_the_level_the_sheet_and_the_drawer()
+    {
+        if (PreppedRom.Path is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        var level = w.GetControl<LevelView>("Canvas");
+        var sheet = w.GetControl<Map16CanvasView>("Map16Canvas");
+        var drawer = w.GetControl<Map16PaletteView>("Palette");
+        var toggle = w.GetControl<ToggleButton>("SpawnsToggle");
+        var m16 = w.GetControl<ToggleButton>("M16Spawns");
+        Assert.Null(level.Spawns);
+
+        toggle.IsChecked = true;
+        Assert.True(m16.IsChecked);
+        Assert.NotNull(level.Spawns);
+        Assert.Same(level.Spawns, sheet.Spawns);
+        Assert.Same(level.Spawns, drawer.Spawns);
+        Assert.NotNull(level.TileAt);
+
+        m16.IsChecked = false;
+        Assert.False(toggle.IsChecked);
+        Assert.Null(level.Spawns);
+        Assert.Null(sheet.Spawns);
+        Assert.Null(drawer.Spawns);
+    }
 }

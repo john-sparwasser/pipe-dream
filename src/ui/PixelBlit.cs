@@ -164,6 +164,15 @@ public sealed class PixelBlit
             }
     }
 
+    /// <summary>A small overlay icon — a spawned sprite's thumbnail over a block — drawn
+    /// unsampled in one call. Not artwork being inspected, so it skips the intermediates;
+    /// dozens of these per frame would otherwise rebuild them on every cell.</summary>
+    public static void Icon(Visual owner, DrawingContext ctx, IImage bmp, Rect src, Rect dst)
+    {
+        RenderOptions.SetBitmapInterpolationMode(owner, BitmapInterpolationMode.None);
+        ctx.DrawImage(bmp, src, dst);
+    }
+
     private static RenderOptions Options(BitmapInterpolationMode mode)
         => new() { BitmapInterpolationMode = mode };
 

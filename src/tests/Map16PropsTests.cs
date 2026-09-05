@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Threading;
 using Xunit;
@@ -179,8 +180,33 @@ public class Map16PropsTests(ITestOutputHelper log)
         Assert.Equal(HorizontalAlignment.Right, tip.HorizontalAlignment);
         Assert.Equal(VerticalAlignment.Bottom, tip.VerticalAlignment);
 
+        // With Alt (or Cmd) held the card leaves the corner for the tile's upper right, so it
+        // can be read while sweeping: its left edge past the tile's right edge, its bottom
+        // above the tile's top. Let go and it is back in the corner.
+        var coin = sheet.TranslatePoint(new Point(11 * 16 * sheet.Zoom + 4, 2 * 16 * sheet.Zoom + 4), w)!.Value;
+        w.MouseMove(coin, RawInputModifiers.Alt);
+        Dispatcher.UIThread.RunJobs();
+        var desk = w.GetControl<Panel>("Map16Desk");
+        var tileTopRight = sheet.TranslatePoint(new Point(12 * 16 * sheet.Zoom, 2 * 16 * sheet.Zoom), desk)!.Value;
+        Assert.Equal(HorizontalAlignment.Left, tip.HorizontalAlignment);
+        Assert.True(tip.Margin.Left >= tileTopRight.X);
+        Assert.True(desk.Bounds.Height - tip.Margin.Bottom <= tileTopRight.Y);
+        w.MouseMove(coin);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(HorizontalAlignment.Right, tip.HorizontalAlignment);
+        Assert.Equal(new Thickness(14), tip.Margin);
+
         w.MouseMove(new Point(1, 1));                         // off the sheet
         Dispatcher.UIThread.RunJobs();
         Assert.False(tip.IsVisible);
+    }
+
+    /// <summary>A custom tile has no sentence of its own in the table, so the card borrows the
+    /// one for whatever it acts as.</summary>
+    [Fact]
+    public void a_custom_tile_describes_as_what_it_acts_as()
+    {
+        Assert.Equal("", Map16Tiles.Describe(0x305, 1));
+        Assert.Contains("cement", Map16Tiles.Describe(0x130, 1));
     }
 }

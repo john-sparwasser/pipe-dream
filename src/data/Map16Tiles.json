@@ -9,7 +9,11 @@
     "`all` is Lunar Magic's own sentence for the tile, read out of its exe by",
     "tools/lm/Extract-LmTileDescriptions.py (rerunning it rewrites every `all` line). LM does not",
     "describe tiles per tileset — it says \"A tileset specific tile.\" where the meaning changes —",
-    "so the per-tileset lines are hand-edited and survive a rerun."
+    "so the per-tileset lines are hand-edited and survive a rerun.",
+    "",
+    "`spawns` is the sprite (hex, SpriteDisplay.json numbering) the block releases when hit, for the",
+    "Spawns overlay. Blocks whose contents depend on their X position name the first option. A",
+    "custom tile borrows the `spawns` of whatever it acts as."
   ],
   "tiles": {
     "000": {
@@ -185,7 +189,8 @@
     "022": {
       "actAsTilesets": {
         "all": "An invisible 1-UP question block that will only become visible when Mario hits it from below.  Since this was inserted as a tile rather than as an object, it will always respawn when the level is loaded whether Mario has previously hit it or not."
-      }
+      },
+      "spawns": "78"
     },
     "023": {
       "actAsTilesets": {
@@ -220,7 +225,8 @@
     "029": {
       "actAsTilesets": {
         "all": "An invisible question block with a coin inside, that will only show up when Mario hits a blue POW."
-      }
+      },
+      "spawns": "21"
     },
     "02A": {
       "actAsTilesets": {
@@ -1380,7 +1386,8 @@
     "111": {
       "actAsTilesets": {
         "all": "A note block with a flower, feather, or star inside depending on its X position.  Currently it has a"
-      }
+      },
+      "spawns": "75"
     },
     "112": {
       "actAsTilesets": {
@@ -1395,7 +1402,8 @@
     "114": {
       "actAsTilesets": {
         "all": "A question block that has a directional coin inside.  The coin leaves a trail of coins and continues to move until it either runs into something or 63 coins have been generated.  The player can control which direction it moves in.  If another of these blocks in the level is hit after the first one, it will only have a regular coin inside."
-      }
+      },
+      "spawns": "45"
     },
     "115": {
       "actAsTilesets": {
@@ -1410,37 +1418,44 @@
     "117": {
       "actAsTilesets": {
         "all": "A turn block with a flower inside."
-      }
+      },
+      "spawns": "75"
     },
     "118": {
       "actAsTilesets": {
         "all": "A turn block with a feather inside."
-      }
+      },
+      "spawns": "77"
     },
     "119": {
       "actAsTilesets": {
         "all": "A turn block with a star inside."
-      }
+      },
+      "spawns": "76"
     },
     "11A": {
       "actAsTilesets": {
         "all": "A turn block with a star 2, 1-UP, or vine inside depending on its X position.  Since this was inserted as a tile rather than as an object, the 1-UP will always respawn when the level is loaded whether Mario has previously hit it or not.  Currently it has a"
-      }
+      },
+      "spawns": "76"
     },
     "11B": {
       "actAsTilesets": {
         "all": "A turn block with multiple coins inside."
-      }
+      },
+      "spawns": "21"
     },
     "11C": {
       "actAsTilesets": {
         "all": "A turn block with a coin inside."
-      }
+      },
+      "spawns": "21"
     },
     "11D": {
       "actAsTilesets": {
         "all": "A turn block with a blue or silver POW inside depending on its X position.  Currently it has a"
-      }
+      },
+      "spawns": "3E"
     },
     "11E": {
       "actAsTilesets": {
@@ -1450,52 +1465,62 @@
     "11F": {
       "actAsTilesets": {
         "all": "A question block with a flower inside."
-      }
+      },
+      "spawns": "75"
     },
     "120": {
       "actAsTilesets": {
         "all": "A question block with a feather inside."
-      }
+      },
+      "spawns": "77"
     },
     "121": {
       "actAsTilesets": {
         "all": "A question block with a star inside."
-      }
+      },
+      "spawns": "76"
     },
     "122": {
       "actAsTilesets": {
         "all": "A question block with a star 2 inside.  Mario must already be using a star before hitting this, or it will only give him another coin."
-      }
+      },
+      "spawns": "76"
     },
     "123": {
       "actAsTilesets": {
         "all": "A question block with multiple coins inside."
-      }
+      },
+      "spawns": "21"
     },
     "124": {
       "actAsTilesets": {
         "all": "A question block with a coin inside."
-      }
+      },
+      "spawns": "21"
     },
     "125": {
       "actAsTilesets": {
         "all": "A question block with a key, wings, balloon, or shell inside depending on its X position.  Currently it has a"
-      }
+      },
+      "spawns": "80"
     },
     "126": {
       "actAsTilesets": {
         "all": "A question block with Yoshi inside.  If Mario already has Yoshi, it will become a 1-UP.  Since this was inserted as a tile rather than as an object, it will always respawn when the level is loaded whether Mario has previously hit it or not."
-      }
+      },
+      "spawns": "2C"
     },
     "127": {
       "actAsTilesets": {
         "all": "A question block with green shell inside."
-      }
+      },
+      "spawns": "DA"
     },
     "128": {
       "actAsTilesets": {
         "all": "A question block with green shell inside."
-      }
+      },
+      "spawns": "DA"
     },
     "129": {
       "actAsTilesets": {
@@ -1505,7 +1530,8 @@
     "12A": {
       "actAsTilesets": {
         "all": "An unbreakable turn block with a side feather inside."
-      }
+      },
+      "spawns": "77"
     },
     "12B": {
       "actAsTilesets": {
@@ -1520,7 +1546,8 @@
     "12D": {
       "actAsTilesets": {
         "all": "A green star block with a 1-UP inside.  Mario must collect 30 coins in the level before hitting this, or it will only give him another coin.  Since this was inserted as a tile rather than as an object, it will always respawn when the level is loaded whether Mario has previously collected it or not."
-      }
+      },
+      "spawns": "78"
     },
     "12E": {
       "actAsTilesets": {
@@ -1825,12 +1852,14 @@
     "16A": {
       "actAsTilesets": {
         "all": "A green switch block with a feather inside (except in FG/BG GFX indexes 4, 5, and 0xD).  Since this was inserted as a tile rather than as an object, it will always appear this way whether the switch palace has been passed or not."
-      }
+      },
+      "spawns": "77"
     },
     "16B": {
       "actAsTilesets": {
         "all": "A yellow switch block with a mushroom inside (except in FG/BG GFX indexes 4, 5, and 0xD).  Since this was inserted as a tile rather than as an object, it will always appear this way whether the switch palace has been passed or not."
-      }
+      },
+      "spawns": "74"
     },
     "16C": {
       "actAsTilesets": {

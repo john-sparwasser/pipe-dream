@@ -47,92 +47,8 @@ public static class PortedObjectEngine
             if (o.IsScreenExit) continue;                       // no tiles
             int ax = o.AbsoluteX, ay = o.AbsoluteY;
 
-            if (o.IsDm16)                                       // LM Direct Map16: w×h of one tile
-            {
-                if (o.Number == 0x29) continue;                 // BG-page form: layer 2, no L1 tiles
-                // Extended form (page bit7): 7-bit width from the size byte; bits 7+6 add a
-                // height-override byte. ponytail: ExtX run semantics approximated as plain w×h.
-                int dw = o.Dm16ExtX >= 0 ? (o.Byte3 & 0x7F) + 1 : o.Width;
-                int dh = o.Dm16ExtH >= 0 ? o.Dm16ExtH + 1 : o.Height;
-                for (int dy = 0; dy < dh; dy++)
-                    for (int dx = 0; dx < dw; dx++)
-                        g.Set(ax + dx, ay + dy, o.Dm16Tile);
-                continue;
-            }
-
-            if (o.Extended)
-            {
-                int ext = o.ExtendedNumber;
-                if (ext == 0x01) continue;                      // screen jump: no tiles
-                // Dispatch by handler address from the global ext-object table ($0DA10F).
-                switch (rom.ReadValue(0x0DA10F + ext * 3, 3))
-                {
-                    case 0x0DA57B or 0x0DA64D:                  // single tile via DATA_0DA548
-                    {
-                        int idx = ext - 0x10;
-                        if (idx >= 0 && idx < single.Length)
-                            g.Set(ax, ay, single[idx] | (idx >= 0x13 ? 0x100 : 0)); // $0DA5B1 page rule
-                        else
-                            g.Set(ax, ay, ObjectEngine.Marker | ext);
-                        break;
-                    }
-                    case 0x0DA68E:                              // midway point bar
-                        g.Set(ax - 1, ay, 0x035); g.Set(ax, ay, 0x038);
-                        break;
-                    case 0x0DCE94:                              // rope line-guide tiles (0x51-0x54)
-                        g.Set(ax, ay, ReadTable(rom, 0x0DCE90, 4)[(ext - 0x51) & 3]);
-                        break;
-                    case 0x0DCEA6:                              // canvas 1: vertical pair 84/85
-                        g.Set(ax, ay, 0x084); g.Set(ax, ay + 1, 0x085);
-                        break;
-                    case 0x0DCEC0:                              // line-guide end: pair 96/97
-                        g.Set(ax, ay, 0x096); g.Set(ax, ay + 1, 0x097);
-                        break;
-                    case 0x0DDA68:                              // underground deco (0x75-0x7B)
-                        g.Set(ax, ay, ReadTable(rom, 0x0DDA61, 7)[(ext - 0x75) % 7]);
-                        break;
-                    case 0x0DDA80:                              // canvas 2-4: vertical pairs
-                        g.Set(ax, ay, ReadTable(rom, 0x0DDA7A, 3)[(ext - 0x7C) % 3]);
-                        g.Set(ax, ay + 1, ReadTable(rom, 0x0DDA7D, 3)[(ext - 0x7C) % 3]);
-                        break;
-                    case 0x0DB583:                              // yellow switch block (outline)
-                        g.Set(ax, ay, ReadTable(rom, 0x0DB589, 2)[1]);
-                        break;
-                    case 0x0DB58B:                              // green switch block (outline)
-                        g.Set(ax, ay, ReadTable(rom, 0x0DB589, 2)[0]);
-                        break;
-                    case 0x0DB2CA:                              // Yoshi coin (top + bottom)
-                        g.Set(ax, ay, 0x02D); g.Set(ax, ay + 1, 0x02E);
-                        break;
-                    case 0x0DA71B:                              // big bush stamp (9x5)
-                        BushStamp(g, ax, ay, 9, 5, ReadTable(rom, 0x0DA6EE, 45));
-                        break;
-                    case 0x0DA760:                              // small bush stamp (6x4)
-                        BushStamp(g, ax, ay, 6, 4, ReadTable(rom, 0x0DA748, 24));
-                        break;
-                    case 0x0DA7E7:                              // 2x2 block (DATA_0DA7E3)
-                    {
-                        var t4 = ReadTable(rom, 0x0DA7E3, 4);
-                        g.Set(ax, ay, t4[0]); g.Set(ax + 1, ay, t4[1]);
-                        g.Set(ax, ay + 1, t4[2]); g.Set(ax + 1, ay + 1, t4[3]);
-                        break;
-                    }
-                    case 0x0DA673:                              // purple triangle L/R: top + 1EB below
-                        g.Set(ax, ay, 0x100 | ReadTable(rom, 0x0DA671, 2)[(ext - 0x44) & 1]);
-                        g.Set(ax, ay + 1, 0x1EB);
-                        break;
-                    case 0x0DDA57:                              // lava/mud top-right corner: tile 1FE
-                        g.Set(ax, ay, 0x1FE);
-                        break;
-                    case 0x0DE1B0:                              // LM secondary exit: no tiles
-                    case 0x0DE1E0:                              // LM screen jump (0x03): no tiles
-                        break;
-                    default:
-                        g.Set(ax, ay, ObjectEngine.Marker | ext);
-                        break;
-                }
-                continue;
-            }
+            if (o.IsDm16) { PlaceDm16(g, o, ax, ay); continue; }
+            if (o.Extended) { PlaceExtended(rom, g, o, ax, ay, single); continue; }
 
             int n = o.Number, b3 = o.Byte3;
             // Tileset-aware dispatch, exactly like the ROM: tileset dispatcher pointer at
@@ -361,6 +277,93 @@ public static class PortedObjectEngine
             }
         }
         return g;
+    }
+
+    /// <summary>LM Direct Map16: a w×h fill of one tile (the BG-page form 0x29 draws nothing on layer 1).</summary>
+    private static void PlaceDm16(Map16Grid g, LevelObject o, int ax, int ay)
+    {
+        if (o.Number == 0x29) return;                   // BG-page form: layer 2, no L1 tiles
+        // Extended form (page bit7): 7-bit width from the size byte; bits 7+6 add a
+        // height-override byte. ponytail: ExtX run semantics approximated as plain w×h.
+        int dw = o.Dm16ExtX >= 0 ? (o.Byte3 & 0x7F) + 1 : o.Width;
+        int dh = o.Dm16ExtH >= 0 ? o.Dm16ExtH + 1 : o.Height;
+        for (int dy = 0; dy < dh; dy++)
+            for (int dx = 0; dx < dw; dx++)
+                g.Set(ax + dx, ay + dy, o.Dm16Tile);
+    }
+
+    /// <summary>Extended objects, dispatched by handler address from the global ext-object table ($0DA10F).</summary>
+    private static void PlaceExtended(Rom rom, Map16Grid g, LevelObject o, int ax, int ay, int[] single)
+    {
+        int ext = o.ExtendedNumber;
+        if (ext == 0x01) return;                        // screen jump: no tiles
+        // Dispatch by handler address from the global ext-object table ($0DA10F).
+        switch (rom.ReadValue(0x0DA10F + ext * 3, 3))
+        {
+            case 0x0DA57B or 0x0DA64D:                  // single tile via DATA_0DA548
+            {
+                int idx = ext - 0x10;
+                if (idx >= 0 && idx < single.Length)
+                    g.Set(ax, ay, single[idx] | (idx >= 0x13 ? 0x100 : 0)); // $0DA5B1 page rule
+                else
+                    g.Set(ax, ay, ObjectEngine.Marker | ext);
+                break;
+            }
+            case 0x0DA68E:                              // midway point bar
+                g.Set(ax - 1, ay, 0x035); g.Set(ax, ay, 0x038);
+                break;
+            case 0x0DCE94:                              // rope line-guide tiles (0x51-0x54)
+                g.Set(ax, ay, ReadTable(rom, 0x0DCE90, 4)[(ext - 0x51) & 3]);
+                break;
+            case 0x0DCEA6:                              // canvas 1: vertical pair 84/85
+                g.Set(ax, ay, 0x084); g.Set(ax, ay + 1, 0x085);
+                break;
+            case 0x0DCEC0:                              // line-guide end: pair 96/97
+                g.Set(ax, ay, 0x096); g.Set(ax, ay + 1, 0x097);
+                break;
+            case 0x0DDA68:                              // underground deco (0x75-0x7B)
+                g.Set(ax, ay, ReadTable(rom, 0x0DDA61, 7)[(ext - 0x75) % 7]);
+                break;
+            case 0x0DDA80:                              // canvas 2-4: vertical pairs
+                g.Set(ax, ay, ReadTable(rom, 0x0DDA7A, 3)[(ext - 0x7C) % 3]);
+                g.Set(ax, ay + 1, ReadTable(rom, 0x0DDA7D, 3)[(ext - 0x7C) % 3]);
+                break;
+            case 0x0DB583:                              // yellow switch block (outline)
+                g.Set(ax, ay, ReadTable(rom, 0x0DB589, 2)[1]);
+                break;
+            case 0x0DB58B:                              // green switch block (outline)
+                g.Set(ax, ay, ReadTable(rom, 0x0DB589, 2)[0]);
+                break;
+            case 0x0DB2CA:                              // Yoshi coin (top + bottom)
+                g.Set(ax, ay, 0x02D); g.Set(ax, ay + 1, 0x02E);
+                break;
+            case 0x0DA71B:                              // big bush stamp (9x5)
+                BushStamp(g, ax, ay, 9, 5, ReadTable(rom, 0x0DA6EE, 45));
+                break;
+            case 0x0DA760:                              // small bush stamp (6x4)
+                BushStamp(g, ax, ay, 6, 4, ReadTable(rom, 0x0DA748, 24));
+                break;
+            case 0x0DA7E7:                              // 2x2 block (DATA_0DA7E3)
+            {
+                var t4 = ReadTable(rom, 0x0DA7E3, 4);
+                g.Set(ax, ay, t4[0]); g.Set(ax + 1, ay, t4[1]);
+                g.Set(ax, ay + 1, t4[2]); g.Set(ax + 1, ay + 1, t4[3]);
+                break;
+            }
+            case 0x0DA673:                              // purple triangle L/R: top + 1EB below
+                g.Set(ax, ay, 0x100 | ReadTable(rom, 0x0DA671, 2)[(ext - 0x44) & 1]);
+                g.Set(ax, ay + 1, 0x1EB);
+                break;
+            case 0x0DDA57:                              // lava/mud top-right corner: tile 1FE
+                g.Set(ax, ay, 0x1FE);
+                break;
+            case 0x0DE1B0:                              // LM secondary exit: no tiles
+            case 0x0DE1E0:                              // LM screen jump (0x03): no tiles
+                break;
+            default:
+                g.Set(ax, ay, ObjectEngine.Marker | ext);
+                break;
+        }
     }
 
     // edge tiles (0x49-0x53) morph when overlapping an existing bush: +1 over body (0x49),
