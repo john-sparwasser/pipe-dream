@@ -1294,8 +1294,7 @@
     },
     "100": {
       "actAsTilesets": {
-        "all": "A ledge type of tile that Mario can stand on.",
-        "0": "Grass ground, top-left corner"
+        "all": "A ledge type of tile that Mario can stand on."
       }
     },
     "101": {

@@ -828,7 +828,7 @@
                     Padding="10,6" Margin="14" HorizontalAlignment="Right" VerticalAlignment="Bottom"
                     IsHitTestVisible="False" IsVisible="False">
               <StackPanel Spacing="2">
-                <TextBlock x:Name="M16TileTipText" IsVisible="False"/>
+                <TextBlock x:Name="M16TileTipText" IsVisible="False" TextWrapping="Wrap" MaxWidth="360"/>
                 <TextBlock x:Name="M16ActsTipText" Classes="dim"/>
               </StackPanel>
             </Border>
