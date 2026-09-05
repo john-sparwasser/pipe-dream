@@ -4,15 +4,2574 @@
     "",
     "Keys are hex Map16 tile numbers. Each carries `actAsTilesets`: a description per FG tileset",
     "id (hex, 0-F) plus `all`, the description for every tileset not named — a tileset's own",
-    "entry overrides `all`. Tiles 000-0FF are shared by every tileset, so they only need `all`;",
-    "100-1FF change with the tileset, so they take one line per tileset they differ in.",
+    "entry overrides `all`.",
     "",
-    "Hand-edited. A tile without an entry describes as nothing rather than as a guess."
+    "`all` is Lunar Magic's own sentence for the tile, read out of its exe by",
+    "tools/lm/Extract-LmTileDescriptions.py (rerunning it rewrites every `all` line). LM does not",
+    "describe tiles per tileset — it says \"A tileset specific tile.\" where the meaning changes —",
+    "so the per-tileset lines are hand-edited and survive a rerun."
   ],
-
   "tiles": {
-    "025": { "actAsTilesets": { "all": "Empty" } },
-    "02B": { "actAsTilesets": { "all": "Coin" } },
-    "100": { "actAsTilesets": { "all": "Ground", "0": "Grass ground, top-left corner" } }
+    "000": {
+      "actAsTilesets": {
+        "all": "Water with an animated surface."
+      }
+    },
+    "001": {
+      "actAsTilesets": {
+        "all": "Water with a non-animated surface."
+      }
+    },
+    "002": {
+      "actAsTilesets": {
+        "all": "Dark blue water tile that Mario can swim through."
+      }
+    },
+    "003": {
+      "actAsTilesets": {
+        "all": "A water tile that Mario can swim through."
+      }
+    },
+    "004": {
+      "actAsTilesets": {
+        "all": "Mud/lava with an animated surface.  It acts like water for Mario, but for sprites it acts like lava."
+      }
+    },
+    "005": {
+      "actAsTilesets": {
+        "all": "Mud/lava tile.  It acts like lava for Mario, but for sprites it acts like water."
+      }
+    },
+    "006": {
+      "actAsTilesets": {
+        "all": "A vine tile."
+      }
+    },
+    "007": {
+      "actAsTilesets": {
+        "all": "A climbing net tile."
+      }
+    },
+    "008": {
+      "actAsTilesets": {
+        "all": "A climbing net tile."
+      }
+    },
+    "009": {
+      "actAsTilesets": {
+        "all": "A climbing net tile."
+      }
+    },
+    "00A": {
+      "actAsTilesets": {
+        "all": "A climbing net tile."
+      }
+    },
+    "00B": {
+      "actAsTilesets": {
+        "all": "A climbing net tile."
+      }
+    },
+    "00C": {
+      "actAsTilesets": {
+        "all": "A climbing net tile."
+      }
+    },
+    "00D": {
+      "actAsTilesets": {
+        "all": "A climbing net tile."
+      }
+    },
+    "00E": {
+      "actAsTilesets": {
+        "all": "A climbing net tile."
+      }
+    },
+    "00F": {
+      "actAsTilesets": {
+        "all": "A climbing net tile."
+      }
+    },
+    "010": {
+      "actAsTilesets": {
+        "all": "A climbing net tile."
+      }
+    },
+    "011": {
+      "actAsTilesets": {
+        "all": "A climbing net tile."
+      }
+    },
+    "012": {
+      "actAsTilesets": {
+        "all": "A climbing net tile."
+      }
+    },
+    "013": {
+      "actAsTilesets": {
+        "all": "A climbing net tile."
+      }
+    },
+    "014": {
+      "actAsTilesets": {
+        "all": "A climbing net tile."
+      }
+    },
+    "015": {
+      "actAsTilesets": {
+        "all": "A climbing net tile."
+      }
+    },
+    "016": {
+      "actAsTilesets": {
+        "all": "A climbing net tile."
+      }
+    },
+    "017": {
+      "actAsTilesets": {
+        "all": "A climbing net tile."
+      }
+    },
+    "018": {
+      "actAsTilesets": {
+        "all": "A climbing net tile."
+      }
+    },
+    "019": {
+      "actAsTilesets": {
+        "all": "A climbing net tile."
+      }
+    },
+    "01A": {
+      "actAsTilesets": {
+        "all": "A climbing net tile."
+      }
+    },
+    "01B": {
+      "actAsTilesets": {
+        "all": "A climbing net tile."
+      }
+    },
+    "01C": {
+      "actAsTilesets": {
+        "all": "A climbing net tile."
+      }
+    },
+    "01D": {
+      "actAsTilesets": {
+        "all": ""
+      }
+    },
+    "01E": {
+      "actAsTilesets": {
+        "all": ""
+      }
+    },
+    "01F": {
+      "actAsTilesets": {
+        "all": "A small door that Mario can only enter when he's small.  But if you place the door one tile above the ground, Mario can only enter it if he's small and riding Yoshi."
+      }
+    },
+    "020": {
+      "actAsTilesets": {
+        "all": "Part of a door."
+      }
+    },
+    "021": {
+      "actAsTilesets": {
+        "all": "Invisible coin block that only becomes visible when Mario hits it from below."
+      }
+    },
+    "022": {
+      "actAsTilesets": {
+        "all": "An invisible 1-UP question block that will only become visible when Mario hits it from below.  Since this was inserted as a tile rather than as an object, it will always respawn when the level is loaded whether Mario has previously hit it or not."
+      }
+    },
+    "023": {
+      "actAsTilesets": {
+        "all": "Invisible jumping note block that only becomes visible when Mario hits it from below."
+      }
+    },
+    "024": {
+      "actAsTilesets": {
+        "all": "An unused invisible jumping note block that only becomes visible when Mario hits it from below."
+      }
+    },
+    "025": {
+      "actAsTilesets": {
+        "all": "A completely blank tile, used by the game to fill empty areas in the level."
+      }
+    },
+    "026": {
+      "actAsTilesets": {
+        "all": "The hand rail for a donut bridge."
+      }
+    },
+    "027": {
+      "actAsTilesets": {
+        "all": "A small invisible door that Mario can only enter when he's small, and will only be visible if he hits a blue POW.  And if you place the door one tile above the ground, Mario can only enter it if he's small and riding Yoshi."
+      }
+    },
+    "028": {
+      "actAsTilesets": {
+        "all": "Part of an invisible door that will only become visible when Mario hits a blue POW."
+      }
+    },
+    "029": {
+      "actAsTilesets": {
+        "all": "An invisible question block with a coin inside, that will only show up when Mario hits a blue POW."
+      }
+    },
+    "02A": {
+      "actAsTilesets": {
+        "all": "Invisible coin that only becomes visible when Mario hits a blue POW."
+      }
+    },
+    "02B": {
+      "actAsTilesets": {
+        "all": "An ordinary coin.  Getting 100 of these will give Mario an extra life.  Since this was inserted as a tile rather than as an object, it will always respawn when the level is loaded whether Mario has previously collected it or not."
+      }
+    },
+    "02C": {
+      "actAsTilesets": {
+        "all": "A purple coin.  It acts like a regular coin, except when you hit a blue POW the block it creates still acts like a coin.  Since this was inserted as a tile rather than as an object, it will always respawn when the level is loaded whether Mario has previously collected it or not."
+      }
+    },
+    "02D": {
+      "actAsTilesets": {
+        "all": "Top of a Yoshi coin.  Since this was inserted as a tile rather than as an object, it will always respawn when the level is loaded whether Mario has previously collected it or not."
+      }
+    },
+    "02E": {
+      "actAsTilesets": {
+        "all": "Bottom of a Yoshi coin.  Since this was inserted as a tile rather than as an object, it will always respawn when the level is loaded whether Mario has previously collected it or not."
+      }
+    },
+    "02F": {
+      "actAsTilesets": {
+        "all": "Part of a Midway point tile."
+      }
+    },
+    "030": {
+      "actAsTilesets": {
+        "all": "Part of a Midway point tile."
+      }
+    },
+    "031": {
+      "actAsTilesets": {
+        "all": "Part of a Midway point tile."
+      }
+    },
+    "032": {
+      "actAsTilesets": {
+        "all": "Part of a Midway point tile."
+      }
+    },
+    "033": {
+      "actAsTilesets": {
+        "all": "Part of a Midway point tile."
+      }
+    },
+    "034": {
+      "actAsTilesets": {
+        "all": "Part of a Midway point tile."
+      }
+    },
+    "035": {
+      "actAsTilesets": {
+        "all": "Part of a Midway point tile."
+      }
+    },
+    "036": {
+      "actAsTilesets": {
+        "all": "Part of a Midway point tile."
+      }
+    },
+    "037": {
+      "actAsTilesets": {
+        "all": "Part of a Midway point tile."
+      }
+    },
+    "038": {
+      "actAsTilesets": {
+        "all": "Midway point tape.  Since this was inserted as a tile rather than as an object, it will always respawn when the level is loaded whether Mario has previously collected it or not."
+      }
+    },
+    "039": {
+      "actAsTilesets": {
+        "all": "Part of a Goal point tile."
+      }
+    },
+    "03A": {
+      "actAsTilesets": {
+        "all": "Part of a Goal point tile."
+      }
+    },
+    "03B": {
+      "actAsTilesets": {
+        "all": "Part of a Goal point tile."
+      }
+    },
+    "03C": {
+      "actAsTilesets": {
+        "all": "Part of a Goal point tile."
+      }
+    },
+    "03D": {
+      "actAsTilesets": {
+        "all": "Part of a Goal point tile."
+      }
+    },
+    "03E": {
+      "actAsTilesets": {
+        "all": "Part of a Goal point tile."
+      }
+    },
+    "03F": {
+      "actAsTilesets": {
+        "all": "A dirt tile that Mario can walk through."
+      }
+    },
+    "040": {
+      "actAsTilesets": {
+        "all": "A dirt tile that Mario can walk through."
+      }
+    },
+    "041": {
+      "actAsTilesets": {
+        "all": "A dirt tile that Mario can walk through."
+      }
+    },
+    "042": {
+      "actAsTilesets": {
+        "all": "A dirt tile that Mario can walk through."
+      }
+    },
+    "043": {
+      "actAsTilesets": {
+        "all": "A dirt tile that Mario can walk through."
+      }
+    },
+    "044": {
+      "actAsTilesets": {
+        "all": "A dirt tile that Mario can walk through."
+      }
+    },
+    "045": {
+      "actAsTilesets": {
+        "all": "A red berry that Yoshi can eat.  If he eats ten, he'll lay an egg with a mushroom inside."
+      }
+    },
+    "046": {
+      "actAsTilesets": {
+        "all": "A pink berry that Yoshi can eat.  If he eats two, he'll lay an egg with the coin game cloud inside."
+      }
+    },
+    "047": {
+      "actAsTilesets": {
+        "all": "A green berry that will increase the level's current time limit by 20 if Yoshi eats it."
+      }
+    },
+    "048": {
+      "actAsTilesets": {
+        "all": "An always-turning turn block."
+      }
+    },
+    "049": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "04A": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "04B": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "04C": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "04D": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "04E": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "04F": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "050": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "051": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "052": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "053": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "054": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "055": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "056": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "057": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "058": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "059": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "05A": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "05B": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "05C": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "05D": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "05E": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "05F": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "060": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "061": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "062": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "063": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "064": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "065": {
+      "actAsTilesets": {
+        "all": "Part of a bush tile."
+      }
+    },
+    "066": {
+      "actAsTilesets": {
+        "all": "Part of a goal point sign tile."
+      }
+    },
+    "067": {
+      "actAsTilesets": {
+        "all": "Part of a goal point sign tile."
+      }
+    },
+    "068": {
+      "actAsTilesets": {
+        "all": "Part of a goal point sign tile."
+      }
+    },
+    "069": {
+      "actAsTilesets": {
+        "all": "Part of a goal point sign tile."
+      }
+    },
+    "06A": {
+      "actAsTilesets": {
+        "all": "Outline of a green switch block.  Since this was inserted as a tile rather than as an object, it will always appear this way whether the switch palace has been passed or not."
+      }
+    },
+    "06B": {
+      "actAsTilesets": {
+        "all": "Outline of a yellow switch block.  Since this was inserted as a tile rather than as an object, it will always appear this way whether the switch palace has been passed or not."
+      }
+    },
+    "06C": {
+      "actAsTilesets": {
+        "all": "Outline of a blue switch block.  Since this was inserted as a tile rather than as an object, it will always appear this way whether the switch palace has been passed or not."
+      }
+    },
+    "06D": {
+      "actAsTilesets": {
+        "all": "Outline of a red switch block.  Since this was inserted as a tile rather than as an object, it will always appear this way whether the switch palace has been passed or not."
+      }
+    },
+    "06E": {
+      "actAsTilesets": {
+        "all": "A moon that will give Mario 3 extra lives.  Since this was inserted as a tile rather than as an object, it will always respawn when the level is loaded whether Mario has previously collected it or not."
+      }
+    },
+    "06F": {
+      "actAsTilesets": {
+        "all": "Invisible 1-UP point #1."
+      }
+    },
+    "070": {
+      "actAsTilesets": {
+        "all": "Invisible 1-UP point #2."
+      }
+    },
+    "071": {
+      "actAsTilesets": {
+        "all": "Invisible 1-UP point #3."
+      }
+    },
+    "072": {
+      "actAsTilesets": {
+        "all": "Invisible 1-UP point #4.  If Mario has already gone through the other 1-UP points in order, a 1-UP will appear when he touches this one.  Since this was inserted as a tile rather than as an object, it will always respawn if you go to the overworld then come back."
+      }
+    },
+    "073": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "074": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "075": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "076": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "077": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "078": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "079": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "07A": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "07B": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "07C": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "07D": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "07E": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "07F": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "080": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "081": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "082": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "083": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "084": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "085": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "086": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "087": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "088": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "089": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "08A": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "08B": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "08C": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "08D": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "08E": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "08F": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "090": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile.  When used as a vertical line guide, a line guided sprite can be placed one tile to the right and still be on the line."
+      }
+    },
+    "091": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile.  When used as a vertical line guide, a line guided sprite can be placed one tile to the left and still be on the line."
+      }
+    },
+    "092": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile.  When used as a horizonal line guide, a line guided sprite can be placed one tile below and still be on the line."
+      }
+    },
+    "093": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile.  When used as a horizonal line guide, a line guided sprite can be placed one tile above and still be on the line."
+      }
+    },
+    "094": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "095": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "096": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "097": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "098": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "099": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "09A": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "09B": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "09C": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "09D": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "09E": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "09F": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0A0": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0A1": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0A2": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0A3": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0A4": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0A5": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0A6": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0A7": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0A8": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0A9": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0AA": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0AB": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0AC": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0AD": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0AE": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0AF": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0B0": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0B1": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0B2": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0B3": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0B4": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0B5": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0B6": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0B7": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0B8": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0B9": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0BA": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0BB": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0BC": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0BD": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0BE": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0BF": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0C0": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0C1": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0C2": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0C3": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0C4": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0C5": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0C6": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0C7": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0C8": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0C9": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0CA": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0CB": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0CC": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0CD": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0CE": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0CF": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0D0": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0D1": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0D2": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0D3": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0D4": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0D5": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0D6": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0D7": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0D8": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0D9": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0DA": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0DB": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0DC": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0DD": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0DE": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0DF": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0E0": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0E1": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0E2": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0E3": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0E4": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0E5": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0E6": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0E7": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0E8": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0E9": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0EA": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0EB": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0EC": {
+      "actAsTilesets": {
+        "all": "Top left tile of green switch palace switch."
+      }
+    },
+    "0ED": {
+      "actAsTilesets": {
+        "all": "Top right tile of green switch palace switch."
+      }
+    },
+    "0EE": {
+      "actAsTilesets": {
+        "all": "Bottom left tile of green switch palace switch."
+      }
+    },
+    "0EF": {
+      "actAsTilesets": {
+        "all": "Bottom right tile of green switch palace switch."
+      }
+    },
+    "0F0": {
+      "actAsTilesets": {
+        "all": "Top left tile of yellow switch palace switch."
+      }
+    },
+    "0F1": {
+      "actAsTilesets": {
+        "all": "Top right tile of yellow switch palace switch."
+      }
+    },
+    "0F2": {
+      "actAsTilesets": {
+        "all": "Bottom left tile of yellow switch palace switch."
+      }
+    },
+    "0F3": {
+      "actAsTilesets": {
+        "all": "Bottom right tile of yellow switch palace switch."
+      }
+    },
+    "0F4": {
+      "actAsTilesets": {
+        "all": "Top left tile of blue switch palace switch."
+      }
+    },
+    "0F5": {
+      "actAsTilesets": {
+        "all": "Top right tile of blue switch palace switch."
+      }
+    },
+    "0F6": {
+      "actAsTilesets": {
+        "all": "Bottom left tile of blue switch palace switch."
+      }
+    },
+    "0F7": {
+      "actAsTilesets": {
+        "all": "Bottom right tile of blue switch palace switch."
+      }
+    },
+    "0F8": {
+      "actAsTilesets": {
+        "all": "Top left tile of red switch palace switch."
+      }
+    },
+    "0F9": {
+      "actAsTilesets": {
+        "all": "Top right tile of red switch palace switch."
+      }
+    },
+    "0FA": {
+      "actAsTilesets": {
+        "all": "Bottom left tile of red switch palace switch."
+      }
+    },
+    "0FB": {
+      "actAsTilesets": {
+        "all": "Bottom right tile of red switch palace switch."
+      }
+    },
+    "0FC": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0FD": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0FE": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "0FF": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "100": {
+      "actAsTilesets": {
+        "all": "A ledge type of tile that Mario can stand on.",
+        "0": "Grass ground, top-left corner"
+      }
+    },
+    "101": {
+      "actAsTilesets": {
+        "all": "A ledge type of tile that Mario can stand on."
+      }
+    },
+    "102": {
+      "actAsTilesets": {
+        "all": "A ledge type of tile that Mario can stand on."
+      }
+    },
+    "103": {
+      "actAsTilesets": {
+        "all": "A ledge type of tile that Mario can stand on."
+      }
+    },
+    "104": {
+      "actAsTilesets": {
+        "all": "A ledge type of tile that Mario can stand on."
+      }
+    },
+    "105": {
+      "actAsTilesets": {
+        "all": "A ledge type of tile that Mario can stand on."
+      }
+    },
+    "106": {
+      "actAsTilesets": {
+        "all": "A cloud tile that Mario can stand on."
+      }
+    },
+    "107": {
+      "actAsTilesets": {
+        "all": "A ledge type of tile that Mario can stand on."
+      }
+    },
+    "108": {
+      "actAsTilesets": {
+        "all": "A ledge type of tile that Mario can stand on."
+      }
+    },
+    "109": {
+      "actAsTilesets": {
+        "all": "A ledge type of tile that Mario can stand on."
+      }
+    },
+    "10A": {
+      "actAsTilesets": {
+        "all": "A ledge type of tile that Mario can stand on."
+      }
+    },
+    "10B": {
+      "actAsTilesets": {
+        "all": "A ledge type of tile that Mario can stand on."
+      }
+    },
+    "10C": {
+      "actAsTilesets": {
+        "all": "A ledge type of tile that Mario can stand on."
+      }
+    },
+    "10D": {
+      "actAsTilesets": {
+        "all": "A ledge type of tile that Mario can stand on."
+      }
+    },
+    "10E": {
+      "actAsTilesets": {
+        "all": "A ledge type of tile that Mario can stand on."
+      }
+    },
+    "10F": {
+      "actAsTilesets": {
+        "all": "A ledge type of tile that Mario can stand on."
+      }
+    },
+    "110": {
+      "actAsTilesets": {
+        "all": "A ledge type of tile that Mario can stand on."
+      }
+    },
+    "111": {
+      "actAsTilesets": {
+        "all": "A note block with a flower, feather, or star inside depending on its X position.  Currently it has a"
+      }
+    },
+    "112": {
+      "actAsTilesets": {
+        "all": "An on/off block.  Use SP4=3 or 5 for the correct graphics when Mario hits it."
+      }
+    },
+    "113": {
+      "actAsTilesets": {
+        "all": "A jumping note block that Mario can bounce on."
+      }
+    },
+    "114": {
+      "actAsTilesets": {
+        "all": "A question block that has a directional coin inside.  The coin leaves a trail of coins and continues to move until it either runs into something or 63 coins have been generated.  The player can control which direction it moves in.  If another of these blocks in the level is hit after the first one, it will only have a regular coin inside."
+      }
+    },
+    "115": {
+      "actAsTilesets": {
+        "all": "An unused jumping note block that Mario can bounce on."
+      }
+    },
+    "116": {
+      "actAsTilesets": {
+        "all": "A note block that you can bounce off of from all sides!"
+      }
+    },
+    "117": {
+      "actAsTilesets": {
+        "all": "A turn block with a flower inside."
+      }
+    },
+    "118": {
+      "actAsTilesets": {
+        "all": "A turn block with a feather inside."
+      }
+    },
+    "119": {
+      "actAsTilesets": {
+        "all": "A turn block with a star inside."
+      }
+    },
+    "11A": {
+      "actAsTilesets": {
+        "all": "A turn block with a star 2, 1-UP, or vine inside depending on its X position.  Since this was inserted as a tile rather than as an object, the 1-UP will always respawn when the level is loaded whether Mario has previously hit it or not.  Currently it has a"
+      }
+    },
+    "11B": {
+      "actAsTilesets": {
+        "all": "A turn block with multiple coins inside."
+      }
+    },
+    "11C": {
+      "actAsTilesets": {
+        "all": "A turn block with a coin inside."
+      }
+    },
+    "11D": {
+      "actAsTilesets": {
+        "all": "A turn block with a blue or silver POW inside depending on its X position.  Currently it has a"
+      }
+    },
+    "11E": {
+      "actAsTilesets": {
+        "all": "A turn block, which Mario can hit to start it turning for a short while to allow him to pass through it, or break with a spin jump from above."
+      }
+    },
+    "11F": {
+      "actAsTilesets": {
+        "all": "A question block with a flower inside."
+      }
+    },
+    "120": {
+      "actAsTilesets": {
+        "all": "A question block with a feather inside."
+      }
+    },
+    "121": {
+      "actAsTilesets": {
+        "all": "A question block with a star inside."
+      }
+    },
+    "122": {
+      "actAsTilesets": {
+        "all": "A question block with a star 2 inside.  Mario must already be using a star before hitting this, or it will only give him another coin."
+      }
+    },
+    "123": {
+      "actAsTilesets": {
+        "all": "A question block with multiple coins inside."
+      }
+    },
+    "124": {
+      "actAsTilesets": {
+        "all": "A question block with a coin inside."
+      }
+    },
+    "125": {
+      "actAsTilesets": {
+        "all": "A question block with a key, wings, balloon, or shell inside depending on its X position.  Currently it has a"
+      }
+    },
+    "126": {
+      "actAsTilesets": {
+        "all": "A question block with Yoshi inside.  If Mario already has Yoshi, it will become a 1-UP.  Since this was inserted as a tile rather than as an object, it will always respawn when the level is loaded whether Mario has previously hit it or not."
+      }
+    },
+    "127": {
+      "actAsTilesets": {
+        "all": "A question block with green shell inside."
+      }
+    },
+    "128": {
+      "actAsTilesets": {
+        "all": "A question block with green shell inside."
+      }
+    },
+    "129": {
+      "actAsTilesets": {
+        "all": "A turn block with \"nothing\" inside.  It just turns into a brown block when hit."
+      }
+    },
+    "12A": {
+      "actAsTilesets": {
+        "all": "An unbreakable turn block with a side feather inside."
+      }
+    },
+    "12B": {
+      "actAsTilesets": {
+        "all": "An unbreakable turn block you can bounce off of from the side."
+      }
+    },
+    "12C": {
+      "actAsTilesets": {
+        "all": "A translucent block that usually holds a \"changing item\" sprite.  It uses SP4=4."
+      }
+    },
+    "12D": {
+      "actAsTilesets": {
+        "all": "A green star block with a 1-UP inside.  Mario must collect 30 coins in the level before hitting this, or it will only give him another coin.  Since this was inserted as a tile rather than as an object, it will always respawn when the level is loaded whether Mario has previously collected it or not."
+      }
+    },
+    "12E": {
+      "actAsTilesets": {
+        "all": "A throw block, which Mario can pick up and throw at enemies or blocks and breaks on impact.  It only lasts about 8.5 seconds after being picked up before it vanishes."
+      }
+    },
+    "12F": {
+      "actAsTilesets": {
+        "all": "A black piranha plant, which is actually an object instead of a sprite.  Riding on Yoshi will let you walk on these without getting hurt.  It will turn into a coin if you hit a silver POW."
+      }
+    },
+    "130": {
+      "actAsTilesets": {
+        "all": "A grey cement block that Mario can't walk through."
+      }
+    },
+    "131": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "132": {
+      "actAsTilesets": {
+        "all": "A brown block that will turn into a coin if Mario hits a blue POW."
+      }
+    },
+    "133": {
+      "actAsTilesets": {
+        "all": "Part of a pipe tile."
+      }
+    },
+    "134": {
+      "actAsTilesets": {
+        "all": "Part of a pipe tile."
+      }
+    },
+    "135": {
+      "actAsTilesets": {
+        "all": "Part of a pipe tile."
+      }
+    },
+    "136": {
+      "actAsTilesets": {
+        "all": "Part of a pipe tile."
+      }
+    },
+    "137": {
+      "actAsTilesets": {
+        "all": "The left tile of an exit enabled vertical pipe."
+      }
+    },
+    "138": {
+      "actAsTilesets": {
+        "all": "The right tile of an exit enabled vertical pipe."
+      }
+    },
+    "139": {
+      "actAsTilesets": {
+        "all": "Part of a pipe tile."
+      }
+    },
+    "13A": {
+      "actAsTilesets": {
+        "all": "Part of a pipe tile."
+      }
+    },
+    "13B": {
+      "actAsTilesets": {
+        "all": "The top tile of a horizontal pipe."
+      }
+    },
+    "13C": {
+      "actAsTilesets": {
+        "all": "Part of a pipe tile."
+      }
+    },
+    "13D": {
+      "actAsTilesets": {
+        "all": "Part of a pipe tile."
+      }
+    },
+    "13E": {
+      "actAsTilesets": {
+        "all": "Part of a pipe tile."
+      }
+    },
+    "13F": {
+      "actAsTilesets": {
+        "all": "The bottom tile of an exit enabled horizontal pipe."
+      }
+    },
+    "140": {
+      "actAsTilesets": {
+        "all": "An unbreakable turn block."
+      }
+    },
+    "141": {
+      "actAsTilesets": {
+        "all": "Part of a bullet machine tile."
+      }
+    },
+    "142": {
+      "actAsTilesets": {
+        "all": "Part of a bullet machine tile."
+      }
+    },
+    "143": {
+      "actAsTilesets": {
+        "all": "Part of a bullet machine tile."
+      }
+    },
+    "144": {
+      "actAsTilesets": {
+        "all": "Part of a donut bridge tile."
+      }
+    },
+    "145": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "146": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "147": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "148": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "149": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "14A": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "14B": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "14C": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "14D": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "14E": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "14F": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "150": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "151": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "152": {
+      "actAsTilesets": {
+        "all": "A solid invisible tile, used by the game to temporarily replace question blocks when hitting them."
+      }
+    },
+    "153": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "154": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "155": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "156": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "157": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "158": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "159": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "15A": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "15B": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "15C": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "15D": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "15E": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "15F": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "160": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "161": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "162": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "163": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "164": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "165": {
+      "actAsTilesets": {
+        "all": "A solid tile."
+      }
+    },
+    "166": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "167": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "168": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "169": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "16A": {
+      "actAsTilesets": {
+        "all": "A green switch block with a feather inside (except in FG/BG GFX indexes 4, 5, and 0xD).  Since this was inserted as a tile rather than as an object, it will always appear this way whether the switch palace has been passed or not."
+      }
+    },
+    "16B": {
+      "actAsTilesets": {
+        "all": "A yellow switch block with a mushroom inside (except in FG/BG GFX indexes 4, 5, and 0xD).  Since this was inserted as a tile rather than as an object, it will always appear this way whether the switch palace has been passed or not."
+      }
+    },
+    "16C": {
+      "actAsTilesets": {
+        "all": "A blue switch block.  Since this was inserted as a tile rather than as an object, it will always appear this way whether the switch palace has been passed or not."
+      }
+    },
+    "16D": {
+      "actAsTilesets": {
+        "all": "A red switch block.  Since this was inserted as a tile rather than as an object, it will always appear this way whether the switch palace has been passed or not."
+      }
+    },
+    "16E": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "16F": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "170": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "171": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "172": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "173": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "174": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "175": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "176": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "177": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "178": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "179": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "17A": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "17B": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "17C": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "17D": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "17E": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "17F": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "180": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "181": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "182": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "183": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "184": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "185": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "186": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "187": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "188": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "189": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "18A": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "18B": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "18C": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "18D": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "18E": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "18F": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "190": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "191": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "192": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "193": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "194": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "195": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "196": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "197": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "198": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "199": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "19A": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "19B": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "19C": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "19D": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "19E": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "19F": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "1A0": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1A1": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1A2": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1A3": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "1A4": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "1A5": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1A6": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1A7": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1A8": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "1A9": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "1AA": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1AB": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1AC": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1AD": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "1AE": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "1AF": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1B0": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1B1": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1B2": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "1B3": {
+      "actAsTilesets": {
+        "all": "An underwater slope tile."
+      }
+    },
+    "1B4": {
+      "actAsTilesets": {
+        "all": "A left facing purple triangle that allows Mario to run up a wall.  If Mario is riding Yoshi it will work like a springboard instead.  It requires tile 0x1EB underneath it to work properly, and the triangle should be placed beside a solid tile so Mario cannot walk into it from the wrong side (or he'll fall through the floor)."
+      }
+    },
+    "1B5": {
+      "actAsTilesets": {
+        "all": "A right facing purple triangle that allows Mario to run up a wall.  If Mario is riding Yoshi it will work like a springboard instead.  It requires tile 0x1EB underneath it to work properly, and the triangle should be placed beside a solid tile so Mario cannot walk into it from the wrong side (or he'll fall through the floor)."
+      }
+    },
+    "1B6": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1B7": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1B8": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1B9": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1BA": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1BB": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1BC": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1BD": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1BE": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1BF": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1C0": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1C1": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1C2": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1C3": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1C4": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "1C5": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "1C6": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "1C7": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "1C8": {
+      "actAsTilesets": {
+        "all": "An upside down slope tile."
+      }
+    },
+    "1C9": {
+      "actAsTilesets": {
+        "all": "An upside down slope tile."
+      }
+    },
+    "1CA": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1CB": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1CC": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1CD": {
+      "actAsTilesets": {
+        "all": "A slope tile."
+      }
+    },
+    "1CE": {
+      "actAsTilesets": {
+        "all": "A left facing up conveyer tile."
+      }
+    },
+    "1CF": {
+      "actAsTilesets": {
+        "all": "A right facing down conveyer tile."
+      }
+    },
+    "1D0": {
+      "actAsTilesets": {
+        "all": "A right facing up conveyer tile."
+      }
+    },
+    "1D1": {
+      "actAsTilesets": {
+        "all": "A left facing down conveyer tile."
+      }
+    },
+    "1D2": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "1D3": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "1D4": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "1D5": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "1D6": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "1D7": {
+      "actAsTilesets": {
+        "all": "A tileset specific tile."
+      }
+    },
+    "1D8": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1D9": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1DA": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1DB": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1DC": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1DD": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1DE": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1DF": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1E0": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1E1": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1E2": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1E3": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1E4": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1E5": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1E6": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1E7": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1E8": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1E9": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1EA": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1EB": {
+      "actAsTilesets": {
+        "all": "This tile must be placed under the purple triangle for the triangle to work properly. It may look like a ledge tile, but Mario cannot stand on it."
+      }
+    },
+    "1EC": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1ED": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1EE": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1EF": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1F0": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1F1": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1F2": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1F3": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1F4": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1F5": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1F6": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1F7": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1F8": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1F9": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1FA": {
+      "actAsTilesets": {
+        "all": "Slope assist tile.  If used on its own, there can be some unusual or glitchy effects.  Mario can walk through it but other sprites tend to freeze in place if placed directly on top or glide if they walk onto it."
+      }
+    },
+    "1FB": {
+      "actAsTilesets": {
+        "all": "Normal top left mud/lava slope tile."
+      }
+    },
+    "1FC": {
+      "actAsTilesets": {
+        "all": "Normal top right mud/lava slope tile."
+      }
+    },
+    "1FD": {
+      "actAsTilesets": {
+        "all": "Steep top left mud/lava slope tile."
+      }
+    },
+    "1FE": {
+      "actAsTilesets": {
+        "all": "Steep top right mud/lava slope tile."
+      }
+    },
+    "1FF": {
+      "actAsTilesets": {
+        "all": "Mud/lava tile.  It acts like lava for Mario, but for sprites it acts like water."
+      }
+    }
   }
 }

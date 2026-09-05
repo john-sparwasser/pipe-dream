@@ -59,6 +59,6 @@ public class Map16TilesTests
     {
         Map16Tiles.Parse(new StreamReader(typeof(Map16Tiles).Assembly
             .GetManifestResourceStream("Map16Tiles.json")!).ReadToEnd());
-        Assert.Equal("Coin", Map16Tiles.Describe(0x2B, 3));
+        Assert.StartsWith("An ordinary coin", Map16Tiles.Describe(0x2B, 3));
     }
 }

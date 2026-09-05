@@ -32,7 +32,7 @@ for ($i = 0; $i -le $bytes.Length; $i++) {
     $ok = $i -lt $bytes.Length -and (Printable $bytes[$i])
     if ($ok -and $start -lt 0) { $start = $i }
     elseif (-not $ok -and $start -ge 0) {
-        if ($i - $start -ge $MinLength) { $lines.Add("A@{0:X7} {1}" -f $start, [Text.Encoding]::ASCII.GetString($bytes, $start, $i - $start)) }
+        if ($i - $start -ge $MinLength) { $lines.Add(("A@{0:X7} {1}" -f $start, [Text.Encoding]::ASCII.GetString($bytes, $start, $i - $start))) }
         $start = -1
     }
 }
@@ -42,7 +42,7 @@ for ($i = 0; $i -le $bytes.Length - 1; $i += 2) {
     $ok = $i -lt $bytes.Length - 1 -and (Printable $bytes[$i]) -and $bytes[$i + 1] -eq 0
     if ($ok -and $start -lt 0) { $start = $i }
     elseif (-not $ok -and $start -ge 0) {
-        if (($i - $start) / 2 -ge $MinLength) { $lines.Add("U@{0:X7} {1}" -f $start, [Text.Encoding]::Unicode.GetString($bytes, $start, $i - $start)) }
+        if (($i - $start) / 2 -ge $MinLength) { $lines.Add(("U@{0:X7} {1}" -f $start, [Text.Encoding]::Unicode.GetString($bytes, $start, $i - $start))) }
         $start = -1
     }
 }
