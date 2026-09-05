@@ -164,18 +164,18 @@ public class Map16PropsTests(ITestOutputHelper log)
 
         var name = w.GetControl<TextBlock>("M16TileTipText");
 
-        w.MouseMove(sheet.TranslatePoint(new Point(4, 4), w)!.Value);      // tile 0x000: no name in the table
+        w.MouseMove(sheet.TranslatePoint(new Point(4, 4), w)!.Value);      // tile 0x000: LM calls it animated water
         Dispatcher.UIThread.RunJobs();
         Assert.True(tip.IsVisible);
         log.WriteLine(text.Text);
         Assert.Matches("^[0-9A-F]{3}( - .+)?$", text.Text);                // the ID, then the table's word if it has one
-        Assert.False(name.IsVisible);
+        Assert.Equal("Water with an animated surface.", name.Text);
 
         // Tile 0x02B (row 2, column 11) is the coin in every tileset, and the card says so.
         w.MouseMove(sheet.TranslatePoint(new Point(11 * 16 * sheet.Zoom + 4, 2 * 16 * sheet.Zoom + 4), w)!.Value);
         Dispatcher.UIThread.RunJobs();
         Assert.True(name.IsVisible);
-        Assert.Equal("Coin", name.Text);
+        Assert.StartsWith("An ordinary coin", name.Text);
         Assert.Equal(HorizontalAlignment.Right, tip.HorizontalAlignment);
         Assert.Equal(VerticalAlignment.Bottom, tip.VerticalAlignment);
 
