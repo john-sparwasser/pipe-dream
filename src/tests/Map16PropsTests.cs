@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
@@ -200,6 +201,51 @@ public class Map16PropsTests(ITestOutputHelper log)
         Dispatcher.UIThread.RunJobs();
         Assert.False(tip.IsVisible);
     }
+
+    /// <summary>The acts-as field commits as soon as a whole value is typed, and a shorter entry
+    /// still lands on the tile it was typed for when the user clicks another tile — the click
+    /// reloads the row before the field loses focus, which used to throw the entry away.</summary>
+    [AvaloniaFact]
+    public void typing_an_acts_as_value_applies_it_and_clicking_away_keeps_it()
+    {
+        if (PreppedRom.Fork() is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeMap16").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        var m16 = SessionOf(w).Map16!;
+        if (!m16.HasActsAs) { log.WriteLine("SKIP: base has no LM acts-like table"); return; }
+
+        var sheet = w.GetControl<Map16CanvasView>("Map16Canvas");
+        double ts = 16 * sheet.Zoom;
+        Point Tile(int col, int row) => sheet.TranslatePoint(new Point(col * ts + 8, row * ts + 8), w)!.Value;
+        w.MouseDown(Tile(3, 2), MouseButton.Left);
+        w.MouseUp(Tile(3, 2), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(0x23, sheet.SelectedTile);
+
+        var acts = w.GetControl<TextBox>("M16Acts");
+        acts.Focus();
+        acts.Text = "130";                                   // three digits: a whole value, committed now
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(0x130, m16.ActsAs(0x23));
+
+        acts.Text = "25";                                    // short, so it waits...
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(0x130, m16.ActsAs(0x23));
+        w.MouseDown(Tile(4, 2), MouseButton.Left);           // ...and a click elsewhere lands it
+        w.MouseUp(Tile(4, 2), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(0x24, sheet.SelectedTile);
+        Assert.Equal(0x025, m16.ActsAs(0x23));               // on the tile it was typed for
+        Assert.Equal($"{m16.ActsAs(0x24):X3}", acts.Text);   // and the row now shows the new tile
+    }
+
+    private static EditorSession SessionOf(MainWindow w) => (EditorSession)typeof(MainWindow)
+        .GetField("session", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+        .GetValue(w)!;
 
     /// <summary>A custom tile has no sentence of its own in the table, so the card borrows the
     /// one for whatever it acts as.</summary>

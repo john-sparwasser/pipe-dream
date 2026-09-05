@@ -35,6 +35,8 @@ public partial class MainWindow
     private TextBlock m16SelLabel = null!, m16ActsNote = null!, m16Unallocated = null!;
     private StackPanel m16Fields = null!;
     private TextBox m16Acts = null!;
+    /// <summary>The tiles the acts-as field currently shows — what a commit writes to.</summary>
+    private int[] m16ActsFor = [];
     private Border m16ActsTip = null!;
 
     private TextBlock m16ActsTipText = null!, m16TileTipText = null!;
@@ -131,8 +133,11 @@ public partial class MainWindow
             AdoptChrBrush();               // ...including the footprint the cursor was drawing
             RefreshMap16Props();
         };
-        // Committed on Enter or on leaving the field, not per keystroke: half a hex number is
-        // still a number, and every commit rewrites the ROM.
+        // Committed the moment a whole value is typed (three hex digits, the width the field
+        // shows), and again on Enter or on leaving the field for anything shorter. Half a hex
+        // number is still a number, so a per-keystroke commit would write 001 then 013 on the
+        // way to 130; waiting for the third digit writes once.
+        m16Acts.TextChanged += (_, _) => { if (m16Acts.Text?.Length == 3) CommitM16Acts(); };
         m16Acts.KeyDown += (_, e) => { if (e.Key == Key.Enter) { ApplyM16Acts(); e.Handled = true; } };
         m16Acts.LostFocus += (_, _) => ApplyM16Acts();
         m16Priority.IsCheckedChanged += (_, _) =>
@@ -244,7 +249,11 @@ public partial class MainWindow
     private void RefreshMap16Props()
     {
         if (map16 is not { } m16) return;
+        // A value still sitting in the acts-as field belongs to the tiles it was loaded for;
+        // land it before the row is reloaded for the new selection.
+        if (m16Acts.IsFocused) CommitM16Acts();
         var tiles = map16Canvas.SelectedTiles().ToList();
+        m16ActsFor = [];
 
         // Nothing selected: the row stays put, greyed and blanked out. Hiding it would take the
         // bar's height with it, and there is nothing to say about a tile that is not there.
@@ -278,6 +287,7 @@ public partial class MainWindow
         // Acts-like is an FG concept and needs LM's table; say which is missing rather than
         // showing a box that does nothing.
         bool acts = m16.HasActsAs && first < 0x4000;
+        m16ActsFor = acts ? tiles.ToArray() : [];
         m16Acts.IsEnabled = acts;
         m16Acts.Text = m16.ActsAs(first) is { } a ? $"{a:X3}" : "";
         m16ActsNote.Text = acts ? "" : first >= 0x4000 ? "n/a for BG tiles" : "no LM acts-like table";
@@ -287,12 +297,22 @@ public partial class MainWindow
         loadingM16Props = false;
     }
 
+    /// <summary>Commit the acts-as field, or put the ROM's value back if it does not parse.</summary>
     private void ApplyM16Acts()
     {
-        if (loadingM16Props || map16 is not { } m16) return;
-        if (!int.TryParse(m16Acts.Text, System.Globalization.NumberStyles.HexNumber, null, out int v))
-        { RefreshMap16Props(); return; }
-        m16.SetActsAs(map16Canvas.SelectedTiles(), v);
+        if (!CommitM16Acts()) RefreshMap16Props();
+    }
+
+    /// <summary>Write the field's value to the tiles the field was LOADED for, not the current
+    /// selection: clicking another tile changes the selection and refreshes this row before the
+    /// field ever loses focus, and the value typed for the old tile must land on the old tile.
+    /// False when the text is not a hex number; a value the table already holds is a no-op.</summary>
+    private bool CommitM16Acts()
+    {
+        if (loadingM16Props || map16 is not { } m16 || m16ActsFor.Length == 0) return true;
+        if (!int.TryParse(m16Acts.Text, System.Globalization.NumberStyles.HexNumber, null, out int v)) return false;
+        m16.SetActsAs(m16ActsFor, v);
+        return true;
     }
 
     private void OnFlipX(object? sender, RoutedEventArgs e) => FlipM16(vertical: false);

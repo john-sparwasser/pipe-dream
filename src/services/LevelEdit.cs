@@ -527,7 +527,125 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
     }
 
     /// <summary>The drag is over: the next resize measures from wherever the object is then.</summary>
-    public void EndResize() => resizeAnchor = null;
+    public void EndResize() { resizeAnchor = null; groupAnchor = null; }
+
+    // ---- block resize: several Direct Map16 objects stretched as one ----
+
+    /// <summary>The selection's footprint: one object's box, or the union of all of them.</summary>
+    public (int X, int Y, int W, int H)? SelectionBounds()
+    {
+        (int x0, int y0, int x1, int y1)? u = null;
+        foreach (int i in Selection)
+            if (BBox(i) is { } b)
+                u = u is { } e ? (Math.Min(e.x0, b.X), Math.Min(e.y0, b.Y),
+                                  Math.Max(e.x1, b.X + b.W - 1), Math.Max(e.y1, b.Y + b.H - 1))
+                               : (b.X, b.Y, b.X + b.W - 1, b.Y + b.H - 1);
+        return u is { } r ? (r.x0, r.y0, r.x1 - r.x0 + 1, r.y1 - r.y0 + 1) : null;
+    }
+
+    /// <summary>Which axes the selection resizes on: a lone object by its own rule, a block of
+    /// Direct Map16 objects on both as one piece, anything mixed on neither.</summary>
+    public (bool W, bool H) CanResizeSelection()
+    {
+        if (Selection.Count == 1) return CanResize(Selection.First());
+        bool block = Selection.Count > 1 && Selection.All(i => i < objects.Count && objects[i].IsDm16);
+        return (block, block);
+    }
+
+    /// <summary>What a block resize started from: the tiles under the selection, where they
+    /// were, every object that was not selected, and where in the stream the block sat.</summary>
+    private sealed class BlockAnchor
+    {
+        public required ushort[] Tiles;
+        public required (int X, int Y, int W, int H) Box, Last;
+        public required int At;
+        public required List<LevelObject> Rest;
+    }
+    private BlockAnchor? groupAnchor;
+
+    /// <summary>
+    /// Resize whatever is selected by dragging <paramref name="edges"/> — <see cref="Resize"/>
+    /// for one object, and for a block of Direct Map16 tiles a stretch of the block as a whole:
+    /// the tiles under the selection are re-laid to the new box by <see cref="StretchMap"/>,
+    /// axis by axis, and the objects are rebuilt from that grid the way a brush stamp is. The
+    /// drag's live steps all measure from the block as it was at the press and share one undo
+    /// entry, as an object resize does.
+    /// </summary>
+    public bool ResizeSelection(int edges, int dx, int dy, bool coalesce = false)
+    {
+        if (Selection.Count == 1) return Resize(Selection.First(), edges, dx, dy, coalesce);
+        if (CanResizeSelection() != (true, true) || Target is not { } g) return false;
+        if (!(coalesce && groupAnchor is not null))
+        {
+            if (SelectionBounds() is not { } b) return false;
+            var tiles = new ushort[b.W * b.H];
+            Array.Fill(tiles, Map16Grid.Empty);
+            for (int y = 0; y < b.H; y++)
+                for (int x = 0; x < b.W; x++)
+                    if (ObjectAt(b.X + x, b.Y + y) is int o && Selection.Contains(o))
+                        tiles[y * b.W + x] = (ushort)g.Get(b.X + x, b.Y + y);
+            groupAnchor = new BlockAnchor
+            {
+                Tiles = tiles, Box = b, Last = b, At = Selection.Min(),
+                Rest = objects.Where((_, i) => !Selection.Contains(i)).ToList(),
+            };
+            undo.Push([.. objects]);
+            redo.Clear();
+        }
+        var a = groupAnchor!;
+        var (x0, y0, w0, h0) = a.Box;
+        // The smallest a run can go: one tile stays one, a pair can collapse to its leading
+        // tile, a framed run keeps both edges.
+        int minW = w0 >= 3 ? 2 : 1, minH = h0 >= 3 ? 2 : 1;
+        int nx = x0, ny = y0, nw = w0, nh = h0;
+        if ((edges & 2) != 0) nw = Math.Clamp(w0 + dx, minW, g.Width - x0);
+        if ((edges & 1) != 0) { nw = Math.Clamp(w0 - dx, minW, x0 + w0); nx = x0 + w0 - nw; }
+        if ((edges & 8) != 0) nh = Math.Clamp(h0 + dy, minH, g.Height - y0);
+        if ((edges & 4) != 0) { nh = Math.Clamp(h0 - dy, minH, y0 + h0); ny = y0 + h0 - nh; }
+        if ((nx, ny, nw, nh) == a.Last) return false;
+
+        var cols = StretchMap(w0, nw, fromEnd: (edges & 1) == 0);
+        var rows = StretchMap(h0, nh, fromEnd: (edges & 4) == 0);
+        var grid = new ushort[nw * nh];
+        for (int y = 0; y < nh; y++)
+            for (int x = 0; x < nw; x++) grid[y * nw + x] = a.Tiles[rows[y] * w0 + cols[x]];
+        bool vert = rom.IsVerticalMode(Scene.Level.Header.LevelMode);
+        var added = Dm16Saver.FromBrush(grid, nw, nh, nx, ny, vert);
+        added.RemoveAll(o => o.AbsoluteX >= g.Width);
+
+        objects.Clear();
+        objects.AddRange(a.Rest);
+        int at = Math.Min(a.At, objects.Count);
+        objects.InsertRange(at, added);
+        Selection.Clear();
+        for (int i = 0; i < added.Count; i++) Selection.Add(at + i);
+        a.Last = (nx, ny, nw, nh);
+        Dirty = true;
+        Reconcile();
+        return true;
+    }
+
+    /// <summary>
+    /// Which source tile fills each slot when a run of <paramref name="n"/> tiles is re-laid
+    /// over <paramref name="m"/>, dragged from its far end (<paramref name="fromEnd"/>) or its
+    /// near one. One tile repeats. Two: the tile at the dragged edge carries on, so a two-wide
+    /// block grows by copying its leading edge. Three or more: both edge tiles stay edges and
+    /// the tile just inside the dragged edge fills the gap, so a framed box stays framed;
+    /// shrinking drops the interior nearest the dragged edge, down to the two edges.
+    /// </summary>
+    public static int[] StretchMap(int n, int m, bool fromEnd)
+    {
+        var map = new int[m];
+        for (int i = 0; i < m; i++)
+            map[i] = n switch
+            {
+                1 => 0,
+                2 => fromEnd ? (i == 0 ? 0 : 1) : (i == m - 1 ? 1 : 0),
+                _ => fromEnd ? (i == m - 1 ? n - 1 : Math.Min(i, n - 2))
+                             : (i == 0 ? 0 : Math.Max(1, n - (m - i))),
+            };
+        return map;
+    }
 
     private bool SameBox(LevelObject a, LevelObject b)
         => a.AbsoluteX == b.AbsoluteX && a.AbsoluteY == b.AbsoluteY

@@ -15,7 +15,8 @@ internal static class Overlay
     private static readonly Pen BandPen = new(UiColors.Band, 2);
     private static readonly Pen GrabPen = new(UiColors.Grab, 1.5);
     private static readonly Pen BrushPen = new(UiColors.Brush, 1.5);
-    private static readonly Pen ArmedPen = new(UiColors.Accent, 2);
+    private static readonly Pen ArmedPen = new(UiColors.Accent, 3);
+    private static readonly Pen ArmedHalo = new(UiColors.ArmedHalo, 7);
     private static readonly Pen AntsUnder = new(Brushes.Black, 1);
     private static readonly Pen AntsOver = new(Brushes.White, 1) { DashStyle = DashStyle.Dash };
     private static readonly Pen RingUnder = new(Brushes.Black, 3);
@@ -39,8 +40,14 @@ internal static class Overlay
     /// <summary>Where a stamp would land.</summary>
     public static void Brush(DrawingContext ctx, Rect r) => ctx.DrawRectangle(null, BrushPen, r);
 
-    /// <summary>The armed pick in a drawer — the tile the canvas will place.</summary>
-    public static void Armed(DrawingContext ctx, Rect r) => ctx.DrawRectangle(null, ArmedPen, r);
+    /// <summary>The armed pick in a drawer — the tile the canvas will place. A soft halo under a
+    /// solid ring: one tile in a sheet of 256 busy tiles needs more than a hairline to be found
+    /// at a glance, and the halo reads against any art the ring alone would sink into.</summary>
+    public static void Armed(DrawingContext ctx, Rect r)
+    {
+        ctx.DrawRectangle(null, ArmedHalo, r);
+        ctx.DrawRectangle(null, ArmedPen, r);
+    }
 
     /// <summary>Marching ants: solid dark under dashed white stays visible on any pixels.</summary>
     public static void Marquee(DrawingContext ctx, Rect r)

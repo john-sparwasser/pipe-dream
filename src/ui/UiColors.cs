@@ -20,6 +20,8 @@ internal static class UiColors
 
     /// <summary>"What is active" — matches AccentColor in Theme.axaml.</summary>
     public static readonly IBrush Accent = new SolidColorBrush(Color.Parse("#2E7FD4"));
+    /// <summary>The glow around an armed drawer pick — the accent, mostly transparent.</summary>
+    public static readonly IBrush ArmedHalo = new SolidColorBrush(Color.FromArgb(0x70, 0x2E, 0x7F, 0xD4));
 
     /// <summary>Selection rings on the canvas: a brighter cyan so they read against artwork.</summary>
     public static readonly IBrush Selection = new SolidColorBrush(Color.Parse("#4FC1E9"));

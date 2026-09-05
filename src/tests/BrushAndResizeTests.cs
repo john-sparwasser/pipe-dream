@@ -111,6 +111,76 @@ public class BrushAndResizeTests(ITestOutputHelper log)
         Assert.Equal(0x100, scene.Grid.Get(23, 12));         // the far corner really filled in
     }
 
+    /// <summary>How a run of tiles re-lays when its box changes: one tile repeats; a pair grows
+    /// by its leading edge; three or more keep both edges and fill from the tile just inside the
+    /// dragged one, so a framed box stays a frame. Shrinking undoes the same interior first.</summary>
+    [Fact]
+    public void a_stretched_run_repeats_the_right_tile_for_its_length()
+    {
+        Assert.Equal([0, 0, 0], LevelEdit.StretchMap(1, 3, fromEnd: true));
+        Assert.Equal([0, 1, 1, 1], LevelEdit.StretchMap(2, 4, fromEnd: true));      // right edge dragged
+        Assert.Equal([0, 0, 0, 1], LevelEdit.StretchMap(2, 4, fromEnd: false));     // left edge dragged
+        Assert.Equal([0], LevelEdit.StretchMap(2, 1, fromEnd: true));
+        Assert.Equal([0, 1, 1, 1, 2], LevelEdit.StretchMap(3, 5, fromEnd: true));   // frame: inner tile fills
+        Assert.Equal([0, 1, 1, 1, 2], LevelEdit.StretchMap(3, 5, fromEnd: false));
+        Assert.Equal([0, 1, 2, 2, 2, 3], LevelEdit.StretchMap(4, 6, fromEnd: true));
+        Assert.Equal([0, 1, 1, 1, 2, 3], LevelEdit.StretchMap(4, 6, fromEnd: false));
+        Assert.Equal([0, 2], LevelEdit.StretchMap(3, 2, fromEnd: true));            // shrunk to its edges
+        Assert.Equal([0, 1, 3], LevelEdit.StretchMap(4, 3, fromEnd: true));         // drops the interior at the dragged edge
+        Assert.Equal([0, 2, 3], LevelEdit.StretchMap(4, 3, fromEnd: false));
+        Assert.Equal([0, 1, 2], LevelEdit.StretchMap(3, 3, fromEnd: true));         // unchanged axis stays put
+    }
+
+    /// <summary>A block of Direct Map16 tiles selected together resizes as one piece: the tiles
+    /// under the selection are re-laid to the new box, one undo entry for the drag, and the
+    /// selection follows the rebuilt block.</summary>
+    [Fact]
+    public void a_selected_block_stretches_as_one_and_keeps_its_frame()
+    {
+        if (Edit() is not { } r) { log.WriteLine("SKIP: no ROM"); return; }
+        var (_, scene, edit) = r;
+
+        // A 3x3 frame of nine different tiles: every cell its own object.
+        ushort[] frame = [0x100, 0x101, 0x102, 0x110, 0x111, 0x112, 0x120, 0x121, 0x122];
+        Assert.True(edit.PaintBrush(20, 8, frame, 3, 3));
+        edit.EndStroke();
+        edit.SelectInRect(20, 8, 3, 3);
+        Assert.Equal(9, edit.Selection.Count);
+        Assert.Equal((true, true), edit.CanResizeSelection());
+        Assert.Equal((20, 8, 3, 3), edit.SelectionBounds());
+        int depth = edit.UndoDepth;
+
+        // Drag the right edge two cells: the middle column fills, the right column stays right.
+        Assert.True(edit.ResizeSelection(2, 2, 0));
+        Assert.Equal((20, 8, 5, 3), edit.SelectionBounds());
+        Assert.Equal(new[] { 0x100, 0x101, 0x101, 0x101, 0x102 },
+                     Enumerable.Range(0, 5).Select(x => scene.Grid.Get(20 + x, 8)).ToArray());
+        Assert.Equal(new[] { 0x120, 0x121, 0x121, 0x121, 0x122 },
+                     Enumerable.Range(0, 5).Select(x => scene.Grid.Get(20 + x, 10)).ToArray());
+        Assert.Equal(depth + 1, edit.UndoDepth);
+
+        // A later step of the same drag measures from the press and joins the same entry.
+        Assert.True(edit.ResizeSelection(2 | 8, 1, 1, coalesce: true));
+        Assert.Equal((20, 8, 4, 4), edit.SelectionBounds());
+        Assert.Equal(0x111, scene.Grid.Get(22, 10));          // the inner tile fills the new row too
+        Assert.Equal(0x122, scene.Grid.Get(23, 11));          // the corner is still the corner
+        Assert.Equal(depth + 1, edit.UndoDepth);
+        edit.EndResize();
+
+        Assert.True(edit.Undo());
+        Assert.Equal(0x102, scene.Grid.Get(22, 8));           // back to the 3x3
+
+        // A pair grows by its leading edge.
+        edit.Selection.Clear();
+        Assert.True(edit.PaintBrush(30, 8, [0x100, 0x101, 0x110, 0x111], 2, 2));
+        edit.EndStroke();
+        edit.SelectInRect(30, 8, 2, 2);
+        Assert.True(edit.ResizeSelection(2, 2, 0));
+        Assert.Equal(new[] { 0x100, 0x101, 0x101, 0x101 },
+                     Enumerable.Range(0, 4).Select(x => scene.Grid.Get(30 + x, 8)).ToArray());
+        edit.EndResize();
+    }
+
     /// <summary>Dragging a LEFT or TOP edge moves the anchor as well as the size, or the
     /// object would grow the wrong way.</summary>
     [Fact]

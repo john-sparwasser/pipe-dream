@@ -19,6 +19,7 @@ namespace PipeDream.Ui.Tests;
 ///   RIGHT click        with a selection, duplicate it at the cursor (the level outranks the drawer)
 ///   LEFT click+drag    rubber-band select, live while dragging
 ///   LEFT on selection  drag to move, live under the cursor
+///   LEFT on object     with nothing selected, the press takes hold of it and the drag moves it
 ///   LEFT click, still  cycle the overlap stack under the cursor
 ///   CTRL+LEFT drag     grab the covered tiles as the brush (no selection change)
 ///   DELETE             delete the selection
@@ -233,6 +234,35 @@ public class ControlParityTests(ITestOutputHelper log)
 
         Assert.Equal(x0 + 3, edit.Objects[sel].AbsoluteX);
         Assert.Equal(depth + 1, edit.UndoDepth);             // one drag, one undo
+    }
+
+    /// <summary>With nothing selected, a press on an object takes hold of it: the drag moves that
+    /// object rather than opening a lasso from under it. A lasso still starts from empty ground.</summary>
+    [AvaloniaFact]
+    public void dragging_an_unselected_object_moves_it_instead_of_lassoing()
+    {
+        if (Open() is not { } o) { log.WriteLine("SKIP: no ROM"); return; }
+        var (w, c) = o;
+        var edit = EditOf(w);
+        edit.Selection.Clear();
+
+        (int X, int Y)? target = null;
+        for (int y = 0; y < 20 && target is null; y++)
+            for (int x = 0; x < 24; x++)
+                if (edit.ObjectAt(x, y) is not null) { target = (x, y); break; }
+        Assert.NotNull(target);
+        var (tx, ty) = target!.Value;
+        int hit = edit.ObjectAt(tx, ty)!.Value;
+        int x0 = edit.Objects[hit].AbsoluteX;
+
+        w.MouseDown(At(c, w, tx, ty), MouseButton.Left);
+        w.MouseMove(At(c, w, tx + 2, ty));
+        w.MouseUp(At(c, w, tx + 2, ty), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(hit, edit.Selection.Single());          // the press selected what it landed on
+        Assert.Equal(x0 + 2, edit.Objects[hit].AbsoluteX);   // and the drag moved it, not a band
+        Assert.Null(c.Band);
     }
 
     /// <summary>A drag is measured from where it started, not from the last step: dragged past the

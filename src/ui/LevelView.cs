@@ -234,6 +234,9 @@ public class LevelView : Control
 
     // ---- drag state, mirroring the ImGui tool's dragStart/dragEnd/moveDrag/resizeDrag ----
     private (int X, int Y)? bandStart, bandEnd, moveStart;
+    /// <summary>The press itself made the selection (nothing was selected, an object was under
+    /// the pointer), so a stationary release must not cycle the stack past it.</summary>
+    private bool pickedOnPress;
     private bool grabbing, sampling;
     /// <summary>A move drag has already applied at least one step, so the rest coalesce into
     /// the same undo entry and a release is a drag, not a stationary click.</summary>
@@ -248,7 +251,7 @@ public class LevelView : Control
         dragPending = false;
         if (bandEnd is not { } c || Edit is null) return;
         bool did = resizeDrag is { } rd
-            ? Edit.Resize(rd.Obj, Grips.Mask(rd.Edge), c.X - rd.Cx, c.Y - rd.Cy, moved)
+            ? Edit.ResizeSelection(Grips.Mask(rd.Edge), c.X - rd.Cx, c.Y - rd.Cy, moved)
             : moveStart is { } m && Edit.MoveSelected(c.X - m.X, c.Y - m.Y, moved);
         if (!did) return;
         moved = true;
@@ -257,7 +260,7 @@ public class LevelView : Control
     }
     private double orderWheel;                   // fractional Ctrl+wheel not yet spent
     private readonly Stroke stroke;
-    private (int Obj, (int DX, int DY) Edge, int Cx, int Cy)? resizeDrag;
+    private ((int DX, int DY) Edge, int Cx, int Cy)? resizeDrag;
     // The lasso works in LEVEL PIXELS, not cells — it follows the cursor exactly instead of
     // snapping to the 16px grid. (Sprites are also SELECTED by pixel: a sprite is picked by
     // what it draws, and its drawn area rarely lines up with its spawn cell.)
@@ -269,14 +272,13 @@ public class LevelView : Control
     /// <summary>The ImGui tool's 6px grip tolerance.</summary>
     private const double GripPx = 6;
 
-    /// <summary>The grip under a screen point on the single selected object, on the axes it can
-    /// resize along; (0, 0) when there is none.</summary>
+    /// <summary>The grip under a screen point on the selection's box — one object, or a block
+    /// of Direct Map16 tiles resized as one — on the axes it can resize along; (0, 0) when
+    /// there is none.</summary>
     private (int DX, int DY) HandleEdgeAt(Point m)
     {
-        if (Edit is not { Selection.Count: 1 } ed) return (0, 0);
-        int sel = ed.Selection.First();
-        if (ed.BBox(sel) is not { } b || sel >= ed.Objects.Count) return (0, 0);
-        var (wOk, hOk) = ed.CanResize(sel);
+        if (Edit is not { Selection.Count: > 0 } ed || ed.SelectionBounds() is not { } b) return (0, 0);
+        var (wOk, hOk) = ed.CanResizeSelection();
         return Grips.EdgeAt(m, CellRect(b.X, b.Y, b.W, b.H, Zoom), GripPx, wOk, hOk);
     }
 
@@ -414,12 +416,22 @@ public class LevelView : Control
         {
             grabbing = Hotkeys.Command(e.KeyModifiers);
             var edge = grabbing ? (0, 0) : HandleEdgeAt(e.GetPosition(this));
-            if (edge != (0, 0) && Edit is { Selection.Count: 1 } ed)
-                resizeDrag = (ed.Selection.First(), edge, cell.X, cell.Y);
+            if (edge != (0, 0)) resizeDrag = (edge, cell.X, cell.Y);
             // Grabbing always bands, even over a selected object — Ctrl+drag is "take these
-            // tiles", not "move this".
-            else if (!grabbing && Edit?.ObjectAt(cell.X, cell.Y) is int hit && Edit.Selection.Contains(hit))
+            // tiles", not "move this". With nothing selected, pressing on an object takes hold
+            // of it: the press selects it and the drag moves it, so a lasso only starts from
+            // empty ground or from an object that is not the one under the pointer.
+            else if (!grabbing && Edit?.ObjectAt(cell.X, cell.Y) is int hit
+                     && (Edit.Selection.Contains(hit) || Edit.Selection.Count == 0))
+            {
+                if (Edit.Selection.Count == 0)
+                {
+                    Edit.CycleSelectionAt(cell.X, cell.Y);      // empty selection: picks the top
+                    pickedOnPress = true;
+                    SelectionChanged?.Invoke(this, EventArgs.Empty);
+                }
                 moveStart = cell;
+            }
             else
             {
                 bandStart = cell;
@@ -610,9 +622,11 @@ public class LevelView : Control
         {
             FlushDrag();
             Edit?.EndMove();
-            if (!moved)
+            if (!moved && !pickedOnPress)
             {
                 // Never dragged anywhere: it was a stationary click, so cycle the stack instead.
+                // A press that made the selection has already picked the top; cycling here would
+                // step past it to the object beneath on the very first click.
                 Edit?.CycleSelectionAt(m.X, m.Y);
                 SelectionChanged?.Invoke(this, EventArgs.Empty);
             }
@@ -621,7 +635,7 @@ public class LevelView : Control
         bandStart = bandEnd = moveStart = null;
         pixelStart = pixelEnd = null;
         resizeDrag = null;
-        grabbing = moved = false;
+        grabbing = moved = pickedOnPress = false;
         e.Pointer.Capture(null);
         InvalidateVisual();
     }
@@ -725,9 +739,9 @@ public class LevelView : Control
             foreach (int i in ed.Selection)
                 if (ed.BBox(i) is { } b) Overlay.Selection(ctx, CellRect(b.X, b.Y, b.W, b.H, z));
 
-        // Handles on a lone idle selection. A resize drag applies live, so the selection box
-        // above IS the preview; the handles sit out until the drag lets go.
-        if (Edit is { Selection.Count: 1 } he && bandStart is null && moveStart is null && resizeDrag is null)
+        // Handles on an idle selection. A resize drag applies live, so the selection box above
+        // IS the preview; the handles sit out until the drag lets go.
+        if (Edit is { Selection.Count: > 0 } he && bandStart is null && moveStart is null && resizeDrag is null)
             DrawHandles(ctx, he, z);
 
         // Rubber band: cyan while selecting, green while grabbing tiles — the ImGui colours.
@@ -753,9 +767,8 @@ public class LevelView : Control
     /// whichever axes are enabled), vector-editor style — same layout as the ImGui tool.</summary>
     private void DrawHandles(DrawingContext ctx, LevelEdit ed, double z)
     {
-        int sel = ed.Selection.First();
-        if (ed.BBox(sel) is not { } b || sel >= ed.Objects.Count) return;
-        var (wOk, hOk) = ed.CanResize(sel);
+        if (ed.SelectionBounds() is not { } b) return;
+        var (wOk, hOk) = ed.CanResizeSelection();
         if (wOk || hOk) Grips.Draw(ctx, CellRect(b.X, b.Y, b.W, b.H, z), GripPx, wOk, hOk);
     }
 

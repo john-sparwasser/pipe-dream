@@ -127,6 +127,13 @@
       <Setter Property="HorizontalContentAlignment" Value="Center"/>
       <Setter Property="VerticalContentAlignment" Value="Center"/>
     </Style>
+    <!-- A bar text box is shorter than Fluent's 32px template expects, and the text presenter
+         keeps Fluent's TOP alignment inside it, so the text lands where the font's ascent puts
+         it: about centred with the Windows UI font, visibly high with the Mac's. Centring the
+         presenter takes the font out of it. -->
+    <Style Selector="Border.bar TextBox">
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
     <Style Selector="Border.bar Slider">
       <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
