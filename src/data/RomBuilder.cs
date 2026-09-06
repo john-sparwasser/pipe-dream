@@ -115,6 +115,9 @@ internal static class RomBuilder
             ReplayEntrances(rom, project.Data);
             WriteGfx(rom, project.Data, warnings);
             ReplayExAnimation(rom, project.Data, warnings);
+            if (project.Data.Overworld.Layer2 is { } ow
+                && Overworld.WriteLayer2(rom, ProjectSession.WordsOf(Convert.FromBase64String(ow))) is { } owErr)
+                warnings.Add("overworld: " + owErr);
 
             // Skip level entries whose key is not a level number. A project should never contain
             // one, but an editor bug wrote entries keyed -1 for a while, and refusing to build a

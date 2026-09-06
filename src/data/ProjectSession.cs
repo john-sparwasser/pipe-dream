@@ -46,9 +46,26 @@ public static class ProjectSession
             else if (state.Layer3AdvancedOff) rom.Layer3AdvancedOverrides[lvl] = null;
         }
 
+        if (data.Overworld.Layer2 is { } ow) rom.OwLayer2 = WordsOf(Convert.FromBase64String(ow));
+
         string? warn = RomBuilder.ReplayMap16(rom, data);
         RomBuilder.ReplayEntrances(rom, data);
         return warn;
+    }
+
+    /// <summary>Little-endian words from bytes, the shape a tilemap is saved in.</summary>
+    public static ushort[] WordsOf(byte[] bytes)
+    {
+        var words = new ushort[bytes.Length / 2];
+        for (int i = 0; i < words.Length; i++) words[i] = (ushort)(bytes[i * 2] | (bytes[i * 2 + 1] << 8));
+        return words;
+    }
+
+    public static byte[] BytesOf(ushort[] words)
+    {
+        var bytes = new byte[words.Length * 2];
+        for (int i = 0; i < words.Length; i++) { bytes[i * 2] = (byte)words[i]; bytes[i * 2 + 1] = (byte)(words[i] >> 8); }
+        return bytes;
     }
 }
 

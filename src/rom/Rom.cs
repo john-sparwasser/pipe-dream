@@ -291,6 +291,11 @@ public sealed class Rom
     /// reaches the level canvas, the Background tab and the built ROM through one path.</summary>
     public readonly Dictionary<int, ushort[]> BgTilemaps = new();
 
+    /// <summary>The edited overworld layer 2: 0x2000 tilemap words (see <see cref="Overworld"/>),
+    /// or null to read the ROM's own RLE streams. Hydrated from the project and written back
+    /// into the streams' space at build time.</summary>
+    public ushort[]? OwLayer2;
+
     /// <summary>Imported layer-3 tilemaps: level → a flat 16-bit map, LM's LT3 file shape
     /// (0x800/0x1000/0x2000 bytes). Replaces vanilla's (level mode, option) pick for that level
     /// wherever <see cref="Layer3.LevelTilemap"/> is asked. Hydrated from / stashed to

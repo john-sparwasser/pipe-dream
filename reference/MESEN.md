@@ -16,6 +16,7 @@ Tooling lives in `tools/mesen/`:
 | `New-MesenProbe.ps1` | pastes `prelude.lua` in front of a Lua body, writes it, runs it |
 | `prelude.lua` | `T.rb/rw/vram`, `T.pass/fail/report`, `T.hold`, `T.each` |
 | `Test-RomBoots.ps1` | smoke: ROM reaches the gameplay loop and keeps ticking |
+| `Dump-OwPalette.ps1` | the overworld's real CGRAM, row by row, to diff against `--owrows` |
 
 Set `PIPEDREAM_MESEN` to point at the emulator; otherwise PATH, then `~/Mesen.exe`.
 

@@ -65,6 +65,7 @@ public partial class MainWindow : Window
         WireLevel();
         WireBackground();
         WireAnimation();
+        WireOverworld();
         WireMap16();
         WireGfx();
         WireDrawer();
@@ -303,13 +304,14 @@ public partial class MainWindow : Window
     // every mode's in-flight drag, as the ImGui view toggle does.
     private void OnMode(object? sender, RoutedEventArgs e)
     {
-        foreach (var b in new[] { modeLevel, modeMap16, modeGfx, modePalette, modeBg, modeAnim })
+        foreach (var b in new[] { modeLevel, modeMap16, modeGfx, modePalette, modeBg, modeAnim, modeOverworld })
             b.IsChecked = ReferenceEquals(b, sender);
 
         bool map16 = ReferenceEquals(sender, modeMap16);
         bool gfx = ReferenceEquals(sender, modeGfx);
         bool anim = ReferenceEquals(sender, modeAnim);
         bool bg = ReferenceEquals(sender, modeBg);
+        bool ow = ReferenceEquals(sender, modeOverworld);
         // Palette mode keeps the level pane: the colours are edited against the level they
         // colour, and the canvas goes on doing whatever it was doing (it is not an edit mode).
         // Leaving the pixel editor with a stroke still open must not leave bytes behind that no
@@ -317,16 +319,17 @@ public partial class MainWindow : Window
         // opposite case — deliberate content not yet in any bytes — so it is dropped first.
         if (!gfx) { CommitGfxFloat(); session.GfxPixels?.AbortStroke(); }
 
-        this.GetControl<DockPanel>("LevelPane").IsVisible = !map16 && !gfx && !anim && !bg;
+        this.GetControl<DockPanel>("LevelPane").IsVisible = !map16 && !gfx && !anim && !bg && !ow;
         this.GetControl<DockPanel>("Map16Pane").IsVisible = map16;
         gfxScroll.IsVisible = gfx;
         animPane.IsVisible = anim;
         bgPane.IsVisible = bg;
+        owPane.IsVisible = ow;
         edit?.Selection.Clear();
         map16Canvas.ClearSelection();
         ApplyZoomTarget();             // the gutter control follows the canvas it is driving
-        ApplyDrawerPane(bg ? Pane.Background : anim ? Pane.Animations : gfx ? Pane.Graphics
-                      : map16 ? Pane.Map16 : Pane.Level);
+        ApplyDrawerPane(ow ? Pane.Overworld : bg ? Pane.Background : anim ? Pane.Animations
+                      : gfx ? Pane.Graphics : map16 ? Pane.Map16 : Pane.Level);
 
         RefreshDrawer();
         if (map16)
@@ -352,6 +355,7 @@ public partial class MainWindow : Window
         }
         else if (anim) RefreshAnim();
         else if (bg) RefreshBg();
+        else if (ow) RefreshOverworld();
         if (!anim) { animPreview?.Stop(); animPreview = null; }   // no ticking behind another mode
 
         canvas.InvalidateVisual();
@@ -523,7 +527,7 @@ public partial class MainWindow : Window
         // wheel, so there only the chord zooms. Tunnelling, so it sees the event before the
         // scroll viewer (or the canvas) spends it.
         foreach (var (svName, content, deskZooms) in new (string, Control, bool)[]
-                 { ("BgScroll", bgView, false), ("GfxSheetScroll", gfxCanvas, true),
+                 { ("BgScroll", bgView, false), ("OwScroll", owView, false), ("GfxSheetScroll", gfxCanvas, true),
                    ("CanvasScroll", canvas, false), ("Map16Scroll", map16Canvas, false) })
         {
             var sv = this.GetControl<ScrollViewer>(svName);
@@ -536,7 +540,7 @@ public partial class MainWindow : Window
     // whole point of the level view is how much of the level you can see at once; the Map16
     // sheet opens at 3x, since a 16-tile-wide column at 1:1 is a sliver; and GFX at 8 screen
     // pixels per GFX pixel, which is what the ImGui editor opened at.
-    private double levelZoomPct = 100, gfxZoomPct = 800, map16ZoomPct = 300, bgZoomPct = 200;
+    private double levelZoomPct = 100, gfxZoomPct = 800, map16ZoomPct = 300, bgZoomPct = 200, owZoomPct = 200;
 
     /// <summary>Point the zoom control at a mode: its range, its step, and the value it was left
     /// at. Call it AFTER the mode flags flip — this and <see cref="ApplyZoom"/> read them.</summary>
@@ -545,16 +549,16 @@ public partial class MainWindow : Window
         bool gfx = modeGfx?.IsChecked == true;
         // Read the wanted value first: narrowing the range coerces Value, which lands in the
         // remembered field on the way through.
-        bool bg = modeBg?.IsChecked == true;
+        bool bg = modeBg?.IsChecked == true, ow = modeOverworld?.IsChecked == true;
         double want = gfx ? gfxZoomPct : modeMap16?.IsChecked == true ? map16ZoomPct
-                    : bg ? bgZoomPct : levelZoomPct;
+                    : bg ? bgZoomPct : ow ? owZoomPct : levelZoomPct;
         // The level steps in 10%: a fractional zoom is drawn filtered rather than nearest, so it
         // stays clean (LevelView.Unsampled). The GFX sheet steps in whole multiples instead —
         // pixel editing wants the pixel you click to be exactly the pixel you paint. The
         // background steps in halves, the same notch its wheel zoom takes.
         (zoomSlider.Minimum, zoomSlider.Maximum, zoomSlider.TickFrequency) =
             gfx ? (400.0, 1600.0, 100.0)      // whole screen pixels per GFX pixel, 4x to 16x
-            : bg ? (100.0, 800.0, 50.0)
+            : bg || ow ? (100.0, 800.0, 50.0)
                  : (100.0, 800.0, 10.0);
         zoomSlider.Value = want;
         ApplyZoom();                          // in case the value never changed
@@ -581,6 +585,13 @@ public partial class MainWindow : Window
             bgView.Zoom = zoom;
             bgView.InvalidateMeasure();
             bgView.InvalidateVisual();
+        }
+        else if (modeOverworld?.IsChecked == true)
+        {
+            owZoomPct = pct;
+            owView.Zoom = zoom;
+            owView.InvalidateMeasure();
+            owView.InvalidateVisual();
         }
         else if (modeMap16?.IsChecked == true)
         {
@@ -656,6 +667,7 @@ public partial class MainWindow : Window
     private void UpdateReadout()
         => readout.Text = modeGfx.IsChecked == true ? GfxReadout()
                         : modeBg.IsChecked == true ? BgReadout()
+                        : modeOverworld.IsChecked == true ? OwReadout()
                         : modeMap16.IsChecked == true ? Map16Readout()
                         : LevelReadout();
 
@@ -713,6 +725,11 @@ public partial class MainWindow : Window
         else if (modeBg.IsChecked == true && BgLayerEdit is { } bgMap)
         {
             if (redo ? bgMap.Redo() : bgMap.Undo()) { RefreshBg(); UpdateTitle(); }
+        }
+        else if (modeOverworld.IsChecked == true && session.OwMap is { } owMap)
+        {
+            DropOwFloat();                  // a floating block lands first, so this undo takes it back
+            if (redo ? owMap.Redo() : owMap.Undo()) { RefreshOverworld(); UpdateTitle(); }
         }
         // Sprite mode has its own history — without this branch Ctrl+Z in sprite mode fell
         // through and silently rewound the OBJECT stack instead.

@@ -29,9 +29,9 @@ namespace PipeDream.Ui;
 /// </summary>
 public sealed class TilemapView : Control
 {
-    private readonly PixelBlit blit = new();
-    private uint[]? surface;
-    private Avalonia.Media.Imaging.WriteableBitmap? bmp;
+    private readonly PixelBlit blit = new(), overlayBlit = new();
+    private uint[]? surface, overlaySurface;
+    private Avalonia.Media.Imaging.WriteableBitmap? bmp, overlayBmp;
     private bool stale = true;
     private int surfW, surfH;
     private readonly Stroke stroke;
@@ -58,8 +58,23 @@ public sealed class TilemapView : Control
     /// <summary>A cell value → its CellPx × CellPx pixels, or null when it draws nothing.</summary>
     public Func<int, uint[]?>? CellPixels { get; set; }
 
+    /// <summary>A second layer drawn over the cells, by (column, row) cell index, transparent
+    /// where 0: something to see the map THROUGH — the overworld's level tiles above the land
+    /// being painted. It is context only: a lasso, a drag preview and a paint never touch it.</summary>
+    public Func<int, int, uint[]?>? OverlayPixels { get; set; }
+
     /// <summary>Drawer mode: left picks a tile instead of lassoing, and nothing is paintable.</summary>
     public bool PickOnLeft { get; set; }
+
+    /// <summary>What a moved block leaves behind in the drag preview, by (column, row): the
+    /// map's fill under a block being lifted, the map itself under one already floating — so the
+    /// hole reads as what will be there, not as a black gap. Null paints the backdrop.</summary>
+    public Func<int, int, uint[]?>? HolePixels { get; set; }
+
+    /// <summary>Drawer mode with a block brush: a left DRAG lassos a rectangle of the sheet and
+    /// raises <see cref="BlockPicked"/> — the level's Tiles drawer gesture — while a click still
+    /// picks one tile. The lasso stays drawn on the sheet as the armed block.</summary>
+    public bool LassoPicks { get; set; }
 
     /// <summary>The armed cell, drawn with a ring. In drawer mode this is the brush.</summary>
     public int? Selected { get; set; }
@@ -105,6 +120,8 @@ public sealed class TilemapView : Control
     public event EventHandler<(int Col, int Row)>? Painted;
     public event EventHandler? StrokeEnded;
     public event EventHandler<(int Col, int Row)>? Picked;
+    /// <summary>A block of the sheet was lassoed (see <see cref="LassoPicks"/>).</summary>
+    public event EventHandler<(int X, int Y, int W, int H)>? BlockPicked;
     public event EventHandler? SelectionChanged;
     public event EventHandler<SelectionDrag>? SelectionDragged;
 
@@ -185,6 +202,30 @@ public sealed class TilemapView : Control
                         }
                 }
         bmp = LevelBitmap.FromPixels(surface, surfW, surfH);
+
+        // The overlay is its own bitmap, drawn AFTER the selection and the drag preview: it is
+        // the layer above the one being edited, so a block dragged under it passes beneath, as
+        // it will once dropped, instead of covering it and letting it snap back on release.
+        overlayBmp = null;
+        if (OverlayPixels is { } over)
+        {
+            overlaySurface = overlaySurface?.Length == surfW * surfH ? overlaySurface : new uint[surfW * surfH];
+            Array.Clear(overlaySurface);
+            bool any = false;
+            for (int row = 0; row < Rows; row++)
+                for (int col = 0; col < Cols; col++)
+                {
+                    if (over(col, row) is not { } px) continue;
+                    int ox = col * CellPx, oy = row * CellPx;
+                    for (int y = 0; y < CellPx; y++)
+                        for (int x = 0; x < CellPx; x++)
+                        {
+                            uint c = px[y * CellPx + x];
+                            if (c != 0) { overlaySurface[(oy + y) * surfW + ox + x] = c; any = true; }
+                        }
+                }
+            if (any) overlayBmp = LevelBitmap.FromPixels(overlaySurface, surfW, surfH);
+        }
     }
 
     public override void Render(DrawingContext ctx)
@@ -193,6 +234,9 @@ public sealed class TilemapView : Control
         var full = new Rect(0, 0, Cols * Step, Rows * Step);
         if (bmp is null) { ctx.FillRectangle(Brushes.Black, full); return; }
         blit.Draw(this, ctx, bmp, new Rect(0, 0, surfW, surfH), full, VisualRoot?.RenderScaling ?? 1);
+        // The block being dragged travels UNDER the overlay layer, where it will land.
+        if (LiveDrag is { } drag) DrawDragPreview(ctx, drag);
+        if (overlayBmp is { } over) overlayBlit.Draw(this, ctx, over, new Rect(0, 0, surfW, surfH), full, VisualRoot?.RenderScaling ?? 1);
 
         // The armed tile wears the same ring as the Map16 and 8x8 drawers' picks.
         if (Selected is { } sel && Cols > 0) Overlay.Armed(ctx, CellRect((sel % Cols, sel / Cols, 1, 1)));
@@ -202,7 +246,6 @@ public sealed class TilemapView : Control
         // selection's size chasing the pointer around the selection itself — two reticles for
         // one gesture, and the drawn one is the one you can grab.
         if (hover is { } h && !PickOnLeft && Selection is null) Overlay.Band(ctx, CellRect((h.Col, h.Row, 1, 1)));
-        if (LiveDrag is { } drag) DrawDragPreview(ctx, drag);
         if (Selection is { } grips && !PickOnLeft) Grips.Draw(ctx, CellRect(grips), GripPx);
     }
 
@@ -215,8 +258,9 @@ public sealed class TilemapView : Control
         => dragFrom is { } f && Selection is { } t && t != f
            ? new SelectionDrag(f, t, dragEdge == (0, 0)) : null;
 
-    private readonly PixelBlit dragBlit = new();
-    private Avalonia.Media.Imaging.WriteableBitmap? dragBmp, dragRetired;
+    private readonly PixelBlit dragBlit = new(), holeBlit = new();
+    private Avalonia.Media.Imaging.WriteableBitmap? dragBmp, dragRetired, holeBmp, holeRetired;
+    private (int X, int Y, int W, int H)? holeBmpFor;
     private SelectionDrag? dragBmpFor;
 
     /// <summary>
@@ -231,9 +275,33 @@ public sealed class TilemapView : Control
     {
         if (CellAt is not { } at || CellPixels is not { } pixels) return;
         if (d.Move)
-            ctx.FillRectangle(new SolidColorBrush(Rgba(Backdrop)),
-                              new Rect(d.From.X * Step, d.From.Y * Step,
-                                       d.From.W * Step, d.From.H * Step));
+        {
+            var hole = new Rect(d.From.X * Step, d.From.Y * Step, d.From.W * Step, d.From.H * Step);
+            if (HolePixels is { } under)
+            {
+                // Built once per drag: the hole's rectangle is fixed from the press to the release.
+                int hw = d.From.W * CellPx, hh = d.From.H * CellPx;
+                if (holeBmp is null || holeBmpFor != d.From)
+                {
+                    var px = new uint[hw * hh];
+                    Array.Fill(px, Backdrop);
+                    for (int r = 0; r < d.From.H; r++)
+                        for (int c = 0; c < d.From.W; c++)
+                        {
+                            if (under(d.From.X + c, d.From.Y + r) is not { } cell) continue;
+                            for (int y = 0; y < CellPx; y++)
+                                for (int x = 0; x < CellPx; x++)
+                                    px[(r * CellPx + y) * hw + c * CellPx + x] = cell[y * CellPx + x];
+                        }
+                    holeRetired?.Dispose();
+                    holeRetired = holeBmp;
+                    holeBmp = LevelBitmap.FromPixels(px, hw, hh);
+                    holeBmpFor = d.From;
+                }
+                holeBlit.Draw(this, ctx, holeBmp, new Rect(0, 0, hw, hh), hole, VisualRoot?.RenderScaling ?? 1);
+            }
+            else ctx.FillRectangle(new SolidColorBrush(Rgba(Backdrop)), hole);
+        }
 
         int w = d.To.W * CellPx, h = d.To.H * CellPx;
         if (w <= 0 || h <= 0) return;
@@ -281,7 +349,12 @@ public sealed class TilemapView : Control
         var props = e.GetCurrentPoint(this).Properties;
         if (PickOnLeft)
         {
-            Picked?.Invoke(this, cell);
+            if (LassoPicks && props.IsLeftButtonPressed)
+            {
+                BeginSelection(cell.Col, cell.Row);      // settles on release: one cell picks, more is a block
+                e.Pointer.Capture(this);
+            }
+            else Picked?.Invoke(this, cell);
         }
         else if (props.IsRightButtonPressed)
         {
@@ -315,6 +388,13 @@ public sealed class TilemapView : Control
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         e.Pointer.Capture(null);
+        if (PickOnLeft && LassoPicks && lassoStart is not null && Selection is { } picked)
+        {
+            lassoStart = null;
+            if (picked is { W: 1, H: 1 }) { ClearSelection(); Picked?.Invoke(this, (picked.X, picked.Y)); }
+            else BlockPicked?.Invoke(this, picked);
+            return;
+        }
         Release();
         if (stroke.End()) StrokeEnded?.Invoke(this, EventArgs.Empty);
     }

@@ -358,7 +358,10 @@ public static class Gfx
             }
         }
 
-        public static FgTiles Load(Rom rom, int tileset, int level = -1, int animPhase = 0)
+        /// <param name="levelAnimation">Overlay the level engine's animated tiles (§12). The
+        /// overworld loads the same file lists but runs its own animation (bank 04), so it passes
+        /// false: the level overlay would blank the cliff tiles at 0x50-0x55 out from under it.</param>
+        public static FgTiles Load(Rom rom, int tileset, int level = -1, int animPhase = 0, bool levelAnimation = true)
         {
             var bypass = level >= 0 ? rom.LmGfxBypass(level) : null;
             int bpp = RomBpp(rom);                                  // ROM-wide depth (vanilla 3 / LM 4)
@@ -388,7 +391,7 @@ public static class Gfx
                 for (int t = 0; t < n; t++) tiles[t] = DecodeTile(data, t * tb, bpp);
                 f.slots[s] = tiles;
             }
-            f.OverlayAnimatedTiles(rom, tileset, animPhase, level);   // animated tiles (§12, §12e)
+            if (levelAnimation) f.OverlayAnimatedTiles(rom, tileset, animPhase, level);   // animated tiles (§12, §12e)
             return f;
         }
 
@@ -397,6 +400,16 @@ public static class Gfx
             int s = (tileNum >> 7) & 7, t = tileNum & 0x7F;   // 8 pages (0x000-0x3FF)
             var arr = slots[s];
             return arr is not null && t < arr.Length ? arr[t] : Blank;
+        }
+
+        /// <summary>Put one 8x8 tile's 64 palette indices at a VRAM tile number — what a runtime
+        /// copy into VRAM does, for a reader that mirrors one (the overworld's animated tiles).</summary>
+        public void Set(int tileNum, byte[] px)
+        {
+            if (tileNum is < 0 or >= 0x400) return;
+            int s = (tileNum >> 7) & 7, t = tileNum & 0x7F;
+            if (slots[s] is not { } arr || t >= arr.Length) return;
+            arr[t] = px;
         }
     }
 

@@ -36,6 +36,52 @@ static class DebugCommands
         ("--tilepng",           TilePng),
         ("--map16def",          Map16Def),
         ("--layer3",            Layer3Png),
+        // --owrows <rom> [submap] : the overworld palette the editor builds for a submap, rows 0-7 as
+        // sixteen BGR555 words each — the same shape tools/mesen/Dump-OwPalette.ps1 writes, for diffing.
+        ("--owrows",            (a, i) => { var ow = new Overworld(Rom.Load(a[i + 1])); int sm = a.Length > i + 2 ? int.Parse(a[i + 2]) : 1; var pal = ow.PaletteOf(sm);
+                                    Console.WriteLine($"# editor palette, submap {sm}");
+                                    for (int r = 0; r < 8; r++) Console.WriteLine($"row {r}: " + string.Join(" ", Enumerable.Range(0, 16).Select(c => $"{pal.Bgr[r * 16 + c]:X4}"))); return 0; }),
+        // --owl1 <rom> x y : a layer 1 cell's tile, its four words, and the palette rows they draw with (y >= 32 = submap map).
+        ("--owl1",              (a, i) => { var ow = new Overworld(Rom.Load(a[i + 1])); int x = int.Parse(a[i + 2]), y = int.Parse(a[i + 3]); bool sub = y >= 32; y %= 32;
+                                    int t = ow.Layer1At(x, y, sub), sm = Overworld.SubmapAt(x, y, sub), d = ow.Rom.FileOffset(Overworld.Map16Defs) + t * 8; var pal = ow.PaletteOf(sm);
+                                    Console.WriteLine($"cell ({x},{y}{(sub ? "s" : "")}) submap {sm}: layer 1 tile {t:X2}");
+                                    var fgt = Gfx.FgTiles.Load(ow.Rom, Overworld.Tileset + sm, levelAnimation: false);
+                                    for (int q = 0; q < 4; q++) { var w = new Map16.Word((ushort)(ow.Rom.Data[d + q * 2] | ow.Rom.Data[d + q * 2 + 1] << 8));
+                                        Console.WriteLine($"  q{q}: tile {w.Tile:X3} row {w.Palette}{(w.FlipX ? " X" : "")}{(w.FlipY ? " Y" : "")} uses idx {string.Join("", fgt.Fetch(w.Tile).Distinct().OrderBy(b => b).Select(b => $"{b:X}"))}  row colours: " + string.Join(" ", Enumerable.Range(0, 16).Select(c => $"{pal.Bgr[w.Palette * 16 + c]:X4}"))); }
+                                    return 0; }),
+        // --owpng <rom> <out.png> [cellX cellY cellsW cellsH scale] : draw the overworld as the editor
+        // shows it, main map over the submap map; optionally one window of cells, magnified.
+        // --owcell <rom> x y [w h] : the layer 1 tile and layer 2 words under main-map cells, and which 8x8s are blank.
+        ("--owcell",            (a, i) => { var ow = new Overworld(Rom.Load(a[i + 1])); int x0 = int.Parse(a[i + 2]), y0 = int.Parse(a[i + 3]);
+                                    int cw = a.Length > i + 5 ? int.Parse(a[i + 4]) : 1, ch = a.Length > i + 5 ? int.Parse(a[i + 5]) : 1;
+                                    var fg = Gfx.FgTiles.Load(ow.Rom, Overworld.Tileset, levelAnimation: false);
+                                    for (int y = y0; y < y0 + ch; y++) for (int x = x0; x < x0 + cw; x++) {
+                                        bool sub = y >= 32; int my = y % 32; int sm = Overworld.SubmapAt(x, my, sub);
+                                        var ws = Enumerable.Range(0, 4).Select(q => new Map16.Word(ow.Layer2[Overworld.Layer2Index(x * 2 + (q & 1), my * 2 + (q >> 1), sub)])).ToArray();
+                                        Console.WriteLine($"({x,2},{y,2}) submap {sm} L1 {ow.Layer1At(x, my, sub):X2}  L2 " + string.Join(" ", ws.Select(w => $"{w.Tile:X3}p{w.Palette}[{string.Join("", fg.Fetch(w.Tile).Distinct().OrderBy(b => b).Select(b => $"{b:X}"))}]")));
+                                        var pal = ow.PaletteOf(sm); Console.WriteLine("   backdrop " + $"{pal.Bgr[0]:X4}" + "  rows 4-7: " + string.Join(" | ", Enumerable.Range(4, 4).Select(r => string.Join(",", Enumerable.Range(0, 16).Select(c => $"{pal.Bgr[r * 16 + c]:X4}"))))); }
+                                    return 0; }),
+        // --gfxblank <rom> <file> : which 8x8 tiles of a GFX file are entirely colour 0.
+        ("--gfxblank",          (a, i) => { var rom = Rom.Load(a[i + 1]); int f = Convert.ToInt32(a[i + 2], 16); var g = Gfx.Cached(rom, f)!; int bpp = Gfx.FileBpp(rom, f), tb = Gfx.TileBytes(bpp);
+                                    Console.WriteLine($"GFX{f:X2}: {g.Length / tb} tiles, blank: " + string.Join(" ", Enumerable.Range(0, g.Length / tb).Where(t => Gfx.DecodeTile(g, t * tb, bpp).All(b => b == 0)).Select(t => $"{t:X2}"))); return 0; }),
+        // --owpal <rom> : which palette rows the overworld's layer 1 defs and layer 2 words use.
+        ("--owpal",             (a, i) => { var ow = new Overworld(Rom.Load(a[i + 1])); var l1 = new int[8]; var l2 = new int[8];
+                                    int d = ow.Rom.FileOffset(Overworld.Map16Defs);
+                                    for (int t = 0; t < Overworld.Map16Count; t++) for (int q = 0; q < 4; q++) { int w = ow.Rom.Data[d + t * 8 + q * 2] | ow.Rom.Data[d + t * 8 + q * 2 + 1] << 8; if ((w & 0x3FF) != 0) l1[(w >> 10) & 7]++; }
+                                    foreach (var w in ow.Layer2) l2[(w >> 10) & 7]++;
+                                    Console.WriteLine("layer 1 quadrants by palette row: " + string.Join(" ", l1.Select((n, r) => $"{r}:{n}")));
+                                    var fg = Gfx.FgTiles.Load(ow.Rom, Overworld.Tileset, levelAnimation: false); var use = new int[8, 16];
+                                    for (int t = 0; t < Overworld.Map16Count; t++) for (int q = 0; q < 4; q++) { int w = ow.Rom.Data[d + t * 8 + q * 2] | ow.Rom.Data[d + t * 8 + q * 2 + 1] << 8; foreach (var b in fg.Fetch(w & 0x3FF).Distinct()) use[(w >> 10) & 7, b]++; }
+                                    for (int r = 0; r < 8; r++) Console.WriteLine($"  row {r} colour indices used (count of quadrants): " + string.Join(" ", Enumerable.Range(1, 15).Where(c => use[r, c] > 0).Select(c => $"{c:X}:{use[r, c]}")));
+                                    var byTile = new SortedDictionary<int, string>();
+                                    for (int t = 0; t < Overworld.Map16Count; t++) for (int q = 0; q < 4; q++) { int w = ow.Rom.Data[d + t * 8 + q * 2] | ow.Rom.Data[d + t * 8 + q * 2 + 1] << 8; int r = (w >> 10) & 7; if (r < 4 && fg.Fetch(w & 0x3FF).Any(b => b != 0)) byTile[t] = (byTile.GetValueOrDefault(t) ?? "") + $" q{q}:tile{w & 0x3FF:X3}/row{r}"; }
+                                    Console.WriteLine("layer 1 tiles drawing in rows 0-3: " + string.Join("; ", byTile.Select(kv => $"{kv.Key:X2}:{kv.Value}")));
+                                    var where = new Dictionary<int, List<string>>();
+                                    for (int k = 0; k < 0x800; k++) { int t = ow.Layer1[k]; if (byTile.ContainsKey(t)) { int x = (k & 0xF) | ((k >> 8) & 1) << 4, y = ((k >> 4) & 0xF) | ((k >> 9) & 1) << 4; (where.TryGetValue(t, out var l) ? l : where[t] = []).Add($"({x},{y}{(k >= 0x400 ? "s" : "")})"); } }
+                                    Console.WriteLine("placed at: " + string.Join("; ", where.Select(kv => $"{kv.Key:X2}@{string.Join(",", kv.Value.Take(4))}")));
+                                    Console.WriteLine("layer 2 words by palette row:     " + string.Join(" ", l2.Select((n, r) => $"{r}:{n}"))); return 0; }),
+        ("--owpng",             (a, i) => OverworldPng(a[i + 1], a[i + 2],
+                                    a.Length > i + 7 ? (int.Parse(a[i + 3]), int.Parse(a[i + 4]), int.Parse(a[i + 5]), int.Parse(a[i + 6]), int.Parse(a[i + 7])) : null)),
         ("--exanim",            (a, i) => DumpExAnim(a[i + 1], Convert.ToInt32(a[i + 2], 16))),
         ("--disasm",            Disassemble),
         ("--gen-spritedisplay", GenSpriteDisplay),
@@ -59,6 +105,28 @@ static class DebugCommands
 
     // --selfcheck : run the ROM self-check suite (exit code = failures).
     public static int SelfCheck() => RomSelfCheck.Run();
+
+    // --owpng <rom> <out.png> [window] : the overworld canvas, 512x1024, for eyeballing the reader;
+    // with a window, that many cells from (cellX, cellY), each pixel drawn scale times.
+    public static int OverworldPng(string romPath, string outPath, (int X, int Y, int W, int H, int Scale)? window = null)
+    {
+        var ow = new Overworld(Rom.Load(romPath));
+        var (cx, cy, cw, ch, sc) = window ?? (0, 0, Overworld.Cols, 2 * Overworld.Rows, 1);
+        int w = cw * 16 * sc, h = ch * 16 * sc;
+        var px = new uint[w * h];
+        for (int y = 0; y < ch; y++)
+            for (int x = 0; x < cw; x++)
+            {
+                int my = cy + y;
+                var cell = ow.CellPixels(cx + x, my % Overworld.Rows, my >= Overworld.Rows);
+                for (int r = 0; r < 16 * sc; r++)
+                    for (int c = 0; c < 16 * sc; c++)
+                        px[(y * 16 * sc + r) * w + x * 16 * sc + c] = cell[(r / sc) * 16 + c / sc];
+            }
+        Png.Write(outPath, px, w, h);
+        Console.WriteLine($"wrote {outPath}");
+        return 0;
+    }
 
     // --prep <rom.smc> [version] : stamp a vanilla ROM in place at a chosen prep version.
     // Bisecting which version's stamps break something is the whole reason it takes a version —

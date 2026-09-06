@@ -687,14 +687,18 @@ public partial class MainWindow
         var bins = session.GfxBins.ToList();
         for (int i = 0; i < 4; i++)
             bins.Add(($"E{0x60 + i:X2}", 2, 0x60 + i, 0x7F, session.Rom is { } r && (r.ImportedGfx.ContainsKey(0x60 + i) || r.LmAltExGfx(i) > 0) ? 0x60 + i : 0x7F, 0, 0));
+        // The overworld's own files close the list: not this level's VRAM, but graphics the
+        // pixel editor paints all the same. Bypass words 0x70+, so Load never mistakes one for
+        // a level slot (it only repoints words it finds in the level's bins).
+        bins.AddRange(session.OverworldGfxBins);
         foreach (var bin in bins)
         {
-            // Two headed groups after the ten VRAM bins: the level's layer-3 window, then the
-            // animation slots. LG1-LG4 are real bins with a real bypass — LM's Layer 3
+            // Headed groups after the ten VRAM bins: the level's layer-3 window, the animation
+            // slots, then the overworld. LG1-LG4 are real bins with a real bypass — LM's Layer 3
             // GFX/Tilemap Bypass — they just live behind their own enable bit (CONTRACT §12b).
-            if (bin.Name is "LG1" or "AN1")
+            if (bin.Name is "LG1" or "AN1" || bin.BypWord == 0x70)
             {
-                var sep = new TextBlock { Text = bin.Name == "LG1" ? "Layer 3" : "Animation slots",
+                var sep = new TextBlock { Text = bin.Name == "LG1" ? "Layer 3" : bin.Name == "AN1" ? "Animation slots" : "Overworld",
                                           Margin = new Thickness(0, 8, 0, 0) };
                 sep.Classes.Add("subject");
                 gfxBins.Children.Add(sep);
@@ -709,7 +713,7 @@ public partial class MainWindow
     private Border GfxBinCard(GfxBin bin)
     {
         int bypWord = bin.BypWord, palRow = bin.PalRow, file = bin.File, palOff = bin.ColorOffset;
-        bool altFile = bypWord >= 0x60;
+        bool altFile = bypWord is >= 0x60 and <= 0x63;   // an ExAnimation source file, opened by its own id
         int openFile = altFile ? Convert.ToInt32(bin.Name[1..], 16) : file;   // "E60" → 0x60
         bool empty = file == 0x7F;
         bool custom = !altFile && session.GfxBinNote(bypWord, file, bin.Def) == "custom";

@@ -73,6 +73,46 @@ public sealed class Palette
         return p;
     }
 
+    /// <summary>
+    /// The overworld's palette for one submap, built the way the game builds it. The overworld
+    /// load ($00A5BC) runs the ordinary level palette loader first — with whatever header bytes
+    /// the last level left, so the intro level's are the ones a new game arrives with — and then
+    /// lays the overworld's own colours over it ($00AD25): palettes 4-7 colours 1-7 from the
+    /// submap's 0x38-byte set at $00B3D8 (the special-world-passed set at $00B732 instead),
+    /// palettes 2-7 colours 9-F from $00B528, sprite palettes 8-F colours 1-7 from $00B57C,
+    /// layer 3's colours 8-F of palettes 0-1 from $00B5EC. Layer 1 draws in palettes 0-3, whose
+    /// colour 1 is the loader's white and colours 8-F are these overrides; path fading borrows
+    /// their colours 1-7 while a tile is revealed and puts them back.
+    /// </summary>
+    public static Palette LoadOverworld(Rom rom, int submap, bool specialPassed = false)
+    {
+        const int introLevel = 0xC7;
+        var p = Load(rom, new LevelHeader(rom.Data.AsSpan(rom.FileOffset(rom.Layer1Pointer(introLevel)), 5)));
+        var cg = p.Bgr;
+        int set = rom.Data[rom.FileOffset(0x00AD1E) + submap];                       // DATA_00AD1E
+        int setOff = rom.ReadValue(0x00ABDF + set * 2, 2);                            // DATA_00ABDF
+        LoadColors(rom, cg, 0x41, (specialPassed ? 0x00B732 : 0x00B3D8) + setOff, 7, 4);
+        LoadColors(rom, cg, 0x29, 0x00B528, 7, 6);
+        LoadColors(rom, cg, 0x81, 0x00B57C, 7, 8);
+        LoadColors(rom, cg, 0x08, 0x00B5EC, 8, 2);
+        for (int i = 0; i < 256; i++) p.Rgba[i] = ToRgba(cg[i]);
+        return p;
+    }
+
+    /// <summary>The game's LoadColors ($00ACFF): <paramref name="numColors"/> words from
+    /// <paramref name="srcSnes"/> into each of <paramref name="rows"/> palette rows, starting at
+    /// <paramref name="destColor"/> and stepping a row (16 colours) at a time.</summary>
+    private static void LoadColors(Rom rom, ushort[] cg, int destColor, int srcSnes, int numColors, int rows)
+    {
+        int fo = rom.FileOffset(srcSnes);
+        for (int r = 0; r < rows; r++)
+            for (int c = 0; c < numColors; c++, fo += 2)
+            {
+                int i = destColor + r * 16 + c;
+                if (i < 256) cg[i] = (ushort)(rom.Data[fo] | (rom.Data[fo + 1] << 8));
+            }
+    }
+
     /// <summary>SNES 15-bit BGR555 → RGBA8888 (0xAABBGGRR in memory: R,G,B,A bytes).</summary>
     public static uint ToRgba(ushort c)
     {

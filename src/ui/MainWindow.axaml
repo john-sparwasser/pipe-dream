@@ -45,6 +45,12 @@
     <StreamGeometry x:Key="IconDoorClosed">M18 20V6a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v14 M2 20h20 M14 12v.01</StreamGeometry>
     <StreamGeometry x:Key="IconDoorOpen">M13 4h3a2 2 0 0 1 2 2v14 M2 20h3 M13 20h9 M10 12v.01 M13 4.562v16.157a1 1 0 0 1-1.242.97L5 20V5.562a2 2 0 0 1 1.515-1.94l4-1A2 2 0 0 1 13 4.562Z</StreamGeometry>
     <StreamGeometry x:Key="IconPalette">M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z M13.5 6.5h.01 M17.5 10.5h.01 M6.5 12.5h.01 M8.5 7.5h.01</StreamGeometry>
+    <!-- Overworld mode and its five sub-modes: Lucide map, route, flag, zap, arrow-right-left. -->
+    <StreamGeometry x:Key="IconMap">M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0z M15 5.764v15 M9 3.236v15</StreamGeometry>
+    <StreamGeometry x:Key="IconRoute">M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15 M3 19a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M15 5a3 3 0 1 0 6 0a3 3 0 1 0-6 0</StreamGeometry>
+    <StreamGeometry x:Key="IconFlag">M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z M4 22v-7</StreamGeometry>
+    <StreamGeometry x:Key="IconZap">M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z</StreamGeometry>
+    <StreamGeometry x:Key="IconArrowRightLeft">m16 3 4 4-4 4 M20 7H4 m8 21-4-4 4-4 M4 17h16</StreamGeometry>
     <StreamGeometry x:Key="IconImage">M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z M21 15l-5-5L5 21</StreamGeometry>
   </Window.Resources>
 
@@ -56,7 +62,7 @@
          above it. Their stroke binds to the item's Foreground, which the states below drive. -->
     <!-- Height, padding, corner and content centring come from the Border.bar rules below, the
          same ones the mode toggles get them from — the only way the two rows stay identical. -->
-    <Style Selector="TabStrip#PaletteTabs TabStripItem">
+    <Style Selector="TabStrip.tabs TabStripItem">
       <Setter Property="FontSize" Value="13"/>
       <Setter Property="MinWidth" Value="82"/>
       <Setter Property="Background" Value="Transparent"/>
@@ -78,17 +84,17 @@
         </ControlTemplate>
       </Setter>
     </Style>
-    <Style Selector="TabStrip#PaletteTabs TabStripItem:pointerover">
+    <Style Selector="TabStrip.tabs TabStripItem:pointerover">
       <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
     </Style>
-    <Style Selector="TabStrip#PaletteTabs TabStripItem:selected">
+    <Style Selector="TabStrip.tabs TabStripItem:selected">
       <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
       <Setter Property="Foreground" Value="White"/>
     </Style>
-    <Style Selector="TabStrip#PaletteTabs TabStripItem:selected:pointerover">
+    <Style Selector="TabStrip.tabs TabStripItem:selected:pointerover">
       <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
     </Style>
-    <Style Selector="TabStrip#PaletteTabs Path">
+    <Style Selector="TabStrip.tabs Path">
       <Setter Property="Stroke" Value="{Binding $parent[TabStripItem].Foreground}"/>
       <Setter Property="StrokeThickness" Value="1.5"/>
       <Setter Property="StrokeLineCap" Value="Round"/>
@@ -364,6 +370,12 @@
             <TextBlock Text="Animations" VerticalAlignment="Center"/>
           </StackPanel>
         </ToggleButton>
+        <ToggleButton x:Name="ModeOverworld" Classes="mode" Click="OnMode">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <Path Data="{StaticResource IconMap}"/>
+            <TextBlock Text="Overworld" VerticalAlignment="Center"/>
+          </StackPanel>
+        </ToggleButton>
 
         <!-- Not a mode: opens the course manager, so a Button rather than a toggle. -->
         <Button Classes="mode" Click="OnCourseBot"
@@ -417,7 +429,7 @@
                   BorderThickness="0,0,0,1"
                   Padding="10,0" IsVisible="{Binding #PaletteTabs.IsVisible}"
                   Height="{Binding #LevelEditorBar.Bounds.Height}">
-          <TabStrip x:Name="PaletteTabs" Background="Transparent" Padding="0"
+          <TabStrip x:Name="PaletteTabs" Classes="tabs" Background="Transparent" Padding="0"
                     VerticalAlignment="Center">
             <!-- The same 6px gap the mode bar's StackPanel puts between its toggles. -->
             <TabStrip.ItemsPanel>
@@ -584,6 +596,57 @@
               </Border>
               <ScrollViewer HorizontalScrollBarVisibility="Disabled">
                 <ui:TilemapView x:Name="BgSheet" Margin="8"/>
+              </ScrollViewer>
+            </DockPanel>
+
+            <!-- Overworld mode's drawer: the tiles the map is built from, for whichever layer the
+                 bar has chosen — layer 1's 16x16 Map16 tiles or layer 2's 8x8s. -->
+            <DockPanel x:Name="OwToolPanel" IsVisible="False">
+              <Border DockPanel.Dock="Top" Classes="panel bar" BorderThickness="0,0,0,1"
+                      Padding="10,0" Height="{Binding #OwEditorBar.Bounds.Height}">
+                <!-- What a click on the map edits, as the Level drawer's tabs choose what it
+                     places: Lunar Magic's five editor modes, by the thing each is about. -->
+                <TabStrip x:Name="OwTabs" Classes="tabs" Background="Transparent" Padding="0"
+                          VerticalAlignment="Center">
+                  <TabStrip.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <StackPanel Orientation="Horizontal" Spacing="6"/>
+                    </ItemsPanelTemplate>
+                  </TabStrip.ItemsPanel>
+                  <TabStripItem IsSelected="True" ToolTip.Tip="Tiles: the land (layer 2, 8x8s) and the level tiles and clouds over it (layer 1, 16x16s)">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <Path Data="{StaticResource IconGrid3x3}"/>
+                      <TextBlock Text="Tiles" VerticalAlignment="Center"/>
+                    </StackPanel>
+                  </TabStripItem>
+                  <TabStripItem ToolTip.Tip="Paths: the invisible layer 1 tiles Mario walks, climbs and swims along between levels">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <Path Data="{StaticResource IconRoute}"/>
+                      <TextBlock Text="Paths" VerticalAlignment="Center"/>
+                    </StackPanel>
+                  </TabStripItem>
+                  <TabStripItem ToolTip.Tip="Levels: which level each tile enters, the event it fires when passed, and the directions it opens">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <Path Data="{StaticResource IconFlag}"/>
+                      <TextBlock Text="Levels" VerticalAlignment="Center"/>
+                    </StackPanel>
+                  </TabStripItem>
+                  <TabStripItem ToolTip.Tip="Events: the tiles an event reveals, in the order it reveals them">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <Path Data="{StaticResource IconZap}"/>
+                      <TextBlock Text="Events" VerticalAlignment="Center"/>
+                    </StackPanel>
+                  </TabStripItem>
+                  <TabStripItem ToolTip.Tip="Transitions: pipes, star roads and exit paths, and where each one comes out">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <Path Data="{StaticResource IconArrowRightLeft}"/>
+                      <TextBlock Text="Transitions" VerticalAlignment="Center"/>
+                    </StackPanel>
+                  </TabStripItem>
+                </TabStrip>
+              </Border>
+              <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                <ui:TilemapView x:Name="OwSheet" Margin="8"/>
               </ScrollViewer>
             </DockPanel>
 
@@ -972,6 +1035,47 @@
           <ScrollViewer x:Name="BgScroll" HorizontalScrollBarVisibility="Auto"
                         Background="{x:Static ui:UiColors.DeskPattern}">
             <ui:TilemapView x:Name="BgView" Margin="16"/>
+          </ScrollViewer>
+        </DockPanel>
+        <!-- Overworld mode: the world map as Lunar Magic draws it — one canvas holding the main
+             map with the six submaps beneath it, layer 2's land under layer 1's level tiles and
+             paths. The drawer's tabs pick WHAT a click edits on that one map: tiles, Mario's
+             paths, the level tiles' settings, event reveals, or the pipe/star/exit links. -->
+        <DockPanel x:Name="OverworldPane" IsVisible="False" Background="{DynamicResource VoidBrush}">
+          <Border x:Name="OwEditorBar" DockPanel.Dock="Top" Classes="panel bar"
+                  BorderThickness="0,0,0,1" Padding="10,6" MinHeight="40">
+            <DockPanel>
+              <!-- Layer 2's brush: which palette row the drawer's 8x8 tile paints in, and its
+                   flips. Shown for the Tiles tab; the other tabs edit layer 1 tables, not words. -->
+              <StackPanel x:Name="OwBrushBar" DockPanel.Dock="Left" Orientation="Horizontal" Spacing="6">
+                <TextBlock Classes="dim" Text="palette" VerticalAlignment="Center"/>
+                <ComboBox x:Name="OwPalRow" Width="64" SelectedIndex="4"
+                          ToolTip.Tip="The palette row the drawer's tiles are stamped with (the land uses 4-7)"/>
+                <ToggleButton x:Name="OwFlipX" Classes="mode" MinWidth="34" ToolTip.Tip="Stamp mirrored left to right">
+                  <Path Data="{StaticResource IconFlipHorizontal}"/>
+                </ToggleButton>
+                <ToggleButton x:Name="OwFlipY" Classes="mode" MinWidth="34" ToolTip.Tip="Stamp flipped top to bottom">
+                  <Path Data="{StaticResource IconFlipVertical}"/>
+                </ToggleButton>
+                <Rectangle Classes="sep"/>
+                <!-- Lunar Magic's View ▸ Layer 1: the level tiles and paths stay in view over the
+                     land while it is painted, or go away to see the land alone. Never edited here. -->
+                <ToggleButton x:Name="OwShowLayer1" Classes="mode" IsChecked="True"
+                              ToolTip.Tip="Show layer 1 — the level tiles and paths — over the land. It is only shown here; the other tabs edit it.">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Path Data="{StaticResource IconFlag}"/>
+                    <TextBlock Text="Layer 1" VerticalAlignment="Center"/>
+                  </StackPanel>
+                </ToggleButton>
+                <Rectangle Classes="sep"/>
+              </StackPanel>
+              <TextBlock x:Name="OwNote" Classes="dim" VerticalAlignment="Center"
+                         TextTrimming="CharacterEllipsis" Margin="6,0,10,0"/>
+            </DockPanel>
+          </Border>
+          <ScrollViewer x:Name="OwScroll" HorizontalScrollBarVisibility="Auto"
+                        Background="{x:Static ui:UiColors.DeskPattern}">
+            <ui:TilemapView x:Name="OwView" Margin="16"/>
           </ScrollViewer>
         </DockPanel>
         <DockPanel x:Name="GfxScroll" IsVisible="False" Background="{DynamicResource VoidBrush}">

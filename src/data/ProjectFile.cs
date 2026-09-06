@@ -51,6 +51,17 @@ public sealed class ProjectFile
     /// Map16, so it travels in the .pdp with the levels that use it.</summary>
     public Dictionary<string, TilemapPreset> Tilemaps { get; set; } = new();
 
+    /// <summary>The overworld's edits. Project-scoped: there is one overworld. A separate object
+    /// so an older .pdp still loads unchanged.</summary>
+    public OverworldState Overworld { get; set; } = new();
+
+    public sealed class OverworldState
+    {
+        /// <summary>Layer 2 as 0x2000 little-endian tilemap words, base64 — the decoded shape of
+        /// the ROM's two RLE streams (<see cref="PipeDream.Overworld.DecodeLayer2"/>).</summary>
+        public string? Layer2 { get; set; }
+    }
+
     public sealed class TilemapPreset
     {
         /// <summary>2 for a layer-2 background, 3 for a layer-3 tilemap.</summary>
