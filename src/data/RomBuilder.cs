@@ -121,6 +121,9 @@ internal static class RomBuilder
             if (project.Data.Overworld.Layer1 is { } ow1
                 && Overworld.WriteLayer1(rom, ProjectSession.WordsOf(Convert.FromBase64String(ow1))) is { } ow1Err)
                 warnings.Add("overworld: " + ow1Err);
+            if (project.Data.Overworld.Translevels is { } owt
+                && Overworld.WriteLevelTable(rom, Convert.FromBase64String(owt)) is { } owtErr)
+                warnings.Add("overworld: " + owtErr);
 
             // Skip level entries whose key is not a level number. A project should never contain
             // one, but an editor bug wrote entries keyed -1 for a while, and refusing to build a

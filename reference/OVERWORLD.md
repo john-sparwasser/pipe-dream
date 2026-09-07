@@ -4,8 +4,11 @@ How SMW stores the overworld, how Lunar Magic edits it, and what pipe-dream's Ov
 does with both. Addresses are vanilla and traced in `smw-disasm/bank_04.asm` (uncommented, so
 labels below are grep-able but unnamed). Lunar Magic facts are from `lm-help/html/ov_*.htm`.
 
-Reader: `src/rom/Overworld.cs`. Session: `src/services/EditorSession.Overworld.cs`. Window:
-`src/ui/MainWindow.Overworld.cs`. Eyeball the reader with `--owpng <rom> <out.png>`.
+Reader: `src/rom/Overworld.cs` and its partials, one per concern (Tables, Layers, Graphics,
+Paths, Levels, Transitions, Events — the class doc in `Overworld.cs` maps them). Session:
+`src/services/EditorSession.Overworld.cs`. Window: `src/ui/MainWindow.Overworld.cs` dispatches
+each gesture to `.Layer2.cs` (Tiles tab) or `.Layer1.cs` (Paths & Levels tab); `.Badges.cs` is
+LM's View menu drawn over the map. Eyeball the reader with `--owpng <rom> <out.png>`.
 
 ## 1. Geometry
 

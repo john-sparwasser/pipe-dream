@@ -63,6 +63,9 @@ public sealed class ProjectFile
         /// <summary>Layer 1 as 0x800 little-endian Map16 tile numbers, base64 — the engine's
         /// index order (<see cref="PipeDream.Overworld.Layer1Index"/>).</summary>
         public string? Layer1 { get; set; }
+        /// <summary>Lunar Magic's per-tile level table as 0x800 translevel bytes, base64, in the
+        /// same order as <see cref="Layer1"/>. Only a ROM with LM's table has one.</summary>
+        public string? Translevels { get; set; }
     }
 
     public sealed class TilemapPreset

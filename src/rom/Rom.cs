@@ -301,6 +301,11 @@ public sealed class Rom
     /// back at build time (<see cref="Overworld.WriteLayer1"/>).</summary>
     public ushort[]? OwLayer1;
 
+    /// <summary>The edited per-tile level table of a Lunar Magic overworld: the translevel each
+    /// of the 0x800 layer 1 cells enters, or null to read LM's LZ2 blob. Only a ROM with that
+    /// blob has one (<see cref="Overworld.HasLevelTable"/>); written back at build time.</summary>
+    public byte[]? OwTranslevels;
+
     /// <summary>Imported layer-3 tilemaps: level → a flat 16-bit map, LM's LT3 file shape
     /// (0x800/0x1000/0x2000 bytes). Replaces vanilla's (level mode, option) pick for that level
     /// wherever <see cref="Layer3.LevelTilemap"/> is asked. Hydrated from / stashed to

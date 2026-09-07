@@ -617,6 +617,24 @@ public class OverworldTests(ITestOutputHelper log)
         Assert.NotEqual(was55, map.At(5, 5));
     }
 
+    /// <summary>A layer 1 write that cannot keep its high bytes changes nothing: the low bytes
+    /// must not land without them, or the built map draws with the wrong tiles.</summary>
+    [Fact]
+    public void a_refused_layer_1_write_leaves_the_rom_untouched()
+    {
+        if (PreppedRom.Fork() is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        var rom = Rom.Load(p);
+        var before = (byte[])rom.Data.Clone();
+        var words = new Overworld(rom).Layer1.ToArray();
+        words[Overworld.Layer1Index(3, 3, false)] = 0x1FF;          // page 1: needs LM's table, which vanilla lacks
+        words[Overworld.Layer1Index(4, 3, false)] = 0x56;
+        Assert.NotNull(Overworld.WriteLayer1(rom, words));
+        Assert.Equal(before, rom.Data);
+        words[Overworld.Layer1Index(3, 3, false)] = 0x57;           // all page 0: writes in place
+        Assert.Null(Overworld.WriteLayer1(rom, words));
+        Assert.Equal(0x57, rom.Data[rom.FileOffset(Overworld.Layer1Tilemap) + Overworld.Layer1Index(3, 3, false)]);
+    }
+
     [AvaloniaFact]
     public void the_graphics_drawer_lists_the_overworlds_files()
     {

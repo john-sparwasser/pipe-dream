@@ -85,10 +85,16 @@ public sealed partial class EditorSession
     /// <summary>
     /// Layer 1 as an editable tilemap of 16x16 cells: the main map's 32 rows over the submap
     /// map's, each cell the Map16 tile there — what the Paths &amp; Levels tab places and moves.
-    /// A commit lands in the ROM's edited copy (the array the overworld draws from), recounts
-    /// vanilla's level numbers, and goes into the project for the build (Overworld.WriteLayer1).
+    /// On a ROM with Lunar Magic's per-tile level table, a cell's value also carries the level
+    /// the tile enters (<see cref="OwLevelShift"/>), so every gesture — move, copy, delete, undo —
+    /// carries the number with the tile for free; a tile placed from the drawer enters level 0
+    /// until the Levels editor says otherwise. A commit lands in the ROM's edited copies (the
+    /// arrays the overworld draws from), renumbers vanilla's levels, and goes into the project
+    /// for the build (Overworld.WriteLayer1, WriteLevelTable).
     /// </summary>
     public const int OwL1Cols = Overworld.Cols, OwL1Rows = 2 * Overworld.Rows;
+    /// <summary>Where a layer 1 cell's value keeps its translevel, above the 16-bit tile.</summary>
+    public const int OwLevelShift = 16;
     public TilemapEdit? OwLayer1
     {
         get
@@ -96,16 +102,21 @@ public sealed partial class EditorSession
             if (Overworld is not { } ow) return null;
             if (owLayer1 is not null) return owLayer1;
             var cells = new int[ow.Layer1.Length];
-            for (int i = 0; i < cells.Length; i++) cells[i] = ow.Layer1[i];
+            for (int i = 0; i < cells.Length; i++) cells[i] = ow.Layer1[i] | (ow.HasLevelTable ? ow.Translevels[i] << OwLevelShift : 0);
             var map = new TilemapEdit(cells, OwL1Cols, OwL1Rows, 16,
                                       (x, y) => Overworld.Layer1Index(x, y % Overworld.Rows, y >= Overworld.Rows));
             map.Committed += () =>
             {
-                for (int i = 0; i < cells.Length; i++) ow.Layer1[i] = (ushort)cells[i];
-                ow.ReadTranslevels();
+                for (int i = 0; i < cells.Length; i++)
+                {
+                    ow.Layer1[i] = (ushort)cells[i];
+                    if (ow.HasLevelTable) ow.Translevels[i] = (byte)(cells[i] >> OwLevelShift);
+                }
+                ow.Renumber();
                 if (Project is not null)
                 {
                     Project.Data.Overworld.Layer1 = Convert.ToBase64String(ProjectSession.BytesOf(ow.Layer1));
+                    if (ow.HasLevelTable) Project.Data.Overworld.Translevels = Convert.ToBase64String(ow.Translevels);
                     Project.MarkDirty();
                 }
             };

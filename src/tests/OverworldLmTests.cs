@@ -24,6 +24,53 @@ public class OverworldLmTests(ITestOutputHelper log)
     private static Rom Dogs => Rom.Load(ReferenceRoms.InProject("DogsOfWar", "dogs_of_war.smc"));
     private static Rom BigEye => Rom.Load(ReferenceRoms.InProject("BigEye", "bigeye.smc"));
 
+    /// <summary>On a ROM with Lunar Magic's per-tile level table, the level a tile enters is the
+    /// tile's own: moving the tile takes the number along, and the build writes the table back.
+    /// A vanilla fork stands in for an LM save: the two LZ2 blobs behind LM's operand pattern.</summary>
+    [Fact]
+    public void a_moved_level_tile_keeps_its_level_number_on_an_lm_rom()
+    {
+        if (PreppedRom.Fork() is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        var rom = Rom.Load(p);
+        var levels = new byte[0x800];
+        levels[Overworld.Layer1Index(6, 7, true)] = 0x2A;                  // Mario's start tile enters translevel 0x2A
+        int levelBlob = RatsWriter.Allocate(rom, Gfx.Lz2Compress(levels));
+        int highBlob = RatsWriter.Allocate(rom, Gfx.Lz2Compress(new byte[0x800]));
+        int at = rom.FileOffset(0x04D7F2);
+        foreach (var (blob, k) in new[] { (levelBlob, 0), (highBlob, 9) })
+        {
+            byte[] op = [0xA2, (byte)blob, (byte)(blob >> 8), 0x86, 0x8A, 0xA9, (byte)(blob >> 16), 0x85, 0x8C];   // LDX #addr : STX $8A : LDA #bank : STA $8C
+            op.CopyTo(rom.Data, at + k);
+        }
+        File.WriteAllBytes(p, rom.Data);
+
+        var session = new Services.EditorSession();
+        Assert.True(session.OpenRom(p));
+        var ow = session.Overworld!;
+        Assert.True(ow.HasLevelTable);
+        Assert.Equal(0x2A, ow.TranslevelAt(6, 7, true));
+
+        // The editor's cell carries the number above the tile, so a plain move of the value moves both.
+        var map = session.OwLayer1!;
+        int cell = map.At(6, Overworld.Rows + 7);
+        Assert.Equal(0x2A, cell >> Services.EditorSession.OwLevelShift);
+        Assert.True(map.Stamp(8, Overworld.Rows + 7, cell));
+        Assert.True(map.Stamp(6, Overworld.Rows + 7, 0));
+        Assert.True(map.EndStroke());
+        Assert.Equal(cell & 0xFFFF, ow.Layer1At(8, 7, true));
+        Assert.Equal(0x2A, ow.TranslevelAt(8, 7, true));
+        Assert.Equal(0, ow.TranslevelAt(6, 7, true));
+        Assert.True(map.Undo());
+        Assert.Equal(0x2A, ow.TranslevelAt(6, 7, true));
+        Assert.True(map.Redo());
+
+        // The build packs the table back into LM's blob, where the game reads it.
+        Assert.Null(Overworld.WriteLevelTable(session.Rom!, ow.Translevels));
+        var written = Gfx.Lz2Decompress(session.Rom!.Data, session.Rom.FileOffset(ow.At.LevelTableBlob), 0x1000);
+        Assert.Equal(0x2A, written[Overworld.Layer1Index(8, 7, true)]);
+        Assert.Equal(0, written[Overworld.Layer1Index(6, 7, true)]);
+    }
+
     [Fact]
     public void vanilla_resolves_to_the_vanilla_addresses()
     {
