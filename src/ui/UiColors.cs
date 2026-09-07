@@ -48,6 +48,19 @@ internal static class UiColors
     public static readonly IBrush Sprite = new SolidColorBrush(Color.Parse("#6FE0C0"));
     public static readonly IBrush SpriteFill = new SolidColorBrush(Color.FromArgb(0x30, 0x6F, 0xE0, 0xC0));
 
+    /// <summary>Lunar Magic's overworld path colours, translucent so the land reads through:
+    /// green walks, dark climbs (with rungs drawn over), blue swims, red exits to another map.</summary>
+    public static readonly IBrush PathWalk = new SolidColorBrush(Color.FromArgb(0x90, 0x40, 0xD0, 0x40));
+    public static readonly IBrush PathClimb = new SolidColorBrush(Color.FromArgb(0x70, 0x20, 0x20, 0x20));
+    public static readonly IBrush PathSwim = new SolidColorBrush(Color.FromArgb(0x90, 0x40, 0x90, 0xFF));
+    public static readonly IBrush PathExit = new SolidColorBrush(Color.FromArgb(0xA0, 0xFF, 0x40, 0x40));
+    /// <summary>Badge fills for the overworld's numbers: the event a level fires, a warp's
+    /// index, and the red of a destination nothing leads back from.</summary>
+    public static readonly IBrush EventBadge = new SolidColorBrush(Color.FromArgb(0xD0, 0x6A, 0x3D, 0x9E));
+    public static readonly IBrush EventFill = new SolidColorBrush(Color.FromArgb(0x60, 0x9A, 0x6A, 0xD8));
+    public static readonly IBrush WarpBadge = new SolidColorBrush(Color.FromArgb(0xD0, 0x1C, 0x7A, 0x74));
+    public static readonly IBrush WarpOneWay = new SolidColorBrush(Color.FromArgb(0xD0, 0xB0, 0x20, 0x20));
+
     /// <summary>The desk behind the level — dark grey with lighter diamonds, the ImGui
     /// editor's DrawDeskBackdrop (0xFF101010 under 0xFF1B1B1B diamonds, half-diagonal 16px,
     /// centres every 32px). A tiled brush from one 32x32 bitmap rather than per-diamond

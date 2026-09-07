@@ -63,6 +63,7 @@
                       Condition="Exists('data\SpriteDisplay.json')" />
     <EmbeddedResource Include="data\Map16ActsAs.json" LogicalName="Map16ActsAs.json" />
     <EmbeddedResource Include="data\Map16Tiles.json" LogicalName="Map16Tiles.json" />
+    <EmbeddedResource Include="data\OwPathGlyphs.bin" LogicalName="OwPathGlyphs.bin" />
     <!-- The window icon, which is a runtime resource rather than the exe's. -->
     <AvaloniaResource Include="..\assets\pipe-icon-64.png" Link="assets/pipe-icon-64.png" />
   </ItemGroup>

@@ -47,6 +47,7 @@ public static class ProjectSession
         }
 
         if (data.Overworld.Layer2 is { } ow) rom.OwLayer2 = WordsOf(Convert.FromBase64String(ow));
+        if (data.Overworld.Layer1 is { } ow1) rom.OwLayer1 = WordsOf(Convert.FromBase64String(ow1));
 
         string? warn = RomBuilder.ReplayMap16(rom, data);
         RomBuilder.ReplayEntrances(rom, data);

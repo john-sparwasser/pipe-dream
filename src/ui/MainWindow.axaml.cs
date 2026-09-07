@@ -332,6 +332,7 @@ public partial class MainWindow : Window
                       : gfx ? Pane.Graphics : map16 ? Pane.Map16 : Pane.Level);
 
         RefreshDrawer();
+        if (ReferenceEquals(sender, modePalette)) ApplyPaletteScope();   // its Overworld tab swaps the canvas
         if (map16)
         {
             // Entering the mode adopts whatever the level's picker is armed with — but only on
@@ -427,6 +428,14 @@ public partial class MainWindow : Window
                  && FocusManager?.GetFocusedElement() is not TextBox)
         {
             if (session.ResetMap16Tiles(map16Canvas.SelectedTiles())) RefreshMap16Props();
+            e.Handled = true;
+        }
+        // Delete on an overworld lasso empties it: layer 1 tiles go, land goes back to its
+        // region's fill — whichever layer the tab edits.
+        else if (e.Key is Key.Delete or Key.Back && modeOverworld.IsChecked == true
+                 && FocusManager?.GetFocusedElement() is not TextBox)
+        {
+            OwDeleteSelection();
             e.Handled = true;
         }
         // Browser bindings, and the same keys the GFX canvas's [ ] do for its own sheet: the
@@ -541,6 +550,18 @@ public partial class MainWindow : Window
     // sheet opens at 3x, since a 16-tile-wide column at 1:1 is a sliver; and GFX at 8 screen
     // pixels per GFX pixel, which is what the ImGui editor opened at.
     private double levelZoomPct = 100, gfxZoomPct = 800, map16ZoomPct = 300, bgZoomPct = 200, owZoomPct = 200;
+    private bool owZoomFitted;
+
+    /// <summary>The largest half-step zoom at which the 512 px-wide overworld sits in its viewport
+    /// with no sideways scroll, or null before the pane has a width to measure against. The
+    /// level pane's width stands in when the map has not been laid out yet: it fills the same slot.</summary>
+    private double? FitOwZoom()
+    {
+        double width = Math.Max(this.GetControl<ScrollViewer>("OwScroll").Bounds.Width, this.GetControl<DockPanel>("LevelPane").Bounds.Width);
+        double avail = width - 2 * 16 - 4;                                   // the view's margin, and a little slack for the scrollbar
+        if (avail <= 0) return null;
+        return Math.Clamp(Math.Floor(avail / (Overworld.Cols * 16) * 2) * 50, 100, 800);
+    }
 
     /// <summary>Point the zoom control at a mode: its range, its step, and the value it was left
     /// at. Call it AFTER the mode flags flip — this and <see cref="ApplyZoom"/> read them.</summary>
@@ -549,7 +570,10 @@ public partial class MainWindow : Window
         bool gfx = modeGfx?.IsChecked == true;
         // Read the wanted value first: narrowing the range coerces Value, which lands in the
         // remembered field on the way through.
-        bool bg = modeBg?.IsChecked == true, ow = modeOverworld?.IsChecked == true;
+        bool bg = modeBg?.IsChecked == true, ow = owPane?.IsVisible == true;   // the Palette drawer's Overworld tab shows it too
+        // The map opens as wide as the viewport lets it without a sideways scroll: 512 px of map
+        // at the largest half-step that fits. Once, on first showing; after that the slider rules.
+        if (ow && !owZoomFitted && FitOwZoom() is { } fit) { owZoomPct = fit; owZoomFitted = true; }
         double want = gfx ? gfxZoomPct : modeMap16?.IsChecked == true ? map16ZoomPct
                     : bg ? bgZoomPct : ow ? owZoomPct : levelZoomPct;
         // The level steps in 10%: a fractional zoom is drawn filtered rather than nearest, so it
@@ -586,7 +610,7 @@ public partial class MainWindow : Window
             bgView.InvalidateMeasure();
             bgView.InvalidateVisual();
         }
-        else if (modeOverworld?.IsChecked == true)
+        else if (owPane?.IsVisible == true)
         {
             owZoomPct = pct;
             owView.Zoom = zoom;
@@ -667,7 +691,7 @@ public partial class MainWindow : Window
     private void UpdateReadout()
         => readout.Text = modeGfx.IsChecked == true ? GfxReadout()
                         : modeBg.IsChecked == true ? BgReadout()
-                        : modeOverworld.IsChecked == true ? OwReadout()
+                        : owPane.IsVisible ? OwReadout()
                         : modeMap16.IsChecked == true ? Map16Readout()
                         : LevelReadout();
 
@@ -726,7 +750,7 @@ public partial class MainWindow : Window
         {
             if (redo ? bgMap.Redo() : bgMap.Undo()) { RefreshBg(); UpdateTitle(); }
         }
-        else if (modeOverworld.IsChecked == true && session.OwMap is { } owMap)
+        else if (modeOverworld.IsChecked == true && OwEditNow is { } owMap)
         {
             DropOwFloat();                  // a floating block lands first, so this undo takes it back
             if (redo ? owMap.Redo() : owMap.Undo()) { RefreshOverworld(); UpdateTitle(); }
@@ -761,24 +785,37 @@ public partial class MainWindow : Window
     private void OnToggleAnimate(object? sender, RoutedEventArgs e) => SetAnimating(animate is null);
 
     /// <summary>Run or stop the phase cycle, and keep the menu's checkbox saying which it is.
-    /// Stopping parks on phase 0, the state the level composes to.</summary>
+    /// Stopping parks on phase 0, the state the level composes to, and the overworld on the
+    /// frame Lunar Magic draws.</summary>
     private void SetAnimating(bool on)
     {
         if (on == (animate is not null)) return;
-        if (!on) { animate!.Stop(); animate = null; SetPhase(0); }
+        if (!on) { animate!.Stop(); animate = null; SetPhase(0); AnimateOverworld(reset: true); }
         else
         {
             animate = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(140) };
             // A palette stroke only keeps the phase ON SCREEN in step with the colour being
             // dragged (the other three are recomposed when the stroke ends), so stepping mid
             // drag would flick between the new colour and the old one.
-            animate.Tick += (_, _) => { if (!session.InPaletteStroke) SetPhase((canvas.Phase + 1) & 3); };
+            animate.Tick += (_, _) => { if (!session.InPaletteStroke) SetPhase((canvas.Phase + 1) & 3); AnimateOverworld(); };
             animate.Start();
         }
         animateItem.Icon = on ? new TextBlock { Text = "✓" } : null;
     }
 
     private DispatcherTimer? animate;
+
+    /// <summary>Step the overworld's animated tiles by the eight game frames a tick stands for
+    /// (140 ms is eight frames near enough), while the map is the canvas showing — the sparkles,
+    /// the water and the lava run as the game runs them. Stopping parks them on Lunar Magic's
+    /// frame whether the map is showing or not, so it never comes back mid-cycle.</summary>
+    private void AnimateOverworld(bool reset = false)
+    {
+        if (session.Overworld is not { } ow || (!reset && owPane?.IsVisible != true)) return;
+        ow.Animate(reset ? Overworld.LunarMagicCounter : ow.AnimationCounter + 8);
+        owView.Invalidate();
+        owSheet.Invalidate();
+    }
 
     /// <summary>LevelBitmap uploads a phase the first time it is asked for, so switching is just
     /// a repaint — there is nothing to push here.</summary>

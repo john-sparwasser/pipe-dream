@@ -388,12 +388,32 @@ public static class Gfx
 
                 int tb = TileBytes(bpp), n = data.Length / tb;
                 var tiles = new byte[n][];
-                for (int t = 0; t < n; t++) tiles[t] = DecodeTile(data, t * tb, bpp);
+                for (int t = 0; t < n; t++)
+                {
+                    tiles[t] = DecodeTile(data, t * tb, bpp);
+                    if (UploaderAddsPlane3(rom, file, tileset))
+                        for (int i = 0; i < 64; i++) if (tiles[t][i] != 0) tiles[t][i] |= 8;
+                }
                 f.slots[s] = tiles;
             }
             if (levelAnimation) f.OverlayAnimatedTiles(rom, tileset, animPhase, level);   // animated tiles (§12, §12e)
             return f;
         }
+
+        /// <summary>
+        /// Whether the game's upload ($00AA80) gives this tile a fourth plane that is the OR of
+        /// its other three, landing every drawn pixel in colours 8-F of its row: the file the
+        /// compare at $00AA91 names (GFX1E) always, and the one at $00AA8D (GFX08) on the
+        /// overworld tilesets (0x11+). The overworld's castles, stars and signs are painted for
+        /// those colours. Lunar Magic's 4bpp mode bakes the plane into those two files and points
+        /// both compares at GFX32, so reading the bytes follows either ROM; ours (prep v4) keeps
+        /// the compares and still synthesizes, as RomPrep.Stamps says. The routine's other case —
+        /// tiles 6E/6F/7E/7F of GFX01 and GFX17 — is left out on purpose: Lunar Magic draws those
+        /// level tiles from the file as it is, and the level editor follows Lunar Magic.
+        /// </summary>
+        private static bool UploaderAddsPlane3(Rom rom, int file, int tileset)
+            => file == rom.ReadByte(0x00AA91)
+            || (file == rom.ReadByte(0x00AA8D) && tileset >= 0x11);
 
         public byte[] Fetch(int tileNum)
         {
@@ -751,6 +771,21 @@ public static class Gfx
         FlushLit(data.Length);
         outp.Add(0xFF);
         return outp.ToArray();
+    }
+
+    /// <summary>How many bytes the LC_LZ2 data at file offset <paramref name="p"/> takes, its
+    /// 0xFF end included — the room a table packed in place has to fit.</summary>
+    public static int Lz2Length(byte[] src, int p)
+    {
+        int start = p;
+        while (true)
+        {
+            int header = src[p++];
+            if (header == 0xFF) return p - start;
+            int cmd = header >> 5, length = (header & 0x1F) + 1;
+            if (cmd == 7) { cmd = (header >> 2) & 7; length = (((header & 3) << 8) | src[p++]) + 1; }
+            p += cmd switch { 0 => length, 1 => 1, 2 => 2, 3 => 1, 4 => 2, _ => throw new InvalidDataException($"LC_LZ2: bad command {cmd} at src offset {p}") };
+        }
     }
 
     /// <summary>

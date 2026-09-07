@@ -22,6 +22,10 @@ internal static class Overlay
     private static readonly Pen RingUnder = new(Brushes.Black, 3);
     private static readonly Pen RingOver = new(Brushes.White, 1.5);
     private static readonly Pen RingSelected = new(UiColors.Selection, 1.5);
+    private static readonly Pen BadgeEdge = new(Brushes.Black, 1);
+    private static readonly Pen Rung = new(Brushes.Black, 1.5);
+    private static readonly Pen Cross = new(Brushes.Black, 2);
+    private static readonly IBrush BadgeFill = new SolidColorBrush(Color.FromArgb(0xC8, 0x14, 0x14, 0x18));
 
     /// <summary>A settled selection: translucent fill under a ring.</summary>
     public static void Selection(DrawingContext ctx, Rect r) => ctx.DrawRectangle(UiColors.SelectionFill, SelectionPen, r);
@@ -90,5 +94,44 @@ internal static class Overlay
     {
         var t = Text(s, size, ink);
         DrawText(ctx, t, size, centre.X - t.Width / 2, centre.Y);
+    }
+
+    /// <summary>A small text badge — digits on a dark box — with its top-left at <paramref name="at"/>.
+    /// Returns the box so a caller can stack the next one under it.</summary>
+    public static Rect Badge(DrawingContext ctx, string s, double size, Point at, IBrush? fill = null, IBrush? ink = null)
+    {
+        var t = Text(s, size, ink);
+        var box = new Rect(at.X, at.Y, t.Width + size * 0.5, size * 1.3);
+        ctx.DrawRectangle(fill ?? BadgeFill, BadgeEdge, box, 2, 2);
+        DrawText(ctx, t, size, box.X + size * 0.25, box.Center.Y);
+        return box;
+    }
+
+    /// <summary>The land an event step lays down: a filled, outlined footprint in the event hue.</summary>
+    public static void EventPiece(DrawingContext ctx, Rect r) => ctx.DrawRectangle(UiColors.EventFill, EventEdge, r);
+    private static readonly Pen EventEdge = new(UiColors.EventBadge, 1.5);
+
+    /// <summary>Lunar Magic's colours over an invisible layer 1 path cell: a translucent fill in
+    /// the kind's hue, rungs across a climb, an X where Mario can stand but not enter.</summary>
+    public static void Path(DrawingContext ctx, Rect r, Overworld.PathKind kind)
+    {
+        switch (kind)
+        {
+            case Overworld.PathKind.Walk: ctx.FillRectangle(UiColors.PathWalk, r); break;
+            case Overworld.PathKind.Swim: ctx.FillRectangle(UiColors.PathSwim, r); break;
+            case Overworld.PathKind.Exit: ctx.FillRectangle(UiColors.PathExit, r); break;
+            case Overworld.PathKind.Climb:
+                ctx.FillRectangle(UiColors.PathClimb, r);
+                for (int i = 1; i <= 3; i++)
+                {
+                    double y = r.Top + r.Height * i / 4;
+                    ctx.DrawLine(Rung, new Point(r.Left + 2, y), new Point(r.Right - 2, y));
+                }
+                break;
+            case Overworld.PathKind.Stop:
+                ctx.DrawLine(Cross, new Point(r.Left + 3, r.Top + 3), new Point(r.Right - 3, r.Bottom - 3));
+                ctx.DrawLine(Cross, new Point(r.Right - 3, r.Top + 3), new Point(r.Left + 3, r.Bottom - 3));
+                break;
+        }
     }
 }

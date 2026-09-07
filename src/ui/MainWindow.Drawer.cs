@@ -71,15 +71,23 @@ public partial class MainWindow
         paletteGrid = this.GetControl<PaletteGridView>("PaletteGrid");
         paletteNote = this.GetControl<TextBlock>("PaletteNote");
         paletteIndex = this.GetControl<TextBlock>("PaletteIndex");
+        paletteReset = this.GetControl<Button>("PaletteReset");
+        palScopeTabs = this.GetControl<TabStrip>("PalScopeTabs");
+        palSubmapRow = this.GetControl<StackPanel>("PalSubmapRow");
+        palSubmap = this.GetControl<ComboBox>("PalSubmap");
+        foreach (var name in SubmapNames) palSubmap.Items.Add(name);
+        palSubmap.SelectedIndex = 0;
+        palScopeTabs.SelectionChanged += (_, _) => ApplyPaletteScope();
+        palSubmap.SelectionChanged += (_, _) => { if (palettePanel.IsVisible) RefreshPaletteTab(); };
 
-        paletteGrid.IsEdited = session.IsPaletteEdited;
+        paletteGrid.IsEdited = i => !PaletteScopeOverworld && session.IsPaletteEdited(i);
         paletteGrid.Describe = SwatchRgb;       // the hover tip is the colour; the readout below says the rest
         paletteGrid.SelectionChanged += (_, i) => { paletteBg.Select(-1); ShowPaletteColor(i); OpenPicker(); };
         // The background colour (CGRAM 0) lives in its own swatch above the grid; selection is
         // still paletteGrid.Selected — the swatch just points it at index 0.
         paletteBg = this.GetControl<PaletteGridView>("PaletteBg");
         paletteGrid.HideFirst = true;
-        paletteBg.IsEdited = _ => session.IsPaletteEdited(0);
+        paletteBg.IsEdited = _ => !PaletteScopeOverworld && session.IsPaletteEdited(0);
         paletteBg.Describe = _ => SwatchRgb(0);
         // The grid fits the drawer, so the drawer's width is its zoom (splitter or Alt/Cmd+wheel,
         // like every drawer sheet); the lone background swatch above it keeps the same cell size.

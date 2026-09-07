@@ -58,6 +58,15 @@ public sealed class TilemapView : Control
     /// <summary>A cell value → its CellPx × CellPx pixels, or null when it draws nothing.</summary>
     public Func<int, uint[]?>? CellPixels { get; set; }
 
+    /// <summary>The grain a lasso, a move or a grow snaps to, as the block of cells a cell belongs
+    /// to — a 16x16 tile over an 8x8 canvas, say, whose grid need not line up with the cells'
+    /// own (the overworld's lower map is offset by a cell). Null: every cell is its own block.</summary>
+    public Func<int, int, (int X, int Y, int W, int H)>? Snap { get; set; }
+
+    /// <summary>The layer being edited is the overlay, not the cells: the drag preview of the
+    /// cells is wrong for it, so the owner draws its own (through OverlayPixels) and this draws none.</summary>
+    public bool EditsOverlay { get; set; }
+
     /// <summary>A second layer drawn over the cells, by (column, row) cell index, transparent
     /// where 0: something to see the map THROUGH — the overworld's level tiles above the land
     /// being painted. It is context only: a lasso, a drag preview and a paint never touch it.</summary>
@@ -70,6 +79,10 @@ public sealed class TilemapView : Control
     /// map's fill under a block being lifted, the map itself under one already floating — so the
     /// hole reads as what will be there, not as a black gap. Null paints the backdrop.</summary>
     public Func<int, int, uint[]?>? HolePixels { get; set; }
+
+    /// <summary>Chrome drawn over everything each frame, given the on-screen size of one cell:
+    /// labels and marks that must read at any zoom and are never part of a stroke.</summary>
+    public Action<DrawingContext, double>? Decorate { get; set; }
 
     /// <summary>Drawer mode with a block brush: a left DRAG lassos a rectangle of the sheet and
     /// raises <see cref="BlockPicked"/> — the level's Tiles drawer gesture — while a click still
@@ -235,8 +248,9 @@ public sealed class TilemapView : Control
         if (bmp is null) { ctx.FillRectangle(Brushes.Black, full); return; }
         blit.Draw(this, ctx, bmp, new Rect(0, 0, surfW, surfH), full, VisualRoot?.RenderScaling ?? 1);
         // The block being dragged travels UNDER the overlay layer, where it will land.
-        if (LiveDrag is { } drag) DrawDragPreview(ctx, drag);
+        if (LiveDrag is { } drag && !EditsOverlay) DrawDragPreview(ctx, drag);
         if (overlayBmp is { } over) overlayBlit.Draw(this, ctx, over, new Rect(0, 0, surfW, surfH), full, VisualRoot?.RenderScaling ?? 1);
+        Decorate?.Invoke(ctx, Step);
 
         // The armed tile wears the same ring as the Map16 and 8x8 drawers' picks.
         if (Selected is { } sel && Cols > 0) Overlay.Armed(ctx, CellRect((sel % Cols, sel / Cols, 1, 1)));
@@ -245,7 +259,7 @@ public sealed class TilemapView : Control
         // stamp footprint instead, which with a lasso up put a second rectangle of exactly the
         // selection's size chasing the pointer around the selection itself — two reticles for
         // one gesture, and the drawn one is the one you can grab.
-        if (hover is { } h && !PickOnLeft && Selection is null) Overlay.Band(ctx, CellRect((h.Col, h.Row, 1, 1)));
+        if (hover is { } h && !PickOnLeft && Selection is null) Overlay.Band(ctx, CellRect(Snap?.Invoke(h.Col, h.Row) ?? (h.Col, h.Row, 1, 1)));
         if (Selection is { } grips && !PickOnLeft) Grips.Draw(ctx, CellRect(grips), GripPx);
     }
 
@@ -446,8 +460,8 @@ public sealed class TilemapView : Control
         {
             // Clamped: a fast drag past an edge lands ON the edge rather than stopping dead.
             if (Lasso.Clamped(p, Step, Cols, Rows) is not { } cell) return;
-            SetSelection(dragEdge == (0, 0) ? Lasso.Moved(from, dragGrab, cell, Cols, Rows)
-                                            : Grips.Resized(from, dragEdge, cell));
+            SetSelection(dragEdge == (0, 0) ? Snapped(Lasso.Moved(from, dragGrab, cell, Cols, Rows), keepSize: true)
+                                            : Snapped(Grips.Resized(from, dragEdge, cell)));
             return;
         }
         if (lassoStart is not null && At(p) is { } l) ExtendSelection(l.Col, l.Row);
@@ -485,7 +499,19 @@ public sealed class TilemapView : Control
 
     private void SetLasso((int Col, int Row) to)
     {
-        if (lassoStart is { } from) SetSelection(Lasso.Span(from, to));
+        if (lassoStart is { } from) SetSelection(Snapped(Lasso.Span(from, to)));
+    }
+
+    /// <summary>The rectangle on the snap grid: its corners' blocks, spanned — or, for a move,
+    /// the block its corner lands in with the size it had, so a block dragged between the
+    /// overworld's two maps lands on the grid of the map it arrives in.</summary>
+    private (int X, int Y, int W, int H) Snapped((int X, int Y, int W, int H) r, bool keepSize = false)
+    {
+        if (Snap is not { } snap) return r;
+        var a = snap(r.X, r.Y);
+        if (keepSize) return (a.X, a.Y, r.W, r.H);
+        var b = snap(r.X + r.W - 1, r.Y + r.H - 1);
+        return Lasso.Span((a.X, a.Y), (b.X + b.W - 1, b.Y + b.H - 1));
     }
 
     private void SetSelection((int X, int Y, int W, int H) next)

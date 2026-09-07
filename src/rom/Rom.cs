@@ -296,6 +296,11 @@ public sealed class Rom
     /// into the streams' space at build time.</summary>
     public ushort[]? OwLayer2;
 
+    /// <summary>The edited overworld layer 1: 0x800 Map16 tile numbers, or null to read the
+    /// ROM's bytes (and Lunar Magic's high-byte table). Hydrated from the project and written
+    /// back at build time (<see cref="Overworld.WriteLayer1"/>).</summary>
+    public ushort[]? OwLayer1;
+
     /// <summary>Imported layer-3 tilemaps: level → a flat 16-bit map, LM's LT3 file shape
     /// (0x800/0x1000/0x2000 bytes). Replaces vanilla's (level mode, option) pick for that level
     /// wherever <see cref="Layer3.LevelTilemap"/> is asked. Hydrated from / stashed to

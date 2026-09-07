@@ -60,6 +60,9 @@ public sealed class ProjectFile
         /// <summary>Layer 2 as 0x2000 little-endian tilemap words, base64 — the decoded shape of
         /// the ROM's two RLE streams (<see cref="PipeDream.Overworld.DecodeLayer2"/>).</summary>
         public string? Layer2 { get; set; }
+        /// <summary>Layer 1 as 0x800 little-endian Map16 tile numbers, base64 — the engine's
+        /// index order (<see cref="PipeDream.Overworld.Layer1Index"/>).</summary>
+        public string? Layer1 { get; set; }
     }
 
     public sealed class TilemapPreset

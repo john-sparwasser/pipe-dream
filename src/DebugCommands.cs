@@ -43,7 +43,7 @@ static class DebugCommands
                                     for (int r = 0; r < 8; r++) Console.WriteLine($"row {r}: " + string.Join(" ", Enumerable.Range(0, 16).Select(c => $"{pal.Bgr[r * 16 + c]:X4}"))); return 0; }),
         // --owl1 <rom> x y : a layer 1 cell's tile, its four words, and the palette rows they draw with (y >= 32 = submap map).
         ("--owl1",              (a, i) => { var ow = new Overworld(Rom.Load(a[i + 1])); int x = int.Parse(a[i + 2]), y = int.Parse(a[i + 3]); bool sub = y >= 32; y %= 32;
-                                    int t = ow.Layer1At(x, y, sub), sm = Overworld.SubmapAt(x, y, sub), d = ow.Rom.FileOffset(Overworld.Map16Defs) + t * 8; var pal = ow.PaletteOf(sm);
+                                    int t = ow.Layer1At(x, y, sub), sm = Overworld.SubmapAt(x, y, sub), d = ow.Rom.FileOffset(ow.At.Map16Defs) + t * 8; var pal = ow.PaletteOf(sm);
                                     Console.WriteLine($"cell ({x},{y}{(sub ? "s" : "")}) submap {sm}: layer 1 tile {t:X2}");
                                     var fgt = Gfx.FgTiles.Load(ow.Rom, Overworld.Tileset + sm, levelAnimation: false);
                                     for (int q = 0; q < 4; q++) { var w = new Map16.Word((ushort)(ow.Rom.Data[d + q * 2] | ow.Rom.Data[d + q * 2 + 1] << 8));
@@ -66,15 +66,15 @@ static class DebugCommands
                                     Console.WriteLine($"GFX{f:X2}: {g.Length / tb} tiles, blank: " + string.Join(" ", Enumerable.Range(0, g.Length / tb).Where(t => Gfx.DecodeTile(g, t * tb, bpp).All(b => b == 0)).Select(t => $"{t:X2}"))); return 0; }),
         // --owpal <rom> : which palette rows the overworld's layer 1 defs and layer 2 words use.
         ("--owpal",             (a, i) => { var ow = new Overworld(Rom.Load(a[i + 1])); var l1 = new int[8]; var l2 = new int[8];
-                                    int d = ow.Rom.FileOffset(Overworld.Map16Defs);
-                                    for (int t = 0; t < Overworld.Map16Count; t++) for (int q = 0; q < 4; q++) { int w = ow.Rom.Data[d + t * 8 + q * 2] | ow.Rom.Data[d + t * 8 + q * 2 + 1] << 8; if ((w & 0x3FF) != 0) l1[(w >> 10) & 7]++; }
+                                    int d = ow.Rom.FileOffset(ow.At.Map16Defs);
+                                    for (int t = 0; t < ow.Map16Count; t++) for (int q = 0; q < 4; q++) { int w = ow.Rom.Data[d + t * 8 + q * 2] | ow.Rom.Data[d + t * 8 + q * 2 + 1] << 8; if ((w & 0x3FF) != 0) l1[(w >> 10) & 7]++; }
                                     foreach (var w in ow.Layer2) l2[(w >> 10) & 7]++;
                                     Console.WriteLine("layer 1 quadrants by palette row: " + string.Join(" ", l1.Select((n, r) => $"{r}:{n}")));
                                     var fg = Gfx.FgTiles.Load(ow.Rom, Overworld.Tileset, levelAnimation: false); var use = new int[8, 16];
-                                    for (int t = 0; t < Overworld.Map16Count; t++) for (int q = 0; q < 4; q++) { int w = ow.Rom.Data[d + t * 8 + q * 2] | ow.Rom.Data[d + t * 8 + q * 2 + 1] << 8; foreach (var b in fg.Fetch(w & 0x3FF).Distinct()) use[(w >> 10) & 7, b]++; }
+                                    for (int t = 0; t < ow.Map16Count; t++) for (int q = 0; q < 4; q++) { int w = ow.Rom.Data[d + t * 8 + q * 2] | ow.Rom.Data[d + t * 8 + q * 2 + 1] << 8; foreach (var b in fg.Fetch(w & 0x3FF).Distinct()) use[(w >> 10) & 7, b]++; }
                                     for (int r = 0; r < 8; r++) Console.WriteLine($"  row {r} colour indices used (count of quadrants): " + string.Join(" ", Enumerable.Range(1, 15).Where(c => use[r, c] > 0).Select(c => $"{c:X}:{use[r, c]}")));
                                     var byTile = new SortedDictionary<int, string>();
-                                    for (int t = 0; t < Overworld.Map16Count; t++) for (int q = 0; q < 4; q++) { int w = ow.Rom.Data[d + t * 8 + q * 2] | ow.Rom.Data[d + t * 8 + q * 2 + 1] << 8; int r = (w >> 10) & 7; if (r < 4 && fg.Fetch(w & 0x3FF).Any(b => b != 0)) byTile[t] = (byTile.GetValueOrDefault(t) ?? "") + $" q{q}:tile{w & 0x3FF:X3}/row{r}"; }
+                                    for (int t = 0; t < ow.Map16Count; t++) for (int q = 0; q < 4; q++) { int w = ow.Rom.Data[d + t * 8 + q * 2] | ow.Rom.Data[d + t * 8 + q * 2 + 1] << 8; int r = (w >> 10) & 7; if (r < 4 && fg.Fetch(w & 0x3FF).Any(b => b != 0)) byTile[t] = (byTile.GetValueOrDefault(t) ?? "") + $" q{q}:tile{w & 0x3FF:X3}/row{r}"; }
                                     Console.WriteLine("layer 1 tiles drawing in rows 0-3: " + string.Join("; ", byTile.Select(kv => $"{kv.Key:X2}:{kv.Value}")));
                                     var where = new Dictionary<int, List<string>>();
                                     for (int k = 0; k < 0x800; k++) { int t = ow.Layer1[k]; if (byTile.ContainsKey(t)) { int x = (k & 0xF) | ((k >> 8) & 1) << 4, y = ((k >> 4) & 0xF) | ((k >> 9) & 1) << 4; (where.TryGetValue(t, out var l) ? l : where[t] = []).Add($"({x},{y}{(k >= 0x400 ? "s" : "")})"); } }

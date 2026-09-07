@@ -20,9 +20,42 @@ namespace PipeDream.Ui;
 public partial class MainWindow
 {
     private CheckBox paletteLayer3 = null!;
+    private Button paletteReset = null!;
 
     private PaletteGridView paletteGrid = null!, paletteBg = null!;
     private TextBlock paletteNote = null!, paletteIndex = null!;
+
+    /// <summary>The drawer's Level / Overworld tab, and the submap whose palette the Overworld tab shows.</summary>
+    private TabStrip palScopeTabs = null!;
+    private ComboBox palSubmap = null!;
+    private StackPanel palSubmapRow = null!;
+    private static readonly string[] SubmapNames =
+        ["Main map", "Yoshi's Island", "Vanilla Dome", "Forest of Illusion", "Valley of Bowser", "Special World", "Star World"];
+    private bool PaletteScopeOverworld => palScopeTabs.SelectedIndex == 1;
+
+    /// <summary>The submap palette under the Overworld tab, or null on the Level tab or without a ROM.</summary>
+    private Palette? OwPalette => PaletteScopeOverworld ? session.Overworld?.PaletteOf(Math.Max(0, palSubmap.SelectedIndex)) : null;
+
+    /// <summary>A swatch's colour wherever the drawer is pointed: the level's CGRAM, or the submap's.</summary>
+    private ushort SwatchBgr(int index) => OwPalette is { } p ? p.Bgr[index] : session.PaletteBgr(index);
+
+    /// <summary>
+    /// The Palette drawer's tab decides which canvas sits beside it: the level for the level's
+    /// colours, the overworld for a submap's — colours are read against the picture they colour.
+    /// Runs on the tab and on entering the mode. ponytail: the overworld palettes are shown, not
+    /// edited — LM writes them back into the vanilla tables in place, which is the next step.
+    /// </summary>
+    private void ApplyPaletteScope()
+    {
+        if (modePalette.IsChecked != true) return;
+        bool ow = PaletteScopeOverworld;
+        this.GetControl<DockPanel>("LevelPane").IsVisible = !ow;
+        owPane.IsVisible = ow;
+        ApplyZoomTarget();                                   // the slider drives whichever canvas is showing
+        if (ow) RefreshOverworld();
+        paletteGrid.Select(-1);
+        RefreshPaletteTab();
+    }
 
     /// <summary>The colour picker and the flyout that shows it over the clicked swatch. The
     /// panel is held directly rather than reached through the flyout, whose content lives in its
@@ -40,8 +73,12 @@ public partial class MainWindow
         // 00-1F. Four wide by eight tall over that range is group-major for free — grid row g IS
         // palette group g — so nothing has to remap indices: a swatch's position in this view and
         // its CGRAM number stay the same thing, and edits, tooltips and the picker are unchanged.
-        bool l3 = paletteLayer3.IsChecked == true;
-        var all = session.PaletteRgba;
+        bool ow = PaletteScopeOverworld;
+        palSubmapRow.IsVisible = ow;
+        paletteLayer3.IsVisible = !ow;          // layer 3's reach and the level's reset are the level's business
+        paletteReset.IsVisible = !ow;
+        bool l3 = !ow && paletteLayer3.IsChecked == true;
+        var all = ow ? OwPalette?.Rgba ?? new uint[256] : session.PaletteRgba;
         paletteGrid.Cols = l3 ? Layer3.PaletteColors : 16;
         paletteGrid.Rows = l3 ? Layer3.PaletteGroups : 16;
         paletteGrid.Colors = l3 ? [.. all.Take(Layer3.PaletteSpace)] : all;
@@ -50,8 +87,10 @@ public partial class MainWindow
         paletteBg.InvalidateVisual();
         // Just the provenance: which palette you are editing, and whether you have moved it. The
         // rest was a paragraph explaining a grid that explains itself.
-        paletteNote.Text = (session.HasCustomPalette ? "LM custom palette" : "vanilla")
-                         + (session.PaletteEditCount > 0 ? $"  —  {session.PaletteEditCount} edit(s)" : "");
+        paletteNote.Text = ow
+            ? $"overworld — {SubmapNames[Math.Max(0, palSubmap.SelectedIndex)]}: the level loader's colours under the overworld's own ($00AD25). Shown, not edited yet."
+            : (session.HasCustomPalette ? "LM custom palette" : "vanilla")
+              + (session.PaletteEditCount > 0 ? $"  —  {session.PaletteEditCount} edit(s)" : "");
         ShowPaletteColor(paletteGrid.Selected);
     }
 
@@ -92,14 +131,14 @@ public partial class MainWindow
 
     /// <summary>The swatch hover text, as the ImGui grid had it.</summary>
     private string DescribeSwatch(int index)
-        => $"0x{index:X2} r{index >> 4} c{index & 15}  {session.PaletteBgr(index):X4}"
-         + (session.IsPaletteEdited(index) ? "  (edited)" : "");
+        => $"0x{index:X2} r{index >> 4} c{index & 15}  {SwatchBgr(index):X4}"
+         + (!PaletteScopeOverworld && session.IsPaletteEdited(index) ? "  (edited)" : "");
 
     /// <summary>A swatch's colour, for the hover tip: the five-bit channels the picker's sliders
     /// use, then the 24-bit hex they display as.</summary>
     private string SwatchRgb(int index)
     {
-        ushort bgr = session.PaletteBgr(index);
+        ushort bgr = SwatchBgr(index);
         uint rgba = EditorSession.Rgba(bgr);
         return $"R{bgr & 31} G{bgr >> 5 & 31} B{bgr >> 10 & 31}  #{rgba & 0xFF:X2}{rgba >> 8 & 0xFF:X2}{rgba >> 16 & 0xFF:X2}";
     }
@@ -110,7 +149,7 @@ public partial class MainWindow
     /// is quantised behind the user's back the way a 24-bit picker would.</summary>
     private void OpenPicker()
     {
-        if (paletteGrid.Selected < 0) return;
+        if (paletteGrid.Selected < 0 || PaletteScopeOverworld) return;     // the overworld's colours are read-only here
         loadingSwatch = true;
         picker.Begin(session.PaletteBgr(paletteGrid.Selected));
         loadingSwatch = false;
