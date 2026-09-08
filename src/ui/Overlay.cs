@@ -37,6 +37,10 @@ internal static class Overlay
     /// <summary>A live rubber band, before it settles into a selection.</summary>
     public static void Band(DrawingContext ctx, Rect r) => ctx.DrawRectangle(null, BandPen, r);
 
+    /// <summary>The cell the pointer is over: lit up, not ringed. Its own mark rather than a
+    /// second use of <see cref="Band"/>, which is the rubber band three other canvases draw.</summary>
+    public static void Hover(DrawingContext ctx, Rect r) => ctx.DrawRectangle(UiColors.HoverFill, null, r);
+
     /// <summary>A band that takes tiles as a brush rather than selecting — its own hue, because
     /// the two gestures look identical otherwise and do very different things.</summary>
     public static void Grab(DrawingContext ctx, Rect r) => ctx.DrawRectangle(null, GrabPen, r);

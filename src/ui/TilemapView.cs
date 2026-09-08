@@ -269,7 +269,7 @@ public sealed class TilemapView : Control
         // stamp footprint instead, which with a lasso up put a second rectangle of exactly the
         // selection's size chasing the pointer around the selection itself — two reticles for
         // one gesture, and the drawn one is the one you can grab.
-        if (hover is { } h && !PickOnLeft && Selection is null) Overlay.Band(ctx, CellRect(Snap?.Invoke(h.Col, h.Row) ?? (h.Col, h.Row, 1, 1)));
+        if (hover is { } h && !PickOnLeft && Selection is null) Overlay.Hover(ctx, CellRect(Snap?.Invoke(h.Col, h.Row) ?? (h.Col, h.Row, 1, 1)));
         if (Selection is { } grips && !PickOnLeft && Resizable) Grips.Draw(ctx, CellRect(grips), GripPx);
     }
 

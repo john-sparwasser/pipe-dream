@@ -29,6 +29,13 @@ internal static class UiColors
     /// <summary>A live rubber band, before it settles into a selection.</summary>
     public static readonly IBrush Band = new SolidColorBrush(Color.Parse("#7FD4F5"));
 
+    /// <summary>The cell under the pointer: a wash that LIGHTENS what is already there rather
+    /// than an outline around it. Hover is the one piece of chrome that says "this one" without
+    /// the user having done anything yet, so it stays quieter than a band or a selection —
+    /// and on pixel art an empty ring reads as a box drawn ON the map, while a tint reads as
+    /// the map itself lighting up.</summary>
+    public static readonly IBrush HoverFill = new SolidColorBrush(Color.FromArgb(0x3C, 0xFF, 0xFF, 0xFF));
+
     /// <summary>Grabbing tiles rather than selecting — deliberately a different hue, because
     /// the two gestures look identical otherwise and do very different things.</summary>
     public static readonly IBrush Grab = new SolidColorBrush(Color.Parse("#5FD08A"));

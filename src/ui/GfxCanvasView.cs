@@ -387,6 +387,6 @@ public class GfxCanvasView : Control
         // would land only competes with the marquee it is actually there to drag.
         if (Selecting || Hover is not { } h) return;
         Overlay.Outline(ctx, new Rect(h.X * z, h.Y * z, z, z));
-        Overlay.Band(ctx, new Rect((h.X & ~7) * z, (h.Y & ~7) * z, 8 * z, 8 * z));
+        Overlay.Hover(ctx, new Rect((h.X & ~7) * z, (h.Y & ~7) * z, 8 * z, 8 * z));
     }
 }
