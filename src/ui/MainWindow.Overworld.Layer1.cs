@@ -146,10 +146,13 @@ public partial class MainWindow
             double step = owView.CellPx * owView.Zoom;
             double h2 = btn.Bounds.Height > 0 ? btn.Bounds.Height : 20;   // 0 until it has been laid out once
             // Viewport coordinates: the map's own margin, the tile, less how far the view is
-            // scrolled. The bottom-left of the tile — the level and event badges take the top-left.
+            // scrolled. Up and to the RIGHT of the tile, clear of it — the tile is what you are
+            // looking at, and the level and event badges already sit inside its top-left corner.
+            // Against the top edge of the map it sits level with the tile instead of above it.
+            const double gap = 2;
             var off = this.FindControl<ScrollViewer>("OwScroll")?.Offset ?? default;
-            btn.Margin = new Thickness(owView.Margin.Left + c * step - off.X,
-                                       owView.Margin.Top + (r + 2) * step - h2 - off.Y, 0, 0);
+            btn.Margin = new Thickness(owView.Margin.Left + (c + 2) * step + gap - off.X,
+                                       owView.Margin.Top + Math.Max(0, r * step - h2 - gap) - off.Y, 0, 0);
             owEditTile = (x, y);
         }
         btn.IsVisible = owEditTile is not null;

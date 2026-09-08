@@ -397,10 +397,10 @@ public class OverworldTests(ITestOutputHelper log)
         void Hover(int c, int r) { Place(w, (c, r)); Dispatcher.UIThread.RunJobs(); }
         Hover(lc, lr);
         Assert.True(btn.IsVisible, "no Edit button on a level tile");
-        // It sits at the tile's bottom-left corner, in the viewport's coordinates — the map's own
-        // margin included, so it lands on the tile rather than 16px up and left of it.
-        Assert.Equal(view.Margin.Left + lc * step, btn.Margin.Left, 1);
-        Assert.InRange(btn.Margin.Top, view.Margin.Top + (lr - 1) * step, view.Margin.Top + (lr + 2) * step);
+        // It sits clear of the tile, up and to its right, in the viewport's coordinates — the
+        // map's own margin included, so it lands beside the tile rather than 16px up and left.
+        Assert.Equal(view.Margin.Left + (lc + 2) * step + 2, btn.Margin.Left, 1);
+        Assert.InRange(btn.Margin.Top, view.Margin.Top, view.Margin.Top + lr * step);
 
         // Off it again: the sea at the map's corner is not a level tile.
         Assert.Null(session.OwLevelTileAt(0, 0));
