@@ -155,7 +155,7 @@ public sealed partial class EditorSession
     public uint[]? Ow8TileOverlay(int tile, int col, int row, bool paths)
     {
         if (tile < 0 || Overworld is not { } ow || !OwMapCell(col, row, out int cx, out int cy, out _)) return null;
-        var img = Quarter(ow.Map16Pixels(tile, OwSubmapShown(col, row)), cx, cy);
+        var img = Quarter(ow.Layer1Art(tile, OwSubmapShown(col, row)), cx, cy);
         if (paths && Overworld.PathGlyph(tile) is { } g) Over(img, Quarter(g, cx, cy));
         return img;
     }

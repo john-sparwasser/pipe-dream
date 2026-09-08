@@ -22,15 +22,25 @@ public partial class MainWindow
     /// so the move shows before it lands. Written on release, as one stroke.</summary>
     private TilemapView.SelectionDrag? owL1Drag;
 
-    /// <summary>A layer 1 tile for the drawer: its art, with Lunar Magic's picture over it while
-    /// the Paths view is on — path tiles are blank art, and the picture is what tells them apart.</summary>
+    /// <summary>A layer 1 tile for the drawer: its art (a hidden tile as the level it becomes,
+    /// translucent, laid on the sheet's grey), with Lunar Magic's picture over it while the Paths
+    /// view is on — path tiles are blank art, and the picture is what tells them apart.</summary>
     private uint[] OwSheetTile(Overworld ow, int t)
     {
-        var art = ow.Map16Pixels(t, 0);
-        if (owShowPaths.IsChecked != true || Overworld.PathGlyph(t) is not { } g) return art;
-        var img = (uint[])art.Clone();
-        for (int i = 0; i < img.Length; i++) if (g[i] != 0) img[i] = g[i];
+        var img = (uint[])ow.Layer1Art(t, 0).Clone();
+        for (int i = 0; i < img.Length; i++)
+            if (img[i] >> 24 is > 0 and < 0xFF) img[i] = OverGrey(img[i]);        // the ghost, settled on the sheet
+        if (owShowPaths.IsChecked == true && Overworld.PathGlyph(t) is { } g)
+            for (int i = 0; i < img.Length; i++) if (g[i] != 0) img[i] = g[i];
         return img;
+    }
+
+    /// <summary>A translucent, premultiplied pixel settled onto the sheet's grey (0x303030), opaque.</summary>
+    private static uint OverGrey(uint c)
+    {
+        uint a = c >> 24;
+        uint Ch(int shift) => (((c >> shift) & 0xFF) + 0x30u * (255 - a) / 255) << shift;
+        return 0xFF000000 | Ch(0) | Ch(8) | Ch(16);
     }
 
     /// <summary>The overlay on the Paths &amp; Levels tab: layer 1 with the path pictures, and a

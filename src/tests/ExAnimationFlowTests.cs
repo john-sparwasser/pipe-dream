@@ -80,4 +80,35 @@ public class ExAnimationFlowTests(ITestOutputHelper log) : IDisposable
         Assert.False(s.ReassignExAnimSlot(global: false, from: 5, to: 1));   // 1 is taken
         Assert.False(s.ReassignExAnimSlot(global: false, from: 5, to: 0x20)); // out of range
     }
+
+    /// <summary>The Animations mode's Overworld tab points the level path at a submap's list. No
+    /// base carries Lunar Magic's overworld ExAnimation hack yet, so the index is unknown and a
+    /// write is refused with the reason rather than landing bytes at a guessed table entry
+    /// (reference/EXANIMATION.md §10).</summary>
+    [Fact]
+    public void a_submap_list_is_refused_until_lunar_magics_overworld_hack_is_carried()
+    {
+        if (PreppedRom.Fork() is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new EditorSession();
+        Assert.True(s.OpenRom(p));
+        var slot = new ExAnimation.Slot(0, 1, ExAnimation.TriggerNone, 1, 0x0000, [0x7D00], 0);
+
+        s.ExAnimSubmap = -1;                                    // the level: writes as ever
+        Assert.Equal(s.LevelNum, s.ExAnimListIndex);
+        Assert.True(s.SetExAnim(global: false, [slot], 0), s.Status);
+
+        for (int submap = 0; submap < Overworld.Submaps; submap++)
+        {
+            s.ExAnimSubmap = submap;
+            Assert.Equal(-1, s.ExAnimListIndex);
+            Assert.Empty(s.ExAnimSlots(global: false));
+            Assert.False(s.SetExAnim(global: false, [slot], 0));
+            Assert.Contains("Lunar Magic", s.Status);
+        }
+
+        // The level's own list is untouched by any of that, and the global one still writes.
+        s.ExAnimSubmap = -1;
+        Assert.Single(s.ExAnimSlots(global: false));
+        Assert.True(s.SetExAnim(global: true, [slot], 0), s.Status);
+    }
 }

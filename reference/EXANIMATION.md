@@ -151,3 +151,81 @@ pick a destination.* That maps onto LM's slots cleanly if the editor owns the so
 
 Nothing above changes the ROM contract: LM opens the result and shows the same slots in its
 own dialog, and a hack saved in LM round-trips into the timeline.
+
+## 10. The overworld's animations — Lunar Magic's own hack, not ours yet
+
+Research 2026-09-08, prompted by adding the Animations mode's **Overworld** tab (a submap
+picker beside Global and Level). The tab is in, and it refuses to write, with the reason on
+screen. This section is why, and what would unblock it.
+
+**What Lunar Magic offers.** `ov_overworld_ex20.htm` — *Overworld ▸ Edit Submap ExAnimated
+Frames* — is the level dialog plus a submap field: "Each submap can have its own set of
+animations, just like individual levels." There is a second dialog for an overworld GLOBAL
+list (`ov_overworld_ex20_global.htm`), separate from the level editor's global one, and an
+*Edit Animation Settings* dialog per submap that can switch off the game's own animated
+tiles, the level-dot and lightning palette cycles, LM's global list and LM's submap list.
+Documented differences from a level's: triggers 8-F become **Event Manual 8-F** (activate on
+an overworld event number, the event taken from the Manual frame of the same number, up to 8
+per submap); the four *Stop on Fade* triggers are marked **[Do Not Use]**; the palette
+*Back Area Colour* type must not be used (the overworld uses it for menus and the exit-tile
+transition); `$7FC004` is not available; and the source **tile numbers are shifted −0x100**
+against the level dialog's (OW AN1 `0x500`, Mario `0x800`, alt files `0x700/0xB00/0xF00/0x1300`).
+The RAM map is the same map: `$7FC070` manual frames, `$7FC080` "frame counters for **submap**
+slots 0-1F" where the level page says "level slots", `$7FC0A0` global, `$7FC0F8`/`$7FC0FC`
+triggers.
+
+**Why our engine cannot hold one.** The transplanted engine (`LmExAnimEngine`, LM's own bytes)
+fetches a record from the per-level table in exactly one place, engine `+0xD3`:
+
+```
++0xD3  LDA $FE        ; level number + 1, left there by LM's level-load hijack
++0xD5  BEQ  …         ; 0 = this level has no list
++0xD7  DEC : ASL : CLC : ADC $FE : DEC : TAX      ; X = 3 * ([$FE] - 1)
++0xDE  LDA.L table+1,X                            ; the two operands the transplant re-points
+```
+
+so **the index is `[$FE] - 1` and nothing else**. A byte scan of the engine finds no read of
+`$1F11` (submap), `$0100` (game mode), `$010B` or `$13BF`: there is no submap path in it. Nor
+does the setup ever run on the overworld — it is hooked into vanilla's `LoadLevel` (`$0583AD`,
+`bank_05.asm`), which is reached only from `JSR LoadLevel` at `$05808C` in the LEVEL loader;
+the overworld loader enters bank 05 at `$05809E` and returns without calling it. Nothing on
+the overworld's load path writes `$FE`. (The per-tick processor at engine `+0x4B0` is hooked at
+three sites, none of them overworld code: `$0095B6` is the ending's Yoshi's House, `$00A2A6`
+the in-level main loop, `$00A5FE` the level-entry priming loop. It reads no game mode, so on
+the overworld it would keep ticking whatever the last level left in `$7FC0xx`.)
+
+**What LM actually did.** `changes.htm`, LM 2.40: "added a new ASM hack to implement
+ExAnimation for the overworld, which is based on the same system as the one for levels." A
+separate hack, with its own hooks, its own record table and its own global list — consistent
+with the second global dialog, the different trigger handlers (the handler table lives inside
+the blob at `+0xB4A..+0xC22`, so the overworld needs its own blob), `$7FC004` being unavailable
+there, and the overworld's animated tiles not going through `$00A390` ("Nintendo simply
+transferred all of them every single frame").
+
+**The probe that settles it**, in order — the same method that produced `LmExAnimEngine`, and
+it has to run on the Windows box, since Lunar Magic is Windows-only
+(`tools/lm/Invoke-LunarMagic.ps1`):
+
+1. In LM ≥ 2.40, open a prepped base, add ONE submap ExAnimation slot, save; repeat into a
+   second copy with the slot on a DIFFERENT submap, and a third with an overworld global slot.
+   Diff each against the pre-install ROM: the new RATS blocks are the blob and the table, and
+   the blob's equivalent of `+0xD3` gives the table operand and the index arithmetic directly.
+   Two ROMs differing only in which submap holds the slot pin the index rule on their own.
+2. Diff `bank_00`/`bank_04`/`bank_05` for the hooks the hack installs — especially
+   `$00A087..$00A18F` (game mode 0C, the overworld load), `$00A1BE..` (mode 0E), `$04DC09`, and
+   the overworld's animated-tile DMA in NMI. That gives the setup site, and so what holds the
+   submap number at entry (expect `$1F11,X` with `X = $0DB3`, `bank_00.asm` `$00A12A`).
+3. Only if 1-2 leave it ambiguous: a Mesen probe breaking on reads of the discovered table and
+   of `$1F11`, walking onto each submap and logging the index.
+
+`dev/base.smc` cannot answer any of this: it is LM-prepped but carries **our** transplanted
+level engine, not LM's overworld hack.
+
+**What is in the editor now.** The Animations mode's Overworld tab, with the seven submaps in a
+picker, and `EditorSession.ExAnimSubmap` / `ExAnimListIndex` pointing the level path at a
+submap's index — so when `ExAnimation.SubmapListIndex` can return a real index, reading,
+writing, the project and the build all work through the level path unchanged (a submap's record
+is a record at a table index, and `ExAnimation.Levels` is keyed by that index). Until then the
+index is -1, the tab shows `ExAnimation.NoSubmapLists` where the timeline would be, and a write
+is refused with the same words.
+

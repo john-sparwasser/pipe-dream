@@ -32,7 +32,12 @@ public partial class MainWindow
 
     private ComboBox owPalRow = null!;
 
-    private ToggleButton owFlipX = null!, owFlipY = null!, owShowLayer1 = null!;
+    private Border owPaletteFooter = null!;
+
+    private PaletteGridView owColors = null!;
+
+    private ToggleButton owShowLayer1 = null!;
+    private Button owFlipX = null!, owFlipY = null!;
 
     private ToggleButton owShowPaths = null!, owShowLevelNumbers = null!, owShowEventNumbers = null!, owShowWarps = null!;
 
@@ -67,17 +72,14 @@ public partial class MainWindow
         WireOwView();
     }
 
-    /// <summary>The bar over the map: the layer 2 brush's palette row and flips, and Lunar
-    /// Magic's View toggles.</summary>
+    /// <summary>The bar over the map: the flips for the selected land, and Lunar Magic's View toggles.</summary>
     private void WireOwBar()
     {
         owBrushBar = this.GetControl<StackPanel>("OwBrushBar");
-        owPalRow = this.GetControl<ComboBox>("OwPalRow");
-        owFlipX = this.GetControl<ToggleButton>("OwFlipX");
-        owFlipY = this.GetControl<ToggleButton>("OwFlipY");
-        for (int i = 0; i < 8; i++) owPalRow.Items.Add($"{i}");
-        owPalRow.SelectedIndex = 4;
-        owPalRow.SelectionChanged += (_, _) => { if (modeOverworld.IsChecked == true) owSheet.Invalidate(); };
+        owFlipX = this.GetControl<Button>("OwFlipX");
+        owFlipY = this.GetControl<Button>("OwFlipY");
+        owFlipX.Click += (_, _) => OwFlipSelection(mirror: true);
+        owFlipY.Click += (_, _) => OwFlipSelection(mirror: false);
 
         owViewBar = this.GetControl<StackPanel>("OwViewBar");
         owShowLayer1 = this.GetControl<ToggleButton>("OwShowLayer1");
@@ -97,6 +99,19 @@ public partial class MainWindow
     /// the tab edits.</summary>
     private void WireOwSheet()
     {
+        // Under the sheet: the brush's palette row with every colour in it — the row the armed
+        // layer 2 tile is stamped with. Tiles already on the map keep theirs.
+        owPaletteFooter = this.GetControl<Border>("OwPaletteFooter");
+        owPalRow = this.GetControl<ComboBox>("OwPalRow");
+        owColors = this.GetControl<PaletteGridView>("OwColors");
+        owColors.Rows = 1;
+        owColors.Cell = 20;
+        owColors.Selectable = false;        // it shows the row; the drawer's tile is what gets stamped
+        owColors.ShowHoverIndex = false;
+        for (int i = 0; i < 8; i++) owPalRow.Items.Add($"{i}");
+        owPalRow.SelectedIndex = 4;
+        owPalRow.SelectionChanged += (_, _) => { if (modeOverworld.IsChecked == true) { RefreshOwColors(); owSheet.Invalidate(); } };
+
         owSheet = this.GetControl<TilemapView>("OwSheet");
         owSheet.Backdrop = 0xFF303030u;     // the sheets' grey for transparent (colour 0), as the Map16 and GFX drawers show it
         owSheet.PickOnLeft = true;
@@ -124,6 +139,7 @@ public partial class MainWindow
     private void WireOwView()
     {
         owView = this.GetControl<TilemapView>("OwView");
+        owView.ReanchorOnClick = false;     // a click on a carried block leaves it selected, and floating
         owView.Decorate = DrawOwOverlays;
         owView.HolePixels = OwHolePixels;
         owView.Painted += (_, c) => OwPaint(c.Col, c.Row);
@@ -156,6 +172,8 @@ public partial class MainWindow
         }
         bool tiles = OwModeNow == OwMode.Tiles, layer1Tab = OwModeNow == OwMode.Layer1 && !OwColorsOnly, colours = OwColorsOnly;
         owBrushBar.IsVisible = tiles && !colours;
+        owPaletteFooter.IsVisible = tiles && !colours;
+        owShowLayer1.IsVisible = tiles;         // the other tabs always show layer 1: it is what they edit
         owViewBar.IsVisible = !colours;
         owShowEventNumbers.IsVisible = OwModeNow == OwMode.Events;      // event numbers belong to the Events tab
 
@@ -173,6 +191,9 @@ public partial class MainWindow
         // tiles (a cell right and down on the lower map), and the drag preview is the overlay's.
         owView.Snap = layer1Tab ? EditorSession.OwLayer1Block : null;
         owView.EditsOverlay = layer1Tab;
+        // Whole tiles move; they do not stretch. A grip on a one-tile lasso covered most of it,
+        // so a drag from near its edge grew the lasso instead of moving the tile.
+        owView.Resizable = !layer1Tab;
         owView.Reshape(EditorSession.Ow8Cols, EditorSession.Ow8Rows, 8);
         if (tiles)
         {
@@ -180,6 +201,7 @@ public partial class MainWindow
             owSheet.CellAt = (c, r) => r * 16 + c;
             owSheet.CellPixels = t => session.OwSheetPixels(t, Math.Max(0, owPalRow.SelectedIndex));
             owSheet.Selected = owBrushBlock is null ? owBrushTile : null;
+            RefreshOwColors();
             owSheet.Reshape(16, EditorSession.OwSheetTiles / 16, 8);
         }
         else
@@ -195,6 +217,19 @@ public partial class MainWindow
             owSheet.Reshape(16, ((session.Overworld?.Map16Count ?? 0) + 15) / 16, 16);
         }
         RefreshOwNote();
+    }
+
+    /// <summary>The footer's swatches: the brush's palette row in the main map's colours, colour 0
+    /// as the sheet's grey.</summary>
+    private void RefreshOwColors()
+    {
+        int row = Math.Max(0, owPalRow.SelectedIndex);
+        var colors = new uint[16];
+        if (session.Overworld is { } ow)
+            for (int i = 0; i < 16; i++) colors[i] = i == 0 ? 0xFF303030u : ow.PaletteOf(0).Rgba[row * 16 + i];
+        owColors.Cols = 16;
+        owColors.Colors = colors;
+        owColors.InvalidateVisual();
     }
 
     private void RefreshOwNote()

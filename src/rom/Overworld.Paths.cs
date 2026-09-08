@@ -26,8 +26,14 @@ public sealed partial class Overworld
     /// with the view off and on over two different stretches of land, "Future Layer 1 Tiles" off
     /// so the level tiles' octagons are opaque, keeping only the pixels both captures agreed on
     /// (the unused tiles 0x52-0x55 LM draws nothing opaque for; they fall back to
-    /// <see cref="KindOf"/>'s fill). OwPathGlyphs.bin: a palette count, RGB triples, then 256
-    /// palette indexes per tile for tiles 0x00-0x86.
+    /// <see cref="KindOf"/>'s fill). Level tiles all wear one complete octagon — their own fill,
+    /// green or LM's blue for a level in water, with a black pixel round it — since the capture
+    /// lost outline pixels wherever a level tile sat on other art; the four stop tiles wear one
+    /// filled X over it, the shape the capture got whole.
+    /// The same repair closed every other hole the capture left — a rung's middle pixel, the top
+    /// of a sideways path, the fish's insides — so no picture has a pixel the land shows through
+    /// where it should be drawn: a hole beside a coloured pixel takes the colour around it. OwPathGlyphs.bin: a palette count, RGB triples,
+    /// then 256 palette indexes per tile for tiles 0x00-0x86.
     /// </summary>
     public static uint[]? PathGlyph(int tile)
     {

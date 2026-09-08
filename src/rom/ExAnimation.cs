@@ -117,6 +117,30 @@ public sealed class ExAnimation
         }
     }
 
+    /// <summary>
+    /// Where a SUBMAP's ExAnimation list lives (submap 0 = the main map, 1-6 the six others), as
+    /// an index into the per-level table — or -1, which is every case today.
+    ///
+    /// The level engine cannot hold one. Its setup takes the record from that table at
+    /// <c>[$FE] - 1</c>, <c>$FE</c> being the level number plus one that Lunar Magic's level-load
+    /// hijack leaves there (engine +0xD3, the operands <see cref="LmExAnimEngine.TableOperand"/>
+    /// name the table), and nothing on the overworld's load path writes <c>$FE</c> — the setup is
+    /// hooked into vanilla's <c>LoadLevel</c> ($0583AD), which the overworld never calls. The
+    /// engine reads no game mode and no submap: a byte scan of it finds no $1F11, $0100 or $13BF.
+    ///
+    /// Lunar Magic 2.40 added the overworld's animations as a SEPARATE ASM hack "based on the
+    /// same system as the one for levels" — its own hooks, its own table, and its own global list
+    /// beside the level one. Writing a submap list on Lunar Magic's rails means transplanting
+    /// that hack, which needs a ROM it has been installed into; reference/EXANIMATION.md §10
+    /// holds the findings and the probe that would settle it.
+    /// </summary>
+    public static int SubmapListIndex(int submap) => submap is < 0 or >= Overworld.Submaps ? -1 : -1;
+
+    /// <summary>Why a submap list cannot be read or written yet.</summary>
+    public const string NoSubmapLists =
+        "the overworld's animations are Lunar Magic's own separate ASM hack (LM 2.40), which this "
+        + "base does not carry — see reference/EXANIMATION.md §10";
+
     /// <summary>Slots animated in <paramref name="level"/>; empty if the level has none.</summary>
     public static IReadOnlyList<Slot> ReadLevel(Rom rom, int level)
     {

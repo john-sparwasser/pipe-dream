@@ -30,6 +30,7 @@ public sealed partial class Overworld
         AnimationCounter = counter & 0x7F;
         foreach (var tiles in fg) if (tiles is not null) WithAnimatedTiles(tiles);
         map16Px.Clear();    // ponytail: drops every composed layer 1 tile per tick; keep only the ones that use slots 0x75-0x7F if the map ever stutters
+        layer1Art.Clear();
     }
 
     /// <summary>The frame a cycling slot shows at a counter ($048123): slots 2-7 take counter
@@ -119,12 +120,43 @@ public sealed partial class Overworld
         return img;
     }
 
+    /// <summary>
+    /// A layer 1 tile as the editor shows it: its own art, and under a hidden tile the tile an
+    /// event will reveal it as, at half opacity — Lunar Magic's "Future Layer 1 Tiles", so a
+    /// hidden level reads as the level it is. The ghost's alpha shows the land through it where
+    /// the tile has no art of its own; where it has, the two are mixed and stay opaque. Pixels
+    /// are premultiplied, as the bitmaps they land in are (LevelBitmap): a half-alpha pixel
+    /// carries half its colour.
+    /// </summary>
+    public uint[] Layer1Art(int tile, int submap)
+    {
+        if (layer1Art.TryGetValue((tile, submap), out var done)) return done;
+        var art = Map16Pixels(tile, submap);
+        int future = RevealedTile(tile);
+        if (future < 0 || future >= Map16Count) return layer1Art[(tile, submap)] = art;
+        var ghost = Map16Pixels(future, submap);
+        var img = (uint[])art.Clone();
+        for (int i = 0; i < img.Length; i++)
+        {
+            if (ghost[i] == 0) continue;
+            img[i] = img[i] == 0 ? ((ghost[i] >> 1) & 0x007F7F7F) | 0x80000000 : Mix(img[i], ghost[i]);
+        }
+        return layer1Art[(tile, submap)] = img;
+    }
+    private readonly Dictionary<(int Tile, int Submap), uint[]> layer1Art = [];
+
+    /// <summary>Half of each, opaque: 0xAABBGGRR channel by channel.</summary>
+    private static uint Mix(uint a, uint b)
+        => 0xFF000000 | ((((a & 0xFF) + (b & 0xFF)) >> 1) & 0xFF)
+         | (((((a >> 8) & 0xFF) + ((b >> 8) & 0xFF)) >> 1) << 8)
+         | (((((a >> 16) & 0xFF) + ((b >> 16) & 0xFF)) >> 1) << 16);
+
     /// <summary>The quarter of the layer 1 tile over an 8x8 cell, transparent where it has no
     /// art — the layer drawn OVER the land, kept apart so a layer 2 edit never carries it.</summary>
     public uint[] Layer1QuarterPixels(int cx, int cy, bool submapMap)
     {
         int x = cx >> 1, y = cy >> 1;
-        var over = Map16Pixels(Layer1At(x, y, submapMap), SubmapAt(x, y, submapMap));
+        var over = Layer1Art(Layer1At(x, y, submapMap), SubmapAt(x, y, submapMap));
         var img = new uint[64];
         int ox = (cx & 1) * 8, oy = (cy & 1) * 8;
         for (int py = 0; py < 8; py++) Array.Copy(over, (oy + py) * 16 + ox, img, py * 8, 8);

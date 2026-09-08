@@ -26,7 +26,9 @@ public partial class MainWindow
     private Button animDelete = null!, animReassign = null!, animEmptyAdd = null!;
     private CheckBox animAdvanced = null!;
     private StackPanel animPreviewBody = null!;
-    private ToggleButton animLevelBtn = null!, animGlobalBtn = null!;
+    private ToggleButton animLevelBtn = null!, animGlobalBtn = null!, animOverworldBtn = null!;
+    private StackPanel animSubmapRow = null!;
+    private ComboBox animSubmap = null!;
     private ComboBox animFile = null!, animPalRow = null!;
     private Border animPaletteBar = null!;
     private PaletteGridView animColors = null!;
@@ -54,6 +56,18 @@ public partial class MainWindow
         animListTitle = this.GetControl<TextBlock>("AnimListTitle");
         animLevelBtn = this.GetControl<ToggleButton>("AnimLevel");
         animGlobalBtn = this.GetControl<ToggleButton>("AnimGlobal");
+        animOverworldBtn = this.GetControl<ToggleButton>("AnimOverworld");
+        animSubmapRow = this.GetControl<StackPanel>("AnimSubmapRow");
+        animSubmap = this.GetControl<ComboBox>("AnimSubmap");
+        foreach (var name in SubmapNames) animSubmap.Items.Add(name);
+        animSubmap.SelectedIndex = 0;
+        animSubmap.SelectionChanged += (_, _) =>
+        {
+            if (!animOverworldBtn.IsChecked!.Value) return;
+            session.ExAnimSubmap = Math.Max(0, animSubmap.SelectedIndex);
+            animSelected = -1;
+            RefreshAnim();
+        };
         animFile = this.GetControl<ComboBox>("AnimFile");
         animAdvanced = this.GetControl<CheckBox>("AnimAdvanced");
         animAdvanced.IsCheckedChanged += (_, _) => RefreshAnim();
@@ -78,11 +92,16 @@ public partial class MainWindow
 
     // ---- the header bar ----
 
+    /// <summary>Which list the timeline edits: the global one, this level's, or a submap's — the
+    /// last is a level list at the submap's own table index, so only the index changes.</summary>
     private void OnAnimList(object? sender, RoutedEventArgs e)
     {
         animGlobal = ReferenceEquals(sender, animGlobalBtn);
-        animLevelBtn.IsChecked = !animGlobal;
+        bool ow = ReferenceEquals(sender, animOverworldBtn);
+        animLevelBtn.IsChecked = !animGlobal && !ow;
         animGlobalBtn.IsChecked = animGlobal;
+        animOverworldBtn.IsChecked = ow;
+        session.ExAnimSubmap = ow ? Math.Max(0, animSubmap.SelectedIndex) : -1;
         animSelected = -1;
         RefreshAnim();
     }
@@ -159,9 +178,16 @@ public partial class MainWindow
         animGfx.Children.Clear();
         animEmptyAdd.IsVisible = false;
         if (session.Rom is not { } rom) return;
-        bool ready = rom.LmExAnimBase >= 0;
-        animTitle.Text = !ready ? "no ExAnimation engine — File → Upgrade base (prep v11)" : "";
-        animListTitle.Text = animGlobal ? "Global slots" : $"Level {session.LevelNum:X3} slots";
+        bool submap = animOverworldBtn.IsChecked == true;
+        // A submap's list needs LM's own overworld ExAnimation hack, which no base carries yet:
+        // say so where the timeline would be, rather than showing an empty one that cannot be added to.
+        bool ready = rom.LmExAnimBase >= 0 && (!submap || session.ExAnimListIndex >= 0);
+        animTitle.Text = rom.LmExAnimBase < 0 ? "no ExAnimation engine — File → Upgrade base (prep v11)"
+                       : !ready ? ExAnimation.NoSubmapLists : "";
+        animSubmapRow.IsVisible = submap;
+        animListTitle.Text = animGlobal ? "Global slots"
+                           : session.ExAnimSubmap >= 0 ? $"{SubmapNames[session.ExAnimSubmap]} slots"
+                           : $"Level {session.LevelNum:X3} slots";
         if (!ready) return;
 
         var slots = session.ExAnimSlots(animGlobal).OrderBy(s => s.Index).ToList();

@@ -67,6 +67,16 @@ public sealed class TilemapView : Control
     /// cells is wrong for it, so the owner draws its own (through OverlayPixels) and this draws none.</summary>
     public bool EditsOverlay { get; set; }
 
+    /// <summary>What a click inside the selection that never moves does. On, it re-anchors the
+    /// lasso to that one cell — how the layer 3 eyedropper is aimed at a cell inside a block. Off,
+    /// the selection stays as it is: a block being carried around must survive a click on it.</summary>
+    public bool ReanchorOnClick { get; set; } = true;
+
+    /// <summary>Whether a lasso has grips to grow it by. Off, a press anywhere in the selection
+    /// moves it and a press outside starts a new lasso — for a grid of whole tiles, where a grip
+    /// would cover most of a small block and every drag near an edge grew it instead of moving it.</summary>
+    public bool Resizable { get; set; } = true;
+
     /// <summary>A second layer drawn over the cells, by (column, row) cell index, transparent
     /// where 0: something to see the map THROUGH — the overworld's level tiles above the land
     /// being painted. It is context only: a lasso, a drag preview and a paint never touch it.</summary>
@@ -260,7 +270,7 @@ public sealed class TilemapView : Control
         // selection's size chasing the pointer around the selection itself — two reticles for
         // one gesture, and the drawn one is the one you can grab.
         if (hover is { } h && !PickOnLeft && Selection is null) Overlay.Band(ctx, CellRect(Snap?.Invoke(h.Col, h.Row) ?? (h.Col, h.Row, 1, 1)));
-        if (Selection is { } grips && !PickOnLeft) Grips.Draw(ctx, CellRect(grips), GripPx);
+        if (Selection is { } grips && !PickOnLeft && Resizable) Grips.Draw(ctx, CellRect(grips), GripPx);
     }
 
     private Rect CellRect((int X, int Y, int W, int H) r)
@@ -387,12 +397,15 @@ public sealed class TilemapView : Control
     {
         var at = e.GetPosition(this);
         var cell = At(at);
+        // A lasso only grows under a held button. A release this control never saw (the pointer
+        // let go elsewhere) must not leave it following the bare pointer around.
+        if (lassoStart is not null && !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) lassoStart = null;
         if (cell != hover) { hover = cell; if (!PickOnLeft) InvalidateVisual(); }
         // The move arrows say the selection is draggable before you press, the same tell the GFX
         // canvas gives; a grip says which way it would grow.
         Cursor = PickOnLeft || stroke.Active || lassoStart is not null ? null
                : dragFrom is not null ? Grips.CursorFor(dragEdge) ?? UiCursors.Move
-               : Selection is { } sel && Grips.EdgeAt(at, CellRect(sel), GripPx) is var edge && edge != (0, 0)
+               : Selection is { } sel && EdgeAt(at, sel) is var edge && edge != (0, 0)
                    ? Grips.CursorFor(edge)
                : GrabAt(at) == Grab.Move ? UiCursors.Move : null;
         if (!stroke.Active) MoveTo(at);
@@ -437,7 +450,7 @@ public sealed class TilemapView : Control
          : At(p) is { } c && Lasso.Contains(s, c) ? Grab.Move : Grab.Lasso;
 
     private (int DX, int DY) EdgeAt(Point p, (int X, int Y, int W, int H) s)
-        => Grips.EdgeAt(p, CellRect(s), GripPx);
+        => Resizable ? Grips.EdgeAt(p, CellRect(s), GripPx) : (0, 0);
 
     public void PressAt(Point p)
     {
@@ -479,7 +492,8 @@ public sealed class TilemapView : Control
         if (Selection is not { } to) return;
         // A press inside the selection that never moved is a click, and a click is how you
         // re-anchor a one-cell lasso — the eyedropper has to survive being aimed at a selection.
-        if (to == from && dragEdge == (0, 0)) { BeginSelection(dragGrab.Col, dragGrab.Row); return; }
+        // Settled, not begun: the pointer is already up, so nothing may go on extending it.
+        if (to == from && dragEdge == (0, 0)) { if (ReanchorOnClick) SetSelection(Snapped((dragGrab.Col, dragGrab.Row, 1, 1))); return; }
         if (to != from) SelectionDragged?.Invoke(this, new SelectionDrag(from, to, dragEdge == (0, 0)));
     }
 

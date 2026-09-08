@@ -438,6 +438,13 @@ public partial class MainWindow : Window
             OwDeleteSelection();
             e.Handled = true;
         }
+        // X and Y mirror and flip the selected land, as the bar's two buttons do.
+        else if (e.Key is Key.X or Key.Y && e.KeyModifiers == KeyModifiers.None && modeOverworld.IsChecked == true
+                 && FocusManager?.GetFocusedElement() is not TextBox)
+        {
+            OwFlipSelection(mirror: e.Key == Key.X);
+            e.Handled = true;
+        }
         // Browser bindings, and the same keys the GFX canvas's [ ] do for its own sheet: the
         // zoom keys always act on whatever canvas is showing.
         else if (e.Key is Key.OemMinus or Key.Subtract or Key.OemPlus or Key.Add)

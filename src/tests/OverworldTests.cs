@@ -535,7 +535,7 @@ public class OverworldTests(ITestOutputHelper log)
         // to (2,2) stamp as a 2x2 in the bar's row, and the sheet keeps the lasso as its ring.
         var from = sheet.TranslatePoint(new Point(1 * 8 * sheet.Zoom + 2, 1 * 8 * sheet.Zoom + 2), w)!.Value;
         var to = sheet.TranslatePoint(new Point(2 * 8 * sheet.Zoom + 2, 2 * 8 * sheet.Zoom + 2), w)!.Value;
-        w.MouseDown(from, MouseButton.Left); w.MouseMove(to); w.MouseUp(to, MouseButton.Left);
+        w.MouseDown(from, MouseButton.Left); w.MouseMove(to, RawInputModifiers.LeftMouseButton); w.MouseUp(to, MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal((1, 1, 2, 2), sheet.Selection);
         Assert.Null(sheet.Selected);
@@ -552,13 +552,13 @@ public class OverworldTests(ITestOutputHelper log)
         // fill, and nothing is written until the lasso is dropped elsewhere — then both land as
         // one undo entry. Passing a block over tiles must not eat them on the way.
         Point Cell(int cx, int cy) => view.TranslatePoint(new Point(cx * 8 * view.Zoom + 3, cy * 8 * view.Zoom + 3), w)!.Value;
-        w.MouseDown(Cell(30, 30), MouseButton.Left); w.MouseMove(Cell(31, 31)); w.MouseUp(Cell(31, 31), MouseButton.Left);
+        w.MouseDown(Cell(30, 30), MouseButton.Left); w.MouseMove(Cell(31, 31), RawInputModifiers.LeftMouseButton); w.MouseUp(Cell(31, 31), MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal((30, 30, 2, 2), view.Selection);
         int fill = map.At(0, 0), under = map.At(40, 40), depth2 = map.UndoDepth;
         // Grab the block by its middle (its corners are resize grips) and carry it ten cells.
         Point Mid(int cx, int cy) => view.TranslatePoint(new Point((cx + 1) * 8 * view.Zoom, (cy + 1) * 8 * view.Zoom), w)!.Value;
-        w.MouseDown(Mid(30, 30), MouseButton.Left); w.MouseMove(Mid(40, 40)); w.MouseUp(Mid(40, 40), MouseButton.Left);
+        w.MouseDown(Mid(30, 30), MouseButton.Left); w.MouseMove(Mid(40, 40), RawInputModifiers.LeftMouseButton); w.MouseUp(Mid(40, 40), MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal((40, 40, 2, 2), view.Selection);
         Assert.Equal(under, map.At(40, 40));                 // not written yet: it floats
@@ -573,9 +573,16 @@ public class OverworldTests(ITestOutputHelper log)
         Assert.Equal(session.Overworld!.TilePixels(fill, 0), view.HolePixels!(30, 30));
         Assert.Equal(session.Overworld!.TilePixels(under, 0), view.HolePixels!(40, 40));
 
+        // A click on the carried block, without moving, leaves it selected and still floating:
+        // it is not a "place", and it must not collapse the lasso to the one cell under the pointer.
+        w.MouseDown(Mid(40, 40), MouseButton.Left); w.MouseUp(Mid(40, 40), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal((40, 40, 2, 2), view.Selection);
+        Assert.Equal(under, map.At(40, 40));
+
         // Carried on a second time: the first landing spot shows the map again, the float draws
         // at the new one, still nothing written. A zoom (a full recompose) changes none of that.
-        w.MouseDown(Mid(40, 40), MouseButton.Left); w.MouseMove(Mid(50, 50)); w.MouseUp(Mid(50, 50), MouseButton.Left);
+        w.MouseDown(Mid(40, 40), MouseButton.Left); w.MouseMove(Mid(50, 50), RawInputModifiers.LeftMouseButton); w.MouseUp(Mid(50, 50), MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal((50, 50, 2, 2), view.Selection);
         Assert.Equal(under, map.At(40, 40));
@@ -601,8 +608,8 @@ public class OverworldTests(ITestOutputHelper log)
         // Painting with a float up lands the float, drops the lasso, and paints the DRAWER's brush
         // under the pointer — never a copy of the floating block, which is what a lasso used to
         // paste and what made the moved tiles seem to come back.
-        w.MouseDown(Cell(50, 50), MouseButton.Left); w.MouseMove(Cell(51, 51)); w.MouseUp(Cell(51, 51), MouseButton.Left);
-        w.MouseDown(Mid(50, 50), MouseButton.Left); w.MouseMove(Mid(20, 50)); w.MouseUp(Mid(20, 50), MouseButton.Left);
+        w.MouseDown(Cell(50, 50), MouseButton.Left); w.MouseMove(Cell(51, 51), RawInputModifiers.LeftMouseButton); w.MouseUp(Cell(51, 51), MouseButton.Left);
+        w.MouseDown(Mid(50, 50), MouseButton.Left); w.MouseMove(Mid(20, 50), RawInputModifiers.LeftMouseButton); w.MouseUp(Mid(20, 50), MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal((20, 50, 2, 2), view.Selection);
         Assert.Equal(0x11 | 5 << 10, map.At(50, 50));         // floating: still on the map at 50
@@ -619,6 +626,204 @@ public class OverworldTests(ITestOutputHelper log)
 
     /// <summary>A layer 1 write that cannot keep its high bytes changes nothing: the low bytes
     /// must not land without them, or the built map draws with the wrong tiles.</summary>
+    /// <summary>On the Paths &amp; Levels tab a lasso has no grips: a press anywhere inside it,
+    /// edges included, moves the tiles, and nothing grows the lasso — a tile is a tile.</summary>
+    [AvaloniaFact]
+    public void a_layer_1_lasso_moves_from_its_edge_and_has_no_grips()
+    {
+        if (PreppedRom.Fork() is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeOverworld").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<TabStrip>("OwTabs").SelectedIndex = 1;
+        Dispatcher.UIThread.RunJobs();
+        var view = w.GetControl<TilemapView>("OwView");
+        Assert.False(view.Resizable);
+        view.BeginSelection(20, 20);                          // one 16x16 tile: cells (20,20)-(21,21)
+        view.Release();
+        Assert.Equal((20, 20, 2, 2), view.Selection);
+        var edge = new Point(20 * 8 * view.Zoom + 1, 20 * 8 * view.Zoom + 1);      // its top-left corner, a grip on the Tiles tab
+        Assert.Equal(TilemapView.Grab.Move, view.GrabAt(edge));
+        var outside = new Point(30 * 8 * view.Zoom + 1, 30 * 8 * view.Zoom + 1);
+        Assert.Equal(TilemapView.Grab.Lasso, view.GrabAt(outside));
+
+        // A click inside the lasso that never moves re-anchors it and is OVER: the pointer is up,
+        // so moving the bare pointer afterwards must not go on extending it.
+        var inside = new Point(21 * 8 * view.Zoom, 21 * 8 * view.Zoom);
+        view.PressAt(inside);
+        view.Release();
+        Assert.False(view.Dragging);
+        var settled = view.Selection;
+        view.MoveTo(outside);
+        Assert.Equal(settled, view.Selection);
+
+        w.GetControl<TabStrip>("OwTabs").SelectedIndex = 0;   // the land's lasso keeps its grips
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(view.Resizable);
+    }
+
+    /// <summary>The layer 2 brush's palette row lives under the drawer's sheet, with every colour
+    /// of the row on show; picking a row recolours the sheet and what the brush stamps, and
+    /// nothing already on the map.</summary>
+    [AvaloniaFact]
+    public void the_tiles_drawer_footer_shows_the_brush_palette_row()
+    {
+        if (PreppedRom.Fork() is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeOverworld").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        var session = (Services.EditorSession)typeof(MainWindow)
+            .GetField("session", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(w)!;
+        var pal = session.Overworld!.PaletteOf(0);
+        var footer = w.GetControl<Border>("OwPaletteFooter");
+        var colors = w.GetControl<PaletteGridView>("OwColors");
+        var row = w.GetControl<ComboBox>("OwPalRow");
+        Assert.True(footer.IsVisible);
+        Assert.Equal(4, row.SelectedIndex);
+        Assert.Equal(pal.Rgba[4 * 16 + 1], colors.Colors[1]);
+        Assert.Equal(pal.Rgba[4 * 16 + 15], colors.Colors[15]);
+
+        int before = session.OwMap!.At(3, 3);
+        row.SelectedIndex = 6;
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(pal.Rgba[6 * 16 + 7], colors.Colors[7]);
+        Assert.Equal(before, session.OwMap.At(3, 3));                    // the map's own tiles keep their row
+
+        w.GetControl<TabStrip>("OwTabs").SelectedIndex = 1;               // layer 1 has no palette row
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(footer.IsVisible);
+    }
+
+    /// <summary>X and Y, and the bar's two buttons, turn the SELECTED land: the block's layout
+    /// reverses and every word's flip bit turns, as one undo. The brush is not what flips.</summary>
+    [AvaloniaFact]
+    public void x_and_y_turn_the_selected_land_as_one_edit()
+    {
+        if (PreppedRom.Fork() is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeOverworld").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        var session = (Services.EditorSession)typeof(MainWindow)
+            .GetField("session", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(w)!;
+        var map = session.OwMap!;
+        var view = w.GetControl<TilemapView>("OwView");
+        map.Stamp(10, 10, 0x1401); map.Stamp(11, 10, 0x1402);          // a 2x1 block: two different tiles, row 5
+        map.Stamp(10, 11, 0x1403); map.Stamp(11, 11, 0x1404);
+        Assert.True(map.EndStroke());
+        view.BeginSelection(10, 10); view.ExtendSelection(11, 11); view.Release();
+        Assert.Equal((10, 10, 2, 2), view.Selection);
+        int depth = map.UndoDepth;
+
+        w.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.X, Source = w });
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(0x1402 | 0x4000, map.At(10, 10));                 // columns swapped, X bit on
+        Assert.Equal(0x1401 | 0x4000, map.At(11, 10));
+        Assert.Equal(0x1404 | 0x4000, map.At(10, 11));
+        Assert.Equal(depth + 1, map.UndoDepth);
+        Assert.Equal((10, 10, 2, 2), view.Selection);                   // still selected
+
+        w.GetControl<Button>("OwFlipY").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(0x1404 | 0x4000 | 0x8000, map.At(10, 10));        // rows swapped, Y bit on
+        Assert.Equal(0x1402 | 0x4000 | 0x8000, map.At(10, 11));
+        Assert.Equal(depth + 2, map.UndoDepth);
+    }
+
+    /// <summary>Every level tile's path picture is the same whole octagon — a fill with an
+    /// unbroken one-pixel black outline — green, or the blue Lunar Magic gives a level in water;
+    /// the stop tiles are that octagon with an X.</summary>
+    [Fact]
+    public void every_level_tile_wears_the_same_whole_octagon()
+    {
+        var octagon = Overworld.PathGlyph(0x66)!;
+        const uint black = 0xFF000000u, green = 0xFF00FF00u, blue = 0xFFFF0000u;
+        // The ring: corners cut four pixels, a black pixel at every edge cell, green inside.
+        int[] left = [4, 3, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4];
+        for (int y = 0; y < 16; y++)
+            for (int x = 0; x < 16; x++)
+            {
+                uint px = octagon[y * 16 + x];
+                bool outside = x < left[y] || x > 15 - left[y];
+                bool edge = !outside && (y is 0 or 15 || x == left[y] || x == 15 - left[y] || (y is 1 or 14 && x is 3 or 12) || (y is 2 or 13 && x is 2 or 13) || (y is 3 or 12 && x is 1 or 14));
+                Assert.Equal(outside ? 0u : edge ? black : green, px);
+            }
+        for (int t = 0x56; t <= 0x86; t++)
+        {
+            var g = Overworld.PathGlyph(t)!;
+            uint fill = g[1 * 16 + 8];                                    // its own colour, green or blue, clear of a stop tile's X
+            Assert.True(fill is green or blue, $"tile {t:X2} fill {fill:X8}");
+            for (int i = 0; i < 256; i++)
+                Assert.True(g[i] == (octagon[i] == green ? fill : octagon[i]) || (t >= 0x83 && octagon[i] == green && g[i] == black),
+                            $"tile {t:X2} pixel {i}");
+            if (t >= 0x83) Assert.Contains(Enumerable.Range(0, 256), i => octagon[i] == green && g[i] == black);   // its X
+        }
+        // The four tiles Mario can stand on but not enter wear ONE X, filled, corner to corner.
+        var cross = Overworld.PathGlyph(0x83)!;
+        for (int t = 0x84; t <= 0x86; t++) Assert.Equal(cross, Overworld.PathGlyph(t));
+        for (int y = 6; y <= 9; y++)
+            for (int x = 6; x <= 9; x++) Assert.Equal(black, cross[y * 16 + x]);   // solid through the middle
+        Assert.Equal(black, cross[3 * 16 + 3]);                                    // and out to the corners
+        Assert.Equal(black, cross[12 * 16 + 12]);
+        Assert.Equal(black, cross[3 * 16 + 12]);
+        Assert.Equal(black, cross[12 * 16 + 3]);
+        Assert.Equal(blue, Overworld.PathGlyph(0x6A)![1 * 16 + 8]);      // LM's blue for a level in water
+
+        // The straight ladders' rungs are whole black bars: the capture had holes in two of them.
+        foreach (int t in new[] { 0x3F, 0x40 })
+            for (int y = 0; y < 16; y += 2)
+                for (int x = 4; x < 12; x++) Assert.Equal(black, Overworld.PathGlyph(t)![y * 16 + x]);
+
+        // And no picture has a hole in its outline: every coloured pixel meets an outline pixel or
+        // another coloured one, never transparency, on all four sides.
+        for (int t = 0; t <= 0x86; t++)
+        {
+            if (Overworld.PathGlyph(t) is not { } g) continue;
+            for (int y = 0; y < 16; y++)
+                for (int x = 0; x < 16; x++)
+                {
+                    if (g[y * 16 + x] is 0 or black) continue;
+                    foreach (var (dx, dy) in new[] { (-1, 0), (1, 0), (0, -1), (0, 1) })
+                    {
+                        int nx = x + dx, ny = y + dy;
+                        if (nx is < 0 or > 15 || ny is < 0 or > 15) continue;
+                        Assert.True(g[ny * 16 + nx] != 0, $"tile {t:X2}: colour at ({x},{y}) meets a hole at ({nx},{ny})");
+                    }
+                }
+        }
+    }
+
+    /// <summary>A hidden level tile draws as the level it will be revealed as, at half opacity —
+    /// Lunar Magic's "Future Layer 1 Tiles" — on the map and in the drawer alike.</summary>
+    [Fact]
+    public void a_hidden_level_tile_shows_its_future_self_translucent()
+    {
+        if (Open() is not { } ow) { log.WriteLine("SKIP: no ROM"); return; }
+        Assert.Equal(0x66, ow.RevealedTile(0x6E));                       // the reveal list's first pair
+        Assert.Equal(0x23, ow.RevealedTile(0x54));                       // and its last
+        Assert.Equal(-1, ow.RevealedTile(0x66));                         // a level tile is already itself
+        var future = ow.Map16Pixels(0x66, 0);
+        var art = ow.Layer1Art(0x6E, 0);
+        int ghost = 0;
+        for (int i = 0; i < 256; i++)
+            if (future[i] != 0 && ow.Map16Pixels(0x6E, 0)[i] == 0)
+            {
+                Assert.Equal(0x80u, art[i] >> 24);                       // the ghost is half there
+                Assert.Equal((future[i] >> 1) & 0x7F7F7F, art[i] & 0xFFFFFF);   // in the level tile's colours, premultiplied
+                ghost++;
+            }
+        Assert.True(ghost > 0, "the revealed tile has art the hidden one lacks");
+        Assert.Equal(ow.Map16Pixels(0x66, 0), ow.Layer1Art(0x66, 0));   // an ordinary tile is just its art
+    }
+
     [Fact]
     public void a_refused_layer_1_write_leaves_the_rom_untouched()
     {

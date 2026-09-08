@@ -52,6 +52,10 @@
     <StreamGeometry x:Key="IconRoute">M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15 M3 19a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M15 5a3 3 0 1 0 6 0a3 3 0 1 0-6 0</StreamGeometry>
     <StreamGeometry x:Key="IconFlag">M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z M4 22v-7</StreamGeometry>
     <StreamGeometry x:Key="IconZap">M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z</StreamGeometry>
+    <StreamGeometry x:Key="IconCastle">M22 20v-9H2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2Z M18 11V4H6v7 M15 22v-4a3 3 0 0 0-3-3a3 3 0 0 0-3 3v4 M22 11V9 M2 11V9 M6 4V2 M18 4V2 M10 4V2 M14 4V2</StreamGeometry>
+    <!-- Warps. ponytail: Lucide's "orbit" standing in for its "galaxy", whose path was not to
+         hand — paste galaxy's d attribute over this one to swap it. -->
+    <StreamGeometry x:Key="IconGalaxy">M20.341 6.484A10 10 0 0 1 10.266 21.85 M3.659 17.516A10 10 0 0 1 13.74 2.152 M12 15a3 3 0 1 0 0-6a3 3 0 0 0 0 6 M19 5a2 2 0 1 0 0-4a2 2 0 0 0 0 4 M5 23a2 2 0 1 0 0-4a2 2 0 0 0 0 4</StreamGeometry>
     <StreamGeometry x:Key="IconArrowRightLeft">m16 3 4 4-4 4 M20 7H4 m8 21-4-4 4-4 M4 17h16</StreamGeometry>
     <StreamGeometry x:Key="IconImage">M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z M21 15l-5-5L5 21</StreamGeometry>
   </Window.Resources>
@@ -670,6 +674,17 @@
                   </TabStripItem>
                 </TabStrip>
               </Border>
+              <!-- The brush's palette row, under the sheet it recolours: the row the armed tile
+                   is stamped with, and every colour in it. Tiles already on the map keep theirs. -->
+              <Border x:Name="OwPaletteFooter" DockPanel.Dock="Bottom" Classes="panel bar"
+                      BorderThickness="0,1,0,0" Padding="10,6"
+                      ToolTip.Tip="The palette row the drawer's tile is stamped with — the land uses rows 4-7. Only the brush changes; tiles on the map keep their row.">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Path Classes="kind" Data="{StaticResource IconPalette}"/>
+                  <ComboBox x:Name="OwPalRow" Classes="palrow" SelectedIndex="4"/>
+                  <ui:PaletteGridView x:Name="OwColors" VerticalAlignment="Center"/>
+                </StackPanel>
+              </Border>
               <ScrollViewer HorizontalScrollBarVisibility="Disabled">
                 <ui:TilemapView x:Name="OwSheet" Margin="8"/>
               </ScrollViewer>
@@ -979,6 +994,18 @@
                             ToolTip.Tip="This level's ExAnimation slots">
                 <TextBlock Text="Level" VerticalAlignment="Center"/>
               </ToggleButton>
+              <!-- Lunar Magic's Edit Submap ExAnimated Frames: the level dialog with a submap
+                   field. A submap's slots are a level list at the index LM reserves for it, so
+                   the timeline, the save and the build are the level ones. -->
+              <ToggleButton x:Name="AnimOverworld" Classes="mode" Click="OnAnimList"
+                            ToolTip.Tip="A submap's ExAnimation slots — the overworld's own animations">
+                <TextBlock Text="Overworld" VerticalAlignment="Center"/>
+              </ToggleButton>
+              <StackPanel x:Name="AnimSubmapRow" Orientation="Horizontal" Spacing="6" IsVisible="False">
+                <TextBlock Classes="dim" Text="submap" VerticalAlignment="Center"/>
+                <ComboBox x:Name="AnimSubmap" Width="170" SelectedIndex="0"
+                          ToolTip.Tip="Which submap these slots animate — each has its own set, as each level does"/>
+              </StackPanel>
               <Rectangle Classes="sep"/>
               <Button Click="OnAnimAdd" ToolTip.Tip="Add a slot to this list">
                 <TextBlock Text="Add slot" VerticalAlignment="Center"/>
@@ -1073,45 +1100,41 @@
               <!-- Layer 2's brush: which palette row the drawer's 8x8 tile paints in, and its
                    flips. Shown for the Tiles tab; the other tabs edit layer 1 tables, not words. -->
               <StackPanel x:Name="OwBrushBar" DockPanel.Dock="Left" Orientation="Horizontal" Spacing="6">
-                <TextBlock Classes="dim" Text="palette" VerticalAlignment="Center"/>
-                <ComboBox x:Name="OwPalRow" Width="64" SelectedIndex="4"
-                          ToolTip.Tip="The palette row the drawer's tiles are stamped with (the land uses 4-7)"/>
-                <ToggleButton x:Name="OwFlipX" Classes="mode" MinWidth="34" ToolTip.Tip="Stamp mirrored left to right">
+                <!-- Mirror the SELECTED land, not the brush: the block's layout reverses and every
+                     word's flip bit turns, as one edit. X and Y on the keyboard do the same. -->
+                <Button x:Name="OwFlipX" MinWidth="34" ToolTip.Tip="Mirror the selected land left to right (X)">
                   <Path Data="{StaticResource IconFlipHorizontal}"/>
-                </ToggleButton>
-                <ToggleButton x:Name="OwFlipY" Classes="mode" MinWidth="34" ToolTip.Tip="Stamp flipped top to bottom">
+                </Button>
+                <Button x:Name="OwFlipY" MinWidth="34" ToolTip.Tip="Flip the selected land top to bottom (Y)">
                   <Path Data="{StaticResource IconFlipVertical}"/>
-                </ToggleButton>
-                <Rectangle Classes="sep"/>
-                <!-- Lunar Magic's View ▸ Layer 1: the level tiles and paths stay in view over the
-                     land while it is painted, or go away to see the land alone. Never edited here. -->
-                <ToggleButton x:Name="OwShowLayer1" Classes="mode" IsChecked="True"
-                              ToolTip.Tip="Show layer 1 — the level tiles and paths — over the land. It is only shown here; the other tabs edit it.">
-                  <StackPanel Orientation="Horizontal" Spacing="6">
-                    <Path Data="{StaticResource IconFlag}"/>
-                    <TextBlock Text="Layer 1" VerticalAlignment="Center"/>
-                  </StackPanel>
-                </ToggleButton>
+                </Button>
                 <Rectangle Classes="sep"/>
               </StackPanel>
               <!-- Lunar Magic's View menu, on every tab: what the invisible layer 1 tiles do, and
                    the numbers each level and warp tile carries. Drawn as chrome over the map. -->
               <StackPanel x:Name="OwViewBar" DockPanel.Dock="Left" Orientation="Horizontal" Spacing="6">
-                <ToggleButton x:Name="OwShowPaths" Classes="mode" IsChecked="True"
-                              ToolTip.Tip="Show Mario's paths: green walks, rungs climb, blue swims, red leaves for another map, an X where he stops without entering">
-                  <TextBlock Text="Paths" VerticalAlignment="Center"/>
+                <!-- View ▸ Layer 1: the level tiles and paths stay in view over the land while it is
+                     painted, or go away to see the land alone. Tiles tab only — the other tabs
+                     always show the layer they edit. -->
+                <ToggleButton x:Name="OwShowLayer1" MinWidth="34" IsChecked="True"
+                              ToolTip.Tip="Show layer 1 — the level tiles and paths — over the land. It is only shown here; the Paths &amp; Levels tab edits it.">
+                  <Path Data="{StaticResource IconCastle}"/>
                 </ToggleButton>
-                <ToggleButton x:Name="OwShowLevelNumbers" Classes="mode"
+                <ToggleButton x:Name="OwShowPaths" MinWidth="34" IsChecked="True"
+                              ToolTip.Tip="Show Mario's paths: green walks, rungs climb, blue swims, red leaves for another map, an X where he stops without entering">
+                  <Path Data="{StaticResource IconRoute}"/>
+                </ToggleButton>
+                <ToggleButton x:Name="OwShowLevelNumbers" MinWidth="34"
                               ToolTip.Tip="Label each level tile with the level it enters">
-                  <TextBlock Text="Level #" VerticalAlignment="Center"/>
+                  <Path Data="{StaticResource IconFlag}"/>
                 </ToggleButton>
                 <ToggleButton x:Name="OwShowEventNumbers" Classes="mode" IsChecked="True"
                               ToolTip.Tip="Label each level tile with the event its normal exit fires; a secret exit adds its number. Events tab only">
                   <TextBlock Text="Event #" VerticalAlignment="Center"/>
                 </ToggleButton>
-                <ToggleButton x:Name="OwShowWarps" Classes="mode"
+                <ToggleButton x:Name="OwShowWarps" MinWidth="34"
                               ToolTip.Tip="Label star, pipe and exit tiles with their index over the index they lead to. N/A is a one-way trip; a red number marks where one lands. K: where a Koopa Kid drops Mario">
-                  <TextBlock Text="Warps" VerticalAlignment="Center"/>
+                  <Path Data="{StaticResource IconGalaxy}"/>
                 </ToggleButton>
                 <Rectangle Classes="sep"/>
               </StackPanel>

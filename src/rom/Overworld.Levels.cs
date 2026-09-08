@@ -55,4 +55,18 @@ public sealed partial class Overworld
         packed.CopyTo(rom.Data, blob);
         return null;
     }
+
+    /// <summary>
+    /// The reveal list ($04DA1D → $04DA33, walked at $04DA83): the tile an event turns a hidden
+    /// tile into — 0x6E becomes the level tile 0x66, and so on for 22 pairs (the last, 0x54 →
+    /// 0x23, is two tiles wide). Lunar Magic's "Future Layer 1 Tiles" draws a hidden tile as what
+    /// it becomes, translucent; so does <see cref="Layer1Art"/>. -1 for a tile no event changes.
+    /// </summary>
+    public const int RevealSources = 0x04DA1D, RevealTargets = 0x04DA33, RevealCount = 22;
+    public int RevealedTile(int tile)
+    {
+        int s = Rom.FileOffset(RevealSources), t = Rom.FileOffset(RevealTargets);
+        for (int i = 0; i < RevealCount; i++) if (Rom.Data[s + i] == tile) return Rom.Data[t + i];
+        return -1;
+    }
 }

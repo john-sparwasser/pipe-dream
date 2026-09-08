@@ -30,9 +30,36 @@ public partial class MainWindow
     private (int X, int Y, int W, int H) owFloatFrom, owFloatAt;
 
     /// <summary>The word a sheet tile stamps: the tile, and the palette row and flips from the bar.</summary>
-    private int OwWordFor(int tile)
-        => tile | (Math.Max(0, owPalRow.SelectedIndex) << 10)
-           | (owFlipX.IsChecked == true ? 0x4000 : 0) | (owFlipY.IsChecked == true ? 0x8000 : 0);
+    private int OwWordFor(int tile) => tile | (Math.Max(0, owPalRow.SelectedIndex) << 10);
+
+    /// <summary>Mirror the selected land left to right (<paramref name="mirror"/>) or flip it top
+    /// to bottom: the block's layout reversed and every word's flip bit turned, so the picture
+    /// turns as a whole. A carried block turns in the float; a settled one in the map, as one undo.</summary>
+    private void OwFlipSelection(bool mirror)
+    {
+        if (OwModeNow != OwMode.Tiles || OwColorsOnly || session.OwMap is not { } map) return;
+        if (owFloat is { } f) { owFloat = (Turned(f.Cells, f.W, f.H, mirror), f.W, f.H); owView.Invalidate(); return; }
+        if (owView.Selection is not { } sel) return;
+        var cells = Turned(ReadRect(map, sel), sel.W, sel.H, mirror);
+        bool changed = false;
+        for (int j = 0; j < sel.H; j++)
+            for (int i = 0; i < sel.W; i++) changed |= OwStamp(map, sel.X + i, sel.Y + j, cells[j * sel.W + i]);
+        if (!changed || !map.EndStroke()) return;
+        owView.Invalidate();
+        RefreshOverworld();
+        UpdateTitle();
+    }
+
+    /// <summary>A block of words mirrored (columns reversed, X bit turned) or flipped (rows
+    /// reversed, Y bit turned).</summary>
+    private static int[] Turned(int[] cells, int w, int h, bool mirror)
+    {
+        var turned = new int[cells.Length];
+        for (int j = 0; j < h; j++)
+            for (int i = 0; i < w; i++)
+                turned[j * w + i] = cells[(mirror ? j : h - 1 - j) * w + (mirror ? w - 1 - i : i)] ^ (mirror ? 0x4000 : 0x8000);
+        return turned;
+    }
 
     /// <summary>An 8x8 canvas cell as the Tiles tab shows it: the float where it hovers, the
     /// fill where the float was lifted from, the map everywhere else.</summary>
