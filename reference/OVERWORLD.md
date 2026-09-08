@@ -153,7 +153,7 @@ a repeating pattern. Five edit modes and where they land in pipe-dream's bar:
 | Lunar Magic mode | pipe-dream |
 |---|---|
 | Layer 2 8x8 Editor (default) | Tiles |
-| Layer 1 16x16 Editor — level tiles AND the invisible path tiles are dragged like any tile; Alt+Right = Modify Level Tile Settings; Alt+Left on two star/pipe/exit tiles links them | Paths & Levels (places and moves the tiles, snapped to 16x16 over the 8x8 canvas; the settings dialog and Transitions still to come) |
+| Layer 1 16x16 Editor — level tiles AND the invisible path tiles are dragged like any tile; Alt+Right = Modify Level Tile Settings; Alt+Left on two star/pipe/exit tiles links them | Paths & Levels (places and moves the tiles, snapped to 16x16 over the 8x8 canvas; a level tile under the pointer grows an **Edit** button that opens LM's settings dialog — see below. Alt+Left linking is Transitions, still to come) |
 | Layer 2 Event Editor — Page Up/Down event, Home/End step; Shift+Right pastes a silent step | Events |
 | Layer 1 Event Editor — silent only, for other submaps | Events |
 | Sprite Editor — 8px steps, Mario/Luigi start | not yet placed |
@@ -169,13 +169,30 @@ map do not work.
 
 ## 11. Status and caveats
 
+**Modify Level Tile Settings** (LM's Alt-right click; here the hovered level tile grows an Edit
+button, `MainWindow.Overworld.Layer1.cs`). Of its five groups, two are ours to write and three
+are Lunar Magic's — measured 2026-09-08 by changing each in LM's own dialog and diffing:
+
+| field | where it lives | on a base of ours |
+|---|---|---|
+| base event | `$05D608` + translevel, in place on every ROM | **editable** |
+| direction per exit (normal + 3 secret) | `$04D678` + translevel, 2 bits each | **editable** — but LM's overworld save jumps its copy loop and reads a packed block of its own instead, so this is live exactly while `HasLevelTable` is false |
+| level number | LM's per-tile table | read-only: our base numbers by the game's scan order, so the number follows the tile |
+| eight initial flags | `$05DDA0` + level, a table LM ADDS when it saves | shown, not offered |
+| reveal on event | LM's layer 1 event data | shown, not offered — the Events tab's job |
+
+`EditorSession.OwLevelTileAt` / `SetOwLevelTile`; both tables are the ROM's edited copies, kept
+in the project (`Overworld.BaseEvents`, `Overworld.ExitDirs`) and replayed at build.
+
 Done (v0.4.x): render of both layers with animated tiles at rest, per-submap palettes by region;
 the Overworld mode with five drawer tabs; the overworld's eight GFX files in the Graphics
 drawer. **Tiles** edits layer 2 in 8x8s: right-click paints the drawer's tile in the bar's
 palette row and flips, lasso/move/grow as the background tilemap does, undo per stroke; the map
 is kept as 0x2000 words in the project (`Overworld.Layer2`) and written back into the ROM's own
 stream space at build time when it packs small enough (`Overworld.WriteLayer2`; refused with a
-reason otherwise — no relocation yet). Paths, Levels, Events, Transitions are read-only views.
+reason otherwise — no relocation yet). **Paths & Levels** edits layer 1 in 16x16s
+(place, move, grow, delete) and opens a level tile's settings; Events and Transitions are still
+read-only views.
 
 ### Lunar Magic's overworld hooks  [CONFIRMED 2026-09-06, BigEye + DogsOfWar + ShaoBase vs vanilla]
 

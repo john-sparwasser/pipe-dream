@@ -1142,10 +1142,21 @@
                          TextTrimming="CharacterEllipsis" Margin="6,0,10,0"/>
             </DockPanel>
           </Border>
-          <ScrollViewer x:Name="OwScroll" HorizontalScrollBarVisibility="Auto"
-                        Background="{x:Static ui:UiColors.DeskPattern}">
-            <ui:TilemapView x:Name="OwView" Margin="16"/>
-          </ScrollViewer>
+          <!-- The Edit button rides OVER the scroll viewer rather than inside it: a real control,
+               so the framework hit-tests it and the canvas below never sees the press as the start
+               of a lasso — and the map's own pointer handling is left exactly as it was. It is
+               placed in viewport coordinates, so it follows the scroll. -->
+          <Grid x:Name="OwMapArea">
+            <ScrollViewer x:Name="OwScroll" HorizontalScrollBarVisibility="Auto"
+                          Background="{x:Static ui:UiColors.DeskPattern}">
+              <ui:TilemapView x:Name="OwView" Margin="16"/>
+            </ScrollViewer>
+            <Button x:Name="OwEditBtn" IsVisible="False" Padding="5,1" FontSize="11"
+                    HorizontalAlignment="Left" VerticalAlignment="Top" Click="OnOwEditTile"
+                    Background="{x:Static ui:UiColors.EditBadge}" Foreground="White"
+                    ToolTip.Tip="This level tile's settings: the level it enters, the event passing it fires, and what each exit opens"
+                    Content="Edit"/>
+          </Grid>
         </DockPanel>
         <DockPanel x:Name="GfxScroll" IsVisible="False" Background="{DynamicResource VoidBrush}">
           <Border x:Name="GfxEditorBar" DockPanel.Dock="Top" Classes="panel bar"

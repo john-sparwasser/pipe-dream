@@ -66,6 +66,12 @@ public sealed class ProjectFile
         /// <summary>Lunar Magic's per-tile level table as 0x800 translevel bytes, base64, in the
         /// same order as <see cref="Layer1"/>. Only a ROM with LM's table has one.</summary>
         public string? Translevels { get; set; }
+        /// <summary>The base event each translevel's exits fire, 0x80 bytes base64
+        /// (<see cref="PipeDream.Overworld.BaseEvents"/>).</summary>
+        public string? BaseEvents { get; set; }
+        /// <summary>The direction each of a translevel's four exits opens, 0x60 packed bytes
+        /// base64 (<see cref="PipeDream.Overworld.ExitDirs"/>).</summary>
+        public string? ExitDirs { get; set; }
     }
 
     public sealed class TilemapPreset

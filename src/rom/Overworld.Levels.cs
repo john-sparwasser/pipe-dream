@@ -21,10 +21,55 @@ public sealed partial class Overworld
     public static int LevelOf(int translevel) => translevel == 0 ? 0 : translevel < 0x25 ? translevel : (translevel - 0x24) | 0x100;
 
     /// <summary>The event a translevel's normal exit fires ($05D608, read at $05D9CC; a secret
-    /// exit adds its number), or -1 for $FF, none.</summary>
-    public const int BaseEvents = 0x05D608;
+    /// exit adds its number), $FF = none. 0x80 bytes; the ROM's edited copy, so the dialog, the
+    /// badges and the build all read one array.</summary>
+    public const int BaseEvents = 0x05D608, BaseEventCount = 0x80;
+    public byte[] BaseEventTable { get; }
 
-    public int BaseEventOf(int translevel) => Rom.Data[Rom.FileOffset(BaseEvents) + (translevel & 0x7F)] is var e && e != 0xFF ? e : -1;
+    public int BaseEventOf(int translevel) => BaseEventTable[translevel & 0x7F] is var e && e != 0xFF ? e : -1;
+
+    /// <summary>
+    /// Which direction passing a level opens, per translevel ($04D678, copied to $7ED800 by the
+    /// scan at $04D841): two bits per exit, 7-6 the normal one and 5-4 / 3-2 / 1-0 secret exits
+    /// 1-3, each 0 up, 1 down, 2 left, 3 right. 0x60 bytes — one per translevel the game can
+    /// hold. The ROM's edited copy, as <see cref="BaseEventTable"/> is.
+    ///
+    /// Lunar Magic's own overworld save moves this out: its rewrite of the scan at $04D7F2 jumps
+    /// over the copy loop entirely and fills the RAM from a packed block of its own. So the table
+    /// is live exactly while <see cref="HasLevelTable"/> is false — on a base of ours, not on a
+    /// ROM LM has saved (measured 2026-09-08: an LM save of a v17 base left $04D678 untouched
+    /// while the dialog's direction changed).
+    /// </summary>
+    public const int ExitDirs = 0x04D678, ExitDirCount = 0x60;
+    public byte[] ExitDirTable { get; }
+
+    /// <summary>Whether the exit-direction table this ROM reads is the vanilla one we can write.</summary>
+    public bool HasVanillaExitDirs => !HasLevelTable;
+
+    /// <summary>Exit 0 is the normal one, 1-3 the secret exits: the direction each opens.</summary>
+    public int ExitDirOf(int translevel, int exit)
+        => (uint)translevel < ExitDirCount && (uint)exit < 4 ? (ExitDirTable[translevel] >> (6 - exit * 2)) & 3 : 0;
+
+    public void SetExitDir(int translevel, int exit, int dir)
+    {
+        if ((uint)translevel >= ExitDirCount || (uint)exit >= 4) return;
+        int shift = 6 - exit * 2;
+        ExitDirTable[translevel] = (byte)(ExitDirTable[translevel] & ~(3 << shift) | (dir & 3) << shift);
+    }
+
+    public void SetBaseEvent(int translevel, int e) => BaseEventTable[translevel & 0x7F] = (byte)(e < 0 ? 0xFF : e);
+
+    /// <summary>The four directions an exit can open, in the order the two-bit field numbers them
+    /// — and the order Lunar Magic's dropdowns list them.</summary>
+    public static readonly string[] DirectionNames = ["Up", "Down", "Left", "Right"];
+
+    /// <summary>Write the two per-translevel tables back where the game reads them. Both are
+    /// fixed-size and in place, so neither can fail to fit.</summary>
+    public static void WriteExitDirs(Rom rom, byte[] table)
+        => table.AsSpan(0, ExitDirCount).CopyTo(rom.Data.AsSpan(rom.FileOffset(ExitDirs)));
+
+    public static void WriteBaseEvents(Rom rom, byte[] table)
+        => table.AsSpan(0, BaseEventCount).CopyTo(rom.Data.AsSpan(rom.FileOffset(BaseEvents)));
 
     /// <summary>Lunar Magic's per-tile level table, out of its LZ2 blob.</summary>
     private static byte[] ReadLevelTable(Rom rom, Tables at)

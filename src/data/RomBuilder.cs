@@ -133,6 +133,8 @@ internal static class RomBuilder
             if (project.Data.Overworld.Translevels is { } owt
                 && Overworld.WriteLevelTable(rom, Convert.FromBase64String(owt)) is { } owtErr)
                 warnings.Add("overworld: " + owtErr);
+            if (project.Data.Overworld.BaseEvents is { } owb) Overworld.WriteBaseEvents(rom, Convert.FromBase64String(owb));
+            if (project.Data.Overworld.ExitDirs is { } owd) Overworld.WriteExitDirs(rom, Convert.FromBase64String(owd));
 
             // Skip level entries whose key is not a level number. A project should never contain
             // one, but an editor bug wrote entries keyed -1 for a while, and refusing to build a

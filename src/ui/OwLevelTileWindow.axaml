@@ -1,0 +1,52 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PipeDream.Ui.OwLevelTileWindow"
+        Title="Level Tile Settings" Width="660" Height="470" CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+
+  <Window.Styles>
+    <Style Selector="TextBlock.label">
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+    <Style Selector="TextBlock.section">
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Margin" Value="0,0,0,6"/>
+    </Style>
+    <Style Selector="TextBlock.note">
+      <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}"/>
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+  </Window.Styles>
+
+  <DockPanel Margin="14">
+    <Border DockPanel.Dock="Bottom" Padding="0,12,0,0">
+      <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+        <Button Content="Cancel" Click="OnCancel"/>
+        <Button x:Name="OkBtn" Content="OK" Click="OnOk"/>
+      </StackPanel>
+    </Border>
+
+    <Grid ColumnDefinitions="*,16,220">
+      <!-- Left: the standard settings, in Lunar Magic's order. -->
+      <StackPanel Grid.Column="0" Spacing="8">
+        <TextBlock Classes="section" Text="Standard layer 1 level tile settings"/>
+        <Grid x:Name="Fields" ColumnDefinitions="*,140" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto"/>
+        <TextBlock x:Name="RevealNote" Classes="note"/>
+        <TextBlock Classes="note" Margin="0,6,0,0"
+                   Text="One base event and one set of directions per level number: two tiles that enter the same level share them, as they do in Lunar Magic. A secret exit fires the base event plus its own number."/>
+      </StackPanel>
+
+      <!-- Right: the eight new-game flags. -->
+      <StackPanel Grid.Column="2" Spacing="6">
+        <TextBlock Classes="section" Text="Initial level setting flags"/>
+        <StackPanel x:Name="Flags" Spacing="4"/>
+        <TextBlock x:Name="FlagsNote" Classes="note" Margin="0,6,0,0"/>
+      </StackPanel>
+    </Grid>
+  </DockPanel>
+</Window>

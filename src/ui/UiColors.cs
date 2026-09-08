@@ -60,6 +60,8 @@ internal static class UiColors
     public static readonly IBrush EventFill = new SolidColorBrush(Color.FromArgb(0x60, 0x9A, 0x6A, 0xD8));
     public static readonly IBrush WarpBadge = new SolidColorBrush(Color.FromArgb(0xD0, 0x1C, 0x7A, 0x74));
     public static readonly IBrush WarpOneWay = new SolidColorBrush(Color.FromArgb(0xD0, 0xB0, 0x20, 0x20));
+    /// <summary>The pill that opens a level tile's settings, on the tile the pointer is over.</summary>
+    public static readonly IBrush EditBadge = new SolidColorBrush(Color.FromArgb(0xE8, 0x1F, 0x6F, 0xB2));
 
     /// <summary>The desk behind the level — dark grey with lighter diamonds, the ImGui
     /// editor's DrawDeskBackdrop (0xFF101010 under 0xFF1B1B1B diamonds, half-diagonal 16px,

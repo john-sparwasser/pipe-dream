@@ -1,7 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
-using Avalonia.Media;
 using PipeDream.Services;
 
 namespace PipeDream.Ui;
@@ -112,6 +111,58 @@ public partial class MainWindow
         owView.Invalidate();
         RefreshOverworld();
         UpdateTitle();
+    }
+
+    // ---- the settings button, on the level tile the pointer is over ----
+
+    /// <summary>The layer 1 cell the Edit button is currently sitting on, or null when it is
+    /// hidden. A real button rather than drawn chrome: the framework hit-tests it, so the press
+    /// never reaches the canvas below and starts a lasso.</summary>
+    private (int X, int Y)? owEditTile;
+
+    /// <summary>
+    /// Move the Edit button onto the level tile the pointer is over, or hide it. Lunar Magic
+    /// opens the same settings with an Alt-right click on a tile; here the tile grows a button,
+    /// so the gesture is visible rather than remembered. Only on the Paths &amp; Levels tab, and
+    /// never mid-drag, when the pointer is busy moving tiles.
+    /// </summary>
+    private void PlaceOwEditButton() => PlaceOwEditButtonAt(owView.Hover);
+
+    /// <summary>The same, for a named canvas cell — the seam a test drives, since a headless
+    /// pointer only moves once it has been pressed and the button is hidden mid-drag.</summary>
+    private void PlaceOwEditButtonAt((int Col, int Row)? hover)
+    {
+        if (this.FindControl<Button>("OwEditBtn") is not { } btn) return;
+        // Reaching for the button takes the pointer off the canvas, which is what would otherwise
+        // hide it out from under the hand going to press it.
+        if (btn.IsPointerOver) return;
+        owEditTile = null;
+        if (OwModeNow == OwMode.Layer1 && !OwColorsOnly && !owView.Dragging
+            && hover is { } h
+            && EditorSession.OwLayer1Cell(h.Col, h.Row, out int x, out int y)
+            && session.OwLevelTileAt(x, y) is not null)
+        {
+            var (c, r) = EditorSession.OwLayer1Origin(x, y);
+            double step = owView.CellPx * owView.Zoom;
+            double h2 = btn.Bounds.Height > 0 ? btn.Bounds.Height : 20;   // 0 until it has been laid out once
+            // Viewport coordinates: the map's own margin, the tile, less how far the view is
+            // scrolled. The bottom-left of the tile — the level and event badges take the top-left.
+            var off = this.FindControl<ScrollViewer>("OwScroll")?.Offset ?? default;
+            btn.Margin = new Thickness(owView.Margin.Left + c * step - off.X,
+                                       owView.Margin.Top + (r + 2) * step - h2 - off.Y, 0, 0);
+            owEditTile = (x, y);
+        }
+        btn.IsVisible = owEditTile is not null;
+    }
+
+    /// <summary>Lunar Magic's Modify Level Tile Settings for one tile, staged and applied on OK.</summary>
+    private async void OnOwEditTile(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (owEditTile is not { } at || session.OwLevelTileAt(at.X, at.Y) is not { } tile) return;
+        var w = new OwLevelTileWindow(tile);
+        await w.ShowDialog(this);
+        if (!w.Applied) return;
+        if (session.SetOwLevelTile(tile, w.BaseEvent, w.ExitDirs)) { owView.Invalidate(); RefreshOverworld(); UpdateTitle(); }
     }
 
     /// <summary>Delete over a lasso: the layer 1 tiles under it become empty. True when the

@@ -156,8 +156,14 @@ public partial class MainWindow
                 && !owView.IsVisualAncestorOf(src)) owView.ClearSelection();
         };
         // The gutter answers "which tile is this", so it follows the cursor.
-        owView.PointerMoved += (_, _) => UpdateReadout();
+        owView.PointerMoved += (_, _) => { UpdateReadout(); PlaceOwEditButton(); };
         owView.PointerExited += (_, _) => UpdateReadout();
+        // The Edit button sits OVER the map, so reaching for it takes the pointer off the canvas.
+        // Hiding it on the canvas's own exit would pull it out from under the hand going to press
+        // it — and the flicker that follows swallows the hover entirely. It goes when the pointer
+        // leaves the whole map area, which the button is part of.
+        this.GetControl<Grid>("OwMapArea").PointerExited += (_, _) => PlaceOwEditButtonAt(null);
+        this.GetControl<ScrollViewer>("OwScroll").ScrollChanged += (_, _) => PlaceOwEditButton();
     }
 
     /// <summary>Redraw the map and the drawer for the current tab.</summary>

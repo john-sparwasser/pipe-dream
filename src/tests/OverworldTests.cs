@@ -367,6 +367,105 @@ public class OverworldTests(ITestOutputHelper log)
         Assert.Equal(2, l1.UndoDepth);                            // the undo above took one entry back; the delete adds one
     }
 
+    /// <summary>The Paths &amp; Levels tab grows an Edit button on whichever level tile the pointer
+    /// is over — Lunar Magic's Alt-right click, made visible — and hides it over anything else.</summary>
+    [AvaloniaFact]
+    public void hovering_a_level_tile_offers_its_settings_button()
+    {
+        if (PreppedRom.Path is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeOverworld").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<TabStrip>("OwTabs").SelectedIndex = 1;
+        Dispatcher.UIThread.RunJobs();
+        var session = (Services.EditorSession)typeof(MainWindow)
+            .GetField("session", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(w)!;
+        var view = w.GetControl<TilemapView>("OwView");
+        var btn = w.GetControl<Button>("OwEditBtn");
+        Assert.False(btn.IsVisible);
+
+        // A level tile on the main map, and a cell of open sea, in canvas cells.
+        var lvl = Enumerable.Range(0, 2 * Overworld.Rows)
+            .SelectMany(y => Enumerable.Range(0, Overworld.Cols).Select(x => (x, y)))
+            .First(c => session.OwLevelTileAt(c.x, c.y) is not null);
+        var (lc, lr) = Services.EditorSession.OwLayer1Origin(lvl.x, lvl.y);
+
+        double step = view.CellPx * view.Zoom;
+        void Hover(int c, int r) { Place(w, (c, r)); Dispatcher.UIThread.RunJobs(); }
+        Hover(lc, lr);
+        Assert.True(btn.IsVisible, "no Edit button on a level tile");
+        // It sits at the tile's bottom-left corner, in the viewport's coordinates — the map's own
+        // margin included, so it lands on the tile rather than 16px up and left of it.
+        Assert.Equal(view.Margin.Left + lc * step, btn.Margin.Left, 1);
+        Assert.InRange(btn.Margin.Top, view.Margin.Top + (lr - 1) * step, view.Margin.Top + (lr + 2) * step);
+
+        // Off it again: the sea at the map's corner is not a level tile.
+        Assert.Null(session.OwLevelTileAt(0, 0));
+        Hover(0, 0);
+        Assert.False(btn.IsVisible);
+
+        // And the button is the Tiles tab's business no more than the Palette drawer's.
+        Hover(lc, lr);
+        Assert.True(btn.IsVisible);
+        w.GetControl<TabStrip>("OwTabs").SelectedIndex = 0;
+        Dispatcher.UIThread.RunJobs();
+        Hover(lc, lr);
+        Assert.False(btn.IsVisible);
+    }
+
+    /// <summary>Drive the window's own placement seam: a headless pointer only moves once it has
+    /// been pressed, and the button is deliberately hidden while a drag is running.</summary>
+    private static void Place(MainWindow w, (int Col, int Row)? hover)
+        => typeof(MainWindow).GetMethod("PlaceOwEditButtonAt", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+                             .Invoke(w, [hover]);
+
+    /// <summary>
+    /// Lunar Magic's Modify Level Tile Settings, per level tile: what it enters, the event
+    /// passing it fires, and the direction each of its four exits opens. The two tables are per
+    /// TRANSLEVEL and live in place, so an edit shows on the badges and survives a build; a tile
+    /// that is not a level tile has no settings at all.
+    /// </summary>
+    [Fact]
+    public void a_level_tiles_settings_read_and_write_the_two_per_translevel_tables()
+    {
+        if (PreppedRom.Fork() is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new Services.EditorSession();
+        Assert.True(s.OpenRom(p));
+        var ow = s.Overworld!;
+
+        // Yoshi's House on the main map is a level tile; the sea beside it is not.
+        var found = Enumerable.Range(0, 2 * Overworld.Rows)
+            .SelectMany(y => Enumerable.Range(0, Overworld.Cols).Select(x => (x, y)))
+            .Select(c => s.OwLevelTileAt(c.x, c.y))
+            .First(t => t is { Translevel: > 0 });
+        var tile = found!.Value;
+        Assert.Equal(Overworld.LevelOf(tile.Translevel), tile.Level);
+        Assert.Equal(4, tile.ExitDirs.Length);
+        // A base of ours numbers by scan order and keeps the vanilla direction table: the two
+        // are never both editable, and this is the half that is.
+        Assert.False(tile.LevelEditable);
+        Assert.True(tile.DirsEditable);
+        Assert.Null(s.OwLevelTileAt(0, 0));                       // the sea at the corner
+
+        Assert.True(s.SetOwLevelTile(tile, baseEvent: 0x21, exitDirs: [3, 2, 1, 0]), s.Status);
+        Assert.Equal(0x21, ow.BaseEventOf(tile.Translevel));
+        Assert.Equal([3, 2, 1, 0], Enumerable.Range(0, 4).Select(e => ow.ExitDirOf(tile.Translevel, e)));
+        // Packed as the game reads them: 7-6 normal, then the three secret exits.
+        Assert.Equal(0xE4, ow.ExitDirTable[tile.Translevel]);
+
+        // And written where the GAME looks, not only into the editor's copy.
+        var rom = s.Rom!;
+        Assert.Equal(0x21, rom.Data[rom.FileOffset(Overworld.BaseEvents) + (tile.Translevel & 0x7F)]);
+        Assert.Equal(0xE4, rom.Data[rom.FileOffset(Overworld.ExitDirs) + tile.Translevel]);
+
+        // "No event" round-trips as $FF, and the settings read back through the tile.
+        Assert.True(s.SetOwLevelTile(tile, baseEvent: -1, exitDirs: tile.ExitDirs), s.Status);
+        Assert.Equal(-1, s.OwLevelTileAt(tile.X, tile.Y + (tile.SubmapMap ? Overworld.Rows : 0))!.Value.BaseEvent);
+    }
+
     /// <summary>Layer 1 writes back where the game reads it: the low bytes in place, and the
     /// edited map reads back from a ROM built with it. A tile from page 1 has nowhere to go on a
     /// vanilla ROM, and the writer says so rather than dropping its high byte silently.</summary>

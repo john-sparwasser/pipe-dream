@@ -307,6 +307,14 @@ public sealed class Rom
     /// blob has one (<see cref="Overworld.HasLevelTable"/>); written back at build time.</summary>
     public byte[]? OwTranslevels;
 
+    /// <summary>The edited exit-direction table (0x60 bytes, one per translevel — see
+    /// <see cref="Overworld.ExitDirs"/>), or null to read the ROM's own.</summary>
+    public byte[]? OwExitDirs;
+
+    /// <summary>The edited base-event table (0x80 bytes, one per translevel — see
+    /// <see cref="Overworld.BaseEvents"/>), or null to read the ROM's own.</summary>
+    public byte[]? OwBaseEvents;
+
     /// <summary>Imported layer-3 tilemaps: level → a flat 16-bit map, LM's LT3 file shape
     /// (0x800/0x1000/0x2000 bytes). Replaces vanilla's (level mode, option) pick for that level
     /// wherever <see cref="Layer3.LevelTilemap"/> is asked. Hydrated from / stashed to

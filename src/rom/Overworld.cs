@@ -69,6 +69,8 @@ public sealed partial class Overworld
         Translevels = HasLevelTable ? rom.OwTranslevels ??= ReadLevelTable(rom, At) : new byte[2 * MapTiles];
         if (!HasLevelTable) Renumber();
         Layer2 = rom.OwLayer2 ??= DecodeLayer2(rom);
+        BaseEventTable = rom.OwBaseEvents ??= rom.Data.AsSpan(rom.FileOffset(BaseEvents), BaseEventCount).ToArray();
+        ExitDirTable = rom.OwExitDirs ??= rom.Data.AsSpan(rom.FileOffset(ExitDirs), ExitDirCount).ToArray();
         defs = new Map16.Word[Map16Count][];
         int d = rom.FileOffset(At.Map16Defs);
         for (int t = 0; t < Map16Count; t++)
