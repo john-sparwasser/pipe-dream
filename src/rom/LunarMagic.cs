@@ -316,6 +316,21 @@ public static class LunarMagic
         /// </summary>
         public int LmExAnimBase => rom.lmExAnimBase != -2 ? rom.lmExAnimBase : rom.lmExAnimBase = ScanExAnimBase(rom);
 
+        /// <summary>SNES entry of the overworld hack's per-load SETUP, or -1: the overworld reaches
+        /// it through `JSR $048086` at $048EEB, and the hack takes that call with a JSL of its own —
+        /// so the hook site names the entry, on our prepped base and on an LM-saved ROM alike.</summary>
+        public int LmOwExAnimSetupEntry => rom.ReadByte(0x048086) == 0x22 ? rom.ReadValue(0x048087, 3) : -1;
+
+        /// <summary>SNES entry of the overworld hack's per-frame TICK (vanilla's OW_Tile_Animation
+        /// at $0480E0, taken the same way), or -1. It is what fills the $7FC0C0 DMA records.</summary>
+        public int LmOwExAnimTickEntry => rom.ReadByte(0x0480E0) == 0x22 ? rom.ReadValue(0x0480E1, 3) : -1;
+
+        /// <summary>Base of Lunar Magic's OVERWORLD ExAnimation record table (3 bytes x 7 submaps,
+        /// FF 00 00 = none), or -1 when the ROM does not carry the overworld hack. A separate hack
+        /// with a separate table from the per-level one — see <see cref="LmOwExAnimEngine"/>.</summary>
+        public int LmOwExAnimBase => rom.lmOwExAnimBase != -2 ? rom.lmOwExAnimBase
+            : rom.lmOwExAnimBase = ScanOwExAnimBase(rom);
+
         /// <summary>
         /// Base of LM's sprite entry-size table (0x400 bytes, byte size per (extraBits&lt;&lt;8)|sprite#,
         /// includes the 3 base bytes), or -1 = vanilla 3-byte entries. Located via the LDA long,X
@@ -747,6 +762,26 @@ public static class LunarMagic
     extension(Rom rom)
     {
         /// <summary>
+        /// Give a SUBMAP these ExAnimation slots (none = remove its record), the way
+        /// <see cref="WriteLevelExAnim"/> gives a level its own: the overworld hack's table is a
+        /// second table of the same shape, indexed by the submap number itself (0 = the main map).
+        /// Lunar Magic reads the result in its "Edit Submap ExAnimated Frames" dialog.
+        /// </summary>
+        public string? WriteSubmapExAnim(int submap, IReadOnlyList<ExAnimation.Slot> slots, int altFileIndex)
+        {
+            if ((uint)submap >= Overworld.Submaps) return $"submap {submap} is not one of the seven";
+            int table = rom.LmOwExAnimBase;
+            if (table < 0) return "this base has no overworld ExAnimation hack — File → Upgrade base to prep v" + RomPrep.Version;
+            int entry = rom.FileOffset(table + submap * 3);
+            int old = rom.ReadValue(table + submap * 3, 3);
+            if ((old >> 16) != 0) RatsWriter.Release(rom, old);
+            int ptr = 0x0000FF;                                                   // FF 00 00 = none
+            if (slots.Count > 0) ptr = RatsWriter.Allocate(rom, ExAnimation.Encode(slots, altFileIndex), avoidBankCross: true);
+            rom.Data[entry] = (byte)ptr; rom.Data[entry + 1] = (byte)(ptr >> 8); rom.Data[entry + 2] = (byte)(ptr >> 16);
+            return null;
+        }
+
+        /// <summary>
         /// Give <paramref name="level"/> these ExAnimation slots (none = remove its record): the
         /// old record's RATS block is released, the new one allocated, and the per-level table
         /// entry repointed — what LM does on every save. Error text when the base has no
@@ -785,6 +820,20 @@ public static class LunarMagic
     private static int ScanExAnimBase(Rom rom)
     {
         int o = ScanOperand(rom, [0xA5, 0xFE, 0xF0, -1, 0x3A, 0x0A, 0x18, 0x65, 0xFE, 0x3A, 0xAA, 0xBF], []);
+        return o < 0 ? -1 : o - 1;
+    }
+
+    /// <summary>
+    /// The overworld hack's record table, through the one place its setup indexes it — the
+    /// overworld's answer to <see cref="ScanExAnimBase"/>. The index is `3 x [$03]` where $03 is
+    /// the submap the setup read from `$1F11,X`, so there is no DEC and the prefix differs from
+    /// the level engine's; the operand found is table+1 (`LDA.L table+1,X` reads the middle byte).
+    /// The `LDA #$0010 : TSB $C00A` ahead of it keeps this from matching the level engine, whose
+    /// own fetch sits behind the same three-byte multiply.
+    /// </summary>
+    private static int ScanOwExAnimBase(Rom rom)
+    {
+        int o = ScanOperand(rom, [0xA9, 0x10, 0x00, 0x0C, 0x0A, 0xC0, 0xA5, 0x03, 0x0A, 0x65, 0x03, 0xAA, 0xBF], []);
         return o < 0 ? -1 : o - 1;
     }
 

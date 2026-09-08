@@ -83,6 +83,11 @@ static class DebugCommands
         ("--owpng",             (a, i) => OverworldPng(a[i + 1], a[i + 2],
                                     a.Length > i + 7 ? (int.Parse(a[i + 3]), int.Parse(a[i + 4]), int.Parse(a[i + 5]), int.Parse(a[i + 6]), int.Parse(a[i + 7])) : null)),
         ("--exanim",            (a, i) => DumpExAnim(a[i + 1], Convert.ToInt32(a[i + 2], 16))),
+        // --owexanim <rom> [submapHex [plant]] : the overworld's OWN ExAnimation lists (LM's
+        // separate hack, reference/EXANIMATION.md §10). With `plant`, write one 8x8 slot onto
+        // that submap and save — how a ROM is made for Lunar Magic's own dialog to check.
+        ("--owexanim",          (a, i) => OwExAnim(a[i + 1], a.Length > i + 2 ? Convert.ToInt32(a[i + 2], 16) : -1,
+                                                  a.Length > i + 3 && a[i + 3] == "plant")),
         ("--disasm",            Disassemble),
         ("--gen-spritedisplay", GenSpriteDisplay),
     };
@@ -723,6 +728,29 @@ static class DebugCommands
         var slots = ExAnimation.ReadLevel(rom, level);
         Console.WriteLine($"Level {level:X3}: {slots.Count} ExAnimation slot(s)");
         foreach (var s in slots) Console.WriteLine("  " + DescribeSlot(s));
+        return 0;
+    }
+
+    // --owexanim <rom> [submapHex [plant]] : the overworld's ExAnimation lists, from LM's own
+    // overworld table (Rom.LmOwExAnimBase) — the dump `--exanim` gives a level.
+    public static int OwExAnim(string romPath, int submap, bool plant)
+    {
+        var rom = Rom.Load(romPath);
+        if (rom.LmOwExAnimBase < 0) { Console.WriteLine("no overworld ExAnimation hack in this ROM"); return 1; }
+        Console.WriteLine($"overworld ExAnimation table at ${rom.LmOwExAnimBase:X6}");
+        if (plant)
+        {
+            var slot = new ExAnimation.Slot(0, 1, ExAnimation.TriggerNone, 2, 0x1000, [0xAD00, 0xAD20], 0);
+            if (rom.WriteSubmapExAnim(submap, [slot], 0) is { } err) { Console.WriteLine(err); return 1; }
+            RatsWriter.SaveAs(rom, romPath);
+            Console.WriteLine($"planted a slot on submap {submap} and saved");
+        }
+        foreach (int m in submap < 0 || plant ? Enumerable.Range(0, Overworld.Submaps) : [submap])
+        {
+            var slots = ExAnimation.ReadSubmap(rom, m);
+            Console.WriteLine($"  submap {m}: {slots.Count} slot(s)");
+            foreach (var s in slots) Console.WriteLine("    " + DescribeSlot(s) + $"  ow src {s.OwSrcTile(0):X3}");
+        }
         return 0;
     }
 

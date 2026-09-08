@@ -179,11 +179,11 @@ public partial class MainWindow
         animEmptyAdd.IsVisible = false;
         if (session.Rom is not { } rom) return;
         bool submap = animOverworldBtn.IsChecked == true;
-        // A submap's list needs LM's own overworld ExAnimation hack, which no base carries yet:
-        // say so where the timeline would be, rather than showing an empty one that cannot be added to.
-        bool ready = rom.LmExAnimBase >= 0 && (!submap || session.ExAnimListIndex >= 0);
-        animTitle.Text = rom.LmExAnimBase < 0 ? "no ExAnimation engine — File → Upgrade base (prep v11)"
-                       : !ready ? ExAnimation.NoSubmapLists : "";
+        // A submap's list needs LM's own overworld ExAnimation hack — a separate one from the
+        // level engine, carried since prep v17. Say so where the timeline would be, rather than
+        // showing an empty one that cannot be added to.
+        bool ready = session.ExAnimReady;
+        animTitle.Text = session.ExAnimNotReadyWhy ?? "";
         animSubmapRow.IsVisible = submap;
         animListTitle.Text = animGlobal ? "Global slots"
                            : session.ExAnimSubmap >= 0 ? $"{SubmapNames[session.ExAnimSubmap]} slots"

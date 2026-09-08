@@ -9,23 +9,34 @@ public sealed partial class EditorSession
 
     /// <summary>
     /// Which list the non-global side of the Animations mode is pointed at: the open level, or
-    /// one of the overworld's seven submaps (0 = the main map). A submap's list lives in the same
-    /// per-level table Lunar Magic keeps level lists in, at the index it reserves for that submap
-    /// (<see cref="ExAnimation.SubmapListIndex"/>), so reading, writing, saving and building it
-    /// are the level path unchanged — and Lunar Magic opens the result in its own "Edit Submap
-    /// ExAnimated Frames" dialog.
+    /// one of the overworld's seven submaps (0 = the main map). A submap's list is a record of the
+    /// same shape as a level's, in Lunar Magic's own OVERWORLD table at the submap's own index
+    /// (<see cref="ExAnimation.SubmapListIndex"/>) — so only the table changes, and Lunar Magic
+    /// opens the result in its "Edit Submap ExAnimated Frames" dialog.
     /// </summary>
     public int ExAnimSubmap { get; set; } = -1;
 
-    /// <summary>The table index the level list reads and writes: the open level, or the submap's
-    /// reserved index. -1 when this ROM cannot hold a submap list.</summary>
+    /// <summary>The table index the list reads and writes: the open level, or the submap.</summary>
     public int ExAnimListIndex => ExAnimSubmap < 0 ? LevelNum : ExAnimation.SubmapListIndex(ExAnimSubmap);
 
-    /// <summary>The list's slots as the ROM has them: the global one, or the level's — which is a
-    /// submap's when the mode is pointed at one.</summary>
+    /// <summary>Whether the ROM can hold the list the mode is pointed at: a submap's needs Lunar
+    /// Magic's overworld hack, a level's or the global one its level engine.</summary>
+    public bool ExAnimReady => Rom is { } r && (ExAnimSubmap < 0 ? r.LmExAnimBase >= 0 : r.LmOwExAnimBase >= 0);
+
+    /// <summary>Why the list cannot be edited, in the words the timeline shows in its place —
+    /// null when it can. The overworld's animations are a SECOND hack of Lunar Magic's, carried
+    /// since prep v17, so a base can have the level engine and still not hold a submap's list.</summary>
+    public string? ExAnimNotReadyWhy
+        => ExAnimReady ? null
+         : ExAnimSubmap >= 0 ? $"no overworld ExAnimation hack — File → Upgrade base (prep v{RomPrep.Version})"
+         : "no ExAnimation engine — File → Upgrade base (prep v11)";
+
+    /// <summary>The list's slots as the ROM has them: the global one, the level's, or a submap's.</summary>
     public IReadOnlyList<ExAnimation.Slot> ExAnimSlots(bool global)
         => Rom is null || ExAnimListIndex < 0 ? []
-         : global ? ExAnimation.ReadGlobal(Rom) : ExAnimation.ReadLevel(Rom, ExAnimListIndex);
+         : global ? ExAnimation.ReadGlobal(Rom)
+         : ExAnimSubmap >= 0 ? ExAnimation.ReadSubmap(Rom, ExAnimSubmap)
+         : ExAnimation.ReadLevel(Rom, ExAnimListIndex);
 
     /// <summary>
     /// One frame of a tile slot as pixels, in the slot's shape (a line of N tiles, or the
@@ -147,9 +158,10 @@ public sealed partial class EditorSession
     public int ExAnimAltFile(bool global)
     {
         if (Rom is null) return 0;
+        int table = ExAnimSubmap >= 0 ? Rom.LmOwExAnimBase : Rom.LmExAnimBase;
         int ptr = global ? Rom.LmGlobalExAnimPtr
-                : Rom.LmExAnimBase < 0 || ExAnimListIndex < 0 ? -1
-                : Rom.ReadValue(Rom.LmExAnimBase + ExAnimListIndex * 3, 3);
+                : table < 0 || ExAnimListIndex < 0 ? -1
+                : Rom.ReadValue(table + ExAnimListIndex * 3, 3);
         return ptr > 0xFFFF ? Rom.ReadByte(ptr + 1) & 3 : 0;
     }
 
@@ -159,18 +171,22 @@ public sealed partial class EditorSession
     public bool SetExAnim(bool global, IReadOnlyList<ExAnimation.Slot> slots, int altFileIndex)
     {
         if (Rom is null) return false;
-        int index = ExAnimListIndex;
-        if (!global && index < 0) { Report(ExAnimation.NoSubmapLists); return false; }
-        string? err = global ? Rom.WriteGlobalExAnim(slots, altFileIndex) : Rom.WriteLevelExAnim(index, slots, altFileIndex);
+        int index = ExAnimListIndex, submap = ExAnimSubmap;
+        if (!global && index < 0) { Report("that submap is not one of the seven"); return false; }
+        string? err = global ? Rom.WriteGlobalExAnim(slots, altFileIndex)
+                    : submap >= 0 ? Rom.WriteSubmapExAnim(submap, slots, altFileIndex)
+                    : Rom.WriteLevelExAnim(index, slots, altFileIndex);
         if (err is not null) { Report(err); return false; }
         if (Project is not null)
         {
-            // A submap's record is a record at a table index, so it saves and builds through the
-            // same map the level lists use — its key is that index.
+            // A submap's record is the same bytes as a level's, in the overworld's own table, so
+            // it saves and builds the same way under its own key.
             string? hex = slots.Count == 0 ? null : Convert.ToHexString(ExAnimation.Encode(slots, altFileIndex));
+            var map = submap >= 0 ? Project.Data.ExAnimation.Submaps : Project.Data.ExAnimation.Levels;
+            string key = submap >= 0 ? submap.ToString() : index.ToString("X3");
             if (global) Project.Data.ExAnimation.Global = hex;
-            else if (hex is null) Project.Data.ExAnimation.Levels.Remove(index.ToString("X3"));
-            else Project.Data.ExAnimation.Levels[index.ToString("X3")] = hex;
+            else if (hex is null) map.Remove(key);
+            else map[key] = hex;
             Project.MarkDirty();
         }
         Scene?.InvalidateGfx();

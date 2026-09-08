@@ -81,6 +81,10 @@ public sealed class ProjectFile
     {
         public Dictionary<string, string> Levels { get; set; } = new();
         public string? Global { get; set; }
+        /// <summary>A submap's encoded record, keyed by submap number ("0"-"6", 0 = the main map).
+        /// Lunar Magic's overworld ExAnimation is a second table of the same shape as the level
+        /// one, so the records are the same bytes — only the table differs.</summary>
+        public Dictionary<string, string> Submaps { get; set; } = new();
     }
 
     public sealed class BaseRomInfo

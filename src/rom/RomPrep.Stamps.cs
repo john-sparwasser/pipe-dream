@@ -39,6 +39,9 @@ public static partial class RomPrep
         if (version >= 14) AppendV14Stamps(s);
         if (version >= 15) AppendV15Stamps(s);
         if (version >= 16) AppendV16Stamps(s);
+        // V17 carries LM's OVERWORLD ExAnimation hack (LM 2.40's separate one) beside the level
+        // engine v11 carries — its own blob, record table and per-submap settings byte.
+        if (version >= 17) AppendV17Stamps(s);
         return s;
     }
 
@@ -458,6 +461,24 @@ public static partial class RomPrep
         s.Add((Pc(LmExAnimEngine.ClearSnes) - 8, Rats(LmExAnimEngine.Clear())));
         s.Add((Pc(LmExAnimEngine.TableSnes) - 8, Rats(LmExAnimEngine.EmptyTable())));
         foreach (var (site, bytes) in LmExAnimEngine.Hooks()) s.Add((Pc(site), bytes));
+    }
+
+    /// <summary>
+    /// V17: Lunar Magic's OVERWORLD ExAnimation hack (LmOwExAnimEngine), relocated into bank $1E
+    /// behind the level engine's blocks: the 0xC20 blob, an empty 7-entry record table and the
+    /// seven per-submap settings bytes, then its three hooks on the overworld's own paths
+    /// ($048086 setup, $00A4E3 animated-tile upload, $0480E0 the per-frame tick) and the three
+    /// frame-counter bytes LM moves from $13 to $14 in what is left of OW_Tile_Animation.
+    /// Lunar Magic installs exactly this into a v16 base — a diff of one it saved over ours shows
+    /// the same blob, the same hooks and nothing else — so a base prepped to v17 opens in its
+    /// "Edit Submap ExAnimated Frames" dialog with the lists our writer put there.
+    /// </summary>
+    private static void AppendV17Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        s.Add((Pc(LmOwExAnimEngine.EngineSnes) - 8, Rats(LmOwExAnimEngine.Engine())));
+        s.Add((Pc(LmOwExAnimEngine.TableSnes) - 8, Rats(LmOwExAnimEngine.EmptyTable())));
+        s.Add((Pc(LmOwExAnimEngine.SettingsSnes) - 8, Rats(LmOwExAnimEngine.EmptySettings())));
+        foreach (var (site, bytes) in LmOwExAnimEngine.Hooks()) s.Add((Pc(site), bytes));
     }
 
     /// <summary>

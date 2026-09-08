@@ -101,6 +101,21 @@ public sealed class ExAnimation
         /// 0xC00 + 0x400×file).</summary>
         public int SrcTile(int f) => AltFile ? 0xC00 + AltFileIndex * 0x400 + Frames[f] / 0x20
                                              : (Frames[f] - 0x7D00) / 0x20 + 0x600;
+
+        /// <summary>
+        /// The same frame as Lunar Magic's OVERWORLD dialog numbers it. The overworld's RAM
+        /// source is its own animated-tile buffer at $7EAD00 rather than the level's $7E7D00,
+        /// and its alternate files start at 0x700 rather than 0xC00 — so the same word means a
+        /// different tile number here than <see cref="SrcTile"/> gives.
+        ///
+        /// Read off LM 3.40's own dialog on 2026-09-08, which is the only reliable direction:
+        /// it CLAMPS what you type into a range but displays what is stored. Stored $AD00 shows
+        /// as 600 and an alternate file's offset 0 shows as 700. (LM's help says the overworld's
+        /// numbers run 0x100 under the level dialog's; 3.40 shows the RAM source at the same 600
+        /// both places, so the help is followed only where the dialog agrees with it.)
+        /// </summary>
+        public int OwSrcTile(int f) => AltFile ? 0x700 + AltFileIndex * 0x400 + Frames[f] / 0x20
+                                               : (Frames[f] - 0xAD00) / 0x20 + 0x600;
         /// <summary>Alias kept for the RAM path: the $7E address the engine DMAs from.</summary>
         public ushort[] FrameSrcAddrs => Frames;
 
@@ -119,27 +134,26 @@ public sealed class ExAnimation
 
     /// <summary>
     /// Where a SUBMAP's ExAnimation list lives (submap 0 = the main map, 1-6 the six others), as
-    /// an index into the per-level table — or -1, which is every case today.
+    /// an index into Lunar Magic's OVERWORLD record table: the submap number itself.
     ///
-    /// The level engine cannot hold one. Its setup takes the record from that table at
-    /// <c>[$FE] - 1</c>, <c>$FE</c> being the level number plus one that Lunar Magic's level-load
-    /// hijack leaves there (engine +0xD3, the operands <see cref="LmExAnimEngine.TableOperand"/>
-    /// name the table), and nothing on the overworld's load path writes <c>$FE</c> — the setup is
-    /// hooked into vanilla's <c>LoadLevel</c> ($0583AD), which the overworld never calls. The
-    /// engine reads no game mode and no submap: a byte scan of it finds no $1F11, $0100 or $13BF.
-    ///
-    /// Lunar Magic 2.40 added the overworld's animations as a SEPARATE ASM hack "based on the
-    /// same system as the one for levels" — its own hooks, its own table, and its own global list
-    /// beside the level one. Writing a submap list on Lunar Magic's rails means transplanting
-    /// that hack, which needs a ROM it has been installed into; reference/EXANIMATION.md §10
-    /// holds the findings and the probe that would settle it.
+    /// Measured 2026-09-08 by installing one slot twice through LM's "Edit Submap ExAnimated
+    /// Frames" — once on Yoshi's Island, once on Bowser's Valley — and diffing: the pointer moves
+    /// from the table's entry 1 to its entry 4. The hack's setup agrees, indexing the table by
+    /// `3 x [$03]` with $03 holding the submap it read from `$1F11,X` — no `- 1`, unlike the level
+    /// engine's `[$FE] - 1`. Seven entries, FF 00 00 = that submap has no list.
+    /// reference/EXANIMATION.md §10; the table is <see cref="Rom.LmOwExAnimBase"/>.
     /// </summary>
-    public static int SubmapListIndex(int submap) => submap is < 0 or >= Overworld.Submaps ? -1 : -1;
+    public static int SubmapListIndex(int submap) => (uint)submap < Overworld.Submaps ? submap : -1;
 
-    /// <summary>Why a submap list cannot be read or written yet.</summary>
-    public const string NoSubmapLists =
-        "the overworld's animations are Lunar Magic's own separate ASM hack (LM 2.40), which this "
-        + "base does not carry — see reference/EXANIMATION.md §10";
+    /// <summary>Slots animated on <paramref name="submap"/>; empty when it has none, and on a
+    /// ROM without the overworld hack.</summary>
+    public static IReadOnlyList<Slot> ReadSubmap(Rom rom, int submap)
+    {
+        int baseSnes = rom.LmOwExAnimBase;
+        if (baseSnes < 0 || (uint)submap >= Overworld.Submaps) return [];
+        int ptr = rom.ReadValue(baseSnes + submap * 3, 3);
+        return (ptr >> 16) == 0 ? [] : ReadRecord(rom, ptr);
+    }
 
     /// <summary>Slots animated in <paramref name="level"/>; empty if the level has none.</summary>
     public static IReadOnlyList<Slot> ReadLevel(Rom rom, int level)

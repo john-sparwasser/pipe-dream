@@ -267,6 +267,7 @@ public sealed class Rom
 
     internal int lmActsAsBase = -2, lmGfxBypassBase = -2, lmExGfxBase = -2, lmSpriteSizeBase = -2, lmExAnimBase = -2;
     internal int lmGlobalExAnimPtr = -2;
+    internal int lmOwExAnimBase = -2;
     internal int lmExAnimSetupEntry = -2, lmExAnimProcEntry = -2;
     internal int pixiTable = -2;
     internal int lmSpriteBankTable = -2;

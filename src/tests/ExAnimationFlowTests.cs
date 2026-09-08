@@ -81,34 +81,93 @@ public class ExAnimationFlowTests(ITestOutputHelper log) : IDisposable
         Assert.False(s.ReassignExAnimSlot(global: false, from: 5, to: 0x20)); // out of range
     }
 
-    /// <summary>The Animations mode's Overworld tab points the level path at a submap's list. No
-    /// base carries Lunar Magic's overworld ExAnimation hack yet, so the index is unknown and a
-    /// write is refused with the reason rather than landing bytes at a guessed table entry
-    /// (reference/EXANIMATION.md §10).</summary>
+    /// <summary>
+    /// The Animations mode's Overworld tab writes a submap's list into Lunar Magic's OWN
+    /// overworld table — the separate hack prep v17 carries — at the submap's own index, and it
+    /// survives the project and a build. Each submap is its own entry, and none of it disturbs
+    /// the level lists, which live in the other table entirely (reference/EXANIMATION.md §10).
+    /// </summary>
     [Fact]
-    public void a_submap_list_is_refused_until_lunar_magics_overworld_hack_is_carried()
+    public void a_submap_list_writes_to_the_overworlds_own_table_and_survives_a_build()
     {
-        if (PreppedRom.Fork() is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        if (!File.Exists(Vanilla)) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), Vanilla), s.Status);
+        s.ShowLevel(0x105);
+        Assert.True(s.Rom!.LmOwExAnimBase > 0, "prep did not carry the overworld hack");
+
+        // The level's list first, so the two tables can be told apart afterwards.
+        var lvl = new ExAnimation.Slot(0, 1, ExAnimation.TriggerNone, 1, 0x0000, [0x7D00], 0);
+        Assert.True(s.SetExAnim(global: false, [lvl], 0), s.Status);
+
+        // Yoshi's Island (1) and Bowser's Valley (4): the two submaps the probe pinned the index
+        // rule with. The source is the overworld's own animated-tile buffer, $7EAD00.
+        var yi = new ExAnimation.Slot(0, 1, ExAnimation.TriggerNone, 1, 0x1000, [0xAD00], 0);
+        var vb = new ExAnimation.Slot(3, 2, ExAnimation.TriggerNone, 2, 0x1200, [0xAD00, 0xAD20], 0);
+        s.ExAnimSubmap = 1;
+        Assert.Equal(1, s.ExAnimListIndex);
+        Assert.True(s.ExAnimReady);
+        Assert.Null(s.ExAnimNotReadyWhy);
+        Assert.True(s.SetExAnim(global: false, [yi], 0), s.Status);
+        s.ExAnimSubmap = 4;
+        Assert.True(s.SetExAnim(global: false, [vb], 0), s.Status);
+
+        // Read straight back out of the session ROM, at LM's own table.
+        Assert.Equal(0x600, Assert.Single(ExAnimation.ReadSubmap(s.Rom, 1)).OwSrcTile(0));   // as LM's dialog shows it
+        Assert.Equal(2, Assert.Single(ExAnimation.ReadSubmap(s.Rom, 4)).FrameCount);
+        foreach (int empty in new[] { 0, 2, 3, 5, 6 }) Assert.Empty(ExAnimation.ReadSubmap(s.Rom, empty));
+
+        Assert.Equal(["1", "4"], s.Project!.Data.ExAnimation.Submaps.Keys.OrderBy(k => k));
+        Assert.True(s.Project.Data.ExAnimation.Levels.ContainsKey("105"));
+        s.Save();
+        log.WriteLine(s.Build());
+        string built = Path.Combine(dir, "proj", "build", s.Project.Name + ".smc");
+        Assert.True(File.Exists(built), "no built ROM");
+        var rom = Rom.Load(built);
+
+        var one = Assert.Single(ExAnimation.ReadSubmap(rom, 1));
+        Assert.Equal((0, 1, 1, 0x100), (one.Index, one.Type, one.FrameCount, one.DestTile));
+        var four = Assert.Single(ExAnimation.ReadSubmap(rom, 4));
+        Assert.Equal((3, 2, 2, 0x120), (four.Index, four.Type, four.FrameCount, four.DestTile));
+        Assert.Empty(ExAnimation.ReadSubmap(rom, 0));
+        Assert.Single(ExAnimation.ReadLevel(rom, 0x105));       // the level table is a different table
+
+        // The persisted project reopens to the same lists.
+        var s2 = new EditorSession();
+        Assert.True(s2.OpenProject(Path.Combine(dir, "proj", "project.pdp")), s2.Status);
+        s2.ExAnimSubmap = 4;
+        Assert.Equal(3, Assert.Single(s2.ExAnimSlots(global: false)).Index);
+
+        // Emptying a submap's list takes its entry out of both the ROM and the project.
+        s2.ExAnimSubmap = 1;
+        Assert.True(s2.SetExAnim(global: false, [], 0), s2.Status);
+        Assert.Empty(ExAnimation.ReadSubmap(s2.Rom!, 1));
+        Assert.DoesNotContain("1", s2.Project!.Data.ExAnimation.Submaps.Keys);
+    }
+
+    /// <summary>A base without the overworld hack says so and refuses, rather than landing bytes
+    /// at a table it does not have — the level lists still write.</summary>
+    [Fact]
+    public void a_submap_list_is_refused_on_a_base_without_the_overworld_hack()
+    {
+        if (!File.Exists(Vanilla)) { log.WriteLine("SKIP: no ROM"); return; }
+        Directory.CreateDirectory(dir);
+        string p = Path.Combine(dir, "v16.smc");
+        File.Copy(Vanilla, p, overwrite: true);
+        Assert.Null(RomPrep.PrepInPlace(p, version: 16));       // the version before the hack
         var s = new EditorSession();
         Assert.True(s.OpenRom(p));
+        Assert.True(s.Rom!.LmExAnimBase > 0);
+        Assert.Equal(-1, s.Rom.LmOwExAnimBase);
         var slot = new ExAnimation.Slot(0, 1, ExAnimation.TriggerNone, 1, 0x0000, [0x7D00], 0);
 
+        s.ExAnimSubmap = 2;
+        Assert.False(s.ExAnimReady);
+        Assert.Contains("overworld ExAnimation hack", s.ExAnimNotReadyWhy);
+        Assert.Empty(s.ExAnimSlots(global: false));
+        Assert.False(s.SetExAnim(global: false, [slot], 0));
+
         s.ExAnimSubmap = -1;                                    // the level: writes as ever
-        Assert.Equal(s.LevelNum, s.ExAnimListIndex);
         Assert.True(s.SetExAnim(global: false, [slot], 0), s.Status);
-
-        for (int submap = 0; submap < Overworld.Submaps; submap++)
-        {
-            s.ExAnimSubmap = submap;
-            Assert.Equal(-1, s.ExAnimListIndex);
-            Assert.Empty(s.ExAnimSlots(global: false));
-            Assert.False(s.SetExAnim(global: false, [slot], 0));
-            Assert.Contains("Lunar Magic", s.Status);
-        }
-
-        // The level's own list is untouched by any of that, and the global one still writes.
-        s.ExAnimSubmap = -1;
-        Assert.Single(s.ExAnimSlots(global: false));
-        Assert.True(s.SetExAnim(global: true, [slot], 0), s.Status);
     }
 }

@@ -2088,6 +2088,21 @@ PROJECT: ProjectFile.ExAnimation (record hex per level + global), files 60-63 in
 RomBuilder.ReplayExAnimation shared by build and hydrate. UI: Animations mode (slot lists +
 ExAnimSlotWindow). NOT transplanted: LM's $0FEFDB metadata bytes (LM bookkeeping, unknown meaning).
 
+PREP V17 transplants LM's OVERWORLD ExAnimation hack — the separate one LM 2.40 added, not the
+level engine (LmOwExAnimEngine; RomPrep.AppendV17Stamps): the 0xC20 blob from a vanilla ROM LM
+installed it into ($10EE94) relocated to $1E:A800, an empty 7-entry record table at $1E:B440 and
+the seven per-submap settings bytes at $1E:B460. All 266 bytes that differ from a second install
+0x148 bytes on are relocations: 12 in-bank 16-bit operands, the 108-word handler table at +B3B,
+13 long operands (+D6 = table+1, +E1 = table, +4A = settings, ten in-blob); global immediates
++57 bankword, +61 low16. Hooks $048086 → setup, $0480E0 (OW_Tile_Animation) → tick, $00A4E3 →
+the animated-tile upload, each JSL + RTS; $048102/$04810D/$04813B move $13 to $14; $03BCC0-CF
+zeroed. The index is the SUBMAP NUMBER, no -1 (reference/EXANIMATION.md §10). IsPrepped v17 =
+LmOwExAnimBase >= 0. Golden V17 pinned. WRITERS: Rom.WriteSubmapExAnim. PROJECT:
+ProjectFile.ExAnimation.Submaps (record hex per submap), replayed by RomBuilder.ReplayExAnimation.
+UI: the Animations mode's Overworld tab. NOT CHECKED: the blob under Cpu65816 — the overworld tick
+spins on unmodelled hardware on LM's own install too; LM 3.40 reading back a planted list is the
+parity check, plus a Mesen boot identical to v16's.
+
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 
 No unified sprite→tile table exists; each sprite's look comes from its graphics routine.

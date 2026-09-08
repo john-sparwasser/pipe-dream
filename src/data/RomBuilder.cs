@@ -64,7 +64,8 @@ internal static class RomBuilder
     internal static void ReplayExAnimation(Rom rom, ProjectFile data, List<string>? warnings)
     {
         var alt = data.Gfx.Where(kv => Convert.ToInt32(kv.Key, 16) is >= 0x60 and <= 0x63).ToList();
-        bool any = alt.Count > 0 || data.ExAnimation.Levels.Count > 0 || data.ExAnimation.Global is not null;
+        bool any = alt.Count > 0 || data.ExAnimation.Levels.Count > 0 || data.ExAnimation.Global is not null
+                   || data.ExAnimation.Submaps.Count > 0;
         if (!any) return;
         if (rom.LmExAnimBase < 0)
         {
@@ -83,6 +84,14 @@ internal static class RomBuilder
         {
             var rec = Convert.FromHexString(g);
             if (rom.WriteGlobalExAnim(ExAnimation.ParseSlots(rec), rec.Length > 1 ? rec[1] : 0) is { } err) warnings?.Add($"global ExAnimation: {err}");
+        }
+        foreach (var (key, hex) in data.ExAnimation.Submaps.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+        {
+            if (!int.TryParse(key, out int submap) || (uint)submap >= Overworld.Submaps)
+            { warnings?.Add($"ignored overworld ExAnimation entry '{key}' — not a submap number"); continue; }
+            var rec = Convert.FromHexString(hex);
+            if (rom.WriteSubmapExAnim(submap, ExAnimation.ParseSlots(rec), rec.Length > 1 ? rec[1] : 0) is { } err)
+                warnings?.Add($"submap {key}: {err}");
         }
     }
 

@@ -62,7 +62,7 @@ public static partial class RomPrep
     /// instead of stopping at the project file (see <see cref="AppendV14Stamps"/>).
     /// Version-keyed stamp lists keep every released version BYTE-FROZEN: a v1 project's
     /// pinned image must reproduce forever (golden-hash tested).</summary>
-    public const int Version = 16;
+    public const int Version = 17;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -310,7 +310,10 @@ public static partial class RomPrep
            // V15: LM's JSL at the head of the tilemap picker.
            && (version < 15 || rom.HasLmLayer3Tilemap)
            // V16: the advanced nibble reader — the same idiom-scan property an LM-saved ROM has.
-           && (version < 16 || rom.HasLmLayer3Advanced);
+           && (version < 16 || rom.HasLmLayer3Advanced)
+           // V17: LM's overworld ExAnimation hack — its record table, which an LM-saved ROM that
+           // carries the hack has just as ours does (CONTRACT §0: the property, not our bytes).
+           && (version < 17 || rom.LmOwExAnimBase >= 0);
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying
