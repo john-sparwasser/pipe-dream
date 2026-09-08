@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Threading;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using PipeDream.Services;
@@ -120,11 +121,22 @@ public partial class MainWindow
     /// never reaches the canvas below and starts a lasso.</summary>
     private (int X, int Y)? owEditTile;
 
+    /// <summary>Running while the button is on borrowed time — see <see cref="LingerOwEditButton"/>.</summary>
+    private DispatcherTimer? owEditLinger;
+
+    /// <summary>How long the button outstays the pointer: long enough to cross the gap between
+    /// the tile and the button without chasing it, short enough not to litter the map.</summary>
+    private static readonly TimeSpan OwEditLingerFor = TimeSpan.FromSeconds(1);
+
     /// <summary>
-    /// Move the Edit button onto the level tile the pointer is over, or hide it. Lunar Magic
-    /// opens the same settings with an Alt-right click on a tile; here the tile grows a button,
-    /// so the gesture is visible rather than remembered. Only on the Paths &amp; Levels tab, and
-    /// never mid-drag, when the pointer is busy moving tiles.
+    /// Move the Edit button onto the level tile the pointer is over. Lunar Magic opens the same
+    /// settings with an Alt-right click on a tile; here the tile grows a button, so the gesture
+    /// is visible rather than remembered. Only on the Paths &amp; Levels tab, and never mid-drag,
+    /// when the pointer is busy moving tiles.
+    ///
+    /// Leaving the tile does NOT take the button away at once: the pointer has to cross a strip
+    /// of map to reach it, and a button that vanishes on the way is a button you cannot press.
+    /// It lingers instead, and goes only if the pointer has not arrived by then.
     /// </summary>
     private void PlaceOwEditButton() => PlaceOwEditButtonAt(owView.Hover);
 
@@ -133,10 +145,6 @@ public partial class MainWindow
     private void PlaceOwEditButtonAt((int Col, int Row)? hover)
     {
         if (this.FindControl<Button>("OwEditBtn") is not { } btn) return;
-        // Reaching for the button takes the pointer off the canvas, which is what would otherwise
-        // hide it out from under the hand going to press it.
-        if (btn.IsPointerOver) return;
-        owEditTile = null;
         if (OwModeNow == OwMode.Layer1 && !OwColorsOnly && !owView.Dragging
             && hover is { } h
             && EditorSession.OwLayer1Cell(h.Col, h.Row, out int x, out int y)
@@ -154,8 +162,40 @@ public partial class MainWindow
             btn.Margin = new Thickness(owView.Margin.Left + (c + 2) * step + gap - off.X,
                                        owView.Margin.Top + Math.Max(0, r * step - h2 - gap) - off.Y, 0, 0);
             owEditTile = (x, y);
+            KeepOwEditButton();
+            return;
         }
-        btn.IsVisible = owEditTile is not null;
+        LingerOwEditButton();
+    }
+
+    /// <summary>The button is wanted here and now: show it, and call off any pending hide.</summary>
+    private void KeepOwEditButton()
+    {
+        owEditLinger?.Stop();
+        owEditLinger = null;
+        if (this.FindControl<Button>("OwEditBtn") is { } btn) btn.IsVisible = true;
+    }
+
+    /// <summary>Nothing wants the button any more, so start its clock. Started ONCE, not restarted
+    /// on every twitch of the pointer — otherwise a mouse wandering the map would keep alive a
+    /// button belonging to a tile it left long ago. Landing on a level tile, or on the button
+    /// itself, calls it off (<see cref="KeepOwEditButton"/>).</summary>
+    private void LingerOwEditButton()
+    {
+        if (this.FindControl<Button>("OwEditBtn") is not { IsVisible: true } || owEditLinger is not null) return;
+        owEditLinger = new DispatcherTimer { Interval = OwEditLingerFor };
+        owEditLinger.Tick += (_, _) => HideOwEditButton();
+        owEditLinger.Start();
+    }
+
+    /// <summary>The clock ran out — unless the pointer arrived on the button in the meantime.</summary>
+    private void HideOwEditButton()
+    {
+        owEditLinger?.Stop();
+        owEditLinger = null;
+        if (this.FindControl<Button>("OwEditBtn") is not { } btn || btn.IsPointerOver) return;
+        btn.IsVisible = false;
+        owEditTile = null;
     }
 
     /// <summary>Lunar Magic's Modify Level Tile Settings for one tile, staged and applied on OK.</summary>

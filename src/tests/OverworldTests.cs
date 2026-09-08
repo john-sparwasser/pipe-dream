@@ -402,19 +402,41 @@ public class OverworldTests(ITestOutputHelper log)
         Assert.Equal(view.Margin.Left + (lc + 2) * step + 2, btn.Margin.Left, 1);
         Assert.InRange(btn.Margin.Top, view.Margin.Top, view.Margin.Top + lr * step);
 
-        // Off it again: the sea at the map's corner is not a level tile.
+        // Off the tile it LINGERS: the pointer has to cross a strip of map to reach it, and a
+        // button that goes on the way is a button you cannot press. It goes when its clock runs out.
         Assert.Null(session.OwLevelTileAt(0, 0));
         Hover(0, 0);
+        Assert.True(btn.IsVisible, "the button went the moment the pointer left the tile");
+        Invoke(w, "HideOwEditButton");
+        Dispatcher.UIThread.RunJobs();
         Assert.False(btn.IsVisible);
 
-        // And the button is the Tiles tab's business no more than the Palette drawer's.
+        // Leaving starts the clock, and arriving back on a level tile calls it off rather than
+        // leaving one running to hide a button that is wanted again.
         Hover(lc, lr);
         Assert.True(btn.IsVisible);
+        Hover(0, 0);
+        Assert.NotNull(Field(w, "owEditLinger"));
+        Hover(lc, lr);
+        Assert.Null(Field(w, "owEditLinger"));
+        Assert.True(btn.IsVisible);
+
+        // And the button is the Tiles tab's business no more than the Palette drawer's.
         w.GetControl<TabStrip>("OwTabs").SelectedIndex = 0;
         Dispatcher.UIThread.RunJobs();
         Hover(lc, lr);
+        Invoke(w, "HideOwEditButton");
+        Dispatcher.UIThread.RunJobs();
         Assert.False(btn.IsVisible);
     }
+
+    private static void Invoke(MainWindow w, string method) => typeof(MainWindow)
+        .GetMethod(method, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+        .Invoke(w, null);
+
+    private static object? Field(MainWindow w, string name) => typeof(MainWindow)
+        .GetField(name, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+        .GetValue(w);
 
     /// <summary>Drive the window's own placement seam: a headless pointer only moves once it has
     /// been pressed, and the button is deliberately hidden while a drag is running.</summary>

@@ -162,7 +162,11 @@ public partial class MainWindow
         // Hiding it on the canvas's own exit would pull it out from under the hand going to press
         // it — and the flicker that follows swallows the hover entirely. It goes when the pointer
         // leaves the whole map area, which the button is part of.
-        this.GetControl<Grid>("OwMapArea").PointerExited += (_, _) => PlaceOwEditButtonAt(null);
+        this.GetControl<Grid>("OwMapArea").PointerExited += (_, _) => LingerOwEditButton();
+        // On the button itself it stays put, however long the pointer rests there.
+        var owEdit = this.GetControl<Button>("OwEditBtn");
+        owEdit.PointerEntered += (_, _) => KeepOwEditButton();
+        owEdit.PointerExited += (_, _) => LingerOwEditButton();
         this.GetControl<ScrollViewer>("OwScroll").ScrollChanged += (_, _) => PlaceOwEditButton();
     }
 
