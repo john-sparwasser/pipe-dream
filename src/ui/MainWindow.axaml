@@ -188,6 +188,27 @@
       <Setter Property="FontSize" Value="14"/>
       <Setter Property="BorderThickness" Value="0"/>
     </Style>
+    <!-- The overworld's Edit pill. Its colours are stated for every state: a Background set on
+         the button itself loses to the theme's hover and pressed styles, and the map showing
+         through a button is the one thing this button must never do. -->
+    <Style Selector="Button.owedit">
+      <Setter Property="Background" Value="{x:Static ui:UiColors.EditBadge}"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="CornerRadius" Value="4"/>
+    </Style>
+    <Style Selector="Button.owedit /template/ ContentPresenter">
+      <Setter Property="Background" Value="{x:Static ui:UiColors.EditBadge}"/>
+      <Setter Property="TextBlock.Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Button.owedit:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{x:Static ui:UiColors.EditBadgeHover}"/>
+      <Setter Property="TextBlock.Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Button.owedit:pressed /template/ ContentPresenter">
+      <Setter Property="Background" Value="{x:Static ui:UiColors.EditBadgePressed}"/>
+      <Setter Property="TextBlock.Foreground" Value="White"/>
+    </Style>
     <Style Selector="Button.cta:pointerover /template/ ContentPresenter">
       <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
       <Setter Property="TextBlock.Foreground" Value="White"/>
@@ -1151,9 +1172,8 @@
                           Background="{x:Static ui:UiColors.DeskPattern}">
               <ui:TilemapView x:Name="OwView" Margin="16"/>
             </ScrollViewer>
-            <Button x:Name="OwEditBtn" IsVisible="False" Padding="5,1" FontSize="11"
+            <Button x:Name="OwEditBtn" Classes="owedit" IsVisible="False" Padding="5,1" FontSize="11"
                     HorizontalAlignment="Left" VerticalAlignment="Top" Click="OnOwEditTile"
-                    Background="{x:Static ui:UiColors.EditBadge}" Foreground="White"
                     ToolTip.Tip="This level tile's settings: the level it enters, the event passing it fires, and what each exit opens"
                     Content="Edit"/>
           </Grid>
