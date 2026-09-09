@@ -145,11 +145,13 @@ public partial class MainWindow
     private void PlaceOwEditButtonAt((int Col, int Row)? hover)
     {
         if (this.FindControl<Button>("OwEditBtn") is not { } btn) return;
-        if (OwModeNow == OwMode.Layer1 && !OwColorsOnly && !owView.Dragging
+        if (!OwColorsOnly && !owView.Dragging && owLinkFrom is null
             && hover is { } h
             && EditorSession.OwLayer1Cell(h.Col, h.Row, out int x, out int y)
-            && session.OwLevelTileAt(x, y) is not null)
+            && OwTileButtonLabel(x, y) is { } what)
         {
+            btn.Content = what.Label;
+            ToolTip.SetTip(btn, what.Tip);
             var (c, r) = EditorSession.OwLayer1Origin(x, y);
             double step = owView.CellPx * owView.Zoom;
             double h2 = btn.Bounds.Height > 0 ? btn.Bounds.Height : 20;   // 0 until it has been laid out once
@@ -167,6 +169,23 @@ public partial class MainWindow
         }
         LingerOwEditButton();
     }
+
+    /// <summary>What the button on the hovered tile says, or null when that tile has nothing to
+    /// offer and the button should not be there at all. One button serves both tabs that have a
+    /// per-tile action: it already knows how to linger and how to stay put under the pointer, and
+    /// a second one would have to learn the same tricks.</summary>
+    private (string Label, string Tip)? OwTileButtonLabel(int x, int y) => OwModeNow switch
+    {
+        OwMode.Layer1 when session.OwLevelTileAt(x, y) is not null
+            => ("Edit", "This level tile's settings: the level it enters, the event passing it fires, and what each exit opens"),
+        OwMode.Transitions when session.OwTransitionAt(x, y) is { } t
+            => ("Unlink", (t.Exit ? "Take this exit path away" : "Take this warp away")
+                          + (t.Partner >= 0 ? ", and the one that comes back with it" : " — a one-way trip")),
+        OwMode.Transitions when session.OwLinkableAt(x, y) is { } exit
+            => ("Link", exit ? "Walk the player off the map here: press, then pick the tile he walks onto"
+                             : "Send this star or pipe to another one: press, then pick the tile it comes out on"),
+        _ => null,
+    };
 
     /// <summary>The button is wanted here and now: show it, and call off any pending hide.</summary>
     private void KeepOwEditButton()
@@ -198,14 +217,17 @@ public partial class MainWindow
         owEditTile = null;
     }
 
-    /// <summary>Lunar Magic's Modify Level Tile Settings for one tile, staged and applied on OK.</summary>
+    /// <summary>The tile button was pressed: Lunar Magic's Modify Level Tile Settings for a level
+    /// tile, staged and applied on OK — or the Transitions tab's Link and Unlink.</summary>
     private async void OnOwEditTile(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (owEditTile is not { } at || session.OwLevelTileAt(at.X, at.Y) is not { } tile) return;
+        if (owEditTile is not { } at) return;
+        if (OwModeNow == OwMode.Transitions) { OwTransitionButton(at.X, at.Y); return; }
+        if (session.OwLevelTileAt(at.X, at.Y) is not { } tile) return;
         var w = new OwLevelTileWindow(tile);
         await w.ShowDialog(this);
         if (!w.Applied) return;
-        if (session.SetOwLevelTile(tile, w.BaseEvent, w.ExitDirs)) { owView.Invalidate(); RefreshOverworld(); UpdateTitle(); }
+        if (session.SetOwLevelTile(tile, w.Level, w.BaseEvent, w.ExitDirs)) { owView.Invalidate(); RefreshOverworld(); UpdateTitle(); }
     }
 
     /// <summary>Delete over a lasso: the layer 1 tiles under it become empty. True when the

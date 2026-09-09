@@ -36,13 +36,31 @@ public sealed partial class EditorSession
     /// Both tables are per TRANSLEVEL, which is per level — Lunar Magic says the same in its own
     /// dialog ("You can only set one base event per level number"), so two tiles sharing a level
     /// share these. False with a report when nothing here can be written.
+    ///
+    /// The level number goes first, where the ROM has a table to hold it, because the other two
+    /// are keyed by it: a dialog that changed both means the event and the directions belong to
+    /// the level now in the box, as they do in Lunar Magic.
     /// </summary>
-    public bool SetOwLevelTile(OwLevelTile before, int baseEvent, int[] exitDirs)
+    public bool SetOwLevelTile(OwLevelTile before, int level, int baseEvent, int[] exitDirs)
     {
         if (Rom is not { } rom || Overworld is not { } ow) return false;
         int tl = before.Translevel;
+        bool renumbered = false;
+        if (before.LevelEditable && level != before.Level)
+        {
+            tl = Overworld.TranslevelOf(level);
+            if (tl < 0) { Report("an overworld tile enters level 001-024 or 101-13B"); return false; }
+            // Through the layer 1 map, not the array behind it: the map holds the number above the
+            // tile and is what a later commit writes back, so a number set around it would be
+            // undone by the next brush stroke. Undo comes along for free.
+            var map = OwLayer1!;
+            int row = before.Y + (before.SubmapMap ? Overworld.Rows : 0);
+            map.Stamp(before.X, row, map.At(before.X, row) & 0xFFFF | tl << OwLevelShift);
+            map.EndStroke();
+            renumbered = true;
+        }
         if (tl == 0) { Report("this tile has no level number yet"); return false; }
-        bool changed = ow.BaseEventOf(tl) != baseEvent;
+        bool changed = renumbered || ow.BaseEventOf(tl) != baseEvent;
         ow.SetBaseEvent(tl, baseEvent);
         if (before.DirsEditable)
             for (int e = 0; e < 4 && e < exitDirs.Length; e++)

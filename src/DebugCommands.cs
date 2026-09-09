@@ -64,8 +64,40 @@ static class DebugCommands
         // --gfxblank <rom> <file> : which 8x8 tiles of a GFX file are entirely colour 0.
         ("--gfxblank",          (a, i) => { var rom = Rom.Load(a[i + 1]); int f = Convert.ToInt32(a[i + 2], 16); var g = Gfx.Cached(rom, f)!; int bpp = Gfx.FileBpp(rom, f), tb = Gfx.TileBytes(bpp);
                                     Console.WriteLine($"GFX{f:X2}: {g.Length / tb} tiles, blank: " + string.Join(" ", Enumerable.Range(0, g.Length / tb).Where(t => Gfx.DecodeTile(g, t * tb, bpp).All(b => b == 0)).Select(t => $"{t:X2}"))); return 0; }),
+        // --owareas <rom> : the Tiles canvas beside the maps — the event pieces' words, the tile the
+        // canvas fills its corners with, and where each area sits (reference/OVERWORLD.md §10a).
+        ("--owareas",           (a, i) => { var ow = new Overworld(Rom.Load(a[i + 1]));
+                                    var seen = new Dictionary<ushort, int>();
+                                    foreach (ushort w in ow.EventPieces) seen[w] = seen.GetValueOrDefault(w) + 1;
+                                    foreach (var kv in seen.OrderByDescending(kv => kv.Value).Take(6))
+                                        Console.WriteLine($"  word {kv.Key:X4} (tile {kv.Key & 0x3FF:X3} pal {(kv.Key >> 10) & 7}) x{kv.Value}");
+                                    Console.WriteLine($"event area {Overworld.EventArea.Cols}x{Overworld.EventArea.Rows}, {Overworld.EventCells:X} cells; layer 1 defs {ow.Layer1Defs.Length / 4:X} tiles");
+                                    var fg = Gfx.FgTiles.Load(ow.Rom, Overworld.Tileset, levelAnimation: false);
+                                    foreach (int t in a.Skip(i + 2).Select(s => Convert.ToInt32(s, 16)))
+                                    {
+                                        var px = fg.Fetch(t);
+                                        Console.WriteLine($"tile {t:X3}:");
+                                        for (int y = 0; y < 8; y++) Console.WriteLine("  " + string.Join("", Enumerable.Range(0, 8).Select(x => px[y * 8 + x] == 0 ? "." : $"{px[y * 8 + x]:X}")));
+                                    }
+                                    return 0; }),
+        // --owwarps <rom> : the overworld's transitions — every star/pipe warp and exit path with the
+        // tile it sits on, the way the player travels through it, where it comes out, and the raw words.
+        ("--owwarps",           (a, i) => { var ow = new Overworld(Rom.Load(a[i + 1]));
+                                    string At(int sm, int x, int y) { bool sub = sm != 0; int t = sub ? ow.Layer1At(x, y, true) : ow.Layer1At(x, y, false);
+                                        return $"({x,2},{y,2}) sm{sm} tile {t:X2} {ow.KindOf(t)}"; }
+                                    var d = ow.Rom.Data; int s = ow.Rom.FileOffset(Overworld.WarpSources), sy = ow.Rom.FileOffset(Overworld.WarpSourceYs), dx = ow.Rom.FileOffset(Overworld.WarpDestXs), dy = ow.Rom.FileOffset(Overworld.WarpDestYs);
+                                    ushort W(int p, int k) => (ushort)(d[p + 2 * k] | d[p + 2 * k + 1] << 8);
+                                    for (int k = 0; k < ow.WarpCount; k++) Console.WriteLine($"  raw {k:X2}: src {W(s, k):X4} {W(sy, k):X4}  dst {W(dx, k):X4} {W(dy, k):X4}");
+                                    foreach (var w in ow.Warps) Console.WriteLine($"warp {w.Index:X2}: {At(w.Submap, w.X, w.Y)}  ->  {At(w.DestSubmap, w.DestX >> 4, w.DestY >> 4)}  dest {(w.DestIndex < 0 ? "N/A" : $"{w.DestIndex:X2}")}");
+                                    int es = ow.Rom.FileOffset(Overworld.ExitSources), ed = ow.Rom.FileOffset(Overworld.ExitDests), et = ow.Rom.FileOffset(0x0499F0);
+                                    for (int k = 0; k < Overworld.ExitCount; k++)
+                                        Console.WriteLine($"  raw exit {k:X2}: src y={d[es + 5 * k] | d[es + 5 * k + 1] << 8:X4} x={d[es + 5 * k + 2] | d[es + 5 * k + 3] << 8:X4} sm={d[es + 5 * k + 4]:X2}"
+                                                        + $"  dst y={d[ed + 5 * k] | d[ed + 5 * k + 1] << 8:X4} x={d[ed + 5 * k + 2] | d[ed + 5 * k + 3] << 8:X4} sm={d[ed + 5 * k + 4]:X2}"
+                                                        + $"  tile y={d[et + 2 * k]:X2} x={d[et + 2 * k + 1]:X2}");
+                                    foreach (var e in ow.ExitPaths) Console.WriteLine($"exit {e.Index:X2}: {At(e.Submap, e.X, e.Y)} {Overworld.DirectionNames[e.Dir].ToLower()}  ->  {At(e.DestSubmap, e.DestX, e.DestY)}  dest {(e.DestIndex < 0 ? "N/A" : $"{e.DestIndex:X2}")}");
+                                    return 0; }),
         // --owpal <rom> : which palette rows the overworld's layer 1 defs and layer 2 words use.
-        ("--owpal",             (a, i) => { var ow = new Overworld(Rom.Load(a[i + 1])); var l1 = new int[8]; var l2 = new int[8];
+        ("--owpal",           (a, i) => { var ow = new Overworld(Rom.Load(a[i + 1])); var l1 = new int[8]; var l2 = new int[8];
                                     int d = ow.Rom.FileOffset(ow.At.Map16Defs);
                                     for (int t = 0; t < ow.Map16Count; t++) for (int q = 0; q < 4; q++) { int w = ow.Rom.Data[d + t * 8 + q * 2] | ow.Rom.Data[d + t * 8 + q * 2 + 1] << 8; if ((w & 0x3FF) != 0) l1[(w >> 10) & 7]++; }
                                     foreach (var w in ow.Layer2) l2[(w >> 10) & 7]++;

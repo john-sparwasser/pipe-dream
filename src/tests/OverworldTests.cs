@@ -240,10 +240,12 @@ public class OverworldTests(ITestOutputHelper log)
         Assert.False(w.GetControl<DockPanel>("LevelPane").IsVisible);
         // The canvas is the land at its own grain, 8x8 cells, laid out as Lunar Magic lays it out:
         // the main map, then the submap map rotated two cells right and one down, its last
-        // columns and row wrapping to its left and top; the Tiles tab's drawer is the 256 8x8
-        // tiles the two FG files give it.
+        // columns and row wrapping to its left and top; the Tiles tab's drawer is the 0x200 8x8
+        // tiles the four FG files give it — the land's and layer 1's.
         var view = w.GetControl<TilemapView>("OwView");
-        Assert.Equal((64, 128, 8), (view.Cols, view.Rows, view.CellPx));
+        // The Tiles tab is wider than the two maps: Lunar Magic's own Layer 2 8x8 mode keeps the
+        // event pieces to their right and layer 1's Map16 tiles below them, and so does this.
+        Assert.Equal((160, 154, 8), (view.Cols, view.Rows, view.CellPx));
         Assert.True(Services.EditorSession.OwMapCell(0, 0, out _, out _, out bool sub0) && !sub0);
         Assert.False(Services.EditorSession.OwMapCell(64, 0, out _, out _, out _));                // off the canvas
         Assert.True(Services.EditorSession.OwMapCell(2, 65, out int cx0, out int cy0, out bool sub1) && sub1 && cx0 == 0 && cy0 == 0);
@@ -251,7 +253,7 @@ public class OverworldTests(ITestOutputHelper log)
         Assert.False(Services.EditorSession.OwHasLayer1(0, 64));                                      // land only there
         Assert.True(Services.EditorSession.OwHasLayer1(2, 65));
         var sheet = w.GetControl<TilemapView>("OwSheet");
-        Assert.Equal((16, 16, 8), (sheet.Cols, sheet.Rows, sheet.CellPx));
+        Assert.Equal((16, 32, 8), (sheet.Cols, sheet.Rows, sheet.CellPx));      // all four FG files: the land's and layer 1's
         Assert.True(w.GetControl<DockPanel>("OwToolPanel").IsVisible);
         Assert.True(w.GetControl<StackPanel>("OwBrushBar").IsVisible);
 
@@ -430,9 +432,86 @@ public class OverworldTests(ITestOutputHelper log)
         Assert.False(btn.IsVisible);
     }
 
-    private static void Invoke(MainWindow w, string method) => typeof(MainWindow)
+    /// <summary>The Transitions tab wears the same button: Unlink over a tile that has a warp,
+    /// Link over a star or pipe that has none, and pressing Link lights every tile the other end
+    /// could be while the next click answers.</summary>
+    [AvaloniaFact]
+    public void the_transitions_tab_links_a_warp_from_the_tile_itself()
+    {
+        if (PreppedRom.Fork() is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeOverworld").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<TabStrip>("OwTabs").SelectedIndex = 3;                  // Transitions
+        Dispatcher.UIThread.RunJobs();
+        var session = (Services.EditorSession)typeof(MainWindow)
+            .GetField("session", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(w)!;
+        var ow = session.Overworld!;
+        var btn = w.GetControl<Button>("OwEditBtn");
+        // Nothing here edits a tile, so the map picks rather than paints: no 8x8 reticle under
+        // the pointer and no lasso.
+        Assert.True(w.GetControl<TilemapView>("OwView").PickOnLeft);
+
+        var a = ow.Warps[0];
+        var b = ow.Warps.First(x => x.Index == a.DestIndex);
+        int ay = a.Y + (a.Submap != 0 ? Overworld.Rows : 0), by = b.Y + (b.Submap != 0 ? Overworld.Rows : 0);
+        void Hover(int x, int y) { var (c, r) = Services.EditorSession.OwLayer1Origin(x, y); Place(w, (c, r)); Dispatcher.UIThread.RunJobs(); }
+
+        Hover(a.X, ay);
+        Assert.Equal("Unlink", btn.Content);                                 // it has a warp already
+        Hover(0, 0);
+        Invoke(w, "HideOwEditButton");
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(btn.IsVisible);                                         // the sea is not a warp tile
+
+        // Freed of its warp, the same tile offers to make a new one.
+        Assert.Null(session.UnlinkOwTransition(a.X, ay));
+        Hover(a.X, ay);
+        Assert.Equal("Link", btn.Content);
+
+        // Pressing it arms the pick: the button goes, the map lights the other ends, and the
+        // partner's tile is one of them.
+        Invoke(w, "ArmOwLink", a.X, ay);
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(btn.IsVisible);
+        var targets = (List<(int X, int Y)>)Field(w, "owLinkTargets")!;
+        Assert.Contains((b.X, by), targets);
+        Assert.DoesNotContain((a.X, ay), targets);                           // not back onto itself
+        Assert.True(w.GetControl<TilemapView>("OwView").PickOnLeft);
+
+        // The tab paints its subject red: SMW draws stars and pipes the same green as every path
+        // and level tile around them, and nothing else on this map is red.
+        var (ac, ar) = Services.EditorSession.OwLayer1Origin(a.X, ay);
+        var plain = session.Ow8Overlay(ac, ar, true, false)!;
+        var red = (uint[])typeof(MainWindow)
+            .GetMethod("OwTransitionOverlay", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .Invoke(w, [ac, ar, true, false])!;
+        Assert.NotEqual(plain, red);
+        int lit = Enumerable.Range(0, red.Length).First(i => (red[i] >> 24) != 0 && (red[i] & 0xFFFFFF) != 0);
+        Assert.True((red[lit] & 0xFF) > (red[lit] >> 8 & 0xFF), "a pipe's pixel is no redder than it was green");
+
+        // Escape calls it off, and the tile is still unlinked.
+        w.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Null(Field(w, "owLinkFrom"));
+        Assert.Null(session.OwTransitionAt(a.X, ay));
+
+        // Armed again, a click on a lit tile makes the pair.
+        Invoke(w, "ArmOwLink", a.X, ay);
+        var (bc, br) = Services.EditorSession.OwLayer1Origin(b.X, by);
+        Invoke(w, "OwLinkPicked", (bc, br));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Null(Field(w, "owLinkFrom"));
+        Assert.Equal(b.X, session.OwTransitionAt(a.X, ay)!.Value.DestX);
+        Assert.Equal(a.X, session.OwTransitionAt(b.X, by)!.Value.DestX);
+    }
+
+    private static void Invoke(MainWindow w, string method, params object?[]? args) => typeof(MainWindow)
         .GetMethod(method, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
-        .Invoke(w, null);
+        .Invoke(w, args);
 
     private static object? Field(MainWindow w, string name) => typeof(MainWindow)
         .GetField(name, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
@@ -443,6 +522,176 @@ public class OverworldTests(ITestOutputHelper log)
     private static void Place(MainWindow w, (int Col, int Row)? hover)
         => typeof(MainWindow).GetMethod("PlaceOwEditButtonAt", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
                              .Invoke(w, [hover]);
+
+    /// <summary>
+    /// The Transitions tab's link and unlink: a warp is a pair of table slots pointing at each
+    /// other, unlinking frees both, and linking writes them back with the destination on the
+    /// tile's centre, where every one of vanilla's own sits. Vanilla fills all 27 slots, so a
+    /// link with none free is refused with the reason rather than half-written.
+    /// </summary>
+    [Fact]
+    public void warps_link_and_unlink_in_pairs_and_a_full_table_says_so()
+    {
+        if (PreppedRom.Fork() is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new Services.EditorSession();
+        Assert.True(s.OpenRom(p));
+        var ow = s.Overworld!;
+
+        // Vanilla's first warp and the one that comes back: a two-way pipe.
+        var a = ow.Warps[0];
+        Assert.True(a.DestIndex >= 0);
+        var b = ow.Warps.First(w => w.Index == a.DestIndex);
+        int ay = a.Y + (a.Submap != 0 ? Overworld.Rows : 0), by = b.Y + (b.Submap != 0 ? Overworld.Rows : 0);
+        Assert.False(s.OwLinkableAt(a.X, ay));            // linkable, and not the exit kind
+        Assert.Equal(a.Index, s.OwTransitionAt(a.X, ay)!.Value.Slot);
+        Assert.Equal(b.Index, s.OwTransitionAt(a.X, ay)!.Value.Partner);
+
+        // Every slot is taken on a vanilla base, so a link needing two of them is refused whole.
+        Assert.Equal(-1, ow.FreeWarpSlot());
+        var (one, two) = (ow.Warps[2], ow.Warps[3]);
+        int oneY = one.Y + (one.Submap != 0 ? Overworld.Rows : 0), twoY = two.Y + (two.Submap != 0 ? Overworld.Rows : 0);
+        ow.ClearWarp(one.Index);
+        ow.ClearWarp(two.Index);
+        ow.SetWarp(two.Index, 0, 31, 31, 0, 0, 0);                  // parked elsewhere: one slot left, two tiles wanting one each
+        Assert.Contains("unlink", s.LinkOwTransitions(one.X, oneY, two.X, twoY)!);
+        Assert.Null(s.OwTransitionAt(one.X, oneY));                       // and nothing was written on the way
+        Assert.Null(s.OwTransitionAt(two.X, twoY));
+
+        // Unlinking takes the pair away together: a pipe with one end left is a one-way trip.
+        Assert.Null(s.UnlinkOwTransition(a.X, ay));
+        Assert.Null(s.OwTransitionAt(a.X, ay));
+        Assert.Null(s.OwTransitionAt(b.X, by));
+
+        // And linking them again points each at the other, on the tile's centre in pixels.
+        Assert.Null(s.LinkOwTransitions(a.X, ay, b.X, by));
+        var back = s.OwTransitionAt(a.X, ay)!.Value;
+        Assert.Equal(b.X, back.DestX);
+        Assert.Equal(b.Y, back.DestY);
+        Assert.Equal(s.OwTransitionAt(b.X, by)!.Value.Slot, back.Partner);
+        Assert.Equal((b.X * 16 + 8) & 0x1FF, ow.Warps.First(w => w.Index == back.Slot).DestX);
+
+        // Written where the game reads it, not only into the editor's copy.
+        var rom = s.Rom!;
+        int at = rom.FileOffset(Overworld.WarpSources) + 2 * back.Slot;
+        Assert.Equal(Overworld.SubmapAt(a.X, a.Y, a.Submap != 0) << 8 | a.X, rom.Data[at] | rom.Data[at + 1] << 8);
+    }
+
+    /// <summary>
+    /// The Tiles tab's canvas carries the two areas Lunar Magic keeps beside the maps in its
+    /// Layer 2 8x8 mode: the event pieces to the right, layer 1's Map16 definitions below. Both
+    /// are 8x8 words like the land, edited by the same brush and written back to their own tables.
+    /// The cells are where LM puts them — measured off its status bar on a vanilla ROM 2026-09-08:
+    /// canvas (65,1) is the 6x6 pieces' byte 7, and (2,130) is Map16 tile 0x11's top-left word.
+    /// </summary>
+    [Fact]
+    public void the_tiles_canvas_carries_lunar_magics_two_extra_areas()
+    {
+        if (PreppedRom.Fork() is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new Services.EditorSession();
+        Assert.True(s.OpenRom(p));
+        var ow = s.Overworld!;
+        var rom = s.Rom!;
+
+        Assert.Equal(Services.EditorSession.OwArea.Map, s.OwAreaAt(10, 10, out _));
+        Assert.Equal(Services.EditorSession.OwArea.EventPieces, s.OwAreaAt(65, 1, out int ev));
+        Assert.Equal(7, ev);                                                   // piece 0, its own (1,1)
+        Assert.Equal(rom.Data[rom.FileOffset(Overworld.EventTiles) + 7], (byte)ow.EventPieces[7]);
+        Assert.Equal(Services.EditorSession.OwArea.Layer1Defs, s.OwAreaAt(2, 130, out int def));
+        Assert.Equal(4 * 0x11, def);                                           // Map16 tile 0x11, top-left word
+        Assert.Equal(0x1D9, ow.Layer1Defs[def] & 0x3FF);
+        Assert.Equal(Services.EditorSession.OwArea.None, s.OwAreaAt(64, 130, out _));   // nothing beside the tiles
+
+        // A cell no table reaches wears Lunar Magic's filler — the X on blue — and wears it from
+        // the FILE's graphics: 0x7A is one of the cycling animated slots, so the map's copy of it
+        // is whatever frame is up, and a cross that flickers is worse than no marker at all.
+        Assert.Equal(0x7A, Overworld.FillerWord & 0x3FF);
+        Assert.Equal(ow.FillerPixels(), s.Ow8CellPixels(130 * Services.EditorSession.Ow8Cols + 64));
+        Assert.NotEqual(ow.FillerPixels(), ow.TilePixels(Overworld.FillerWord, 0));
+
+        // Every piece byte has a cell and every cell its byte, both ways round.
+        for (int i = 0; i < Overworld.EventCells; i++)
+        {
+            var (x, y) = Overworld.EventCellOf(i);
+            Assert.Equal(i, Overworld.EventIndexOf(x, y));
+        }
+
+        // The one brush paints all three areas, and a commit takes each word home.
+        var map = s.OwMap!;
+        Assert.True(map.Stamp(65, 1, 0x123));
+        Assert.True(map.Stamp(2, 130, 0x1C4));
+        Assert.True(map.Stamp(10, 10, 0x055));
+        Assert.True(map.EndStroke());
+        Assert.Equal(0x123, ow.EventPieces[7]);
+        Assert.Equal(0x1C4, ow.Layer1Defs[def]);
+        Assert.Equal(0x055, ow.Layer2[Overworld.Layer2Index(10, 10, false)]);
+
+        // And both tables write back where the game reads them.
+        Assert.Null(Overworld.WriteEventPieces(rom, ow.EventPieces));
+        Assert.Equal(0x23, rom.Data[rom.FileOffset(Overworld.EventTiles) + 7]);
+        Overworld.WriteLayer1Defs(rom, ow.Layer1Defs);
+        int at = rom.FileOffset(ow.At.Map16Defs) + 8 * 0x11;
+        Assert.Equal(0x1C4, (rom.Data[at] | rom.Data[at + 1] << 8) & 0x3FF);
+        // Every piece word round-trips, property byte and all: the tiles are plain bytes but the
+        // properties are an RLE stream, and a re-pack that lost one would show up here.
+        File.WriteAllBytes(p, rom.Data);
+        Assert.Equal(ow.EventPieces, new Overworld(Rom.Load(p)).EventPieces);
+    }
+
+    /// <summary>
+    /// The other half of the Transitions tab: the exit tiles the player WALKS between maps on.
+    /// An entry is a tile and the way he is travelling through it, which the table keeps as his
+    /// pixel position; the map says which way that is, because an exit tile is the end of a path.
+    /// Unlinking a vanilla pair and linking it again reproduces the ROM's own bytes exactly —
+    /// the encoding is right or those twelve bytes an entry differ.
+    /// </summary>
+    [Fact]
+    public void exit_paths_link_from_the_tile_and_the_way_the_path_runs_into_it()
+    {
+        if (PreppedRom.Fork() is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new Services.EditorSession();
+        Assert.True(s.OpenRom(p));
+        var ow = s.Overworld!;
+
+        // Vanilla's first exit pair: a tile on the main map and the one it walks onto.
+        var a = ow.ExitPaths.First(e => e.Index == 0);
+        var b = ow.ExitPaths.First(e => e.Index == a.DestIndex);
+        int ay = a.Y + (a.Submap != 0 ? Overworld.Rows : 0), by = b.Y + (b.Submap != 0 ? Overworld.Rows : 0);
+        // Both entries decode onto real exit tiles, travelling opposite ways — and the map alone
+        // says which way, which is what makes linking them possible without asking.
+        foreach (var (e, ey) in new[] { (a, ay), (b, by) })
+        {
+            Assert.Equal(Overworld.PathKind.Exit, ow.KindOf(ow.Layer1At(e.X, e.Y, e.Submap != 0)));
+            Assert.Equal(e.Dir, ow.TravelDirOf(e.X, e.Y, e.Submap != 0));
+            Assert.True(s.OwLinkableAt(e.X, ey));                    // the exit kind, not a star or pipe
+            Assert.True(s.OwTransitionAt(e.X, ey)!.Value.Exit);
+        }
+        Assert.Equal(a.Dir ^ 1, b.Dir);
+        Assert.Equal((b.X, b.Y), (a.DestX, a.DestY));
+
+        // A pipe and an exit tile are different tables, and neither leads to the other.
+        var pipe = ow.Warps[0];
+        Assert.Contains("exit tile", s.LinkOwTransitions(a.X, ay, pipe.X, pipe.Y + (pipe.Submap != 0 ? Overworld.Rows : 0))!);
+
+        byte[] Entry(int slot) => [.. Enumerable.Range(0, 5).Select(k => ow.ExitTable[5 * slot + k]),
+                                   .. Enumerable.Range(0, 5).Select(k => ow.ExitTable[5 * Overworld.ExitCount + 5 * slot + k]),
+                                   .. Enumerable.Range(0, 2).Select(k => ow.ExitTable[10 * Overworld.ExitCount + 2 * slot + k])];
+        var (wasA, wasB) = (Entry(a.Index), Entry(b.Index));
+
+        Assert.Null(s.UnlinkOwTransition(a.X, ay));
+        Assert.Null(s.OwTransitionAt(a.X, ay));
+        Assert.Null(s.OwTransitionAt(b.X, by));
+
+        // And back again, byte for byte — including the arrival tile in the third table.
+        Assert.Null(s.LinkOwTransitions(a.X, ay, b.X, by));
+        Assert.Equal(wasA, Entry(a.Index));
+        Assert.Equal(wasB, Entry(b.Index));
+        Assert.Equal(b.Index, s.OwTransitionAt(a.X, ay)!.Value.Partner);
+
+        // Written where the game reads it, not only into the editor's copy.
+        var rom = s.Rom!;
+        Assert.Equal(wasA[0], rom.Data[rom.FileOffset(Overworld.ExitSources) + 5 * a.Index]);
+        Assert.Equal(wasA[10], rom.Data[rom.FileOffset(Overworld.ExitDestTiles) + 2 * a.Index]);
+    }
 
     /// <summary>
     /// Lunar Magic's Modify Level Tile Settings, per level tile: what it enters, the event
@@ -472,7 +721,7 @@ public class OverworldTests(ITestOutputHelper log)
         Assert.True(tile.DirsEditable);
         Assert.Null(s.OwLevelTileAt(0, 0));                       // the sea at the corner
 
-        Assert.True(s.SetOwLevelTile(tile, baseEvent: 0x21, exitDirs: [3, 2, 1, 0]), s.Status);
+        Assert.True(s.SetOwLevelTile(tile, level: tile.Level, baseEvent: 0x21, exitDirs: [3, 2, 1, 0]), s.Status);
         Assert.Equal(0x21, ow.BaseEventOf(tile.Translevel));
         Assert.Equal([3, 2, 1, 0], Enumerable.Range(0, 4).Select(e => ow.ExitDirOf(tile.Translevel, e)));
         // Packed as the game reads them: 7-6 normal, then the three secret exits.
@@ -484,7 +733,7 @@ public class OverworldTests(ITestOutputHelper log)
         Assert.Equal(0xE4, rom.Data[rom.FileOffset(Overworld.ExitDirs) + tile.Translevel]);
 
         // "No event" round-trips as $FF, and the settings read back through the tile.
-        Assert.True(s.SetOwLevelTile(tile, baseEvent: -1, exitDirs: tile.ExitDirs), s.Status);
+        Assert.True(s.SetOwLevelTile(tile, level: tile.Level, baseEvent: -1, exitDirs: tile.ExitDirs), s.Status);
         Assert.Equal(-1, s.OwLevelTileAt(tile.X, tile.Y + (tile.SubmapMap ? Overworld.Rows : 0))!.Value.BaseEvent);
     }
 

@@ -51,6 +51,10 @@ public static class ProjectSession
         if (data.Overworld.Translevels is { } owt) rom.OwTranslevels = Convert.FromBase64String(owt);
         if (data.Overworld.BaseEvents is { } owb) rom.OwBaseEvents = Convert.FromBase64String(owb);
         if (data.Overworld.ExitDirs is { } owd) rom.OwExitDirs = Convert.FromBase64String(owd);
+        if (data.Overworld.Warps is { } oww) rom.OwWarps = Convert.FromBase64String(oww);
+        if (data.Overworld.Exits is { } owe) rom.OwExits = Convert.FromBase64String(owe);
+        if (data.Overworld.EventPieces is { } owp) rom.OwEventPieces = WordsOf(Convert.FromBase64String(owp));
+        if (data.Overworld.Layer1Defs is { } owf) rom.OwLayer1Defs = WordsOf(Convert.FromBase64String(owf));
 
         string? warn = RomBuilder.ReplayMap16(rom, data);
         RomBuilder.ReplayEntrances(rom, data);

@@ -22,6 +22,7 @@ internal static class Overlay
     private static readonly Pen RingUnder = new(Brushes.Black, 3);
     private static readonly Pen RingOver = new(Brushes.White, 1.5);
     private static readonly Pen RingSelected = new(UiColors.Selection, 1.5);
+    private static readonly Pen AreaPen = new(UiColors.AreaLabel, 1.5) { DashStyle = DashStyle.Dash };
     private static readonly Pen BadgeEdge = new(Brushes.Black, 1);
     private static readonly Pen Rung = new(Brushes.Black, 1.5);
     private static readonly Pen Cross = new(Brushes.Black, 2);
@@ -40,6 +41,17 @@ internal static class Overlay
     /// <summary>The cell the pointer is over: lit up, not ringed. Its own mark rather than a
     /// second use of <see cref="Band"/>, which is the rubber band three other canvases draw.</summary>
     public static void Hover(DrawingContext ctx, Rect r) => ctx.DrawRectangle(UiColors.HoverFill, null, r);
+
+    /// <summary>The edge of a named area of the overworld canvas — a dashed frame, so it reads as
+    /// an annotation over the map rather than a selection on it.</summary>
+    public static void Area(DrawingContext ctx, Rect r) => ctx.DrawRectangle(null, AreaPen, r);
+
+    /// <summary>While a link is armed: a tile it can land on, and the tile it comes from. Lit
+    /// rather than ringed, as <see cref="Hover"/> is — a ring on every candidate at once reads
+    /// as a grid, not as a set of choices.</summary>
+    public static void LinkTarget(DrawingContext ctx, Rect r) => ctx.DrawRectangle(UiColors.LinkTarget, null, r);
+
+    public static void LinkSource(DrawingContext ctx, Rect r) => ctx.DrawRectangle(UiColors.LinkSource, SelectionPen, r);
 
     /// <summary>A band that takes tiles as a brush rather than selecting — its own hue, because
     /// the two gestures look identical otherwise and do very different things.</summary>

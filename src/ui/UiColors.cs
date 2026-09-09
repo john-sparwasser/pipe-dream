@@ -66,6 +66,13 @@ internal static class UiColors
     public static readonly IBrush EventBadge = new SolidColorBrush(Color.FromArgb(0xD0, 0x6A, 0x3D, 0x9E));
     public static readonly IBrush EventFill = new SolidColorBrush(Color.FromArgb(0x60, 0x9A, 0x6A, 0xD8));
     public static readonly IBrush WarpBadge = new SolidColorBrush(Color.FromArgb(0xD0, 0x1C, 0x7A, 0x74));
+    /// <summary>While a link is armed: every tile it can land on, lit in the warp badges' own
+    /// teal so the two read as the same subject, and the tile it comes from, brighter.</summary>
+    /// <summary>The Areas view: a frame and a name over each part of the overworld canvas. Amber,
+    /// because it annotates rather than selects and must not read as either.</summary>
+    public static readonly IBrush AreaLabel = new SolidColorBrush(Color.FromArgb(0xE0, 0xE0, 0x9A, 0x2A));
+    public static readonly IBrush LinkTarget = new SolidColorBrush(Color.FromArgb(0x9C, 0x2E, 0xC4, 0xB6));
+    public static readonly IBrush LinkSource = new SolidColorBrush(Color.FromArgb(0xB0, 0x5A, 0xE8, 0xDA));
     public static readonly IBrush WarpOneWay = new SolidColorBrush(Color.FromArgb(0xD0, 0xB0, 0x20, 0x20));
     /// <summary>The pill that opens a level tile's settings, on the tile the pointer is over,
     /// and the brighter blue it wears once the pointer is ON it. Both are stated because a

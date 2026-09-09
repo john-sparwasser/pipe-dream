@@ -135,6 +135,12 @@ internal static class RomBuilder
                 warnings.Add("overworld: " + owtErr);
             if (project.Data.Overworld.BaseEvents is { } owb) Overworld.WriteBaseEvents(rom, Convert.FromBase64String(owb));
             if (project.Data.Overworld.ExitDirs is { } owd) Overworld.WriteExitDirs(rom, Convert.FromBase64String(owd));
+            if (project.Data.Overworld.Warps is { } oww) Overworld.WriteWarps(rom, Convert.FromBase64String(oww));
+            if (project.Data.Overworld.Exits is { } owe) Overworld.WriteExits(rom, Convert.FromBase64String(owe));
+            if (project.Data.Overworld.EventPieces is { } owp
+                && Overworld.WriteEventPieces(rom, ProjectSession.WordsOf(Convert.FromBase64String(owp))) is { } owpErr)
+                warnings.Add("overworld: " + owpErr);
+            if (project.Data.Overworld.Layer1Defs is { } owf) Overworld.WriteLayer1Defs(rom, ProjectSession.WordsOf(Convert.FromBase64String(owf)));
 
             // Skip level entries whose key is not a level number. A project should never contain
             // one, but an editor bug wrote entries keyed -1 for a while, and refusing to build a

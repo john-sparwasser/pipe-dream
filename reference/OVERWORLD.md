@@ -51,8 +51,10 @@ byte of every word until 0x2000 words. Result: two 64x64 8x8 tilemaps in SNES sc
 $3000. Layer 2 scrolls with layer 1 (no parallax); layer 3 is the static border.
 
 **Layer-2 event tiles** (LM's 6x6 and 2x2 "pieces"): tile bytes `$0C8000` (0x900 bytes of
-6x6 pieces, then 2x2), property bytes RLE at `$0C8D00`. A step writes piece `src` at `dst`
-(`$04E4D0` 2x2 if src >= 0x900, `$04E520` 6x6).
+6x6 pieces, then 2x2), property bytes RLE at `$0C8D00` — the same encoding as layer 2's streams,
+so the two bytes join into an 8x8 word (`Overworld.EventPieces`). 0xD00 cells in all: 64 pieces of
+6x6, then 256 of 2x2. A step writes piece `src` at `dst` (`$04E4D0` 2x2 if src >= 0x900,
+`$04E520` 6x6).
 
 ## 4. Graphics and palettes
 
@@ -134,8 +136,33 @@ replacements `$04E5AC`/`$04E5B1`.
   `$048467[i]` (tileY); destination `$04849D[i]` (bits 0-8 X px, 9-12 dest submap) and
   `$0484D3[i]` (Y px). LM's "destination index" is derived by matching a destination to another
   entry's source; LM grows the table to 0x100 and reuses it for level "Location teleports".
-- **Exit tiles** (walk off one map onto another): source `$049964/66/68` (Y, X, submap; 5-byte
-  stride, ~14 entries) → destination `$0499AA/AC/AE`, arrival tile `$0499F0/F1`.
+  Every destination vanilla stores is the tile's CENTRE (`tile*16 + 8`), and every source sits on
+  a star or pipe tile — 0x5A, 0x5B, 0x5F or 0x82 (`Overworld.IsWarpTile`, measured against all 27
+  on 2026-09-08). The four arrays are butted together ($048431 + 0x36 IS $048467), so pipe-dream
+  writes them in place and reuses slots but never adds one: vanilla fills all 27, and a link that
+  needs a fresh slot is refused until something is unlinked. A source of $FFFF is a free slot —
+  the shape the game's own search walks past.
+- **Exit tiles** (walk off one map onto another): source `$049964/66/68` (Y px, X px, submap;
+  5-byte stride, 14 entries) → destination `$0499AA/AC/AE`, arrival tile `$0499F0/F1` (tile Y,
+  tile X). The walk at `$049A3F` compares the source against Mario's own position `$1F19/$1F17`
+  and his submap `$13C3`, then writes the destination into all three plus his tile `$1F21/$1F1F`.
+  The three tables are contiguous ($049964 + 0x46 IS $0499AA, and + 0x46 again is $0499F0), so
+  pipe-dream keeps them as one block and writes them in place.
+
+  **The position carries the direction.** Mario is centred on the axis he is not moving along and
+  a tile short on the one he is, so an entry is a tile AND a way of travelling through it
+  (`Overworld.StepInto`): moving down `(x*16+8, y*16)`, up `(x*16+8, y*16+16)`, right
+  `(x*16, y*16+8)`, left `(x*16+16, y*16+8)`. The same bytes therefore read as "tile 20 walking
+  down" or "tile 21 walking up"; the one of the two that is an exit tile settles it
+  (`Overworld.Decode`). This is the "side to enter from" LM's link dialog asks for, and the
+  destination is the partner tile written the same way, since the player keeps travelling as he
+  was. Derived and confirmed against all 14 vanilla entries 2026-09-08; a round trip through
+  pipe-dream's unlink and link reproduces the ROM's own bytes.
+
+  **The map already knows the side**: an exit tile is the end of a path, so the player leaves by
+  the side the path does not use, and `Overworld.TravelDirOf` reads it off the four neighbours.
+  All 13 vanilla entries that sit on an exit tile agree with it (the fourteenth, entry 04, sits
+  on a plain walk tile). Exactly one walkable neighbour or it refuses rather than guess.
 - **Koopa teleports**: three positions `$048E49` (X) / `$048E4F` (Y), triggered by tiles 0x49-0x4B.
 
 ## 9. Sprites
@@ -152,8 +179,8 @@ a repeating pattern. Five edit modes and where they land in pipe-dream's bar:
 
 | Lunar Magic mode | pipe-dream |
 |---|---|
-| Layer 2 8x8 Editor (default) | Tiles |
-| Layer 1 16x16 Editor — level tiles AND the invisible path tiles are dragged like any tile; Alt+Right = Modify Level Tile Settings; Alt+Left on two star/pipe/exit tiles links them | Paths & Levels (places and moves the tiles, snapped to 16x16 over the 8x8 canvas; a level tile under the pointer grows an **Edit** button that opens LM's settings dialog — see below. Alt+Left linking is Transitions, still to come) |
+| Layer 2 8x8 Editor (default) — and the only mode that shows the two areas beside the maps: the event pieces to the right of the main map, and layer 1's Map16 tiles below the submaps | Tiles (the same three areas on one canvas — see §10a) |
+| Layer 1 16x16 Editor — level tiles AND the invisible path tiles are dragged like any tile; Alt+Right = Modify Level Tile Settings; Alt+Left on two star/pipe/exit tiles links them | Paths & Levels (places and moves the tiles, snapped to 16x16 over the 8x8 canvas; a level tile under the pointer grows an **Edit** button that opens LM's settings dialog — see below. Linking is the Transitions tab's Link button rather than Alt+Left here, and it covers the star and pipe half of LM's list) |
 | Layer 2 Event Editor — Page Up/Down event, Home/End step; Shift+Right pastes a silent step | Events |
 | Layer 1 Event Editor — silent only, for other submaps | Events |
 | Sprite Editor — 8px steps, Mario/Luigi start | not yet placed |
@@ -167,6 +194,41 @@ slot (directions live in SRAM); never reuse a level number on two tiles; paths m
 dead-end, gap or cross; one destroy and one reveal per event; star/pipe at X=0 on the submap
 map do not work.
 
+### 10a. The Tiles canvas, area by area  [MEASURED 2026-09-08 off LM's own status bar]
+
+Lunar Magic's Layer 2 8x8 mode is wider than the two maps, and so is pipe-dream's Tiles tab. The
+cells below are the one 8x8 grid both editors count in; pipe-dream's **Areas** view outlines and
+names them, which LM does not.
+
+| area | cols | rows | what a cell is |
+|---|---|---|---|
+| main map | 0-63 | 0-63 | a layer 2 word |
+| submap map | 0-63 | 64-127 | a layer 2 word (rotated 2 right, 1 down — §1) |
+| event pieces, 6x6 | 64-111 | 0-47 | a byte of `$0C8000`: 8 pieces across, 36 bytes each, row-major |
+| event pieces, 2x2 | 112-159 | 0-21 | a byte from `$0C8900`: 24 pieces across, 4 bytes each |
+| layer 1 tiles | 0-31 | 128+ | a word of the Map16 defs `$05D000`: 16 tiles across, TL BL TR BR |
+
+Measured by hovering LM and reading its status bar: canvas (0x41,1) is the 6x6 pieces' byte 7
+(0x11 in a vanilla ROM, which is what LM shows there), the 2x2 index steps by 1 across and 0x18
+down (so 24 across), and (2,0x82) is "Map16 11" whose top-left word is 8x8 tile 0x1D9.
+
+**The filler.** A cell no table reaches gets LM's filler tile rather than a hole: 8x8 tile 0x7A,
+a black cross on blue, in palette row 5 (`Overworld.FillerWord`; LM's status bar reports "7A" out
+there, and 0x7A's pixels are colours 1 and 4, which row 5 paints black on the sea's blue). It is
+drawn from the FILE's graphics, not the map's: 0x7A is one of the cycling animated slots
+(0x78-0x7F), so the map's copy is whichever GFX14 frame is up, and a cross that flickers is worse
+than no marker (`Overworld.FillerPixels`).
+
+LM paints that same X over piece slots a vanilla ROM fills with tile 0xBA — a dither texture —
+so its event area looks emptier than ours. pipe-dream draws the bytes that are there, which is
+what the game would draw if a step used the piece; LM is showing its own normalised copy, which
+it writes on its first overworld save.
+
+`EditorSession.OwAreaAt` maps a cell to its area and index; the three tables ride in ONE
+`TilemapEdit`, so a brush, a lasso, a float and an undo work the same everywhere on the canvas,
+and a commit takes each part back to its own table (`Overworld.WriteEventPieces`, which re-packs
+the property RLE and refuses to grow it, and `WriteLayer1Defs`, a fixed table in place).
+
 ## 11. Status and caveats
 
 **Modify Level Tile Settings** (LM's Alt-right click; here the hovered level tile grows an Edit
@@ -177,12 +239,13 @@ are Lunar Magic's — measured 2026-09-08 by changing each in LM's own dialog an
 |---|---|---|
 | base event | `$05D608` + translevel, in place on every ROM | **editable** |
 | direction per exit (normal + 3 secret) | `$04D678` + translevel, 2 bits each | **editable** — but LM's overworld save jumps its copy loop and reads a packed block of its own instead, so this is live exactly while `HasLevelTable` is false |
-| level number | LM's per-tile table | read-only: our base numbers by the game's scan order, so the number follows the tile |
+| level number | LM's per-tile table (the LZ2 blob behind the scan's operands) | **editable exactly while `HasLevelTable` is true** — a base of ours numbers by the game's scan order, so there is nothing to write and the number follows the tile instead. Set through the layer 1 map, which carries the number above the tile, so undo and the next brush stroke agree with it; the event and directions then land on the level now in the box, as they do in LM |
 | eight initial flags | `$05DDA0` + level, a table LM ADDS when it saves | shown, not offered |
 | reveal on event | LM's layer 1 event data | shown, not offered — the Events tab's job |
 
 `EditorSession.OwLevelTileAt` / `SetOwLevelTile`; both tables are the ROM's edited copies, kept
-in the project (`Overworld.BaseEvents`, `Overworld.ExitDirs`) and replayed at build.
+in the project (`Overworld.BaseEvents`, `Overworld.ExitDirs`, and `Overworld.Translevels` for the
+level number) and replayed at build.
 
 Done (v0.4.x): render of both layers with animated tiles at rest, per-submap palettes by region;
 the Overworld mode with five drawer tabs; the overworld's eight GFX files in the Graphics
@@ -190,9 +253,24 @@ drawer. **Tiles** edits layer 2 in 8x8s: right-click paints the drawer's tile in
 palette row and flips, lasso/move/grow as the background tilemap does, undo per stroke; the map
 is kept as 0x2000 words in the project (`Overworld.Layer2`) and written back into the ROM's own
 stream space at build time when it packs small enough (`Overworld.WriteLayer2`; refused with a
-reason otherwise — no relocation yet). **Paths & Levels** edits layer 1 in 16x16s
-(place, move, grow, delete) and opens a level tile's settings; Events and Transitions are still
-read-only views.
+reason otherwise — no relocation yet). Beside the maps it edits the other two areas of LM's 8x8
+canvas (§10a): the event pieces (project `Overworld.EventPieces`) and layer 1's Map16 definitions
+(`Overworld.Layer1Defs`), with the drawer offering all 0x200 8x8 tiles rather than the land's
+first 0x100. **Paths & Levels** edits layer 1 in 16x16s
+(place, move, grow, delete) and opens a level tile's settings. **Transitions** links and unlinks
+both kinds of transition: the star and pipe warps, and the exit tiles the player walks between
+maps on. The tab draws the stars and pipes RED rather than the green SMW paints them, since they
+are its whole subject and green is what every path and level tile around them also is, and it
+shows the exit tiles' own red without waiting for the Paths view — a tile you cannot see is one
+you cannot link. Nothing on it edits a tile, so the map picks rather than paints: no 8x8 reticle,
+no lasso. The tile under the pointer grows a **Link** button (or **Unlink**, with a confirm, on a
+tile that has one), pressing Link lights every tile of the SAME kind the other end could be — the
+two tables are different shapes, so a pipe cannot come out of an exit tile — and the next click
+answers; Esc, or a click anywhere else, calls it off. Both ends are written, as a pipe pair is,
+into the ROM's edited tables and the project (`Overworld.Warps`, `Overworld.Exits`), replayed at
+build by `WriteWarps`/`WriteExits`. Not undoable, as the level tile's tables are not. An exit link
+needs the map to say which way the player walks through each tile (see §8) and refuses when it
+cannot. Koopa teleports are still read-only, and so is the Events tab.
 
 ### Lunar Magic's overworld hooks  [CONFIRMED 2026-09-06, BigEye + DogsOfWar + ShaoBase vs vanilla]
 

@@ -21,9 +21,13 @@ public partial class OwLevelTileWindow : Window
     private readonly EditorSession.OwLevelTile tile;
     private readonly ComboBox[] dirs = new ComboBox[4];
     private ComboBox eventBox = null!;
+    private TextBox levelBox = null!;
 
-    /// <summary>Set on OK: the base event ($FF none) and the four exit directions.</summary>
+    /// <summary>Set on OK: the level number, the base event ($FF none) and the four exit
+    /// directions. A level number that is not hex reads as -1, which the session refuses with
+    /// the range in its report rather than the dialog growing a validator of its own.</summary>
     public bool Applied { get; private set; }
+    public int Level { get; private set; }
     public int BaseEvent { get; private set; }
     public int[] ExitDirs { get; private set; } = [];
 
@@ -50,11 +54,12 @@ public partial class OwLevelTileWindow : Window
             row++;
         }
 
-        // Level number. On a base of ours the level a tile enters is its place in the game's own
-        // scan, not a number the tile carries, so it is shown and not offered.
-        Row("Level number to use for this tile:",
-            new TextBox { Text = $"{tile.Level:X3}", IsReadOnly = true },
-            tile.LevelEditable ? "Lunar Magic's per-tile table holds this; move the tile to move its number"
+        // Level number. Editable only where Lunar Magic's per-tile table holds it: on a base of
+        // ours the level a tile enters is its place in the game's own scan, not a number the tile
+        // carries, so there is nothing to write and it is shown instead.
+        levelBox = new TextBox { Text = $"{tile.Level:X3}", IsReadOnly = !tile.LevelEditable };
+        Row("Level number to use for this tile:", levelBox,
+            tile.LevelEditable ? null
                                : "this base numbers level tiles by their place in the map, so the number follows the tile rather than being set here");
 
         // Base event: $FF is "no event", then 00-7F.
@@ -97,6 +102,8 @@ public partial class OwLevelTileWindow : Window
 
     private void OnOk(object? sender, RoutedEventArgs e)
     {
+        Level = int.TryParse(levelBox.Text?.Trim(), System.Globalization.NumberStyles.HexNumber,
+                             System.Globalization.CultureInfo.InvariantCulture, out int lv) ? lv : -1;
         BaseEvent = eventBox.SelectedIndex <= 0 ? -1 : eventBox.SelectedIndex - 1;
         ExitDirs = [.. dirs.Select(d => Math.Max(0, d.SelectedIndex))];
         Applied = true;

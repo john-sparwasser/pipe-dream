@@ -72,6 +72,18 @@ public sealed class ProjectFile
         /// <summary>The direction each of a translevel's four exits opens, 0x60 packed bytes
         /// base64 (<see cref="PipeDream.Overworld.ExitDirs"/>).</summary>
         public string? ExitDirs { get; set; }
+        /// <summary>The star/pipe warps as one block, 8 bytes a slot, base64
+        /// (<see cref="PipeDream.Overworld.WarpTable"/>).</summary>
+        public string? Warps { get; set; }
+        /// <summary>The exit paths as one block — sources, destinations and arrival tiles,
+        /// base64 (<see cref="PipeDream.Overworld.ExitTable"/>).</summary>
+        public string? Exits { get; set; }
+        /// <summary>The layer 2 event pieces as 0xD00 little-endian 8x8 words, base64
+        /// (<see cref="PipeDream.Overworld.EventPieces"/>).</summary>
+        public string? EventPieces { get; set; }
+        /// <summary>Layer 1's Map16 definitions, four little-endian words a tile, base64
+        /// (<see cref="PipeDream.Overworld.Layer1Defs"/>).</summary>
+        public string? Layer1Defs { get; set; }
     }
 
     public sealed class TilemapPreset

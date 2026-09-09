@@ -315,6 +315,22 @@ public sealed class Rom
     /// <see cref="Overworld.BaseEvents"/>), or null to read the ROM's own.</summary>
     public byte[]? OwBaseEvents;
 
+    /// <summary>The edited star/pipe warp tables as one block, 8 bytes a slot
+    /// (<see cref="Overworld.WarpTable"/>), or null to read the ROM's four arrays.</summary>
+    public byte[]? OwWarps;
+
+    /// <summary>The edited layer 2 event pieces — 0xD00 8x8 words, tile byte and property byte
+    /// joined (<see cref="Overworld.EventPieces"/>) — or null to read the ROM's own.</summary>
+    public ushort[]? OwEventPieces;
+
+    /// <summary>The edited layer 1 Map16 definitions, four words a tile
+    /// (<see cref="Overworld.Layer1Defs"/>), or null to read the ROM's own table.</summary>
+    public ushort[]? OwLayer1Defs;
+
+    /// <summary>The edited exit-path tables as one block — sources, destinations and arrival
+    /// tiles (<see cref="Overworld.ExitTable"/>) — or null to read the ROM's own.</summary>
+    public byte[]? OwExits;
+
     /// <summary>Imported layer-3 tilemaps: level → a flat 16-bit map, LM's LT3 file shape
     /// (0x800/0x1000/0x2000 bytes). Replaces vanilla's (level mode, option) pick for that level
     /// wherever <see cref="Layer3.LevelTilemap"/> is asked. Hydrated from / stashed to

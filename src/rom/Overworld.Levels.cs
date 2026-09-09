@@ -20,6 +20,13 @@ public sealed partial class Overworld
     /// <summary>The level a translevel enters ($05D8A2): 1-0x24 as they are, 0x25-0x5F as 0x101-0x13B.</summary>
     public static int LevelOf(int translevel) => translevel == 0 ? 0 : translevel < 0x25 ? translevel : (translevel - 0x24) | 0x100;
 
+    /// <summary>The translevel that enters a level number, the inverse of <see cref="LevelOf"/>.
+    /// -1 for a number no overworld tile can hold: the map's levels are 001-024 and 101-13B, and
+    /// the rest of the game's 0x200 levels are only reachable through a pipe or a door.</summary>
+    public static int TranslevelOf(int level)
+        => level is > 0 and < 0x25 ? level
+         : level is > 0x100 and < 0x13C ? (level & 0xFF) + 0x24 : -1;
+
     /// <summary>The event a translevel's normal exit fires ($05D608, read at $05D9CC; a secret
     /// exit adds its number), $FF = none. 0x80 bytes; the ROM's edited copy, so the dialog, the
     /// badges and the build all read one array.</summary>

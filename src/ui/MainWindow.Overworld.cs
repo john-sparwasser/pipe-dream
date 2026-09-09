@@ -39,7 +39,7 @@ public partial class MainWindow
     private ToggleButton owShowLayer1 = null!;
     private Button owFlipX = null!, owFlipY = null!;
 
-    private ToggleButton owShowPaths = null!, owShowLevelNumbers = null!, owShowEventNumbers = null!, owShowWarps = null!;
+    private ToggleButton owShowPaths = null!, owShowLevelNumbers = null!, owShowEventNumbers = null!, owShowWarps = null!, owShowAreas = null!;
 
     private StackPanel owViewBar = null!;
 
@@ -66,7 +66,7 @@ public partial class MainWindow
         owToolPanel = this.GetControl<DockPanel>("OwToolPanel");
         owNote = this.GetControl<TextBlock>("OwNote");
         owTabs = this.GetControl<TabStrip>("OwTabs");
-        owTabs.SelectionChanged += (_, _) => { if (modeOverworld.IsChecked == true) RefreshOverworld(); };
+        owTabs.SelectionChanged += (_, _) => { CancelOwLink(); if (modeOverworld.IsChecked == true) RefreshOverworld(); };
         WireOwBar();
         WireOwSheet();
         WireOwView();
@@ -87,11 +87,12 @@ public partial class MainWindow
         owShowLevelNumbers = this.GetControl<ToggleButton>("OwShowLevelNumbers");
         owShowEventNumbers = this.GetControl<ToggleButton>("OwShowEventNumbers");
         owShowWarps = this.GetControl<ToggleButton>("OwShowWarps");
+        owShowAreas = this.GetControl<ToggleButton>("OwShowAreas");
         // Layer 1 and the paths are pixels in the overlay, so those two recompose the map; the
         // number toggles are chrome, redrawn and never recomposed.
         owShowLayer1.IsCheckedChanged += (_, _) => { if (modeOverworld.IsChecked == true) RefreshOverworld(); };
         owShowPaths.IsCheckedChanged += (_, _) => { if (modeOverworld.IsChecked == true) RefreshOverworld(); };
-        foreach (var toggle in new[] { owShowLevelNumbers, owShowEventNumbers, owShowWarps })
+        foreach (var toggle in new[] { owShowLevelNumbers, owShowEventNumbers, owShowWarps, owShowAreas })
             toggle.IsCheckedChanged += (_, _) => owView.InvalidateVisual();
     }
 
@@ -143,6 +144,9 @@ public partial class MainWindow
         owView.Decorate = DrawOwOverlays;
         owView.HolePixels = OwHolePixels;
         owView.Painted += (_, c) => OwPaint(c.Col, c.Row);
+        // The map only picks while a link is armed (MainWindow.Overworld.Transitions.cs), so this
+        // is that answer and nothing else.
+        owView.Picked += (_, c) => OwLinkPicked(c);
         owView.StrokeEnded += (_, _) => OwStrokeEnded();
         owView.SelectionDragged += (_, d) => OwSelectionDragged(d);
         // A selection that leaves the float's rectangle drops the float. Mid-drag the lasso
@@ -195,8 +199,14 @@ public partial class MainWindow
         bool layer1 = colours || !tiles || owShowLayer1.IsChecked == true, paths = !colours && owShowPaths.IsChecked == true;
         owView.CellAt = (c, r) => r * EditorSession.Ow8Cols + c;
         owView.CellPixels = OwCellPixels;
+        bool warps = OwModeNow == OwMode.Transitions && !colours;
         owView.OverlayPixels = layer1Tab ? (c, r) => OwLayer1Overlay(c, r, paths)
+                             : warps ? (c, r) => OwTransitionOverlay(c, r, layer1, paths)
                              : layer1 || paths ? (c, r) => session.Ow8Overlay(c, r, layer1, paths) : null;
+        // Nothing on the Transitions tab edits a tile, so the map picks rather than paints: no
+        // 8x8 reticle following the pointer, no lasso, and a click means "this one" — which is
+        // what the Link pick asks for anyway.
+        owView.PickOnLeft = warps;
         // The Paths & Levels tab edits layer 1, the overlay: every gesture snaps to its 16x16
         // tiles (a cell right and down on the lower map), and the drag preview is the overlay's.
         owView.Snap = layer1Tab ? EditorSession.OwLayer1Block : null;
@@ -204,7 +214,11 @@ public partial class MainWindow
         // Whole tiles move; they do not stretch. A grip on a one-tile lasso covered most of it,
         // so a drag from near its edge grew the lasso instead of moving the tile.
         owView.Resizable = !layer1Tab;
-        owView.Reshape(EditorSession.Ow8Cols, EditorSession.Ow8Rows, 8);
+        // Only the Tiles tab has the event pieces and the layer 1 definitions beside the maps, as
+        // in Lunar Magic; the other tabs edit the maps and show just them. The cell INDEX is the
+        // full width either way, so a cell means the same thing on every tab.
+        owView.Reshape(tiles ? EditorSession.Ow8Cols : EditorSession.Ow8MapCols,
+                       tiles ? session.Ow8VisibleRows : EditorSession.Ow8MapRows, 8);
         if (tiles)
         {
             // The drawer is the 256 8x8 tiles the two FG files give layer 2, in the brush's palette row.
@@ -252,7 +266,10 @@ public partial class MainWindow
                              + (owL1Block is { } b ? $"a {b.W}x{b.H} block" : $"tile 0x{owL1Tile:X2}")
                              + ", a dragged lasso moves" + (session.OwLayer1Edited ? " — edited" : ""),
             OwMode.Events => "what an event reveals, in order",
-            _ => "pipes, star roads and exit paths, and where they come out",
+            _ => owLinkFrom is not null
+                 ? "pick the tile this one leads to — Esc, or a click anywhere else, calls it off"
+                 : "pipes, star roads and the red exit tiles: hover one to link it, "
+                   + "or to unlink the transition it has",
         });
 
     // ---- gestures, sent to the layer the tab edits ----

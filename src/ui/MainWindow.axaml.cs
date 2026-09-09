@@ -377,6 +377,13 @@ public partial class MainWindow : Window
     /// leaving a non-Level canvas mode before it touches selection, and - / = zooming.</summary>
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
+        // A half-drawn warp link is modal-ish: Escape gets out of it before anything else does.
+        if (e.Key == Key.Escape && owLinkFrom is not null)
+        {
+            CancelOwLink();
+            e.Handled = true;
+            return;
+        }
         if (e.Key == Key.F4 && e.KeyModifiers == KeyModifiers.None)
         {
             OnRunEmulator(this, e);              // Lunar Magic's F4

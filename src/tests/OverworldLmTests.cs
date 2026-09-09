@@ -27,10 +27,12 @@ public class OverworldLmTests(ITestOutputHelper log)
     /// <summary>On a ROM with Lunar Magic's per-tile level table, the level a tile enters is the
     /// tile's own: moving the tile takes the number along, and the build writes the table back.
     /// A vanilla fork stands in for an LM save: the two LZ2 blobs behind LM's operand pattern.</summary>
-    [Fact]
-    public void a_moved_level_tile_keeps_its_level_number_on_an_lm_rom()
+    /// <summary>A vanilla fork standing in for an LM save: the two LZ2 blobs behind LM's operand
+    /// pattern at the scan, with Mario's start tile entering translevel 0x2A. Null with a note
+    /// when there is no ROM to fork.</summary>
+    private Services.EditorSession? LevelTableRom()
     {
-        if (PreppedRom.Fork() is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        if (PreppedRom.Fork() is not { } p) { log.WriteLine("SKIP: no ROM"); return null; }
         var rom = Rom.Load(p);
         var levels = new byte[0x800];
         levels[Overworld.Layer1Index(6, 7, true)] = 0x2A;                  // Mario's start tile enters translevel 0x2A
@@ -46,8 +48,15 @@ public class OverworldLmTests(ITestOutputHelper log)
 
         var session = new Services.EditorSession();
         Assert.True(session.OpenRom(p));
+        Assert.True(session.Overworld!.HasLevelTable);
+        return session;
+    }
+
+    [Fact]
+    public void a_moved_level_tile_keeps_its_level_number_on_an_lm_rom()
+    {
+        if (LevelTableRom() is not { } session) return;
         var ow = session.Overworld!;
-        Assert.True(ow.HasLevelTable);
         Assert.Equal(0x2A, ow.TranslevelAt(6, 7, true));
 
         // The editor's cell carries the number above the tile, so a plain move of the value moves both.
@@ -69,6 +78,35 @@ public class OverworldLmTests(ITestOutputHelper log)
         var written = Gfx.Lz2Decompress(session.Rom!.Data, session.Rom.FileOffset(ow.At.LevelTableBlob), 0x1000);
         Assert.Equal(0x2A, written[Overworld.Layer1Index(8, 7, true)]);
         Assert.Equal(0, written[Overworld.Layer1Index(6, 7, true)]);
+    }
+
+    /// <summary>And the dialog can set that number, since the table is the tile's own: it lands
+    /// in the map the brushes share, carries the event and directions to the new level, and takes
+    /// a number the overworld cannot enter no further than the report.</summary>
+    [Fact]
+    public void the_level_number_is_editable_where_lunar_magics_table_holds_it()
+    {
+        if (LevelTableRom() is not { } session) return;
+        var ow = session.Overworld!;
+        var tile = session.OwLevelTileAt(6, Overworld.Rows + 7)!.Value;
+        Assert.True(tile.LevelEditable);
+        Assert.Equal(0x106, tile.Level);                                   // translevel 0x2A
+
+        Assert.False(session.SetOwLevelTile(tile, level: 0x1FF, baseEvent: 0, exitDirs: tile.ExitDirs));
+        Assert.Contains("101-13B", session.Status);
+        Assert.Equal(0x2A, ow.TranslevelAt(6, 7, true));                   // and nothing moved
+
+        int wasAt106 = ow.BaseEventOf(0x2A);
+        Assert.True(session.SetOwLevelTile(tile, level: 0x11, baseEvent: 0x0C, exitDirs: tile.ExitDirs), session.Status);
+        Assert.Equal(0x11, ow.TranslevelAt(6, 7, true));
+        Assert.Equal(0x11, session.OwLayer1!.At(6, Overworld.Rows + 7) >> Services.EditorSession.OwLevelShift);
+        // The event followed the number to the level now in the box, not the one it left. (The
+        // directions are LM's own on such a ROM, so the dialog does not offer them.)
+        Assert.Equal(0x0C, ow.BaseEventOf(0x11));
+        Assert.Equal(wasAt106, ow.BaseEventOf(0x2A));       // and the level it left keeps its own
+
+        Assert.True(session.OwLayer1!.Undo());
+        Assert.Equal(0x2A, ow.TranslevelAt(6, 7, true));
     }
 
     [Fact]

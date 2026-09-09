@@ -23,6 +23,9 @@ public partial class MainWindow
         if (session.Overworld is not { } ow || OwColorsOnly) return;
         double size = Math.Clamp(step * 2 * 0.4, 8, 13);     // badge text, for a 16x16 tile two cells wide
         if (OwModeNow == OwMode.Events) DrawOwEventFootprints(ctx, ow, step, size);
+        if (owShowAreas.IsChecked == true) DrawOwAreas(ctx, step, size);
+        DrawOwExitTiles(ctx, ow, step);
+        DrawOwLinkTargets(ctx, step);
         DrawOwTileBadges(ctx, ow, step, size);
         if (owShowWarps.IsChecked == true) DrawOwWarpBadges(ctx, ow, step, size);
     }
@@ -68,6 +71,26 @@ public partial class MainWindow
                 if (levels) at = at.WithY(Overlay.Badge(ctx, $"{Overworld.LevelOf(tl):X3}", size, at).Bottom + 1);
                 if (events && ow.BaseEventOf(tl) is var e && e >= 0) Overlay.Badge(ctx, $"E{e:X2}", size, at, UiColors.EventBadge);
             }
+    }
+
+    /// <summary>
+    /// What each part of the canvas is: the main map, the six submaps, and — where the Tiles tab
+    /// shows them — the event pieces and layer 1's tiles beside the maps. Lunar Magic draws these
+    /// areas and names none of them; a reader has to know that the block under the submaps is the
+    /// Map16 table, or wonder what the "X" tiles are for. Outline and label, off by default.
+    /// </summary>
+    private void DrawOwAreas(DrawingContext ctx, double step, double size)
+    {
+        bool tiles = OwModeNow == OwMode.Tiles;
+        foreach (var (name, x, y, w, h) in session.OwAreas())
+        {
+            // The two extra areas exist on the Tiles tab alone; on the others the canvas stops at
+            // the maps and an outline out there would sit on the desk.
+            if (!tiles && x + w > EditorSession.Ow8MapCols) continue;
+            var r = new Rect(x * step, y * step, w * step, h * step);
+            Overlay.Area(ctx, r);
+            Overlay.Badge(ctx, name, size, r.TopLeft + new Vector(2, 2), UiColors.AreaLabel);
+        }
     }
 
     /// <summary>Star, pipe and exit tiles wear their index over the index they lead to — N/A for a

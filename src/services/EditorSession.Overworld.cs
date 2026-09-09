@@ -30,8 +30,9 @@ public sealed partial class EditorSession
     /// copied because the two editors must agree on what is where. Layer 1 rides the same shift,
     /// so the wrapped strips carry land only.
     /// </summary>
+    /// The canvas is wider and taller than the two maps on the Tiles tab, where Lunar Magic keeps
+    /// two more areas beside them: EditorSession.Overworld.Areas.cs has the whole shape.
     public const int OwSubDx = 2, OwSubDy = 1;
-    public const int Ow8Cols = 2 * OwCols, Ow8Rows = 2 * OwRows;
 
     /// <summary>The map cell under a canvas cell: which map, and its 8x8 column and row there,
     /// the submap map's rotation undone. False outside the canvas.</summary>
@@ -50,10 +51,12 @@ public sealed partial class EditorSession
         => row < 2 * Overworld.Rows || (col >= OwSubDx && row - 2 * Overworld.Rows >= OwSubDy);
 
     /// <summary>
-    /// Layer 2 as an editable tilemap over the canvas. A commit lands the words in the ROM's
-    /// edited copy (the same array the overworld draws from) and in the project, so the canvas,
-    /// the saved file and the build agree. A cell outside the canvas maps to one spare slot past
-    /// the map's words that a commit never copies.
+    /// The Tiles tab's canvas as one editable tilemap: layer 2's two maps, and beside them the two
+    /// areas Lunar Magic keeps in this mode alone — the event pieces and layer 1's Map16
+    /// definitions (EditorSession.Overworld.Areas.cs). All three are 8x8 words, so one brush, one
+    /// lasso and one undo stack serve them; the cells array holds them end to end and a commit
+    /// takes each part back to its own table, the ROM's edited copies and the project. A cell on
+    /// no area maps to one spare slot at the end that a commit never copies.
     /// </summary>
     public TilemapEdit? OwMap
     {
@@ -61,21 +64,38 @@ public sealed partial class EditorSession
         {
             if (Overworld is not { } ow) return null;
             if (owMap is not null) return owMap;
-            var cells = new int[ow.Layer2.Length + 1];
-            for (int i = 0; i < ow.Layer2.Length; i++) cells[i] = ow.Layer2[i];
-            var map = new TilemapEdit(cells, Ow8Cols, Ow8Rows, 8,
-                                      (c, r) => OwMapCell(c, r, out int cx, out int cy, out bool sub) ? Overworld.Layer2Index(cx, cy, sub) : ow.Layer2.Length);
+            var (events, defs) = (ow.EventPieces, ow.Layer1Defs);
+            var cells = new int[OwCellCount(ow)];
+            int at = 0;
+            foreach (var part in new[] { ow.Layer2, events, defs })
+                foreach (ushort w in part) cells[at++] = w;
+            var map = new TilemapEdit(cells, Ow8Cols, Ow8Rows, 8, OwCellIndex);
             map.Committed += () =>
             {
-                for (int i = 0; i < ow.Layer2.Length; i++) ow.Layer2[i] = (ushort)cells[i];
-                if (Project is not null)
-                {
-                    Project.Data.Overworld.Layer2 = Convert.ToBase64String(ProjectSession.BytesOf(ow.Layer2));
-                    Project.MarkDirty();
-                }
+                bool land = Copy(cells, 0, ow.Layer2), pieces = Copy(cells, ow.Layer2.Length, events);
+                bool tiles = Copy(cells, ow.Layer2.Length + events.Length, defs);
+                if (Project is null || !(land || pieces || tiles)) return;
+                if (land) Project.Data.Overworld.Layer2 = Convert.ToBase64String(ProjectSession.BytesOf(ow.Layer2));
+                if (pieces) Project.Data.Overworld.EventPieces = Convert.ToBase64String(ProjectSession.BytesOf(events));
+                if (tiles) Project.Data.Overworld.Layer1Defs = Convert.ToBase64String(ProjectSession.BytesOf(defs));
+                Project.MarkDirty();
             };
             return owMap = map;
         }
+    }
+
+    /// <summary>Take one part of the cell array back to its own words, and say whether any of them
+    /// moved — only an area that changed is worth writing into the project.</summary>
+    private static bool Copy(int[] cells, int from, ushort[] to)
+    {
+        bool changed = false;
+        for (int i = 0; i < to.Length; i++)
+        {
+            if (to[i] == (ushort)cells[from + i]) continue;
+            to[i] = (ushort)cells[from + i];
+            changed = true;
+        }
+        return changed;
     }
 
     /// <summary>Whether the overworld's layer 2 differs from the base ROM's.</summary>
@@ -179,8 +199,18 @@ public sealed partial class EditorSession
     public uint[]? Ow8CellPixels(int cell)
     {
         int col = cell % Ow8Cols, row = cell / Ow8Cols;
-        if (Overworld is not { } ow || OwMap is not { } map || !OwMapCell(col, row, out _, out _, out _)) return null;
-        return ow.TilePixels(map.At(col, row), OwSubmapShown(col, row));
+        if (Overworld is not { } ow || OwMap is not { } map) return null;
+        // The event pieces and the layer 1 definitions are drawn in the main map's colours, as
+        // Lunar Magic draws them until you point its selector at another submap.
+        return OwAreaAt(col, row, out _) switch
+        {
+            OwArea.Map => ow.TilePixels(map.At(col, row), OwSubmapShown(col, row)),
+            OwArea.EventPieces or OwArea.Layer1Defs => ow.TilePixels(map.At(col, row), 0),
+            // No table reaches here, so there is nothing to edit — but a hole would show the desk
+            // through the middle of the canvas. Lunar Magic lays its filler tile over the same
+            // corners with its X tile, and this is that tile (<see cref="Overworld.FillerWord"/>).
+            _ => ow.FillerPixels(),
+        };
     }
 
     /// <summary>The submap whose colours a canvas cell wears: by where it is DRAWN, so the wrapped
@@ -193,8 +223,8 @@ public sealed partial class EditorSession
     /// colours — for a block floating over the map before it is dropped.</summary>
     public uint[]? Ow8WordPixels(int word, int col, int row)
     {
-        if (Overworld is not { } ow || !OwMapCell(col, row, out _, out _, out _)) return null;
-        return ow.TilePixels(word, OwSubmapShown(col, row));
+        if (Overworld is not { } ow || OwAreaAt(col, row, out _) is OwArea.None) return null;
+        return ow.TilePixels(word, OwMapCell(col, row, out _, out _, out _) ? OwSubmapShown(col, row) : 0);
     }
 
     /// <summary>Layer 1 over an 8x8 canvas cell — the level tiles and paths the land is seen
@@ -223,9 +253,11 @@ public sealed partial class EditorSession
     public int OwLayer1At(int col, int row)
         => Overworld is { } ow && OwHasLayer1(col, row) && OwMapCell(col, row, out int cx, out int cy, out bool sub) ? ow.Layer1At(cx >> 1, cy >> 1, sub) : -1;
 
-    /// <summary>The 8x8 tiles layer 2 can use — the two FG files at tiles 0x000-0x0FF — drawn in
-    /// a palette row, for the drawer. Vanilla's land lives in FG1/FG2; FG3/FG4 hold layer 1.</summary>
-    public const int OwSheetTiles = 0x100;
+    /// <summary>The 8x8 tiles the overworld can use, drawn in a palette row, for the drawer. All
+    /// four FG files: vanilla's land is in FG1/FG2 (0x000-0x0FF) and layer 1's tiles in FG3/FG4
+    /// (0x100-0x1FF), and the Tiles tab now edits both — the land and, beside it, the Map16
+    /// definitions layer 1 is made of.</summary>
+    public const int OwSheetTiles = 0x200;
     public uint[]? OwSheetPixels(int tile, int palRow)
         => tile < OwSheetTiles ? Overworld?.TilePixels(tile | (palRow & 7) << 10, 0) : null;
 
