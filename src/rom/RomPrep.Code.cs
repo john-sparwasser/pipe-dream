@@ -462,9 +462,17 @@ public static partial class RomPrep
          .Asl().Asl().Asl().Asl().Asl()      // [SCAN] level * 0x20
          .Tax()                              // [SCAN]
          .LdaLongX(GfxBypassRecords)         // [SCAN operand] record w0
-         .AndImm16(0x8000)
-         .Beq("exit")                        // record not enabled
-         .StxDp(0x03)                        // record byte offset — NOT $0C: the vanilla
+         .AndImm16(0x8000);
+        // A record past the levels is a SUBMAP's (v18): Lunar Magic leaves w0's enable bit clear
+        // on those seven and reads them unconditionally, so the bit is only a level's business.
+        if (version >= 18)
+            a.Bne("on")
+             .LdaDp(0xFE)
+             .CmpImm16(OwGfxRecordIndex + 1)
+             .Bcc("exit")                    // a level, and its record is not enabled
+             .Label("on");
+        else a.Beq("exit");                  // record not enabled
+        a.StxDp(0x03)                        // record byte offset — NOT $0C: the vanilla
          .LdxImm16(0x0000)                   // expander writes $0A/$0C (and INC $00s the
          .Label("slot")                      // dest); the decompressor writes $8A-$8F.
          .Phx()                              // X = slot index * 2 (stack-preserved)

@@ -13,7 +13,17 @@ public sealed partial class Overworld
 
     public Palette PaletteOf(int submap) => pal[submap] ??= Palette.LoadOverworld(Rom, submap);
 
-    private Gfx.FgTiles TilesOf(int submap) => fg[submap] ??= WithAnimatedTiles(Gfx.FgTiles.Load(Rom, Tileset + submap, levelAnimation: false));
+    private Gfx.FgTiles TilesOf(int submap) => fg[submap] ??= WithAnimatedTiles(
+        Gfx.FgTiles.Load(Rom, Tileset + submap, levelAnimation: false, bypass: Rom.OwGfxBypass(submap)));
+
+    /// <summary>Drop a submap's loaded tiles (and everything composed from them), so the next
+    /// draw resolves its files again — what a repointed slot changes.</summary>
+    public void InvalidateGfx(int submap)
+    {
+        fg[submap] = null;
+        foreach (var key in map16Px.Keys.Where(k => k.Submap == submap).ToList()) map16Px.Remove(key);
+        foreach (var key in layer1Art.Keys.Where(k => k.Submap == submap).ToList()) layer1Art.Remove(key);
+    }
 
     /// <summary>The game's frame counter the animated tiles are drawn for; starts on Lunar
     /// Magic's frame. <see cref="Animate"/> moves it.</summary>
@@ -54,8 +64,8 @@ public sealed partial class Overworld
     /// </summary>
     private Gfx.FgTiles WithAnimatedTiles(Gfx.FgTiles tiles)
     {
-        if (Gfx.Cached(Rom, 0x14) is not { } gfx14) return tiles;
-        int bpp = Gfx.FileBpp(Rom, 0x14), tb = Gfx.TileBytes(bpp);
+        if (Gfx.Cached(Rom, AnimatedGfxFile) is not { } gfx14) return tiles;
+        int bpp = Gfx.FileBpp(Rom, AnimatedGfxFile), tb = Gfx.TileBytes(bpp);
         byte[] Tile(int n) => (n + 1) * tb <= gfx14.Length ? Gfx.DecodeTile(gfx14, n * tb, bpp) : new byte[64];
         int scroll = ((AnimationCounter >> 3) + 7) & 7;            // no scroll at Lunar Magic's counter
         tiles.Set(0x75, Scrolled(Tile(0x50), row => row < 4 ? scroll : -scroll, 0));
@@ -176,14 +186,47 @@ public sealed partial class Overworld
         return img;
     }
 
-    /// <summary>The graphics files the overworld loads, as bins for the Graphics drawer: the
-    /// four FG files under the main map's tileset row and the four sprite files under its sprite
-    /// set. Bypass words 0x70+ keep them clear of a level's real record words.</summary>
-    public static (string Name, int PalRow, int BypWord, int Def, int File, int ColorOffset, int Bpp)[] GfxSlots(Rom rom)
+    /// <summary>GFX14, the file the overworld decompresses last so its animated tiles can be
+    /// built out of what is left in the buffer ($00A147) — the AN2 slot of a submap's record.</summary>
+    public const int AnimatedGfxFile = 0x14;
+
+    /// <summary>
+    /// The GFX record the ROM's own lists imply for a submap: what every submap loads in vanilla,
+    /// and what Lunar Magic writes into all seven entries when it installs the per-submap hack.
+    /// A level's record layout exactly (LunarMagic.LmGfxBypass): the overworld's FG1-FG6 are the
+    /// level's FG1/FG2/BG1/FG3/BG2/BG3 words 7-2 — the same six pages Gfx.FgTiles loads — and its
+    /// SP1-SP4 the level's, words 11-8. The slots with no vanilla file (AN1, FG5, FG6) are 0x7F.
+    /// </summary>
+    public static ushort[] VanillaGfxRecord(Rom rom)
     {
         int fgList = rom.FileOffset(Gfx.ObjectGfxList) + Tileset * 4;
         int spList = rom.FileOffset(Gfx.SpriteGfxList) + SpriteSet * 4;
-        return [.. Enumerable.Range(0, 4).Select(i => ($"FG{i + 1}", 4, 0x70 + i, (int)rom.Data[fgList + i], (int)rom.Data[fgList + i], 0, 0)),
-                .. Enumerable.Range(0, 4).Select(i => ($"SP{i + 1}", 8, 0x74 + i, (int)rom.Data[spList + i], (int)rom.Data[spList + i], 0, 0))];
+        var w = new ushort[16];
+        Array.Fill(w, (ushort)0x7F);
+        for (int i = 0; i < 4; i++) w[7 - i] = rom.Data[fgList + i];      // FG1-FG4
+        for (int i = 0; i < 4; i++) w[11 - i] = rom.Data[spList + i];     // SP1-SP4
+        w[0] = AnimatedGfxFile;                                           // AN2
+        for (int i = 0; i < 4; i++) w[15 - i] = (ushort)Layer3.VanillaGfx[i];
+        return w;
+    }
+
+    /// <summary>The overworld slots the Graphics drawer shows, in dialog order — Lunar Magic's
+    /// Submap GFX has FG1-FG6, SP1-SP4 and AN2. Word = the record word each one is, and
+    /// 0x70 + word is the drawer's key for it (clear of a level's own words 0-15).</summary>
+    public static readonly (string Name, int Word, int PalRow)[] GfxSlotOrder =
+        [.. Enumerable.Range(0, 6).Select(i => ($"FG{i + 1}", 7 - i, 4)),
+         .. Enumerable.Range(0, 4).Select(i => ($"SP{i + 1}", 11 - i, 8)),
+         ("AN2", 0, 4)];
+
+    /// <summary>
+    /// One submap's graphics files, as bins for the Graphics drawer. Def is the file the vanilla
+    /// lists give every submap; File is what this submap actually loads, which differs once its
+    /// record repoints a slot — so the drawer badges it "bypass" exactly as a level's bins do.
+    /// </summary>
+    public static (string Name, int PalRow, int BypWord, int Def, int File, int ColorOffset, int Bpp)[] GfxSlots(Rom rom, int submap)
+    {
+        var def = VanillaGfxRecord(rom);
+        var rec = rom.OwGfxBypass(submap) ?? def;
+        return [.. GfxSlotOrder.Select(s => (s.Name, s.PalRow, 0x70 + s.Word, def[s.Word] & 0xFFF, rec[s.Word] & 0xFFF, 0, 0))];
     }
 }

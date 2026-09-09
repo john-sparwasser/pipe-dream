@@ -62,7 +62,9 @@ public static partial class RomPrep
     /// instead of stopping at the project file (see <see cref="AppendV14Stamps"/>).
     /// Version-keyed stamp lists keep every released version BYTE-FROZEN: a v1 project's
     /// pinned image must reproduce forever (golden-hash tested).</summary>
-    public const int Version = 17;
+    /// V18 gives each submap its own GFX file list — Lunar Magic's Overworld ▸ Submap GFX,
+    /// seven more entries on the same per-level record table (see <see cref="AppendV18Stamps"/>).
+    public const int Version = 18;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -173,7 +175,7 @@ public static partial class RomPrep
     public const int GfxArmStub = 0x0FF770;        // JSL target at $0583B8 (LoadLevel)
     public const int GfxLoaderEntry = 0x0FF780;    // JSL target at $00AA50 (HasLmGfxLoader)
     public const int GfxThunks = 0x00FF9A;         // JSR $B8DE:RTL / JSR $AA80:RTL (bank-00 tail)
-    public const int GfxBypassRecords = 0x129000;  // 0x20 B/level ×0x200 (RATS at pc 0x90FF8)
+    public const int GfxBypassRecords = 0x129000;  // 0x20 B/level ×0x200, ×0x207 from v18 (RATS at pc 0x90FF8)
     public const int GfxRecordsPc = 0x91000;
     public const int ExGfxPtrTable = 0x138008;     // 3 B/file, files 0x100-0xFFF (RATS pc 0x98000)
     public const int ExGfxPtrPc = 0x98008;
@@ -274,6 +276,17 @@ public static partial class RomPrep
     /// <summary>LM's auto-scroll speed table, its own bytes, indexed by scroll code * 2.</summary>
     public const int L3SpeedTab = 0x0FFE00;
 
+    // ---- V18: the overworld's per-submap GFX bypass (record table entries 0x200-0x206) ----
+    /// <summary>Vanilla's `STA $20 : SEP #$20` in the overworld load, right before the
+    /// `JSR UploadSpriteGFX` that reaches the GFX loader — where Lunar Magic puts the JSL that
+    /// arms the submap's GFX record, and where <see cref="OwGfxStub"/> goes.</summary>
+    public const int OwGfxHook = 0x00A140;
+    /// <summary>The arming stub, at Lunar Magic's own address for it.</summary>
+    public const int OwGfxStub = 0x0FFAB0;
+    /// <summary>The first submap's index in the per-level record table: the seven submaps sit
+    /// behind the 0x200 levels, submap 0 = the main map (reference/OVERWORLD.md §4).</summary>
+    public const int OwGfxRecordIndex = 0x200;
+
     /// <summary>The four vanilla `JSL $00F545` acts-like call sites (banks 00/01/02),
     /// repointed to our remap so gameplay collision resolves extended tiles.</summary>
     public static readonly int[] ActsCallSites = [0x00F4DD, 0x019533, 0x02961A, 0x02A6EB];
@@ -313,7 +326,10 @@ public static partial class RomPrep
            && (version < 16 || rom.HasLmLayer3Advanced)
            // V17: LM's overworld ExAnimation hack — its record table, which an LM-saved ROM that
            // carries the hack has just as ours does (CONTRACT §0: the property, not our bytes).
-           && (version < 17 || rom.LmOwExAnimBase >= 0);
+           && (version < 17 || rom.LmOwExAnimBase >= 0)
+           // V18: the per-submap GFX bypass hook — a JSL at $00A140, which is what an LM-saved
+           // ROM carrying the hack has too (its stub arms $7FC006 where ours arms $FE).
+           && (version < 18 || rom.HasOwGfxBypass);
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying

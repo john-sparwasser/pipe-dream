@@ -399,6 +399,54 @@ public static class LunarMagic
             return w;
         }
 
+        /// <summary>
+        /// Whether the ROM gives each submap its own GFX file list — Lunar Magic's Overworld ▸
+        /// Submap GFX. The property, not our bytes: both LM's install and prep v18 turn vanilla's
+        /// `STA $20 : SEP #$20` at <see cref="RomPrep.OwGfxHook"/> into a JSL, and either way the
+        /// seven records sit at table index 0x200+submap.
+        /// </summary>
+        public bool HasOwGfxBypass => rom.ReadByte(RomPrep.OwGfxHook) == 0x22;
+
+        /// <summary>
+        /// A submap's GFX record — the same 16 words as a level's (see <see cref="LmGfxBypass"/>),
+        /// read from entry 0x200+submap of the same table, with the session's slot overrides
+        /// overlaid. Null when the ROM has no per-submap list and none is being overridden, which
+        /// is the caller's cue to fall back to the vanilla tileset row.
+        ///
+        /// There is no enable bit: LM leaves w0 bit 15 clear on all seven and its loader reads
+        /// them unconditionally, so a submap always uses its record.
+        /// </summary>
+        public ushort[]? OwGfxBypass(int submap)
+        {
+            if ((uint)submap >= Overworld.Submaps) return null;
+            int index = RomPrep.OwGfxRecordIndex + submap;
+            var w = rom.HasOwGfxBypass ? rom.LmGfxRecord(index) : null;
+            foreach (var ((lvl, word), file) in rom.GfxSlotOverrides)
+            {
+                if (lvl != index || word is < 0 or > 11) continue;
+                w ??= Overworld.VanillaGfxRecord(rom);
+                w[word] = (ushort)((w[word] & ~0xFFF) | (file & 0xFFF));
+            }
+            return w;
+        }
+
+        /// <summary>
+        /// Give a submap its own file list: the sixteen words at table entry 0x200+submap. The
+        /// table already has room for the seven (prep v18 stamps it that long, and so does LM's
+        /// own install), so this writes in place rather than allocating. Returns an error string
+        /// when the base has no per-submap list to write into.
+        /// </summary>
+        public string? WriteOwGfxBypass(int submap, ushort[] words)
+        {
+            if ((uint)submap >= Overworld.Submaps) return $"submap {submap} is not one of the seven";
+            if (!rom.HasOwGfxBypass || rom.LmGfxBypassBase < 0)
+                return $"base has no per-submap GFX list — File → Upgrade base to prep v{RomPrep.Version}";
+            int fo = rom.FileOffset(rom.LmGfxBypassBase + (RomPrep.OwGfxRecordIndex + submap) * 0x20);
+            if (fo < 0 || fo + 0x20 > rom.Data.Length) return "the GFX record table has no room for the submaps";
+            for (int i = 0; i < 16; i++) { rom.Data[fo + i * 2] = (byte)words[i]; rom.Data[fo + i * 2 + 1] = (byte)(words[i] >> 8); }
+            return null;
+        }
+
         /// <summary>The raw 16 words of a level's record, whatever its enable bits say, or null
         /// when the ROM has no table. Two independent features share it — the FG/BG/SP bypass on
         /// w0 bit 15 and the layer-3 GFX bypass on w0 bit 14 — so the gate belongs to the caller,

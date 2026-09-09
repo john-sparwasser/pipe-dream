@@ -42,6 +42,9 @@ public static partial class RomPrep
         // V17 carries LM's OVERWORLD ExAnimation hack (LM 2.40's separate one) beside the level
         // engine v11 carries — its own blob, record table and per-submap settings byte.
         if (version >= 17) AppendV17Stamps(s);
+        // V18 restamps the record table (seven entries longer) over V2's and adds the overworld's
+        // arming stub — later stamps win, so V2's bytes stay frozen and only the v18 image differs.
+        if (version >= 18) AppendV18Stamps(s);
         return s;
     }
 
@@ -111,8 +114,10 @@ public static partial class RomPrep
     ///            cache tests NOPped the second call re-uploads the vanilla files — the
     ///            record must be re-applied then too. This matches LM's own lifecycle
     ///            (record ptr + enabled flag cached until the next LoadLevel re-fetch,
-    ///            §7d $7FC006/9). The overworld never reaches the hook: tileset ≥ $FE
-    ///            branches away before the FG/BG tail ($00AA1C).
+    ///            §7d $7FC006/9). The overworld DOES reach the hook — its tileset is
+    ///            0x11+submap, well under the ≥ $FE that branches away at $00AA1C — so
+    ///            before v18 it re-applied whatever level record $FE was left holding.
+    ///            V18's own hook at $00A140 arms $FE with the submap's record instead.
     ///   $00AA50  JSL GfxLoader : RTS (the HasLmGfxLoader detector) over the displaced
     ///            cache-update loop; $00AA06/$00AA47 cache-skip tests → NOP NOP (without
     ///            this, overrides silently no-op when the tileset was already cached).
@@ -479,6 +484,75 @@ public static partial class RomPrep
         s.Add((Pc(LmOwExAnimEngine.TableSnes) - 8, Rats(LmOwExAnimEngine.EmptyTable())));
         s.Add((Pc(LmOwExAnimEngine.SettingsSnes) - 8, Rats(LmOwExAnimEngine.EmptySettings())));
         foreach (var (site, bytes) in LmOwExAnimEngine.Hooks()) s.Add((Pc(site), bytes));
+    }
+
+    /// <summary>
+    /// V18: Lunar Magic's Overworld ▸ Submap GFX — a per-submap FG/SP file list, so the six
+    /// submaps and the main map stop sharing tileset row 0x11's four FG and four sprite files.
+    ///
+    /// LM keeps them in the SAME table as the per-level Super GFX Bypass records: seven more
+    /// 16-word entries behind the 0x200 levels, submap N at index 0x200+N (0 the main map, 1-6
+    /// LM's dialog order). Settled 2026-09-09 by installing the hack through that dialog on
+    /// three copies of a v17 base and diffing (reference/OVERWORLD.md §4): a submap's record is
+    /// byte-for-byte a level's — w0 AN2, w2/w3 FG6/FG5, w4-w7 FG4-FG1, w8-w11 SP4-SP1, w12-w15
+    /// the layer-3 four — and LM fills all seven with the values the vanilla lists imply, with
+    /// **no enable bit** in w0: once the hack is in, every submap reads its record.
+    ///
+    /// So the table grows by 0xE0 bytes (its RATS block has room: nothing of ours lives between
+    /// $12D000 and the ExGFX pointers at $138008) and the loader learns that an index past the
+    /// levels needs no enable bit (<see cref="EmitGfxLoader"/>). The hook is LM's: vanilla's
+    /// `STA $20 : SEP #$20` at <see cref="OwGfxHook"/> — the last thing before the
+    /// `JSR UploadSpriteGFX` whose tail at $00AA50 our loader owns — becomes a JSL to a stub at
+    /// LM's own <see cref="OwGfxStub"/>. LM's stub points $7FC006 at the record; ours arms $FE,
+    /// which is the same fact in the form our loader already reads (and it also stops the
+    /// overworld load from re-applying whatever level record $FE was left holding).
+    ///
+    /// AN2 (w0) is carried in the record and shown in the drawer but not loaded: the overworld's
+    /// animated-tile source stays vanilla's `LDY #$14 : JSL $00BA28` at $00A147, which LM NOPs
+    /// because its own loader uploads the slot. Noted in reference/LM_PARITY.md.
+    /// </summary>
+    private static void AppendV18Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        var records = new byte[(OwGfxRecordIndex + Overworld.Submaps) * 0x20];
+        for (int submap = 0; submap < Overworld.Submaps; submap++)
+            Array.Copy(OwGfxVanillaRecord, 0, records, (OwGfxRecordIndex + submap) * 0x20, 0x20);
+        s.Add((GfxRecordsPc - 8, Rats(records)));
+        s.Add((Pc(GfxArmStub), GfxCode(18)));                    // the loader's enable test
+        s.Add((Pc(OwGfxStub), OwGfxArmStub()));
+        s.Add((Pc(OwGfxHook), [0x22, OwGfxStub & 0xFF, OwGfxStub >> 8 & 0xFF, OwGfxStub >> 16]));
+    }
+
+    /// <summary>
+    /// The sixteen words Lunar Magic writes into every submap's record when it installs the hack,
+    /// as bytes: AN2 = GFX14 (the overworld's animated-tile source), AN1/FG5/FG6 = 0x7F (no such
+    /// slot), FG1-FG4 = tileset row 0x11's `1C 1D 08 1E`, SP1-SP4 = sprite set 0x11's
+    /// `10 0F 1C 1D`, and layer 3's vanilla `28 29 2A 2B` in the tail. Vanilla's own lists, so
+    /// they are constants here rather than read back out of the image being stamped.
+    /// </summary>
+    private static readonly byte[] OwGfxVanillaRecord = Convert.FromHexString(
+        "1400" + "7F00" + "7F00" + "7F00" + "1E00" + "0800" + "1D00" + "1C00" +
+        "1D00" + "1C00" + "0F00" + "1000" + "2B00" + "2A00" + "2900" + "2800");
+
+    /// <summary>
+    /// $0FFAB0: arm $FE with the submap's record index + 1, then the two displaced instructions'
+    /// work. Entered with 16-bit A (the `REP #$20` at $00A132) and X = submap * 2, from vanilla's
+    /// own `LDX $0DB3 : LDA $1F11,X : ASL : TAX` at $00A12A — the same place Lunar Magic's
+    /// overworld ExAnimation setup reads the submap from. The AND is not decoration: TAX with a
+    /// 16-bit X carries the accumulator's high byte into X, so the index is masked before use.
+    /// </summary>
+    private static byte[] OwGfxArmStub()
+    {
+        var a = new Asm(OwGfxStub);
+        a.StaDp(0x20)                              // displaced `STA $20` (16-bit)
+         .Txa()
+         .AndImm16(0x00FF)
+         .Lsr()                                    // X = submap * 2 → submap
+         .Clc()
+         .AdcImm16(OwGfxRecordIndex + 1)           // what the loader wants in $FE: index + 1
+         .StaDp(0xFE)
+         .Sep(0x20)                                // displaced `SEP #$20`
+         .Rtl();
+        return a.Bytes();
     }
 
     /// <summary>

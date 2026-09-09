@@ -62,6 +62,47 @@ so the two bytes join into an 8x8 word (`Overworld.EventPieces`). 0xD00 cells in
   1E** on every submap in vanilla (rows exist so LM can bypass per submap). Sprite set 0x11 →
   `SpriteGfxList $00A8C3` = GFX10 0F 1C 1D. Layer 3 = GFX28-2B. `Gfx.FgTiles.Load(rom, 0x11+n)`
   yields the FG pages.
+- **Per-submap GFX** (LM's *Overworld ▸ Submap GFX*, `ov_overworld_super_bypass.htm`) —
+  **SETTLED 2026-09-09**, by installing the hack through that dialog on four copies of a v17 base
+  (one with nothing changed as the control, one changing submap 1's FG1, one submap 4's FG1, one
+  submap 1's SP1 and AN2) and diffing. Prep v18 carries it; `Rom.OwGfxBypass(submap)` reads it.
+  - **The table is the per-level Super-GFX-Bypass table, seven entries longer**: submap N is
+    entry **0x200 + N**, N = 0 the main map and 1-6 LM's dialog order (Yoshi's Island, Vanilla
+    Dome, Forest of Illusion, Bowser's Valley, Special World, Star Road). LM reallocates the
+    whole table to fit them (ours moved from `$129000` to `$18B284` on its save); prep v18
+    stamps it 0x207 entries long in the first place.
+  - **A submap's record is byte-for-byte a level's** (CONTRACT §7d, §12b): w0 AN2, w1 AN1,
+    w2/w3 = FG6/FG5, w4-w7 = FG4-FG1, w8-w11 = SP4-SP1, w12-w15 = the layer-3 four. So the
+    dialog's FG1-FG6 are the level record's FG1/FG2/BG1/FG3/BG2/BG3 — the same six pages
+    `Gfx.FgTiles` loads, in the same word order — and FG5/FG6 are BG2/BG3, which the dialog
+    greys unless the *merge FG1/FG2 into SP3/SP4* option is on. FG7/FG8 exist as dialog controls
+    but are not laid out. `0x7F` is *skip this slot*, the same convention as a level's.
+  - **There is no enable bit.** LM fills all seven records with the values the vanilla lists
+    imply — `14 00 7F 00 7F 00 7F 00 1E 00 08 00 1D 00 1C 00 1D 00 1C 00 0F 00 10 00 2B 00 2A 00
+    29 00 28 00` — and leaves w0 bit 15 clear; the loader reads a submap's record
+    unconditionally. Read back both ways: our writer's bytes appear in LM's dialog when they are
+    in a table LM installed (a hand-patched LM save showed FG1 = 0F and SP1 = 0C on the Forest
+    of Illusion), and LM's dialog writes exactly these words.
+  - **The hooks.** Vanilla's `STA $20 : SEP #$20` at `$00A140` — the last thing before the
+    `JSR UploadSpriteGFX` ($00A9DA) whose tail at `$00AA50` carries the bypass loader — becomes
+    `JSL $0FFAB0`, and the `LDY #$14 : JSL $00BA28` at `$00A147` keeps the LDY but has the JSL
+    NOPped, because the record's AN2 slot now supplies that file. LM's stub at `$0FFAB0` is
+    `STA $20 : TXA : ASL×4 : CLC : ADC #<record low16> : STA $7FC006 : SEP #$20 :
+    LDA #<bank> : STA $7FC008 : LDA #$42 : STA $7FC009 : LDA #$00 : STA $7FC00B : RTL` — the
+    submap comes in as X = submap*2 from vanilla's own `LDX $0DB3 : LDA $1F11,X : ASL : TAX` at
+    `$00A12A`, the same place LM's overworld ExAnimation setup reads it (EXANIMATION.md §10), and
+    `$7FC009 = #$42` is what tells LM's loader this is the overworld rather than a level (#$41).
+  - **Ours differs in the stub and the loader, and that costs the read-back**: prep v18's stub
+    arms `$FE` = index + 1, which is the same fact in the form the loader prep v2 carries already
+    reads, and v18's loader treats an index past the levels as needing no enable bit. LM finds a
+    submap's record through the immediate baked into *its own* stub, so LM's dialog does not read
+    ours — see reference/LM_PARITY.md §2. The table, the index and the words are LM's; only the
+    code around them is not.
+  - **Not done: per-submap LAYER 3 GFX and tilemap bypass** (`ov_overworld_layer3_gfx.htm`) is a
+    SECOND, separate hack with its own dialog, its own per-submap enable checkbox, and a bypass
+    that `level_layer3_gfx.htm` says turns on per level *and* per submap once any level or submap
+    is saved with it. Opening that dialog installs it immediately too — it was opened by accident
+    during this probe, which is how we know it is a different install. Untouched here.
 - **Animated tiles**: VRAM tiles 0x75-0x7F are rebuilt every frame from GFX14 (the file
   decompressed last, still in `$7EAD00`) and uploaded by `$00A4E3` (0x160 bytes to VRAM word
   $0750). Three water tiles, GFX14 0x50-0x52 (`$048000`), scrolled in RAM every eight frames

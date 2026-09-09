@@ -591,11 +591,16 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         Assert.True(w.GetControl<DockPanel>("GfxToolPanel").IsVisible);
         Assert.True(w.GetControl<PaletteGridView>("GfxColors").IsVisible);
         var bins = w.GetControl<StackPanel>("GfxBins");
-        // ...plus three headings with their rules ("Layer 3", "Animation slots", "Overworld"),
-        // the four ExAnimation source-file cards and the overworld's eight files.
-        Assert.Equal(SessionOf(w).GfxBins.Length + 6 + 4 + 8, bins.Children.Count);
-        Assert.Equal(["Layer 3", "Animation slots", "Overworld"],
+        // ...plus three headings with their rules ("Layer 3", "Animation slots", "Overworld" —
+        // the last one a heading and its submap picker in a row), the four ExAnimation
+        // source-file cards and the overworld's eleven files.
+        Assert.Equal(SessionOf(w).GfxBins.Length + 6 + 4 + 11, bins.Children.Count);
+        Assert.Equal(["Layer 3", "Animation slots"],
                      bins.Children.OfType<TextBlock>().Select(t => t.Text));
+        var owHead = Assert.Single(bins.Children.OfType<Grid>());
+        Assert.Equal("Overworld", owHead.Children.OfType<TextBlock>().Single().Text);
+        // The picker names the submap whose files these are, so the group is never ambiguous.
+        Assert.Equal("Overworld Map", $"{owHead.Children.OfType<ComboBox>().Single().SelectedItem}");
     }
 
     /// <summary>

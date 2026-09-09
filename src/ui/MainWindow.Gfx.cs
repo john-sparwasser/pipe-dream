@@ -223,16 +223,21 @@ public partial class MainWindow
             RefreshGfx();
             return;
         }
-        var slot = session.GfxBins.Where(b => b.BypWord == gfxSlot)
+        // An overworld bin (0x70 + record word) repoints that submap's own list, not the level's.
+        bool overworld = gfxSlot >= 0x70;
+        var slot = (overworld ? session.OverworldGfxBins : session.GfxBins).Where(b => b.BypWord == gfxSlot)
                           .Select(b => ((string Name, int PalRow, int Bpp, int ColorOffset)?)(b.Name, b.PalRow, b.Bpp, b.ColorOffset))
                           .FirstOrDefault();
-        if (await PickGfxFile(slot is { } s ? $"Load into this level's {s.Name} bin"
-                                            : "Open a graphics file in the tile editor") is not { } picked)
+        if (await PickGfxFile(slot is { } s
+                ? overworld ? $"Load into {Services.EditorSession.OwSubmapNames[session.OwGfxSubmap]}'s {s.Name} bin"
+                            : $"Load into this level's {s.Name} bin"
+                : "Open a graphics file in the tile editor") is not { } picked)
             return;
 
         if (slot is { } bin)
         {
-            session.SetGfxSlot(gfxSlot, picked);
+            if (overworld) { session.SetOwGfxSlot(gfxSlot - 0x70, picked); RefreshOverworld(); }
+            else session.SetGfxSlot(gfxSlot, picked);
             if (session.GfxPixels is { } gp)
                 (gp.PalRow, gp.ColorOffset) = GfxPalFor(bin.Bpp, bin.PalRow, bin.ColorOffset);
             AdoptSession();                     // the level draws through the new file now
@@ -687,21 +692,46 @@ public partial class MainWindow
         var bins = session.GfxBins.ToList();
         for (int i = 0; i < 4; i++)
             bins.Add(($"E{0x60 + i:X2}", 2, 0x60 + i, 0x7F, session.Rom is { } r && (r.ImportedGfx.ContainsKey(0x60 + i) || r.LmAltExGfx(i) > 0) ? 0x60 + i : 0x7F, 0, 0));
-        // The overworld's own files close the list: not this level's VRAM, but graphics the
-        // pixel editor paints all the same. Bypass words 0x70+, so Load never mistakes one for
-        // a level slot (it only repoints words it finds in the level's bins).
+        // The overworld's own files close the list — one submap's, the picker in the group's
+        // heading choosing which. Their bypass words are 0x70 + record word, clear of a level's
+        // own 0-15, so Load and the selection can tell the two apart.
+        int owFirst = bins.Count;
         bins.AddRange(session.OverworldGfxBins);
-        foreach (var bin in bins)
+        for (int i = 0; i < bins.Count; i++)
         {
+            var bin = bins[i];
             // Headed groups after the ten VRAM bins: the level's layer-3 window, the animation
             // slots, then the overworld. LG1-LG4 are real bins with a real bypass — LM's Layer 3
             // GFX/Tilemap Bypass — they just live behind their own enable bit (CONTRACT §12b).
-            if (bin.Name is "LG1" or "AN1" || bin.BypWord == 0x70)
+            if (bin.Name is "LG1" or "AN1" || i == owFirst)
             {
                 var sep = new TextBlock { Text = bin.Name == "LG1" ? "Layer 3" : bin.Name == "AN1" ? "Animation slots" : "Overworld",
-                                          Margin = new Thickness(0, 8, 0, 0) };
+                                          Margin = new Thickness(0, 8, 0, 0), VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
                 sep.Classes.Add("subject");
-                gfxBins.Children.Add(sep);
+                if (i == owFirst)
+                {
+                    // Each submap has its own file list (LM's Submap GFX), so the heading has to
+                    // say — and let the user say — which one these bins belong to.
+                    var pick = new ComboBox
+                    {
+                        ItemsSource = Services.EditorSession.OwSubmapNames,
+                        SelectedIndex = session.OwGfxSubmap,
+                        MinWidth = 150,
+                        HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+                    };
+                    pick.SelectionChanged += (_, _) =>
+                    {
+                        if (pick.SelectedIndex < 0 || pick.SelectedIndex == session.OwGfxSubmap) return;
+                        session.OwGfxSubmap = pick.SelectedIndex;
+                        RefreshGfx();
+                    };
+                    var head = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+                    head.Children.Add(sep);
+                    Grid.SetColumn(pick, 1);
+                    head.Children.Add(pick);
+                    gfxBins.Children.Add(head);
+                }
+                else gfxBins.Children.Add(sep);
                 gfxBins.Children.Add(new Border { Height = 1, Background = (IBrush)this.FindResource("BorderBrush")!, Margin = new Thickness(0, 0, 0, 2) });
             }
             gfxBins.Children.Add(GfxBinCard(bin));

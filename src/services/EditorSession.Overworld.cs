@@ -266,7 +266,43 @@ public sealed partial class EditorSession
     public uint[]? OwSheetPixels(int tile, int palRow)
         => tile < OwSheetTiles ? Overworld?.TilePixels(tile | (palRow & 7) << 10, 0) : null;
 
-    /// <summary>The graphics files the overworld loads, for the Graphics drawer.</summary>
+    /// <summary>Which submap the Graphics drawer's Overworld group is showing — 0 the main map,
+    /// 1-6 the six others, Lunar Magic's Submap GFX order.</summary>
+    public int OwGfxSubmap
+    {
+        get => owGfxSubmap;
+        set => owGfxSubmap = (uint)value < Overworld.Submaps ? value : 0;
+    }
+    private int owGfxSubmap;
+
+    /// <summary>The graphics files <see cref="OwGfxSubmap"/> loads, for the Graphics drawer.</summary>
     public (string Name, int PalRow, int BypWord, int Def, int File, int ColorOffset, int Bpp)[] OverworldGfxBins
-        => Rom is { } r ? Overworld.GfxSlots(r) : [];
+        => Rom is { } r ? Overworld.GfxSlots(r, OwGfxSubmap) : [];
+
+    /// <summary>The names the submap picker offers, in the same order as the record entries.</summary>
+    public static readonly string[] OwSubmapNames =
+        ["Overworld Map", "Yoshi's Island", "Vanilla Dome", "Forest of Illusion",
+         "Bowser's Valley", "Special World", "Star Road"];
+
+    /// <summary>
+    /// Point one of <see cref="OwGfxSubmap"/>'s graphics slots at a different file — Lunar
+    /// Magic's Overworld ▸ Submap GFX, recorded in the project as a per-submap record. Only that
+    /// submap changes; the others keep the vanilla list, which is the whole point of the hack.
+    /// </summary>
+    public string SetOwGfxSlot(int word, int file)
+    {
+        if (Rom is null) return "no ROM open";
+        if (file is < 0 or > 0xFFF) return "GFX ids run 000-FFF";
+        if (word is < 0 or > 11) return "not a graphics slot";
+        int submap = OwGfxSubmap;
+        Rom.GfxSlotOverrides[(RomPrep.OwGfxRecordIndex + submap, word)] = file;
+        if (Project is { } p)
+        {
+            var slots = p.Data.Overworld.GfxSlots.TryGetValue(submap.ToString(), out var s) ? s : (p.Data.Overworld.GfxSlots[submap.ToString()] = []);
+            slots[word] = file;
+            p.MarkDirty();
+        }
+        Overworld?.InvalidateGfx(submap);
+        return $"{OwSubmapNames[submap]} slot ← GFX{file:X3}" + (GfxName(file) is { } n ? $" \"{n}\"" : "");
+    }
 }

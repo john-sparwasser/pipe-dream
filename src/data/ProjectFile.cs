@@ -84,6 +84,11 @@ public sealed class ProjectFile
         /// <summary>Layer 1's Map16 definitions, four little-endian words a tile, base64
         /// (<see cref="PipeDream.Overworld.Layer1Defs"/>).</summary>
         public string? Layer1Defs { get; set; }
+        /// <summary>Repointed graphics slots per submap ("0"-"6" → record word → GFX file) —
+        /// Lunar Magic's Overworld ▸ Submap GFX. Words are a level record's
+        /// (<see cref="PipeDream.Overworld.GfxSlotOrder"/>), so a submap's list is stored as the
+        /// slots that differ rather than as a whole record.</summary>
+        public Dictionary<string, Dictionary<int, int>> GfxSlots { get; set; } = [];
     }
 
     public sealed class TilemapPreset

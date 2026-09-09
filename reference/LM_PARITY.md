@@ -292,6 +292,33 @@ trap on `$00:`/`$7E:` addresses never sees):
   $0FF160`, records at `$12AD08`, pointers at `$0FF200`). Taking those is a rework of the
   loader and the project's GFX layout, not a stamp.
 
+### Per-submap GFX — the DATA is LM's, the loader is ours, and LM will not read it back  [MEASURED 2026-09-09, four LM installs on a v17 base + a hand-patched LM save]
+
+Prep v18 gives each submap its own FG/SP file list, in LM's own table at LM's own index with
+LM's own record layout (reference/OVERWORLD.md §4, CONTRACT §7d-18). What it does not carry is
+LM's *code*: LM's install of this hack replaces its whole GFX loader block — `$0FF02A`,
+`$0FF15C` (a `4C 4D 03 01` = "LM 3.01" marker plus 135 bytes of newer per-slot page logic),
+`$0FF780`, `$0FF8A0`, `$0FF9C0`, `$0FFAB0`, `$0FFAF0`, `$0FFB20`, `$0FFD80`, `$0FFE93`,
+`$0FFFE7` — which is precisely the region prep v2/v14/v15/v16 authored for the level bypass, the
+layer-3 GFX pass, the layer-3 tilemap bypass and the advanced layer-3 reader. So:
+
+- **LM's Submap GFX dialog on a v18 ROM shows the vanilla lists**, not ours, and installs its own
+  hack when opened. It finds a submap's record through the immediate baked into *its own* stub at
+  `$0FFAB0`: faking only LM's `$0FF15C` marker over our stub made the dialog read the address our
+  stub's bytes happen to spell (`$FF0201`) and show every slot as 0 — so the dialog parses the
+  stub, and the marker alone is not a licence to claim the hack.
+- **An LM save of a v18 ROM therefore loses the per-submap lists** (LM writes seven fresh vanilla
+  records into its relocated table). CONTRACT §0 wants that round trip; closing it means
+  transplanting LM's newer loader suite whole and re-establishing v14-v16 on top of it, which is
+  its own pass — not a byte to guess.
+- **In-game and in pipe-dream the feature is real**: the loader uploads the submap's own files
+  (`the_loader_uploads_the_submaps_own_files` runs the actual hook and loader under `Cpu65816`),
+  and the map redraws in them.
+- **AN2 (record w0) stays editor-only** on our side: the overworld still runs vanilla's
+  `LDY #$14 : JSL $00BA28` at `$00A147` for its animated-tile source, where LM NOPs the JSL and
+  lets its loader upload the slot. Same shape as the level record's AN1/AN2, which are
+  editor-only for the same reason.
+
 ## 3. What we write that LM does not
 
 Direct Map16 object handlers (`$0DF150`, `$0DF08A` extent), the exit destination bit 8 before

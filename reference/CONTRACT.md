@@ -2103,6 +2103,27 @@ UI: the Animations mode's Overworld tab. NOT CHECKED: the blob under Cpu65816 �
 spins on unmodelled hardware on LM's own install too; LM 3.40 reading back a planted list is the
 parity check, plus a Mesen boot identical to v16's.
 
+PREP V18 gives each submap its own GFX file list — LM's *Overworld ▸ Submap GFX*
+(`RomPrep.AppendV18Stamps`; the probe and every number are in reference/OVERWORLD.md §4). LM keeps
+the seven lists in THIS table: entry **0x200 + submap** of the per-level bypass records, a record
+byte-for-byte a level's (w0 AN2, w2/w3 = FG6/FG5, w4-w7 = FG4-FG1, w8-w11 = SP4-SP1, w12-w15
+layer 3), `0x7F` = skip, and **no enable bit** — every submap reads its record once the hack is
+in. So v18 restamps the record block 0x207 entries long (0x40E0; the RATS block has room to
+`$138008`) with LM's own starting values in the seven, `Overworld.VanillaGfxRecord` being the same
+sixteen words read off the ROM's lists. The hook is LM's site: `$00A140`'s `STA $20 : SEP #$20` →
+`JSL $0FFAB0`. The stub is not LM's — ours arms `$FE` = index + 1, the form the v2 loader already
+reads, and v18's loader takes an index past the levels as enabled regardless of w0 bit 15
+(`EmitGfxLoader`). IsPrepped v18 = `HasOwGfxBypass` ($00A140 is a JSL, which an LM install also
+satisfies). Golden V18 pinned. READ: `Rom.OwGfxBypass`, `Overworld.GfxSlots(rom, submap)`,
+`Gfx.FgTiles.Load(..., bypass:)`. WRITE: `Rom.WriteOwGfxBypass` (in place — the table already has
+the entries). PROJECT: `ProjectFile.OverworldState.GfxSlots` (submap → word → file), hydrated into
+`Rom.GfxSlotOverrides` under the record index and replayed by `RomBuilder.WriteOwGfxRecords`.
+UI: the Graphics drawer's Overworld group, with a submap picker in its heading. NOT DONE: AN2 is
+carried and shown but editor-only (the overworld still decompresses GFX14 itself); per-submap
+LAYER 3 GFX/tilemap bypass is a separate hack; and **LM does not read our lists back** — it finds
+them through its own stub's baked immediate, so this needs LM's newer loader block transplanted
+(reference/LM_PARITY.md §2).
+
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 
 No unified sprite→tile table exists; each sprite's look comes from its graphics routine.

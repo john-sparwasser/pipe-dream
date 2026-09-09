@@ -66,6 +66,7 @@ public class RomPrepTests
     private const string GoldenPrepV15Sha256 = "f5834693f0ed3d68599a3e994503e76203c809a03af4b238126c59966d82c0a0";
     private const string GoldenPrepV16Sha256 = "165b09f51a1b97bced2ee09927b96ec00188b8114dfb845ef6d1da197c22f98c";
     private const string GoldenPrepV17Sha256 = "02ee912d42e1672db9ff3d797b062549dfd61a3e8d55afd738cd7b3069eedd71";
+    private const string GoldenPrepV18Sha256 = "55c6e7bf8e35a6d0958d66f9fba184ea6eb94a4666931e0a8547cadbd10ab8f2";
 
     private static Rom Prepped()
     {
@@ -540,11 +541,15 @@ public class RomPrepTests
             Assert.Equal(GoldenPrepV16Sha256, RomHash.HeaderlessSha256File(tmp));
 
             File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
-            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V17)
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 17));     // frozen V17 stamp list
+            Assert.Equal(GoldenPrepV17Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V18)
             string cur = RomHash.HeaderlessSha256File(tmp);
             // Spelled out rather than left to the assertion message: xunit truncates a mismatch,
             // and this hash is what the NEXT version bump has to be told.
-            Assert.True(GoldenPrepV17Sha256 == cur, $"V17 golden hash is now {cur}");
+            Assert.True(GoldenPrepV18Sha256 == cur, $"V18 golden hash is now {cur}");
         }
         finally { File.Delete(tmp); }
     }

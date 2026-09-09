@@ -361,9 +361,13 @@ public static class Gfx
         /// <param name="levelAnimation">Overlay the level engine's animated tiles (§12). The
         /// overworld loads the same file lists but runs its own animation (bank 04), so it passes
         /// false: the level overlay would blank the cliff tiles at 0x50-0x55 out from under it.</param>
-        public static FgTiles Load(Rom rom, int tileset, int level = -1, int animPhase = 0, bool levelAnimation = true)
+        /// <param name="bypass">A record to resolve the six FG/BG pages through instead of the
+        /// level's own — how the overworld hands over the submap's list (Rom.OwGfxBypass), whose
+        /// words are a level record's exactly.</param>
+        public static FgTiles Load(Rom rom, int tileset, int level = -1, int animPhase = 0, bool levelAnimation = true,
+                                   ushort[]? bypass = null)
         {
-            var bypass = level >= 0 ? rom.LmGfxBypass(level) : null;
+            bypass ??= level >= 0 ? rom.LmGfxBypass(level) : null;
             int bpp = RomBpp(rom);                                  // ROM-wide depth (vanilla 3 / LM 4)
             var f = new FgTiles();
             for (int s = 0; s < f.slots.Length; s++) f.slots[s] = [];   // default all pages blank

@@ -141,6 +141,7 @@ internal static class RomBuilder
                 && Overworld.WriteEventPieces(rom, ProjectSession.WordsOf(Convert.FromBase64String(owp))) is { } owpErr)
                 warnings.Add("overworld: " + owpErr);
             if (project.Data.Overworld.Layer1Defs is { } owf) Overworld.WriteLayer1Defs(rom, ProjectSession.WordsOf(Convert.FromBase64String(owf)));
+            WriteOwGfxRecords(rom, project.Data, warnings);
 
             // Skip level entries whose key is not a level number. A project should never contain
             // one, but an editor bug wrote entries keyed -1 for a while, and refusing to build a
@@ -466,6 +467,30 @@ internal static class RomBuilder
         int fo = rom.FileOffset(Gfx.ExGfx80Table + (id - 0x80) * 3);
         rom.Data[fo] = (byte)snes; rom.Data[fo + 1] = (byte)(snes >> 8); rom.Data[fo + 2] = (byte)(snes >> 16);
         return id;
+    }
+
+    /// <summary>
+    /// Write each submap's own GFX file list — Lunar Magic's Overworld ▸ Submap GFX. The record
+    /// is the vanilla list with the project's slots repointed, at table entry 0x200+submap, and
+    /// there is no enable bit to light: once the base carries the hack, every submap reads its
+    /// own entry (reference/OVERWORLD.md §4).
+    /// </summary>
+    private static void WriteOwGfxRecords(Rom rom, ProjectFile data, List<string> warnings)
+    {
+        foreach (var (key, slots) in data.Overworld.GfxSlots.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+        {
+            if (slots.Count == 0) continue;
+            if (!int.TryParse(key, out int submap) || (uint)submap >= Overworld.Submaps)
+            { warnings.Add($"ignored overworld GFX entry '{key}' — not a submap number"); continue; }
+            var w = rom.OwGfxBypass(submap) ?? Overworld.VanillaGfxRecord(rom);
+            foreach (var (word, file) in slots)
+                if (word is >= 0 and < 12) w[word] = (ushort)((w[word] & ~0xFFF) | (file & 0xFFF));
+            if (rom.WriteOwGfxBypass(submap, w) is { } err) { warnings.Add($"submap {key}: {err}"); continue; }
+            if (!rom.HasLmVramPatch && slots.Keys.Any(k => k is 2 or 3))
+                warnings.Add($"submap {key}: FG5/FG6 slot overrides stay editor-only (base lacks LM's VRAM patch)");
+            if (slots.ContainsKey(0))
+                warnings.Add($"submap {key}: the AN2 slot stays editor-only (the overworld still decompresses GFX14 for its animated tiles)");
+        }
     }
 
     /// <summary>
