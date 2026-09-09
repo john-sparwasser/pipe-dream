@@ -22,8 +22,7 @@ public sealed partial class EditorSession
     /// <summary>The whole canvas. The width is fixed — the event area's two columns are — while
     /// the height allows two Map16 pages of layer 1 tiles; a ROM with fewer shows fewer rows
     /// (<see cref="Ow8VisibleRows"/>), and the cells past them belong to no area.</summary>
-    public const int Ow8Cols = OwEventCol + Overworld.Event6Across * Overworld.Event6Size
-                                          + Overworld.Event2Across * Overworld.Event2Size;
+    public static readonly int Ow8Cols = OwEventCol + Overworld.EventArea.Cols;
     public const int Ow8Rows = OwDefsRow + 2 * (0x200 / Overworld.Layer1DefsAcross);
 
     /// <summary>How much of the canvas this ROM actually fills: the maps, then a row of cells per
@@ -98,10 +97,12 @@ public sealed partial class EditorSession
                 yield return (submaps[submap - 1], half * Ow8MapCols / 2, Ow8MapRows / 2 + rowStarts[band],
                               Ow8MapCols / 2, rowStarts[band + 1] - rowStarts[band]);
             }
-        int six = Overworld.Event6Across * Overworld.Event6Size;
-        yield return ("Event pieces 6x6", OwEventCol, 0, six, Overworld.EventCellOf(Overworld.Event6Bytes - 1).Y + 1);
-        yield return ("Event pieces 2x2", OwEventCol + six, 0,
-                      Overworld.Event2Across * Overworld.Event2Size, Overworld.EventCellOf(Overworld.EventCells - 1).Y + 1);
+        // The 2x2s sit under the 6x6s, so their labels stack too.
+        int sixRows = Overworld.Event2Row;
+        yield return ("Event pieces 6x6", OwEventCol, 0, Overworld.Event6Across * Overworld.Event6Size, sixRows);
+        yield return ("Event pieces 2x2", OwEventCol, sixRows,
+                      Overworld.Event2Across * Overworld.Event2Size,
+                      Overworld.EventCellOf(Overworld.EventCells - 1).Y + 1 - sixRows);
         if (Overworld is { } ow)
             yield return ("Layer 1 tiles", 0, OwDefsRow, 2 * Overworld.Layer1DefsAcross,
                           2 * ((ow.Map16Count + Overworld.Layer1DefsAcross - 1) / Overworld.Layer1DefsAcross));

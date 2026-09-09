@@ -49,7 +49,8 @@ public sealed class TilemapView : Control
     public bool FitWidth { get; set; }
 
     /// <summary>What shows where a cell has nothing — the level's back-area colour, which is
-    /// exactly what the console shows through a transparent tile.</summary>
+    /// exactly what the console shows through a transparent tile. Zero leaves those cells clear,
+    /// so whatever the view sits on shows through (the overworld's desk between its areas).</summary>
     public uint Backdrop { get; set; } = 0xFF000000;
 
     /// <summary>(column, row) → the cell's value, or -1 for "nothing here".</summary>
@@ -255,7 +256,12 @@ public sealed class TilemapView : Control
     {
         if (stale) Compose();
         var full = new Rect(0, 0, Cols * Step, Rows * Step);
-        if (bmp is null) { ctx.FillRectangle(Brushes.Black, full); return; }
+        if (bmp is null)
+        {
+            // Nothing composed yet: the backdrop, or nothing at all when it is clear.
+            if (Backdrop != 0) ctx.FillRectangle(new SolidColorBrush(Rgba(Backdrop)), full);
+            return;
+        }
         blit.Draw(this, ctx, bmp, new Rect(0, 0, surfW, surfH), full, VisualRoot?.RenderScaling ?? 1);
         // The block being dragged travels UNDER the overlay layer, where it will land.
         if (LiveDrag is { } drag && !EditsOverlay) DrawDragPreview(ctx, drag);

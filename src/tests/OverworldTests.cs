@@ -245,7 +245,9 @@ public class OverworldTests(ITestOutputHelper log)
         var view = w.GetControl<TilemapView>("OwView");
         // The Tiles tab is wider than the two maps: Lunar Magic's own Layer 2 8x8 mode keeps the
         // event pieces to their right and layer 1's Map16 tiles below them, and so does this.
-        Assert.Equal((160, 154, 8), (view.Cols, view.Rows, view.CellPx));
+        // The maps, then the event pieces' 48-wide strip beside them; 154 rows for two Map16 pages.
+        Assert.Equal((112, 154, 8), (view.Cols, view.Rows, view.CellPx));
+        Assert.Equal(0u, view.Backdrop);              // the gaps between the areas show the desk, not black
         Assert.True(Services.EditorSession.OwMapCell(0, 0, out _, out _, out bool sub0) && !sub0);
         Assert.False(Services.EditorSession.OwMapCell(64, 0, out _, out _, out _));                // off the canvas
         Assert.True(Services.EditorSession.OwMapCell(2, 65, out int cx0, out int cy0, out bool sub1) && sub1 && cx0 == 0 && cy0 == 0);
@@ -601,12 +603,24 @@ public class OverworldTests(ITestOutputHelper log)
         Assert.Equal(0x1D9, ow.Layer1Defs[def] & 0x3FF);
         Assert.Equal(Services.EditorSession.OwArea.None, s.OwAreaAt(64, 130, out _));   // nothing beside the tiles
 
-        // A cell no table reaches wears Lunar Magic's filler — the X on blue — and wears it from
-        // the FILE's graphics: 0x7A is one of the cycling animated slots, so the map's copy of it
-        // is whatever frame is up, and a cross that flickers is worse than no marker at all.
+        // A cell no table reaches draws nothing at all: the desk shows through, which is what the
+        // cell is. The filler picture is kept for the event area's own blanks, and comes from the
+        // FILE's graphics — 0x7A is one of the cycling animated slots, so the map's copy of it is
+        // whatever frame is up, and a cross that flickers is worse than no marker at all.
+        Assert.Null(s.Ow8CellPixels(130 * Services.EditorSession.Ow8Cols + 64));
         Assert.Equal(0x7A, Overworld.FillerWord & 0x3FF);
-        Assert.Equal(ow.FillerPixels(), s.Ow8CellPixels(130 * Services.EditorSession.Ow8Cols + 64));
         Assert.NotEqual(ow.FillerPixels(), ow.TilePixels(Overworld.FillerWord, 0));
+
+        // The 2x2 pieces sit UNDER the 6x6s, not in a column beside them.
+        Assert.Equal(48, Overworld.Event2Row);
+        Assert.Equal((0, 0), Overworld.EventCellOf(0));
+        Assert.Equal((0, Overworld.Event2Row), Overworld.EventCellOf(Overworld.Event6Bytes));
+        Assert.Equal(Overworld.Event2Across * Overworld.Event2Size, Overworld.EventArea.Cols);
+        // 256 pieces twenty-four across leaves the last band short, and those cells belong to nothing.
+        Assert.Equal(Services.EditorSession.OwArea.EventPieces,
+                     s.OwAreaAt(Services.EditorSession.OwEventCol + 40, Overworld.Event2Row + 1, out _));
+        Assert.Equal(Services.EditorSession.OwArea.None,
+                     s.OwAreaAt(Services.EditorSession.OwEventCol + 40, Overworld.EventArea.Rows - 1, out _));
 
         // Every piece byte has a cell and every cell its byte, both ways round.
         for (int i = 0; i < Overworld.EventCells; i++)
@@ -635,6 +649,41 @@ public class OverworldTests(ITestOutputHelper log)
         // properties are an RLE stream, and a re-pack that lost one would show up here.
         File.WriteAllBytes(p, rom.Data);
         Assert.Equal(ow.EventPieces, new Overworld(Rom.Load(p)).EventPieces);
+    }
+
+    /// <summary>The event area's blank cells — vanilla's meaningless grey tile 0x0BA in row 3 —
+    /// draw as the X that says "nothing here", the same picture the canvas puts outside every
+    /// area, at rest and while a block carrying one is dragged. A cell a piece really draws with
+    /// keeps its own tile.</summary>
+    [Fact]
+    public void a_blank_event_cell_draws_as_the_x()
+    {
+        if (PreppedRom.Fork() is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new Services.EditorSession();
+        Assert.True(s.OpenRom(p));
+        var ow = s.Overworld!;
+        var x = ow.FillerPixels();
+
+        int blank = Array.IndexOf(ow.EventPieces, (ushort)Overworld.BlankEventWord);
+        int used = Enumerable.Range(0, Overworld.EventCells)
+                             .First(i => ow.EventPieces[i] != Overworld.BlankEventWord && (ow.EventPieces[i] & 0x3FF) != 0);
+        Assert.True(blank >= 0, "vanilla leaves blank event cells");
+        log.WriteLine($"blank at piece byte {blank:X3}, a used one at {used:X3} (word {ow.EventPieces[used]:X4})");
+
+        int Cell(int index)
+        {
+            var (cx, cy) = Overworld.EventCellOf(index);
+            return cy * Services.EditorSession.Ow8Cols + Services.EditorSession.OwEventCol + cx;
+        }
+        Assert.Equal(x, s.Ow8CellPixels(Cell(blank)));
+        Assert.NotEqual(x, s.Ow8CellPixels(Cell(used)));
+        Assert.Equal(ow.TilePixels(ow.EventPieces[used], 0), s.Ow8CellPixels(Cell(used)));
+
+        // ...and in flight, so a dragged block does not turn grey on the way.
+        var (bx, by) = Overworld.EventCellOf(blank);
+        int col = Services.EditorSession.OwEventCol + bx;
+        Assert.Equal(x, s.Ow8WordPixels(Overworld.BlankEventWord, col, by));
+        Assert.Equal(ow.TilePixels(ow.EventPieces[used], 0), s.Ow8WordPixels(ow.EventPieces[used], col, by));
     }
 
     /// <summary>

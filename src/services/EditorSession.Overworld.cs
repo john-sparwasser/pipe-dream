@@ -205,11 +205,13 @@ public sealed partial class EditorSession
         return OwAreaAt(col, row, out _) switch
         {
             OwArea.Map => ow.TilePixels(map.At(col, row), OwSubmapShown(col, row)),
+            // An event cell no piece draws with holds vanilla's meaningless grey; the X says
+            // "empty" as Lunar Magic's does (Overworld.BlankEventWord).
+            OwArea.EventPieces when map.At(col, row) == Overworld.BlankEventWord => ow.FillerPixels(),
             OwArea.EventPieces or OwArea.Layer1Defs => ow.TilePixels(map.At(col, row), 0),
-            // No table reaches here, so there is nothing to edit — but a hole would show the desk
-            // through the middle of the canvas. Lunar Magic lays its filler tile over the same
-            // corners with its X tile, and this is that tile (<see cref="Overworld.FillerWord"/>).
-            _ => ow.FillerPixels(),
+            // No table reaches here, so there is nothing to edit and nothing to draw: the desk
+            // shows through, which is what the cell is.
+            _ => null,
         };
     }
 
@@ -223,7 +225,10 @@ public sealed partial class EditorSession
     /// colours — for a block floating over the map before it is dropped.</summary>
     public uint[]? Ow8WordPixels(int word, int col, int row)
     {
-        if (Overworld is not { } ow || OwAreaAt(col, row, out _) is OwArea.None) return null;
+        if (Overworld is not { } ow || OwAreaAt(col, row, out _) is var area && area is OwArea.None) return null;
+        // A blank event cell in flight draws as the X it draws at rest, so a dragged block does
+        // not turn grey on the way and back again on landing.
+        if (area is OwArea.EventPieces && word == Overworld.BlankEventWord) return ow.FillerPixels();
         return ow.TilePixels(word, OwMapCell(col, row, out _, out _, out _) ? OwSubmapShown(col, row) : 0);
     }
 

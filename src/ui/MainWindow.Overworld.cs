@@ -140,6 +140,9 @@ public partial class MainWindow
     private void WireOwView()
     {
         owView = this.GetControl<TilemapView>("OwView");
+        // The canvas is not a rectangle: the areas leave gaps between them, and a cell no table
+        // reaches draws nothing. Clear rather than black, so the desk's checkerboard shows there.
+        owView.Backdrop = 0;
         owView.ReanchorOnClick = false;     // a click on a carried block leaves it selected, and floating
         owView.Decorate = DrawOwOverlays;
         owView.HolePixels = OwHolePixels;

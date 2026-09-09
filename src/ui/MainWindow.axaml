@@ -1157,9 +1157,9 @@
                               ToolTip.Tip="Label star, pipe and exit tiles with their index over the index they lead to. N/A is a one-way trip; a red number marks where one lands. K: where a Koopa Kid drops Mario">
                   <Path Data="{StaticResource IconGalaxy}"/>
                 </ToggleButton>
-                <ToggleButton x:Name="OwShowAreas" Classes="mode"
+                <ToggleButton x:Name="OwShowAreas" MinWidth="34"
                               ToolTip.Tip="Outline and name what each part of the canvas is: the main map, the six submaps, and — on the Tiles tab — the event pieces and the layer 1 tiles beside them">
-                  <TextBlock Text="Areas" VerticalAlignment="Center"/>
+                  <Path Data="{StaticResource IconSquareDashed}"/>
                 </ToggleButton>
                 <Rectangle Classes="sep"/>
               </StackPanel>

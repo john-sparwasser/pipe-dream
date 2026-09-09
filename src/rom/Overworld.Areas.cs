@@ -14,10 +14,18 @@ public sealed partial class Overworld
     /// </summary>
     public const int EventTiles = 0x0C8000, EventProps = 0x0C8D00, EventCells = 0xD00, Event6Bytes = 0x900;
 
-    /// <summary>How the pieces are laid out on Lunar Magic's canvas: the 6x6s eight across in a
-    /// 48-wide column, the 2x2s twenty-four across in the 48-wide column beside it. Measured off
-    /// LM's own status bar 2026-09-08 — its piece index steps by 1 across and by 0x18 down.</summary>
+    /// <summary>
+    /// How the pieces are laid out: the 6x6s eight across, then the 2x2s twenty-four across
+    /// BELOW them rather than in a column beside them, so the area is one 48-wide strip instead
+    /// of two. Lunar Magic puts the two columns side by side (measured off its own status bar
+    /// 2026-09-08 — its piece index steps by 1 across and by 0x18 down); stacking them keeps the
+    /// canvas narrower, and which cell holds which piece byte is this editor's own arrangement,
+    /// not something the ROM cares about.
+    /// </summary>
     public const int Event6Size = 6, Event2Size = 2, Event6Across = 8, Event2Across = 24;
+
+    /// <summary>Where the 2x2s begin: under the last row of 6x6s.</summary>
+    public static int Event2Row => Event6Bytes / (Event6Size * Event6Size) / Event6Across * Event6Size;
 
     /// <summary>
     /// The tile Lunar Magic lays over every cell of its 8x8 canvas that no table reaches — the
@@ -27,6 +35,15 @@ public sealed partial class Overworld
     /// black on the sea's blue. Chrome, not data — nothing is stored at those cells.
     /// </summary>
     public const int FillerWord = 0x7A | 5 << 10;
+
+    /// <summary>
+    /// The word vanilla leaves in every event cell no piece draws with: tile 0x0BA in palette row
+    /// 3, a mottled grey. It means nothing — Lunar Magic's own blank out there is its X tile — and
+    /// a screenful of grey noise reads as data rather than as empty space, so the editor draws
+    /// this as the X too. Display only: the bytes stay as the ROM has them until something paints
+    /// over them, and a cell painted with something else draws what it was given.
+    /// </summary>
+    public const int BlankEventWord = 0x0BA | 3 << 10;
 
     private uint[]? fillerPx;
 
@@ -103,29 +120,31 @@ public sealed partial class Overworld
                     piece / Event6Across * Event6Size + k / Event6Size);
         }
         int i2 = index - Event6Bytes, p2 = i2 / (Event2Size * Event2Size), k2 = i2 % (Event2Size * Event2Size);
-        return (Event6Across * Event6Size + p2 % Event2Across * Event2Size + k2 % Event2Size,
-                p2 / Event2Across * Event2Size + k2 / Event2Size);
+        return (p2 % Event2Across * Event2Size + k2 % Event2Size,
+                Event2Row + p2 / Event2Across * Event2Size + k2 / Event2Size);
     }
 
     /// <summary>The piece byte drawn at a cell of the event area, or -1 where nothing is.</summary>
     public static int EventIndexOf(int x, int y)
     {
-        if (x < Event6Across * Event6Size)
+        if (y < Event2Row)
         {
+            if (x >= Event6Across * Event6Size) return -1;
             int piece = y / Event6Size * Event6Across + x / Event6Size;
             if (piece >= Event6Bytes / (Event6Size * Event6Size)) return -1;
             return piece * Event6Size * Event6Size + y % Event6Size * Event6Size + x % Event6Size;
         }
-        int x2 = x - Event6Across * Event6Size;
-        int p2 = y / Event2Size * Event2Across + x2 / Event2Size;
-        int at = Event6Bytes + p2 * Event2Size * Event2Size + y % Event2Size * Event2Size + x2 % Event2Size;
+        if (x >= Event2Across * Event2Size) return -1;
+        int y2 = y - Event2Row;
+        int p2 = y2 / Event2Size * Event2Across + x / Event2Size;
+        int at = Event6Bytes + p2 * Event2Size * Event2Size + y2 % Event2Size * Event2Size + x % Event2Size;
         return at < EventCells ? at : -1;
     }
 
-    /// <summary>The widest and tallest the two columns run — the area's size in 8x8 cells.</summary>
+    /// <summary>The widest and tallest the two stacked bands run — the area's size in 8x8 cells.</summary>
     public static (int Cols, int Rows) EventArea
-        => (Event6Across * Event6Size + Event2Across * Event2Size,
-            Math.Max(EventCellOf(Event6Bytes - 1).Y, EventCellOf(EventCells - 1).Y) + 1);
+        => (Math.Max(Event6Across * Event6Size, Event2Across * Event2Size),
+            EventCellOf(EventCells - 1).Y + 1);
 
     /// <summary>
     /// Layer 1's Map16 definitions as 8x8 words — four per 16x16 tile, TL BL TR BR, the order
