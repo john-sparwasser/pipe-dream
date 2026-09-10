@@ -38,11 +38,27 @@ INFERRED means the address and shape say so but nothing has been run against it.
 ## 2. LM writes, we do not — the inventory
 
 ### Block behaviour ("acts like") — a different mechanism, not a missing one
-`$00BF36`, `$00BF81`, `$00C117`, `$019501`, `$0292FA`, `$0295ED`, `$02A6BB`, `$02BA72`,
-`$02D18D` all change one read: `LDA $00BA70,X` → `LDA $000CC6,X`. LM relocates the block-type
-table into RAM; we instead repoint the four `JSL $00F545` acts-like sites at our own remap
-(`$06F800` from v26, `$06F5F0` before — table at `$118000`). CONFIRMED different, and now
-CONFIRMED compatible for the table itself.
+We repoint the four vanilla `JSL $00F545` acts-like sites at our own remap (`$06F800` from v26,
+`$06F5F0` before — table at `$118000`) where LM reaches its lookup through four per-site
+trampolines. CONFIRMED different, and now CONFIRMED compatible: the table round-trips exactly
+(below), and v28 took the one behavioural difference. LM's trampolines carry per-site stack reads
+for its blocktool block cases and JML a bank-95/96 engine we do not install, so there is nothing
+for them to route on our base; from v26 LM's own lookup is stamped beside ours reading the SAME
+table (§2 "Map16 F9"), so both mechanisms answer identically.
+
+**`LDA $00BA70,X → LDA $000CC6,X` is NOT part of this** — an earlier version of this section had
+the two features tangled, and the reads were never ours to take because we already had them. The
+seven sites (`$00F50D`, `$019509`, `$029301`, `$0295F4`, `$02A6C2`, `$02BA79`, `$02D194`, each also
+getting `$0CB6`/`$0CD6`/`$0CE6` for its three sibling tables) are vanilla's per-screen **Map16
+plane-pointer** low/high byte tables, which LM rebuilds in RAM per level because the column stride
+is no longer a constant. They came in with **prep v10's variable-height engine**
+(`LmLevelEntry.HeightHooks`, and the doc comment there says so: "the block-probe tables the same
+way (`$BA60… → $0CB6…`)"), they are pinned byte for byte against LM's own ROM by
+`EntrancePlacementTests`, and the RAM they build is asserted at vanilla and non-vanilla heights by
+`level_pointer_chain_leaves_identical_ram_except_the_level_word` and
+`a_taller_level_gets_its_height_into_ram_and_its_pointer_tables_restrided`.
+Measured again 2026-09-11: neither our v28 base nor ShaoBase references `$00BA70` anywhere, and
+both read `$000CC6` at all seven sites.
 
 **The round trip, measured 2026-09-11 through LM's own command line** (`-ExportAllMap16` /
 `-ImportAllMap16`, whose `.map16` format carries "Act As data" as its own indexed section, 2 bytes
@@ -64,8 +80,8 @@ per tile, tile-numbered — see reference/lm-help/html/info_map16_file_format.ht
   the behaviour readouts follow the chain while the acts-like FIELD still edits the entry it shows.
   The reader is bounded: a cycle hangs the game — LM's hazard too — but must not hang the editor.
 
-What is left of this item is LM's RAM block-type table (`LDA $00BA70,X → $000CC6,X` at the nine
-sites above), which is a different feature from acts-like, and its four per-site trampolines.
+Nothing is left of this item: the table is shared, the round trip is exact, the chain is followed,
+and the RAM plane-pointer reads it used to be confused with have been ours since v10.
 
 ### Sprite stream — LM's loader, TAKEN (v10, block C of the level engine)
 `$02A67A`, `$02A826` (→ `JML $1090A3` / `$109198` / `$10917B` / `$108F2D`), `$02A95B`
@@ -595,9 +611,9 @@ data; LM honours tags it did not write.
    the loader itself.
 1. ~~**Acts-like**~~ — done. From v26 both mechanisms read ONE table (`$118000`); the round trip
    through `-ExportAllMap16`/`-ImportAllMap16` is exact in both directions, and v28 adds LM's
-   chaining to the remap and to the reader (§1 "Block behaviour"). What remains is LM's RAM
-   block-type table (`$00BA70,X → $000CC6,X`, nine sites) — a different feature — and its four
-   per-site trampolines.
+   chaining to the remap and to the reader (§1 "Block behaviour"). The `$00BA70 → $000CC6` reads
+   this item used to list with it are a different feature — LM's per-level Map16 plane-pointer
+   tables — and have been ours since v10's variable-height engine, pinned against LM's own ROM.
 2. ~~Sprite extra bytes~~ — done: size table read at LM's registration and authored the same way.
 3. **The Map16 ladder's remaining ranges**, so a ROM that has met LM does not address tiles we
    cannot.
