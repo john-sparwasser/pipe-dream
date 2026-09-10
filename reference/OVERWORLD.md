@@ -92,12 +92,16 @@ so the two bytes join into an 8x8 word (`Overworld.EventPieces`). 0xD00 cells in
     submap comes in as X = submap*2 from vanilla's own `LDX $0DB3 : LDA $1F11,X : ASL : TAX` at
     `$00A12A`, the same place LM's overworld ExAnimation setup reads it (EXANIMATION.md §10), and
     `$7FC009 = #$42` is what tells LM's loader this is the overworld rather than a level (#$41).
-  - **Ours differs in the stub and the loader, and that costs the read-back**: prep v18's stub
-    arms `$FE` = index + 1, which is the same fact in the form the loader prep v2 carries already
-    reads, and v18's loader treats an index past the levels as needing no enable bit. LM finds a
-    submap's record through the immediate baked into *its own* stub, so LM's dialog does not read
-    ours — see reference/LM_PARITY.md §2. The table, the index and the words are LM's; only the
-    code around them is not.
+  - **Ours keeps its own loader**: v18's stub arms `$FE` = index + 1, the same fact in the form
+    the loader prep v2 carries already reads, and v18's loader treats an index past the levels as
+    needing no enable bit.
+  - **What makes LM's dialog read it (prep v19).** Two things, and nothing else — LM's layout
+    stamp `4C 4D 03 01` at `$0FF15C`, and the record address in the two operand fields LM parses
+    the stub for (`ADC #imm` at `$0FFAB0`+9/+10, `LDA #imm` at +18). So v19 emits LM's 35-byte
+    stub verbatim with our address in those fields and replaces only its closing `RTL` with the
+    `$FE` arming. With the stamp in, LM reads the seven records, writes an edited slot into our
+    table, and installs none of its own loader — measured in both directions on real
+    `--buildproject` output (reference/LM_PARITY.md §2 has the experiments and the negatives).
   - **Not done: per-submap LAYER 3 GFX and tilemap bypass** (`ov_overworld_layer3_gfx.htm`) is a
     SECOND, separate hack with its own dialog, its own per-submap enable checkbox, and a bypass
     that `level_layer3_gfx.htm` says turns on per level *and* per submap once any level or submap

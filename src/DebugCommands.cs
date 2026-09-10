@@ -23,6 +23,9 @@ static class DebugCommands
         ("--gfxsheet",          GfxSheet),
         ("--blobsheet",         BlobSheet),
         ("--diff",              (a, i) => DiffRoms(a[i + 1], a[i + 2])),
+        // --fixchecksum <rom> : rebalance a hand-patched probe ROM so Lunar Magic stops calling
+        // it corrupt (reference/LUNAR_MAGIC.md) — the same pass every write through Rom does.
+        ("--fixchecksum",       (a, i) => { var r = Rom.Load(a[i + 1]); RatsWriter.SaveAs(r, a[i + 1]); Console.WriteLine($"checksum fixed, sha256 {RomHash.HeaderlessSha256File(a[i + 1])}"); return 0; }),
         ("--globalexanim",      (a, i) => DumpGlobalExAnim(a[i + 1])),
         ("--exanimtypes",       (a, i) => ExAnimTypeOracle(a[i + 1])),
         // --exanimrun <rom> <levelHex> : run LM's engine on a level's list and print the DMA queue it emits.
@@ -36,6 +39,15 @@ static class DebugCommands
         ("--tilepng",           TilePng),
         ("--map16def",          Map16Def),
         ("--layer3",            Layer3Png),
+        // --owgfx <rom> : each submap's graphics files, as the drawer shows them — the parity read
+        // against Lunar Magic's Overworld ▸ Submap GFX dialog (reference/OVERWORLD.md §4).
+        ("--owgfx",             (a, i) => { var rom = Rom.Load(a[i + 1]);
+                                    Console.WriteLine($"per-submap GFX: hook {(rom.HasOwGfxBypass ? "in" : "absent")}, "
+                                                    + $"LM layout stamp {(rom.HasLmOwGfxMarker ? "in" : "absent")}");
+                                    for (int sm = 0; sm < Overworld.Submaps; sm++)
+                                        Console.WriteLine($"  {sm} {Services.EditorSession.OwSubmapNames[sm],-19} " + string.Join("  ",
+                                            Overworld.GfxSlots(rom, sm).Select(s => $"{s.Name}={s.File:X2}{(s.File != s.Def ? "*" : " ")}")));
+                                    return 0; }),
         // --owrows <rom> [submap] : the overworld palette the editor builds for a submap, rows 0-7 as
         // sixteen BGR555 words each — the same shape tools/mesen/Dump-OwPalette.ps1 writes, for diffing.
         ("--owrows",            (a, i) => { var ow = new Overworld(Rom.Load(a[i + 1])); int sm = a.Length > i + 2 ? int.Parse(a[i + 2]) : 1; var pal = ow.PaletteOf(sm);

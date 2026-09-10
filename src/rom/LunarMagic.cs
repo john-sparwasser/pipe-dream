@@ -408,6 +408,15 @@ public static class LunarMagic
         public bool HasOwGfxBypass => rom.ReadByte(RomPrep.OwGfxHook) == 0x22;
 
         /// <summary>
+        /// Whether Lunar Magic's own *Overworld ▸ Submap GFX* dialog will read this ROM's seven
+        /// records: its layout stamp at <see cref="RomPrep.OwGfxMarker"/> is there (prep v19
+        /// writes it, and so does LM's install). Without it LM shows the vanilla lists instead
+        /// and writes nothing back — the records are still ours to read either way.
+        /// </summary>
+        public bool HasLmOwGfxMarker
+            => rom.ReadValue(RomPrep.OwGfxMarker, 4) == (0x4C | 0x4D << 8 | 0x03 << 16 | 0x01 << 24);
+
+        /// <summary>
         /// A submap's GFX record — the same 16 words as a level's (see <see cref="LmGfxBypass"/>),
         /// read from entry 0x200+submap of the same table, with the session's slot overrides
         /// overlaid. Null when the ROM has no per-submap list and none is being overridden, which

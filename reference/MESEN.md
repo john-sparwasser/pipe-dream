@@ -132,6 +132,25 @@ shown to change anything — boot reaches `$07` on its own, so that was not evid
 drive file-select → overworld → level normally. Failing that, prepare save data so the game
 starts on the wanted overworld tile.
 
+## The OVERWORLD is unreachable too  [MEASURED 2026-09-10, prep v19's stub as the tell]
+
+Same wall, and worth knowing before designing an overworld probe. The signal used was a byte
+only the overworld's GFX load writes (`$7FC009 = #$42`, prep v19's arming stub), so "did the
+overworld load run" had an unambiguous answer:
+
+- `T.bootPulse` for 3000 frames leaves the game on the **title screen**: mode `$07`, and
+  `$1F11` (the submap) still `0`. Pulsing Start does not advance SMW's menus here, so the
+  prelude's "clear the title screen and the file select" comment is aspirational — what makes
+  `Test-RomBoots` work is POKING the mode, not the input.
+- Poking mode `$0D` lands in a level (`$14` by frame 2400), not the map.
+- Poking mode `$0E` sticks at `$0E` but the load never runs — the overworld's GFX load happens
+  on the TRANSITION into the mode, which poking the mode mid-flight skips.
+
+So an overworld claim cannot be made from this harness today; it needs working menu input or
+prepared save data (see above). Prep v18/v19's overworld path is verified under `Cpu65816`
+instead — the real stub and the real loader, with the VRAM writes captured
+(`OverworldGfxTests.the_loader_uploads_the_submaps_own_files`).
+
 ## What the boot smoke does and does not cover
 
 `Test-RomBoots.ps1` asserts the ROM reaches gameplay and keeps ticking. Measured: vanilla and

@@ -36,6 +36,33 @@ public class OverworldGfxTests(ITestOutputHelper log) : IDisposable
         Assert.Null(rom.OwGfxBypass(Overworld.Submaps));            // there are only seven
     }
 
+    /// <summary>
+    /// What makes Lunar Magic's own Submap GFX dialog read these records (prep v19): its layout
+    /// stamp, and the record address in the two operand fields its dialog parses the stub for.
+    /// The first 35 bytes ARE LM's stub — only the two addresses are ours — because those offsets
+    /// are the contract; see reference/LM_PARITY.md §2 for how that was measured.
+    /// </summary>
+    [Fact]
+    public void the_stub_is_lunar_magics_own_with_our_record_address_in_it()
+    {
+        if (Open() is not { } rom) { log.WriteLine("SKIP: no ROM"); return; }
+        Assert.True(rom.HasLmOwGfxMarker, "no LM layout stamp at $0FF15C");
+
+        int record = RomPrep.GfxBypassRecords + RomPrep.OwGfxRecordIndex * 0x20;
+        // LM's own bytes, from the ROM it installed the hack into. The three address bytes (the
+        // ADC operand at 9/10 and the LDA operand at 18) are ours and checked separately.
+        var lm = Convert.FromHexString(
+            "8520" + "8A" + "0A0A0A0A" + "18" + "690000" + "8F06C07F" + "E220" +
+            "A900" + "8F08C07F" + "A942" + "8F09C07F" + "A900" + "8F0BC07F");
+        int at = rom.FileOffset(RomPrep.OwGfxStub);
+        for (int i = 0; i < lm.Length; i++)
+            if (i is not (9 or 10 or 18)) Assert.Equal(lm[i], rom.Data[at + i]);
+        Assert.Equal(record & 0xFFFF, rom.Data[at + 9] | rom.Data[at + 10] << 8);   // ADC #imm
+        Assert.Equal(record >> 16, rom.Data[at + 18]);                              // LDA #imm
+        // ...and the hook that reaches it is at LM's site.
+        Assert.Equal(RomPrep.OwGfxStub, rom.ReadValue(RomPrep.OwGfxHook + 1, 3));
+    }
+
     [Fact]
     public void the_arm_stub_hands_the_loader_the_submaps_record()
     {
@@ -49,6 +76,12 @@ public class OverworldGfxTests(ITestOutputHelper log) : IDisposable
             // What the loader reads: index + 1, so the DEC/×0x20 lands on entry 0x200+submap.
             int fe = cpu.Ram7E[0xFE] | cpu.Ram7E[0xFF] << 8;
             Assert.Equal(RomPrep.OwGfxRecordIndex + submap + 1, fe);
+            // ...and what LM's half of the stub leaves behind: its own record cache, pointing at
+            // the same entry, and #$42 for "the overworld's load" rather than a level's #$41.
+            int want = RomPrep.GfxBypassRecords + (RomPrep.OwGfxRecordIndex + submap) * 0x20;
+            Assert.Equal(want & 0xFFFF, cpu.Ram7F[0xC006] | cpu.Ram7F[0xC007] << 8);
+            Assert.Equal(want >> 16, cpu.Ram7F[0xC008]);
+            Assert.Equal(0x42, cpu.Ram7F[0xC009]);
         }
     }
 

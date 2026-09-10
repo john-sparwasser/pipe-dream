@@ -63,8 +63,10 @@ public static partial class RomPrep
     /// Version-keyed stamp lists keep every released version BYTE-FROZEN: a v1 project's
     /// pinned image must reproduce forever (golden-hash tested).</summary>
     /// V18 gives each submap its own GFX file list — Lunar Magic's Overworld ▸ Submap GFX,
-    /// seven more entries on the same per-level record table (see <see cref="AppendV18Stamps"/>).
-    public const int Version = 18;
+    /// seven more entries on the same per-level record table (see <see cref="AppendV18Stamps"/>);
+    /// V19 makes Lunar Magic's own dialog read and write those seven, by carrying its layout
+    /// stamp and shaping the arming stub so the address is in the two fields LM reads it from.
+    public const int Version = 19;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -287,6 +289,14 @@ public static partial class RomPrep
     /// behind the 0x200 levels, submap 0 = the main map (reference/OVERWORLD.md §4).</summary>
     public const int OwGfxRecordIndex = 0x200;
 
+    // ---- V19: what makes Lunar Magic read the per-submap lists back ----
+    /// <summary>Lunar Magic's own stamp for this hack — `"LM" 03 01`, the head of the block its
+    /// newer GFX loader occupies. Its Submap GFX dialog reads a submap's record only when it
+    /// finds this; without it the dialog shows the vanilla lists and writes nothing. Measured
+    /// 2026-09-10, both directions (reference/LM_PARITY.md §2).</summary>
+    public const int OwGfxMarker = 0x0FF15C;
+    public static readonly byte[] OwGfxMarkerBytes = [0x4C, 0x4D, 0x03, 0x01];
+
     /// <summary>The four vanilla `JSL $00F545` acts-like call sites (banks 00/01/02),
     /// repointed to our remap so gameplay collision resolves extended tiles.</summary>
     public static readonly int[] ActsCallSites = [0x00F4DD, 0x019533, 0x02961A, 0x02A6EB];
@@ -328,8 +338,11 @@ public static partial class RomPrep
            // carries the hack has just as ours does (CONTRACT §0: the property, not our bytes).
            && (version < 17 || rom.LmOwExAnimBase >= 0)
            // V18: the per-submap GFX bypass hook — a JSL at $00A140, which is what an LM-saved
-           // ROM carrying the hack has too (its stub arms $7FC006 where ours arms $FE).
-           && (version < 18 || rom.HasOwGfxBypass);
+           // ROM carrying the hack has too (its stub arms $7FC006, and from v19 ours does too).
+           && (version < 18 || rom.HasOwGfxBypass)
+           // V19: LM's layout stamp for that hack, which its own install writes as well — so
+           // this clause is true of an LM-saved ROM, as every clause here has to be.
+           && (version < 19 || rom.HasLmOwGfxMarker);
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying

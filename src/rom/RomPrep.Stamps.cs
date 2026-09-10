@@ -45,6 +45,9 @@ public static partial class RomPrep
         // V18 restamps the record table (seven entries longer) over V2's and adds the overworld's
         // arming stub — later stamps win, so V2's bytes stay frozen and only the v18 image differs.
         if (version >= 18) AppendV18Stamps(s);
+        // V19 restamps v18's arming stub in LM's own shape and adds LM's layout stamp, which is
+        // what makes LM's Submap GFX dialog read the seven records v18 wrote.
+        if (version >= 19) AppendV19Stamps(s);
         return s;
     }
 
@@ -518,8 +521,34 @@ public static partial class RomPrep
             Array.Copy(OwGfxVanillaRecord, 0, records, (OwGfxRecordIndex + submap) * 0x20, 0x20);
         s.Add((GfxRecordsPc - 8, Rats(records)));
         s.Add((Pc(GfxArmStub), GfxCode(18)));                    // the loader's enable test
-        s.Add((Pc(OwGfxStub), OwGfxArmStub()));
+        s.Add((Pc(OwGfxStub), OwGfxArmStub(18)));
         s.Add((Pc(OwGfxHook), [0x22, OwGfxStub & 0xFF, OwGfxStub >> 8 & 0xFF, OwGfxStub >> 16]));
+    }
+
+    /// <summary>
+    /// V19: make Lunar Magic's own *Overworld ▸ Submap GFX* dialog read and write the seven
+    /// records v18 gave the submaps. Two stamps, both measured 2026-09-10 rather than reasoned
+    /// (reference/LM_PARITY.md §2 has the experiments):
+    ///
+    /// - LM's layout stamp `"LM" 03 01` at <see cref="OwGfxMarker"/>. Without it the dialog shows
+    ///   the vanilla lists and its save writes nothing; with it, LM reads the records, writes an
+    ///   edited slot straight into our table, and — because it now believes the hack is installed
+    ///   — leaves our loader, our stub and our records alone (an LM overworld save over a v18
+    ///   ROM changed 56 runs, none of them in `$0FF7xx-$0FFDxx` or the table).
+    /// - The stub reshaped to LM's own instruction sequence, because the dialog takes the record
+    ///   address from the `ADC #imm` at `$0FFAB0+9` and the `LDA #imm` at `+18` and nowhere else:
+    ///   handing it a different immediate moved which table the dialog displayed.
+    ///
+    /// This is NOT the loader transplant §2 called for, and the probe is why: with the stamp in,
+    /// LM never installs its newer loader over ours, so the ~2KB of LM code that transplant would
+    /// carry buys nothing the two fields above do not. What stays divergent is unchanged — the
+    /// loader is still ours, and LM's *level* Super GFX Bypass dialog still does not read a
+    /// level's record (a separate, older gap this does not touch).
+    /// </summary>
+    private static void AppendV19Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        s.Add((Pc(OwGfxMarker), OwGfxMarkerBytes));
+        s.Add((Pc(OwGfxStub), OwGfxArmStub(19)));
     }
 
     /// <summary>
@@ -534,23 +563,43 @@ public static partial class RomPrep
         "1D00" + "1C00" + "0F00" + "1000" + "2B00" + "2A00" + "2900" + "2800");
 
     /// <summary>
-    /// $0FFAB0: arm $FE with the submap's record index + 1, then the two displaced instructions'
-    /// work. Entered with 16-bit A (the `REP #$20` at $00A132) and X = submap * 2, from vanilla's
-    /// own `LDX $0DB3 : LDA $1F11,X : ASL : TAX` at $00A12A — the same place Lunar Magic's
-    /// overworld ExAnimation setup reads the submap from. The AND is not decoration: TAX with a
-    /// 16-bit X carries the accumulator's high byte into X, so the index is masked before use.
+    /// $0FFAB0: point Lunar Magic's record cache at the submap's record, arm $FE with the same
+    /// fact for our own loader, and do the two displaced instructions' work.
+    ///
+    /// The first 35 bytes are LM's stub instruction for instruction, because **its dialog parses
+    /// them**: the record's low 16 bits are the `ADC #imm` operand at +9/+10 and the bank is the
+    /// `LDA #imm` operand at +18, and that is the only place LM looks for the address (measured
+    /// 2026-09-10 — feeding it a different immediate moved which table the dialog showed). Only
+    /// LM's closing `RTL` is replaced, by the $FE arming our loader reads.
+    ///
+    /// Entered with 16-bit A (the `REP #$20` at $00A132) and X = submap * 2, from vanilla's own
+    /// `LDX $0DB3 : LDA $1F11,X : ASL : TAX` at $00A12A — the same place LM's overworld
+    /// ExAnimation setup reads the submap from. LM's half takes X unmasked, as LM does; ours
+    /// masks, because TAX with a 16-bit X carries the accumulator's high byte in.
     /// </summary>
-    private static byte[] OwGfxArmStub()
+    /// <param name="version">V18 wrote only the arming; the LM half arrived in v19, and v18's
+    /// image stays byte-frozen (a v18 project's pinned base must still reproduce).</param>
+    private static byte[] OwGfxArmStub(int version)
     {
+        int record = GfxBypassRecords + OwGfxRecordIndex * 0x20;   // the main map's, submap 0
         var a = new Asm(OwGfxStub);
-        a.StaDp(0x20)                              // displaced `STA $20` (16-bit)
-         .Txa()
-         .AndImm16(0x00FF)
-         .Lsr()                                    // X = submap * 2 → submap
-         .Clc()
-         .AdcImm16(OwGfxRecordIndex + 1)           // what the loader wants in $FE: index + 1
+        a.StaDp(0x20);                             // displaced `STA $20` (16-bit)
+        if (version >= 19)
+            // ---- LM's own 35 bytes ($0FFAB0-$0FFAD2), the fields at +9/+10 and +18 being what
+            // its Submap GFX dialog reads the record address out of ----
+            a.Txa().Asl().Asl().Asl().Asl()            // submap * 2 → submap * 0x20
+             .Clc().AdcImm16(record & 0xFFFF)          // [LM +9/+10] record low 16
+             .StaLong(0x7FC006)                        // LM's record cache
+             .Sep(0x20)                                // displaced `SEP #$20`
+             .LdaImm8(record >> 16).StaLong(0x7FC008)  // [LM +18] its bank
+             .LdaImm8(0x42).StaLong(0x7FC009)          // #$42 = "the overworld's load" (a level is #$41)
+             .LdaImm8(0x00).StaLong(0x7FC00B)
+             .Rep(0x20);                               // back to 16-bit for the arming below
+        // ---- ...and in place of LM's RTL, the same fact in the form our loader reads ----
+        a.Txa().AndImm16(0x00FF).Lsr()             // X = submap * 2 → submap
+         .Clc().AdcImm16(OwGfxRecordIndex + 1)     // what the loader wants in $FE: index + 1
          .StaDp(0xFE)
-         .Sep(0x20)                                // displaced `SEP #$20`
+         .Sep(0x20)                                // v18: the displaced `SEP #$20` lands here
          .Rtl();
         return a.Bytes();
     }

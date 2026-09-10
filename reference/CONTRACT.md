@@ -2119,10 +2119,26 @@ satisfies). Golden V18 pinned. READ: `Rom.OwGfxBypass`, `Overworld.GfxSlots(rom,
 the entries). PROJECT: `ProjectFile.OverworldState.GfxSlots` (submap → word → file), hydrated into
 `Rom.GfxSlotOverrides` under the record index and replayed by `RomBuilder.WriteOwGfxRecords`.
 UI: the Graphics drawer's Overworld group, with a submap picker in its heading. NOT DONE: AN2 is
-carried and shown but editor-only (the overworld still decompresses GFX14 itself); per-submap
-LAYER 3 GFX/tilemap bypass is a separate hack; and **LM does not read our lists back** — it finds
-them through its own stub's baked immediate, so this needs LM's newer loader block transplanted
-(reference/LM_PARITY.md §2).
+carried and shown but editor-only (the overworld still decompresses GFX14 itself), and per-submap
+LAYER 3 GFX/tilemap bypass is a separate hack.
+
+PREP V19 makes Lunar Magic's own *Overworld ▸ Submap GFX* dialog read and write those seven
+records (`RomPrep.AppendV19Stamps`). Two stamps, both measured 2026-09-10 in both directions on
+real `--buildproject` output — the experiments, including the negatives, are in
+reference/LM_PARITY.md §2. (1) LM's layout stamp `4C 4D 03 01` at `$0FF15C` = `OwGfxMarker`:
+without it the dialog shows the vanilla lists and its save is a no-op; with it LM reads the
+records, writes an edited slot into our table, and — believing the hack installed — installs
+none of its own loader, so `$0FF7xx-$0FFDxx` and the records come back untouched. (2) The stub
+reshaped to LM's own 35 bytes, because the dialog takes the record address from the `ADC #imm` at
+`$0FFAB0`+9/+10 and the `LDA #imm` at +18 and nowhere else; only LM's closing `RTL` is replaced,
+by the `$FE` arming our loader reads. IsPrepped v19 = `HasLmOwGfxMarker`, true of an LM-saved ROM
+as well. Golden V19 pinned; v18's stub stays byte-frozen (`OwGfxArmStub(version)`). This is NOT
+the loader transplant §2 used to call for — with the stamp in, LM never installs the newer loader
+over ours, so that transplant buys nothing. Still divergent: the loader is ours, AN2 is
+editor-only, and LM's *level* Super GFX Bypass dialog still does not read a level's record (an
+older, separate gap — it shows 0 for all eleven slots with or without this stamp). Not verified
+on hardware: the headless Mesen harness cannot reach the overworld (reference/MESEN.md), so the
+path is checked under `Cpu65816` — real stub, real loader, VRAM writes captured.
 
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 
