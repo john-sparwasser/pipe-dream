@@ -78,7 +78,7 @@ public static partial class RomPrep
     /// import was zeroing it from under the LoadLevel hook;
     /// V24 replaces v1's private palette stubs with Lunar Magic's own palette engine, byte for
     /// byte, so an LM ExGFX import lands on code that is already there.
-    public const int Version = 24;
+    public const int Version = 25;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -298,6 +298,14 @@ public static partial class RomPrep
     public const int L3StripeHook = 0x00A041, L3StripeThunk = 0x00FFA2;
     public const int L3Opt = 0x0FF950;             // returns the layer-3 option, vanilla's way
     public const int L3Map = 0x0FF980;             // the LT3 file → VRAM
+
+    // ---- V25: the rest of Lunar Magic's 4bpp mode ----
+    /// <summary>The loader's AN2 pass (see <c>EmitAn2Pass</c>): the free run behind the layer-3
+    /// routines, under <see cref="L3DestTable"/>. Both loader exits jump here, so the decompression
+    /// buffer is always left holding record word 0's file — vanilla's `LDY #$14 : JSL $00BA28` at
+    /// `$00A147` did that for GFX14 alone, and LM NOPs the JSL (`$00A149`) because its loader owns
+    /// the slot; from v25 so does ours.</summary>
+    public const int An2Pass = 0x0FFA20;
     /// <summary>LM's tilemap tables, at LM's own addresses. Sizes by the record's size field,
     /// VRAM destination words by its destination field, and the size of the status bar's own
     /// tilemap — the last two are the pair LM's help tells patch authors to edit when they
@@ -442,7 +450,10 @@ public static partial class RomPrep
                                 && (armTarget < Gfx.ExGfx80Table || armTarget >= GfxLoaderEntry)))
            // V24: the second palette hook is LM's — the property every LM base with the palette
            // engine has (ShaoBase, BigEye, DogsOfWar), and v1-v23's `JSL $0EFC60` does not.
-           && (version < 24 || (rom.ReadByte(0x00A5BF) == 0x22 && rom.ReadValue(0x00A5C0, 3) == LmPaletteFadeIn));
+           && (version < 24 || (rom.ReadByte(0x00A5BF) == 0x22 && rom.ReadValue(0x00A5C0, 3) == LmPaletteFadeIn))
+           // V25: the GFX0F expander decompresses through LM's `$0EFC00` wrapper — the 4bpp-mode
+           // repoint every LM base has, and the one an ExGFX import wrote onto v24.
+           && (version < 25 || rom.ReadValue(0x00A830, 3) == LmPaletteEngine);
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying
@@ -456,6 +467,7 @@ public static partial class RomPrep
             Array.Copy(bytes, 0, rom.Data, pc + rom.HeaderOffset, bytes.Length);
         if (version >= 6) ConvertGfxTo4bpp(rom, version);   // data, not a stamp: it allocates
         if (version >= 10) MigrateSecondaryDestinationBit(rom);  // data: depends on the records
+        if (version >= 25) BakeLmFourBppFiles(rom);         // data: the files LM's 4bpp-mode code expects
         RatsWriter.FixChecksum(rom);
         ResetScanCaches(rom);
     }
@@ -521,12 +533,89 @@ public static partial class RomPrep
                 if (three.Length == 0 || three.Length % Gfx.TileBytes(3) != 0) continue;
                 byte[] four = Gfx.NormalizeBpp(three, 3, 4, out _);
                 if (version >= 8) BakeVanillaSwap(four, id);
-                int snes = RatsWriter.Allocate(rom, Gfx.Lz2Compress(four), from: GfxConvertBase);
-                rom.Data[rom.FileOffset(Gfx.PtrLow) + id] = (byte)snes;
-                rom.Data[rom.FileOffset(Gfx.PtrHigh) + id] = (byte)(snes >> 8);
-                rom.Data[rom.FileOffset(Gfx.PtrBank) + id] = (byte)(snes >> 16);
+                SetSourceSnes(rom, id, RatsWriter.Allocate(rom, Gfx.Lz2Compress(four), from: GfxConvertBase));
             }
         Gfx.InvalidateCache(rom);                       // depth probe and file cache both stale
+    }
+
+    /// <summary>Point a vanilla GFX id's three pointer-table entries at a new stream.</summary>
+    private static void SetSourceSnes(Rom rom, int id, int snes)
+    {
+        rom.Data[rom.FileOffset(Gfx.PtrLow) + id] = (byte)snes;
+        rom.Data[rom.FileOffset(Gfx.PtrHigh) + id] = (byte)(snes >> 8);
+        rom.Data[rom.FileOffset(Gfx.PtrBank) + id] = (byte)(snes >> 16);
+    }
+
+    /// <summary>The GFX08 tiles whose plane 3 Lunar Magic's own 4bpp conversion fills in — measured
+    /// tile for tile against three LM-saved vanilla ROMs (TestRom, DogsOfWar, ShaoBasePrepatch;
+    /// ShaoBase and BigEye redraw the file). GFX1E gets the plane on every tile, GFX33 on none.</summary>
+    private static readonly byte[] LmGfx08Plane3Tiles =
+        [0x37, 0x38, 0x39, 0x3A, 0x3B, 0x47, 0x48, 0x49, 0x4A, 0x4B, 0x56, 0x57, 0x58, 0x59, 0x5A, 0x5B,
+         0x60, 0x6E, 0x6F, 0x70, 0x7A, 0x7B, 0x7E, 0x7F];
+
+    /// <summary>
+    /// V25: the DATA half of Lunar Magic's 4bpp mode; the code half is AppendV25Stamps, and the
+    /// two only work together.
+    ///
+    /// Vanilla's filter path (`$00AB02`, reached for GFX1E and for GFX08 on tilesets >= 0x11)
+    /// synthesised plane 3 as `plane0|plane1|plane2` on upload. LM's dispatch never reaches it
+    /// (`CPY #$32` twice), so the plane has to live in the file: every tile of GFX1E, and for GFX08
+    /// the 24 tiles of <see cref="LmGfx08Plane3Tiles"/> — one file cannot be both tilesets', and
+    /// that is the compromise LM chose. Baked files decompress to the bytes LM's do.
+    ///
+    /// GFX33 (AN1) becomes four planes: LM's `$00B895` rewrite decompresses it straight to `$7E7D00`
+    /// where vanilla decompressed three to `$7E2000` and expanded them across. Its source shares
+    /// the one bank byte at `$00B890` with GFX32, so both blobs move into a single block. LM keeps
+    /// them in bank 08 (GFX33 at `$088000`, GFX32 behind it) with its own compressor — 0x1C68 bytes
+    /// for the 4bpp blob where ours needs 0x262D, which no longer fits vanilla's 0x59F9-byte
+    /// footprint — and reads both through the operands (measured: an import onto a v24 base left
+    /// ours where they were), so the block goes where the converted files go. Vanilla's streams
+    /// stay in bank 08 as dead bytes, and GFX32 is carried over byte for byte.
+    /// </summary>
+    private static void BakeLmFourBppFiles(Rom rom)
+    {
+        Bake(0x1E, null);
+        Bake(0x08, LmGfx08Plane3Tiles);
+        MoveBlobs();
+        Gfx.InvalidateCache(rom);
+
+        void Bake(int id, byte[]? tiles)
+        {
+            byte[] four;
+            try { four = Gfx.DecompressFile(rom, id); } catch { return; }
+            if (four.Length != 0x1000) return;                    // not the converted 128-tile file
+            bool baked = false;
+            for (int t = 0; t < 0x80; t++)
+            {
+                if (tiles is not null && Array.IndexOf(tiles, (byte)t) < 0) continue;
+                for (int row = 0; row < 8; row++)
+                {
+                    int b = t * 32 + row * 2;
+                    if (four[b + 17] != 0) return;                // plane 3 already there: baked
+                    four[b + 17] = (byte)(four[b] | four[b + 1] | four[b + 16]);
+                    baked |= four[b + 17] != 0;
+                }
+            }
+            if (!baked) return;
+            RatsWriter.Release(rom, Gfx.SourceSnes(rom, id));
+            SetSourceSnes(rom, id, RatsWriter.Allocate(rom, Gfx.Lz2Compress(four), from: GfxConvertBase));
+        }
+
+        void MoveBlobs()
+        {
+            int an1 = Gfx.SourceSnes(rom, 0x33), mario = Gfx.SourceSnes(rom, 0x32);
+            byte[] three;
+            try { three = Gfx.Lz2Decompress(rom.Data, rom.FileOffset(an1)); } catch { return; }
+            if (three.Length != 0x2400) return;                   // already four planes, or not this blob
+            byte[] blob33 = Gfx.Lz2Compress(Gfx.NormalizeBpp(three, 3, 4, out _));
+            var blob32 = rom.Data.AsSpan(rom.FileOffset(mario), Gfx.Lz2Length(rom.Data, rom.FileOffset(mario)));
+            int snes = RatsWriter.Allocate(rom, [.. blob33, .. blob32], avoidBankCross: true, from: GfxConvertBase);
+            int p33 = rom.FileOffset(0x00B88B), p32 = rom.FileOffset(0x00B8D8);
+            rom.Data[p33] = (byte)snes; rom.Data[p33 + 1] = (byte)(snes >> 8);
+            rom.Data[rom.FileOffset(0x00B890)] = (byte)(snes >> 16);
+            snes += blob33.Length;
+            rom.Data[p32] = (byte)snes; rom.Data[p32 + 1] = (byte)(snes >> 8);
+        }
     }
 
     /// <summary>

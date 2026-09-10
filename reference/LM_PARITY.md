@@ -28,7 +28,7 @@ INFERRED means the address and shape say so but nothing has been run against it.
 | site | ours | LM's | status |
 |---|---|---|---|
 | `$05D7CE` → `$05DC50` | exit destination bit 8 | same hijack, same flag layout | **CONFIRMED identical** — emulated over every flag combination (`v7_decides_the_high_byte_exactly_as_lunar_magic_does`) |
-| `$00AACD` 4bpp upload | LM's byte sequence | — | the 32-byte loop is identical, **but it is the only piece of LM's 4bpp rework we share** — see §2 "4bpp graphics" (2026-08-29) |
+| `$00AACD` 4bpp upload | LM's byte sequence | — | the 32-byte loop is identical; through v24 it was the only piece of LM's 4bpp rework we shared, from v25 the rest is stamped too — see §2 "4bpp graphics" |
 | `$0DF08A`, `$0DFF50`, `$0D*FD` handlers | LM's own bytes (v10 restamps over v5's) | same | **CONFIRMED identical** (`LmLevelRender`) |
 | `$0DA4B8` DM16 hijack | ours | LM's | same table entries — CONFIRMED identical |
 | `$0EF100` sprite bank table | LM's layout, LM's `$0EF300` stub + `$0EF550` level word (v10) | same | **CONFIRMED identical** |
@@ -283,7 +283,7 @@ Super GFX Bypass, Layer 3 GFX bypass, ExAnimation (`level_super_bypass.htm`,
 save (`option_vram.htm`). We detect all of these; we install none. `HasLmVramPatch` being false
 is why our BG2/BG3 bypass slots stay editor-only.
 
-### 4bpp graphics — the overworld half is LM's now (prep v13); the rest is inventoried  [CONFIRMED 2026-08-29, ShaoBase + BigEye + DogsOfWar vs vanilla and exanim_1]
+### 4bpp graphics — the overworld half is LM's since prep v13, the rest since v25  [CONFIRMED 2026-08-29, ShaoBase + BigEye + DogsOfWar vs vanilla and exanim_1; closed 2026-09-11]
 
 Found by the overworld: on every prep from v6 to v12 the OW's animated tiles (water, clouds)
 were garbage in Mesen (v3 clean; LM's plain save exanim_1 clean). Root cause, traced with Lua in
@@ -305,20 +305,29 @@ trap on `$00:`/`$7E:` addresses never sees):
   these bytes** (`RomPrep.AppendV13Stamps`, compared against ShaoBase in
   `v13_overworld_tile_reader_takes_4bpp_like_lunar_magic`), verified in Mesen: fresh prep and
   the dev project on an upgraded base both render the OW identically to vanilla.
-- Still ours, and still divergent from LM's 4bpp mode (none of it broke the game; all of it
-  matters to LM reading our ROM): the `$00AA80` file dispatch keeps vanilla's filter path
-  (LM: `CPY #$08/#$1E → #$32` and the filter baked into its files — GFX1E = plane 3 OR'd, GFX08
-  a hand-made per-tile compromise that recolours nothing in tilesets 04/0A); GFX33 stays 3bpp
-  with vanilla's `$00B888` expander (LM converts it, rewrites `$00B895/B89F`, and reads our
-  3bpp GFX33 as 4bpp — the likely source of "garbled in LM" for anything drawn from AN1); the
-  GFX0F/00 RAM expanders are our v4 rewrites (LM: `$00A830 → $0EFC00`, `BRA` at `$00A873`); the
-  upload itself and the ExGFX/bypass loader are ours (LM: `$00AA50 → $0FF780`, `$00AA6C →
-  $0FF160`, records at `$12AD08`, pointers at `$0FF200`). Taking those is a rework of the
-  loader and the project's GFX layout, not a stamp. **The palette engine is no longer on this
-  list**: prep v24 stamps LM's `$0EFC00` block, `$0095E9` and `$00A5BF → $0EF570` byte for byte
-  (measured 2026-09-11 against three LM hacks and an LM import). What remains ours of LM's 4bpp
-  mode is exactly the set an ExGFX import still writes onto a v24 base: the `$00A830`/`$03DDC9`
-  repoints into `$0EFC00`, `$00AB0B`, `$00B895` (GFX33 4bpp) and the `$00A149` NOP.
+- **The rest is prep v25** (2026-09-11, CONTRACT §7d-25). Through v24 these stayed ours: the
+  `$00AA80` dispatch kept vanilla's filter path (LM: `CPY #$08/#$1E → #$32` with the plane baked
+  into its files), GFX33 stayed 3bpp behind vanilla's `$00B888` expander (LM reads it as 4bpp —
+  the source of "garbled in LM" for anything drawn from AN1), the GFX0F/00 RAM expanders were our
+  v4 rewrites (LM: `$00A830 → $0EFC00`, vanilla loops kept), and `$00A149` stayed live. V25
+  stamps LM's bytes for all of it and bakes the data they expect. Two measurements settled the
+  data: LM's stock GFX1E is the plain 4bpp conversion with plane 3 = `p0|p1|p2` on every tile,
+  its GFX08 the same on exactly 24 tiles (0x37-3B, 0x47-4B, 0x56-5B, 0x60, 0x6E-70, 0x7A-7B,
+  0x7E-7F — the ones the overworld draws; a level's GFX08 tiles stay as they were, which is the
+  "compromise": one file cannot serve both tilesets), its GFX33 the plain conversion — all three
+  identical across TestRom, DogsOfWar and ShaoBasePrepatch, where ShaoBase and BigEye redraw
+  GFX08 and GFX33 (those two are hacks; the earlier "hand-made" reading came from them). The
+  blobs' layout is the one deliberate divergence: LM keeps GFX33 at `$088000` with GFX32 behind
+  it, compressing the 4bpp blob to 0x1C68 where our LZ2 needs 0x262D — past vanilla's 0x59F9-byte
+  footprint — so v25 parks both in one RATS block behind the converted files and repoints the
+  three operands (`$00B88B`, `$00B890`, `$00B8D8`). LM follows them: `-ExportGFX` on a v25 base
+  returns GFX08/1E/32/33 byte-identical to ours, and `-ImportExGFX` on a v25 base writes its file
+  and bookkeeping and **no code at all** (v24: five code sites). The `$00A149` NOP needed the
+  loader to own the buffer's last file, so v25 adds an AN2 pass (`RomPrep.An2Pass`): record w0's
+  file for an enabled level or a submap, GFX14 otherwise. What stays ours: the loader itself
+  (LM: `$00AA50 → $0FF780`, `$00AA6C → $0FF160`, records at `$12AD08`, pointers at `$0FF200`).
+  **The palette engine** went the same way one version earlier: prep v24 stamps LM's `$0EFC00`
+  block, `$0095E9` and `$00A5BF → $0EF570` byte for byte.
 
 ### Per-submap GFX — LM reads and writes ours from prep v19, without its loader  [MEASURED 2026-09-09/10; four LM installs on a v17 base, then eight round trips on v18/v19 builds]
 
@@ -351,9 +360,9 @@ section used to call for; the probe is why:
   — that is LM's FIRST overworld save installing its own hack suite, settled under "RATS block
   shapes" below; the record table our reader follows is untouched.
 
-What stays divergent: the loader is ours (see the bullet above this section), and **AN2 (record
-w0) is editor-only** on our side because the overworld still runs vanilla's
-`LDY #$14 : JSL $00BA28` at `$00A147` where LM NOPs the JSL.
+What stays divergent: the loader is ours (see the bullet above this section). AN2 (record w0) was
+editor-only through v24 — the overworld still ran vanilla's `LDY #$14 : JSL $00BA28` at `$00A147`
+where LM NOPs the JSL — and is loaded from v25 (the loader's AN2 pass, CONTRACT §7d-25).
 
 ### The LEVEL Super GFX Bypass dialog — readable and writable from prep v20  [MEASURED 2026-09-10]
 
@@ -483,12 +492,12 @@ What the import DOES install on a v23 base, and what is still open about it:
   §7d-24): `$0EFC00`-`$0EFCAF`, the `$0095E9` hook, `$00A5BF → JSL $0EF570` with LM's 0x57-byte
   fade-in routine — the one piece the import did NOT write, which had left v1's `JSL $0EFC60`
   pointing into the middle of LM's `$0EFC50` loop — and the `$0093F7` NMI fix, all byte for byte
-  (ShaoBase, BigEye and DogsOfWar agree); v1's stubs are retired. On a v24 base the import writes
+  (ShaoBase, BigEye and DogsOfWar agree); v1's stubs are retired. On a v24 base the import wrote
   only the 4bpp-mode pieces: `$00A830`/`$03DDC9 → JML $0EFC00`, `$00AB0B`'s filter body, `$00B895`,
-  and the `$00A149` NOP — those stay ours for now (below), and after an import they are LM's code
-  over our 3bpp GFX33 and unbaked GFX08/1E, plus a NOPped GFX14 decompress our loader does not
-  replace with an AN2 pass, so AN1 and the overworld's animated tiles are the expected casualties
-  of an import on this base. Boots either way; neither is verifiable headless.  [OPEN]
+  and the `$00A149` NOP — LM's code over our 3bpp GFX33 and unbaked GFX08/1E, plus a NOPped GFX14
+  decompress with no AN2 pass behind it. **Prep v25 stamps those too** (§2 "4bpp graphics"), and
+  the same import on a v25 base writes its file, the `$0FEFAD` bookkeeping, `$0FFFE7` and the size
+  byte — no code (measured 2026-09-11; both ROMs boot in Mesen).  [CLOSED]
 - **The imported file's pointer is where we do not read.** LM allocated the file at `$208000` (a
   2230-byte block in the 2MB expansion it grew the ROM to) and wrote the pointer at `$258AA5` —
   unprotected, in that expansion — while entry 0 of our 0x100+ table at `$138008` stayed zero.
@@ -523,8 +532,9 @@ data; LM honours tags it did not write.
 
 ## 4. Where to start
 
-0. **4bpp graphics** (§2 above) — the overworld half is done (v13); what remains is LM reading
-   our GFX33 as 4bpp, the filter-path dispatch, and the loader itself.
+0. **4bpp graphics** (§2 above) — done: the overworld half in v13, the rest in v25 (GFX33 as
+   4bpp, the filter dispatch and body, the expander wrapper, the AN2 pass). What stays ours is
+   the loader itself.
 1. **Acts-like.** Two live mechanisms for one feature, and it decides collision. Build the
    experiment: a tile whose behaviour we set, opened and saved in LM, read back here.
 2. ~~Sprite extra bytes~~ — done: size table read at LM's registration and authored the same way.

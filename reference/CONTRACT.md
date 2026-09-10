@@ -2247,10 +2247,40 @@ emits it). `$0EFC00` itself — LM's 4bpp RAM-expander wrapper — rides along u
 post-import ROMs boot in Mesen, and the import now writes only its 4bpp-mode pieces (`$00A149`,
 `$00A830`, `$00AB0B`, `$00B895`, `$03DDC9`) plus its file and bookkeeping; LM saves a level on the
 result silently. IsPrepped v24 = `$00A5BF` is `JSL $0EF570`, which ShaoBase/BigEye/DogsOfWar have.
-Golden V24 pinned. STILL OPEN: LM's 4bpp-mode remainder (the two expander repoints, `$00AB0B`'s
-filter body, the `#$32` compares with plane 3 baked into GFX08/1E, GFX33 as 4bpp with
-`$00B88A/95`, and the `$00A149` NOP, which needs an AN2 pass in our loader first or the overworld's
-animated tiles lose their source), and the `$258AA5` ExGFX pointer location.
+Golden V24 pinned. Left open here and closed by V25: LM's 4bpp-mode remainder (the two expander
+repoints, `$00AB0B`'s filter body, the `#$32` compares with plane 3 baked into GFX08/1E, GFX33 as
+4bpp with `$00B88A/95`, and the `$00A149` NOP, which needs an AN2 pass in our loader first or the
+overworld's animated tiles lose their source). Still open: the `$258AA5` ExGFX pointer location.
+
+PREP V25 takes the rest of Lunar Magic's 4bpp mode — exactly the bytes an ExGFX import still wrote
+onto a v24 base (`RomPrep.AppendV25Stamps`; measured 2026-09-11, reference/LM_PARITY.md §2) — and
+the data those bytes expect (`RomPrep.BakeLmFourBppFiles`). Code, byte for byte with ShaoBase:
+`$00A830`/`$03DDC9` (the GFX0F expander's and bank 03's sprite-GFX `JSL $00BA28`) go through LM's
+`$0EFC00` wrapper — decompress, then fold the 4bpp buffer back to three planes in place — and the
+expanders themselves return to vanilla's bytes (v4 had rewritten their plane-2 loops and the
+`ADC #$0030` skip); the dispatch's `CPY #$08`/`#$1E` become `#$32` so nothing reaches the filter
+path, whose body is restamped as LM's anyway; `$00B895` decompresses GFX33 straight to `$7E7D00`
+as four planes and jumps to the vanilla tail for GFX32; `$00A149` is NOPped. Data: GFX1E carries
+plane 3 = `p0|p1|p2` on every tile and GFX08 on the 24 tiles LM's own conversion chooses (0x37-3B,
+0x47-4B, 0x56-5B, 0x60, 0x6E-70, 0x7A-7B, 0x7E-7F — one file cannot be both tilesets', and this is
+LM's compromise, measured against TestRom/DogsOfWar/ShaoBasePrepatch; ShaoBase and BigEye redraw
+the file); GFX33 is four planes (plane 3 zero); all three decompress to the bytes an LM-saved
+vanilla ROM has, and LM's own `-ExportGFX` of a v25 base returns them. GFX33 and GFX32 share the
+one bank byte at `$00B890`, so both blobs move into a single RATS block behind the converted files
+(vanilla's streams stay in bank 08 as dead bytes, GFX32 carried over byte for byte): LM keeps them
+at `$088000` with its own compressor, which fits the 4bpp blob in 0x1C68 where ours needs 0x262D,
+past vanilla's 0x59F9-byte footprint; LM reads both through the operands (an import onto v24 left
+ours alone, and the export above proves it on v25). The loader gains an AN2 pass at `$0FFA20`
+(`An2Pass`; both exits jump to it): record word 0's file — an enabled level's, a submap's always,
+GFX14 otherwise and for `7F` — is decompressed into `$7EAD00` last and left there, which is what
+the NOPped `$00A149` used to do for GFX14 alone, and what the overworld's bank-04 tile reader and
+a level's animation read. `Gfx.FileBpp` reads GFX33's depth off the `$00B894` operand (`$7D00` =
+four planes) and Mode 7's GFX27 is 3bpp on every base, LM's included. Verified: the wrapper hands
+vanilla's expanders the vanilla bytes (Cpu65816, GFX00/0F/13), the baked GFX1E uploads the words
+the filter produced on v24, the boot-blob load leaves `$7E2000-$7EACFF` as vanilla did, the AN2
+pass under all four arming cases, prep and post-import ROMs boot in Mesen, and the import on a v25
+base writes its file and bookkeeping and NO code. IsPrepped v25 = `$00A830` is `JSL $0EFC00`.
+Golden V25 pinned.
 
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 

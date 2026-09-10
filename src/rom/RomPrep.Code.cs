@@ -432,6 +432,7 @@ public static partial class RomPrep
         if (version < 15) return a.Bytes();
         EmitL3Opt(a, version);
         EmitL3Map(a, version);
+        if (version >= 25) EmitAn2Pass(a);
         return a.Bytes();
     }
 
@@ -569,9 +570,53 @@ public static partial class RomPrep
          .Bcs("body")
          .Label("exit");                     // an armed level that does not bypass: layer 3 only
         if (version >= 14) a.Jsr(L3Loop);
-        a.Label("noL3")
+        a.Label("noL3");
+        // V25: both exits end in the AN2 pass (same three bytes as the SEP : RTL it replaces), so
+        // the buffer always leaves here holding record word 0's file.
+        if (version >= 25) a.Jmp("an2");
+        else a.Sep(0x30).Rtl();
+    }
+
+    /// <summary>V25, $0FFA20: the AN2 pass — decompress record word 0's file into the buffer and
+    /// leave it there. The overworld's bank-04 tile reader and a level's animation read their
+    /// frames out of <see cref="GfxBuffer"/> (whatever was decompressed LAST), which vanilla
+    /// arranged with `LDY #$14 : JSL $00BA28` after the uploads; v25 NOPs that JSL as LM does, so
+    /// this runs on every exit: an enabled level's w0, a submap's w0 (no enable bit on those seven),
+    /// GFX14 for everything else and for `7F`. No VRAM write — the file is a source, not a sheet.</summary>
+    private static void EmitAn2Pass(Asm a)
+    {
+        a.PadTo(An2Pass)
+         .Label("an2")
+         .Rep(0x30)
+         .LdaImm16(Overworld.AnimatedGfxFile)
+         .StaDp(0x06)                        // the default, until a record says otherwise
+         .LdaDp(0xFE)
+         .Beq("an2go")                       // not armed: nothing to read
+         .DecA()
+         .Asl().Asl().Asl().Asl().Asl()      // level * 0x20
+         .Tax()
+         .LdaLongX(GfxBypassRecords)         // w0
+         .Bmi("an2use")                      // an enabled level
+         .CpxImm16(OwGfxRecordIndex * 0x20)
+         .Bcc("an2go")                       // a level that does not bypass
+         .Label("an2use")                    // (a submap's record reads unconditionally)
+         .AndImm16(0x0FFF)
+         .CmpImm16(0x007F)
+         .Beq("an2go")                       // Skip File keeps the default
+         .StaDp(0x06)
+         .Label("an2go")
+         .LdaDp(0x06)
+         .JsrL("resolve")                    // file# → $8A-$8C
+         .Bcs("an2done")                     // not inserted / invalid id
+         .Sep(0x20)
+         .StzDp(0x00)                        // decompress dest: the buffer
+         .LdaImm8(GfxBuffer >> 8 & 0xFF).StaDp(0x01)
+         .LdaImm8(GfxBuffer >> 16).StaDp(0x02)
+         .Jsl(GfxThunks)                     // LC_LZ2 core ($8A-$8C → [$00])
+         .Label("an2done")
          .Sep(0x30)
-         .Rtl();
+         .Rtl()
+         .PadTo(L3DestTable);                // the block ends flush against LM's table: a throw if it grows over
     }
 
     /// <summary>$0FF810: file# → $8A-$8C source pointer (vanilla tables, $0FF600, or the

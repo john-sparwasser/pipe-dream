@@ -19,11 +19,13 @@ public static class Gfx
     ///               through the shifter at $00ABC4; consumes 0xC00 but is not tile-packed.
     ///   0x28-0x2B   layer-3 tiles, 2bpp (16 B/tile). $00A993 streams 0x800/file straight out.
     ///   0x2F        2bpp. $00955E streams 0x400.
-    ///   0x32-0x33   the boot-time blobs, LM's numbering: 0x32 = Mario's sheet (ROM $088000, raw
-    ///               4bpp); 0x33 = the animated tiles AN1, 3bpp, expanded by its own reader at
-    ///               $00B8AD into $7E7D00, not uploaded,
-    ///               and neither is reachable through the pointer tables at all (their
-    ///               addresses are the fixed operands at $00B88B/$00B8D8/$00B890).
+    ///   0x32-0x33   the boot-time blobs, LM's numbering: 0x32 = Mario's sheet (raw 4bpp);
+    ///               0x33 = the animated tiles AN1 — 3bpp on vanilla, expanded by its own reader
+    ///               at $00B8AD into $7E7D00; four planes decompressed straight there from prep
+    ///               v25 (LM's $00B895), which is the conversion this predicate is NOT about.
+    ///               Neither is reachable through the pointer tables at all (their addresses are
+    ///               the fixed operands at $00B88B/$00B8D8/$00B890 — vanilla's bank 08, one RATS
+    ///               block from v25).
     /// Everything else below <see cref="Count"/> is FG/BG/sprite tile data that goes through
     /// the expand-upload, which prep v4 teaches to read four planes.
     /// </summary>
@@ -128,7 +130,11 @@ public static class Gfx
     ///   0x28-0x2B  layer-3 tiles, 2bpp — the status bar and the level's layer-3 scenery
     ///   0x2F       2bpp
     ///   0x32       Mario's sheet, raw 4bpp on a vanilla ROM
-    ///   0x27, 0x33 whatever a conversion left them at — see <see cref="UnconvertedBpp"/>
+    ///   0x27       Mode 7, 3bpp — Lunar Magic's conversion leaves it too (0xC00 on every LM base)
+    ///   0x33       AN1: 3bpp while vanilla's `$00B8AD` expander is what puts it at $7E7D00, four
+    ///              planes once the blob decompresses straight there (LM's `$00B895` rewrite, prep
+    ///              v25) — read off that operand, the one place either tool states it. Reading it
+    ///              at the wrong depth garbles every animated tile in the level view.
     /// Neither of those two is tile-packed at all, so the depth only says how wide their rows
     /// are; the picker says what they actually hold.
     /// ExGFX (0x80+) follow the ROM: a user file's depth is normalised on import — EXCEPT where the
@@ -139,23 +145,10 @@ public static class Gfx
     {
         (>= 0x28 and <= 0x2B) or 0x2F => 2,
         0x32 or (>= 0x60 and <= 0x63) => 4,      // Mario's sheet and the ExAnimation source files are always 4bpp
-        0x27 or 0x33 => UnconvertedBpp(rom),     // AN1 (animated tiles): 3bpp unless a 4bpp conversion touched it
+        0x27 => 3,
+        0x33 => rom.ReadValue(0x00B894, 2) == 0x7D00 ? 4 : 3,   // the blob's decompress destination
         _ => RomBpp(rom),
     };
-
-    /// <summary>
-    /// The depth of the files a 4bpp conversion SKIPS — Mode 7 and the animation source. Their
-    /// readers are not the tile uploader (the animation blob has its own 3bpp-to-4bpp expander
-    /// at $00B8AD, which prep v4 does not patch), so prep v6 leaves them three planes deep even
-    /// though <see cref="RomBpp"/> now reads 4. Lunar Magic converts them along with everything
-    /// else, and its 4bpp ROMs are told apart by the upload: LM stubs vanilla's expand-upload
-    /// and runs its own, where our prep rewrites vanilla's loops in place (CONTRACT §0).
-    ///
-    /// Reading the animation source at the wrong depth garbles every animated tile in the level
-    /// view — the munchers, the lava, the question blocks — which is what "the ROM is 4bpp so
-    /// this must be too" cost the moment v6 landed.
-    /// </summary>
-    private static int UnconvertedBpp(Rom rom) => RomBpp(rom) == 4 && !rom.HasGfx4bppUpload ? 4 : 3;
 
     public static int TileBytes(int bpp) => bpp * 8;   // 2bpp=16, 3bpp=24, 4bpp=32
 
@@ -410,8 +403,9 @@ public static class Gfx
         /// compare at $00AA91 names (GFX1E) always, and the one at $00AA8D (GFX08) on the
         /// overworld tilesets (0x11+). The overworld's castles, stars and signs are painted for
         /// those colours. Lunar Magic's 4bpp mode bakes the plane into those two files and points
-        /// both compares at GFX32, so reading the bytes follows either ROM; ours (prep v4) keeps
-        /// the compares and still synthesizes, as RomPrep.Stamps says. The routine's other case —
+        /// both compares at GFX32, so reading the bytes follows either ROM: prep v4-v24 kept the
+        /// compares and synthesized, prep v25 does what LM does (RomPrep.BakeLmFourBppFiles) and
+        /// this returns false. The routine's other case —
         /// tiles 6E/6F/7E/7F of GFX01 and GFX17 — is left out on purpose: Lunar Magic draws those
         /// level tiles from the file as it is, and the level editor follows Lunar Magic.
         /// </summary>

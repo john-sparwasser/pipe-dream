@@ -146,17 +146,19 @@ public class OverworldTests(ITestOutputHelper log)
         Assert.Equal(0, Overworld.SubmapAt(20, 15, false));              // the main map is submap 0
     }
 
-    /// <summary>The overworld's castles, level stars and signs come from GFX1E, which the game's
-    /// uploader gives a fourth plane (the OR of the other three): every drawn pixel lands in
+    /// <summary>The overworld's castles, level stars and signs come from GFX1E, which vanilla's
+    /// uploader gave a fourth plane (the OR of the other three): every drawn pixel lands in
     /// colours 8-F of its row. Read as a plain 3bpp file, the Star World's stars came out red
-    /// (row 6 colour 5) where the game and Lunar Magic paint them yellow (colour D).</summary>
+    /// (row 6 colour 5) where the game and Lunar Magic paint them yellow (colour D). From prep
+    /// v25 the plane is in the files, Lunar Magic's way — all of GFX1E, and the 24 GFX08 tiles the
+    /// overworld draws (tile 0x37 is one; tile 0x00 is not, and a level's GFX08 stays as it is).</summary>
     [Fact]
     public void gfx1e_and_gfx08_pixels_land_in_colours_8_to_f_on_the_overworld()
     {
         if (Open() is not { } ow) { log.WriteLine("SKIP: no ROM"); return; }
         var fg = Gfx.FgTiles.Load(ow.Rom, Overworld.Tileset, levelAnimation: false);
         Assert.All(fg.Fetch(0x1C8).Where(p => p != 0), p => Assert.True(p >= 8));   // a star quarter: GFX1E tile 0x48
-        Assert.All(fg.Fetch(0x100).Where(p => p != 0), p => Assert.True(p >= 8));   // GFX08 on the overworld
+        Assert.All(fg.Fetch(0x137).Where(p => p != 0), p => Assert.True(p >= 8));   // GFX08 tile 0x37 on the overworld
         Assert.Contains(fg.Fetch(0x000), p => p is > 0 and < 8);                    // GFX1C is left alone
         var level = Gfx.FgTiles.Load(ow.Rom, 0, levelAnimation: false);
         Assert.Contains(level.Fetch(0x100), p => p is > 0 and < 8);                 // a level's third file is not filtered

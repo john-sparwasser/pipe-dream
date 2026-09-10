@@ -60,6 +60,9 @@ public static partial class RomPrep
         if (version >= 23) AppendV23Stamps(s);
         // V24 restamps the palette sites with Lunar Magic's own engine over v1's stubs.
         if (version >= 24) AppendV24Stamps(s);
+        // V25 takes the rest of LM's 4bpp mode: the wrapper repoints, the filter dispatch and body,
+        // the GFX33 load, the $00A149 NOP, and the loader restamped with its AN2 pass.
+        if (version >= 25) AppendV25Stamps(s);
         return s;
     }
 
@@ -632,6 +635,44 @@ public static partial class RomPrep
     }
 
     /// <summary>
+    /// V25: the rest of Lunar Magic's 4bpp mode, byte for byte — exactly the set an ExGFX import
+    /// still wrote onto a v24 base (measured 2026-09-11; reference/LM_PARITY.md §2), so after this
+    /// an import writes its file and bookkeeping and no code. The data these bytes expect is
+    /// <c>BakeLmFourBppFiles</c>.
+    ///
+    ///   `$00A830`/`$03DDC9`  the two `JSL $00BA28` whose consumers read the buffer as THREE planes —
+    ///                        the GFX0F expander into `$7F977B` and bank 03's sprite-GFX path — go
+    ///                        through LM's `$0EFC00` wrapper (stamped by v24): decompress, then fold
+    ///                        the 4bpp buffer back to 3bpp in place. The expanders themselves return
+    ///                        to vanilla's bytes: v4 had rewritten their plane-2 loops (and the
+    ///                        2-tile skip's `ADC #$0030`) to read four planes, LM leaves them alone.
+    ///   `$00AA8D`/`$00AA91`  `CPY #$08`/`#$1E` → `#$32`: nothing reaches the filter path; its
+    ///                        plane-3 synthesis lives in GFX1E/GFX08 instead.
+    ///   `$00AB0B`            LM's filter body all the same (dead now, but it is what LM writes).
+    ///   `$00B895`            GFX33 decompressed straight to `$7E7D00` as four planes, then GFX32 to
+    ///                        `$7E2000` through the vanilla tail at `$00B8D7`; the 3bpp expander
+    ///                        behind it is dead bytes.
+    ///   `$00A149`            vanilla's GFX14 decompress after the uploads, NOPped — the loader's
+    ///                        AN2 pass (<see cref="An2Pass"/>) owns the buffer's last file.
+    /// </summary>
+    private static void AppendV25Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        byte[] wrapper = [LmPaletteEngine & 0xFF, LmPaletteEngine >> 8 & 0xFF, LmPaletteEngine >> 16];
+        s.Add((Pc(0x00A830), wrapper));
+        s.Add((Pc(0x03DDC9), wrapper));
+        s.Add((Pc(0x00A83E), [0x30, 0x00]));                                   // ADC #$0030: 2 tiles at 24 B
+        s.Add((Pc(0x00A857), Convert.FromHexString("A00800A70029FF009F7B977FE8E8E60088D0F0")));   // GFX0F plane-2 loop
+        s.Add((Pc(0x00A897), Convert.FromHexString("A00800A70029FF009DF60BE8E8E60088D0F1")));     // GFX00 plane-2 loop
+        s.Add((Pc(0x00AA8D), [0x32]));
+        s.Add((Pc(0x00AA91), [0x32]));
+        s.Add((Pc(0x00AB0B), Convert.FromHexString(
+            "A207A7008D1821EB07009DB21BE600E600CA10EEA207A70029FF00850CA700EB1DB21B250A050C8D1821E600E600CA10E5")));
+        s.Add((Pc(0x00B895), Convert.FromHexString("7D8400A97E850220DEB8C230A0002084004CD7B8")));
+        s.Add((Pc(0x00A149), [0xEA, 0xEA, 0xEA, 0xEA]));
+        s.Add((Pc(GfxArmStub), GfxCode(25)));
+    }
+
+    /// <summary>
     /// V18: Lunar Magic's Overworld ▸ Submap GFX — a per-submap FG/SP file list, so the six
     /// submaps and the main map stop sharing tileset row 0x11's four FG and four sprite files.
     ///
@@ -652,9 +693,9 @@ public static partial class RomPrep
     /// which is the same fact in the form our loader already reads (and it also stops the
     /// overworld load from re-applying whatever level record $FE was left holding).
     ///
-    /// AN2 (w0) is carried in the record and shown in the drawer but not loaded: the overworld's
-    /// animated-tile source stays vanilla's `LDY #$14 : JSL $00BA28` at $00A147, which LM NOPs
-    /// because its own loader uploads the slot. Noted in reference/LM_PARITY.md.
+    /// AN2 (w0) is carried in the record and shown in the drawer; through v24 it was not loaded
+    /// (the overworld's animated-tile source stayed vanilla's `LDY #$14 : JSL $00BA28` at
+    /// $00A147), and from v25 the loader's AN2 pass reads it and the JSL is NOPped as LM NOPs it.
     /// </summary>
     private static void AppendV18Stamps(List<(int Pc, byte[] Bytes)> s)
     {

@@ -73,6 +73,7 @@ public class RomPrepTests
     private const string GoldenPrepV22Sha256 = "ccb23c83a78fdd486174d8184fa0a1c0d3c3edb047cde351f3e6a28f1edbcd01";
     private const string GoldenPrepV23Sha256 = "0020a80c7a158882159afca01d577d6466e4c1ad03600c073ef3c8e13a44a8aa";
     private const string GoldenPrepV24Sha256 = "6817b894574dbf52fafb6ea4241ce14142fdff06b7f2b6e0c821a1e0a767aaeb";
+    private const string GoldenPrepV25Sha256 = "f16c8cf9c60c982d262909e8081b3af50574c8946e033196c9b9417eaf59d943";
 
     private static Rom Prepped()
     {
@@ -410,6 +411,141 @@ public class RomPrepTests
         Assert.All(Bytes(ours, RomPrep.PalThunk, 7), b => Assert.Equal(0xFF, b));
     }
 
+    // ---------------------------------------------------------------- V25: the rest of LM's 4bpp mode
+
+    /// <summary>V25 IS the rest of Lunar Magic's 4bpp mode: the bytes its ExGFX import wrote onto a
+    /// v24 base — the two expander repoints into $0EFC00, the #$32 compares, the filter body, the
+    /// GFX33 load and the $00A149 NOP — and ShaoBase carries the same. The expanders behind the
+    /// repoints go back to vanilla's bytes, which is what makes the wider ranges here match.</summary>
+    [LmRefRomFact]
+    public void v25_stamps_lunar_magics_4bpp_mode_byte_for_byte()
+    {
+        var ours = PreppedReal();
+        var shao = Rom.Load(ReferenceRoms.ShaoBase);
+        byte[] Bytes(Rom r, int snes, int n) => r.Data.AsSpan(r.FileOffset(snes), n).ToArray();
+        foreach (var (snes, n) in new[] { (0x00A82D, 0x8D),        // GFX0F/GFX00 expanders, wrapper repoint included
+                                          (0x03DDBA, 0x20),        // the sprite-GFX path and its repoint
+                                          (0x00AA80, 0x16),        // the dispatch: #$32 twice
+                                          (0x00AB02, 0x40),        // the filter path, LM's body
+                                          (0x00B893, 0x16),        // GFX33 → $7E7D00, then JMP $B8D7
+                                          (0x00A147, 0x06) })      // LDY #$14 and four NOPs
+            Assert.Equal(Bytes(shao, snes, n), Bytes(ours, snes, n));
+    }
+
+    /// <summary>LM's `$0EFC00` wrapper decompresses through vanilla's `$00BA28` and then folds the
+    /// 4bpp buffer back to three planes in place — so vanilla's untouched RAM expanders behind
+    /// `$00A830` and `$03DDC9` read exactly the bytes a vanilla ROM handed them.</summary>
+    [RealRomFact]
+    public void v25_wrapper_hands_vanillas_ram_expanders_the_three_plane_file()
+    {
+        var vanilla = Rom.Load(TestRom.RealRomPath);
+        var ours = PreppedReal();
+        Assert.Equal(RomPrep.LmPaletteEngine, ours.ReadValue(0x00A830, 3));
+        Assert.Equal(RomPrep.LmPaletteEngine, ours.ReadValue(0x03DDC9, 3));
+        foreach (int file in new[] { 0x0F, 0x00, 0x13 })      // 0F is $00A82D's; $03DDBA's path takes whatever X names
+        {
+            byte[] three = Gfx.DecompressFile(vanilla, file);
+            Assert.Equal(0xC00, three.Length);
+            Assert.Equal(0x1000, Gfx.DecompressFile(ours, file).Length);   // stored as four planes
+            var cpu = new Cpu65816(ours);
+            cpu.PresetWidths(m8: true, x8: true);
+            cpu.PresetY(file);
+            cpu.CallLong(RomPrep.LmPaletteEngine, 5_000_000);
+            Assert.Equal(three, cpu.Ram7E.AsSpan(0xAD00, 0xC00).ToArray());
+        }
+    }
+
+    /// <summary>With both compares at #$32 nothing reaches the filter path, so the plane it
+    /// synthesised has to be in the files. Vanilla's upload on v24's GFX1E through the filter and
+    /// v25's on the baked file through the plain path must land the same words in VRAM; GFX08 is
+    /// LM's compromise (one file for both tilesets), so it and the other two are held to the bytes
+    /// an LM-saved vanilla ROM decompresses to.</summary>
+    [LmRefRomFact]
+    public void v25_bakes_the_filter_plane_into_gfx1e_and_gfx08_the_way_lunar_magic_does()
+    {
+        var v24 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v24, 24);
+        var v25 = PreppedReal();
+        Assert.Equal(0x32, v25.ReadByte(0x00AA8D)); Assert.Equal(0x32, v25.ReadByte(0x00AA91));
+
+        List<(int Word, int Value)> Upload(Rom rom, int file)
+        {
+            var cpu = new Cpu65816(rom) { VramWrites = [] };
+            Gfx.DecompressFile(rom, file).CopyTo(cpu.Ram7E, 0xAD00);
+            cpu.Ram7E[0x00] = 0x00; cpu.Ram7E[0x01] = 0xAD; cpu.Ram7E[0x02] = 0x7E;
+            cpu.Ram7E[0x1931] = 0;
+            cpu.PresetWidths(m8: true, x8: true);
+            cpu.PresetY(file);
+            cpu.CallNear(0x00AA80, 5_000_000);
+            return cpu.VramWrites!;
+        }
+        var filtered = Upload(v24, 0x1E);
+        Assert.Equal(0x800, filtered.Count);
+        Assert.Contains(filtered, w => (w.Value & 0xFF00) != 0);   // the filter did synthesise a plane 3
+        Assert.Equal(filtered, Upload(v25, 0x1E));
+
+        string dogs = ReferenceRoms.InProject("DogsOfWar", "dogs_of_war.smc");   // LM-saved, stock GFX08/1E/33
+        if (!File.Exists(dogs)) return;
+        var lm = Rom.Load(dogs);
+        foreach (int file in new[] { 0x08, 0x1E, 0x33 })
+            Assert.Equal(Gfx.DecompressFile(lm, file), Gfx.DecompressFile(v25, file));
+    }
+
+    /// <summary>GFX33 goes to `$7E7D00` as four planes in one decompress (LM's `$00B895`) where
+    /// vanilla decompressed three to `$7E2000` and expanded them across; GFX32 follows to `$7E2000`
+    /// as before. Same RAM either way, both blobs behind one bank byte, Mario's bytes untouched.</summary>
+    [RealRomFact]
+    public void v25_loads_the_boot_blobs_into_the_ram_vanilla_left_them_in()
+    {
+        var v24 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v24, 24);
+        var v25 = PreppedReal();
+        byte[] Run(Rom rom)
+        {
+            var cpu = new Cpu65816(rom);
+            cpu.PresetWidths(m8: true, x8: true);
+            cpu.CallNear(0x00B888, 20_000_000);
+            return cpu.Ram7E.AsSpan(0x2000, 0x8D00).ToArray();   // $7E2000 Mario's sheet … $7E7D00-$7EACFF AN1
+        }
+        Assert.Equal(Run(v24), Run(v25));
+        Assert.Equal(3, Gfx.FileBpp(v24, 0x33)); Assert.Equal(4, Gfx.FileBpp(v25, 0x33));
+        Assert.Equal(0x3000, Gfx.DecompressFile(v25, 0x33).Length);
+        Assert.Equal(Gfx.DecompressFile(v24, 0x32), Gfx.DecompressFile(v25, 0x32));
+        int bank = v25.ReadByte(0x00B890);
+        Assert.Equal(bank, Gfx.SourceSnes(v25, 0x33) >> 16);
+        Assert.Equal(bank, Gfx.SourceSnes(v25, 0x32) >> 16);
+    }
+
+    /// <summary>The loader's AN2 pass (v25): whatever it uploaded, the buffer is left holding record
+    /// word 0's file — an enabled level's, a submap's always, GFX14 otherwise and for Skip File —
+    /// because `$00A149`, vanilla's GFX14 decompress after the uploads, is NOPped the way LM NOPs
+    /// it, and the overworld's animated tiles are read out of that buffer.</summary>
+    [RealRomFact]
+    public void v25_loader_leaves_the_an2_file_in_the_buffer()
+    {
+        var rom = PreppedReal();
+        Assert.Equal(new byte[] { 0xEA, 0xEA, 0xEA, 0xEA }, rom.Data.AsSpan(rom.FileOffset(0x00A149), 4).ToArray());
+        int level = rom.FileOffset(RomPrep.GfxBypassRecords + 5 * 0x20);
+        int submap = rom.FileOffset(RomPrep.GfxBypassRecords + (RomPrep.OwGfxRecordIndex + 2) * 0x20);
+        for (int w = 0; w < 16; w++) { rom.Data[level + w * 2] = 0x7F; rom.Data[level + w * 2 + 1] = 0; }
+
+        byte[] Buffer(int fe)
+        {
+            var cpu = new Cpu65816(rom);
+            cpu.Ram7E[0xFE] = (byte)fe; cpu.Ram7E[0xFF] = (byte)(fe >> 8);
+            cpu.CallLong(RomPrep.GfxLoaderEntry, 40_000_000);
+            return cpu.Ram7E.AsSpan(0xAD00, 0x1000).ToArray();
+        }
+        byte[] gfx14 = Gfx.DecompressFile(rom, 0x14);
+        Assert.Equal(gfx14, Buffer(0));                          // not a level load: vanilla's file
+        rom.Data[level] = 0x13;                                  // w0 = GFX13, record not enabled
+        Assert.Equal(gfx14, Buffer(6));
+        rom.Data[level + 1] = 0x80;                              // enabled
+        Assert.Equal(Gfx.DecompressFile(rom, 0x13), Buffer(6));
+        rom.Data[level] = 0x7F;                                  // enabled, AN2 at Skip File
+        Assert.Equal(gfx14, Buffer(6));
+        rom.Data[submap] = 0x15; rom.Data[submap + 1] = 0x00;    // a submap's record needs no enable bit
+        Assert.Equal(Gfx.DecompressFile(rom, 0x15), Buffer(RomPrep.OwGfxRecordIndex + 2 + 1));
+    }
+
     /// <summary>
     /// Run the inserted Map16 def lookup and check it returns the address the C# reader
     /// predicts, for a tile in EVERY range. The dispatcher derives the range from the carry
@@ -606,11 +742,15 @@ public class RomPrepTests
             Assert.Equal(GoldenPrepV23Sha256, RomHash.HeaderlessSha256File(tmp));
 
             File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
-            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V24)
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 24));     // frozen V24 stamp list
+            Assert.Equal(GoldenPrepV24Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V25)
             string cur = RomHash.HeaderlessSha256File(tmp);
             // Spelled out rather than left to the assertion message: xunit truncates a mismatch,
             // and this hash is what the NEXT version bump has to be told.
-            Assert.True(GoldenPrepV24Sha256 == cur, $"V24 golden hash is now {cur}");
+            Assert.True(GoldenPrepV25Sha256 == cur, $"V25 golden hash is now {cur}");
         }
         finally { File.Delete(tmp); }
     }
@@ -785,6 +925,9 @@ public class RomPrepTests
         // it would overwrite what this test reads there. Point its four slots at a dead id
         // (0x34-0x7F resolves to "skip") to hold it inert — the layer-3 half has its own test.
         for (int w = 12; w <= 15; w++) { rom.Data[rfo + w * 2] = 0x40; rom.Data[rfo + w * 2 + 1] = 0x00; }
+        // V25's AN2 pass ends every load by decompressing w0's file into that same buffer (GFX14
+        // for Skip File), so it gets the dead id too; it has its own test.
+        rom.Data[rfo] = 0x40;                                      // w0 = 0xC040
 
         Cpu65816 Armed()
         {
@@ -812,17 +955,20 @@ public class RomPrepTests
         c.CallLong(RomPrep.GfxLoaderEntry, 20_000_000);
         Assert.Equal(padded[0], Buf(c)[bufAddr]);
 
-        // unarmed: nothing happens
+        // unarmed: no upload — the buffer only gets the AN2 pass's default, GFX14 (v25; through
+        // v24 it was untouched and vanilla's $00A149 put GFX14 there afterwards)
+        byte[] gfx14 = Gfx.DecompressFile(rom, 0x14);
         var u = Armed(); u.Ram7E[0xFE] = 0; Buf(u)[bufAddr] = 0xEE;
         u.CallLong(RomPrep.GfxLoaderEntry, 20_000_000);
-        Assert.Equal(0xEE, Buf(u)[bufAddr]);
+        Assert.Equal(gfx14, Buf(u).AsSpan(bufAddr, gfx14.Length).ToArray());
 
-        // disabled record (w0 bit15 clear): nothing happens. Bit 14 stays on so the layer-3
-        // pass keeps taking its dead slots rather than falling back to the vanilla 28-2B.
+        // disabled record (w0 bit15 clear): no upload, and the AN2 pass ignores the record's
+        // w0 for the default. Bit 14 stays on so the layer-3 pass keeps taking its dead slots
+        // rather than falling back to the vanilla 28-2B.
         rom.Data[rfo + 1] = 0x40;
         var dis = Armed(); Buf(dis)[bufAddr] = 0xEE;
         dis.CallLong(RomPrep.GfxLoaderEntry, 20_000_000);
-        Assert.Equal(0xEE, Buf(dis)[bufAddr]);
+        Assert.Equal(gfx14, Buf(dis).AsSpan(bufAddr, gfx14.Length).ToArray());
         rom.Data[rfo + 1] = 0xC0;
 
         // vanilla-file override resolves through the vanilla tables (filters keep working)
