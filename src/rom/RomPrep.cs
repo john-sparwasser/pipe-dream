@@ -27,10 +27,12 @@ namespace PipeDream;
 ///   5 dispatch tables  objs 0x22/0x23/0x26/0x27/0x28/0x29 → $0DF08A/8E/130/150/160/FF50
 ///   ext table          0x02 → $0DE1B0 (secondary exit), 0x03 → $0DE1E0 (screen jump)
 ///   $05D8F5  JSL $0EF300 sprite stub (bank table $0EF100, level word → $010B)
-///   $0095E9  JML $0EFC50 palette hook (thunk $00FF93, apply $0EFC90, table $0EF600)
-///   $00A5BF  JSL $0EFC60 second palette hook (the fade-in mode step reloads the palette;
-///            without a re-apply the custom staging — incl. the $0701 back color that
-///            feeds COLDATA $2132 via $00AE47 — is wiped back to vanilla)
+///   $0095E9  JML $0EFC50 palette hook — v1-v23 ours (thunk $00FF93, apply $0EFC90); from v24
+///            Lunar Magic's own engine at $0EFC00, byte for byte, with the table at $0EF600
+///   $00A5BF  second palette hook (the fade-in mode step reloads the palette; without a
+///            re-apply the custom staging — incl. the $0701 back color that feeds COLDATA
+///            $2132 via $00AE47 — is wiped back to vanilla): JSL $0EFC60 ours through v23,
+///            LM's JSL $0EF570 from v24
 ///   pc 0x87FF8 RATS acts-like table (identity &lt;0x200, 0x0130 above), data = $118000
 ///   pc 0x90000 RATS extended Map16 defs page 0x200-0x2FF (0x1004-word fill), data = $12:8008
 /// PC 0x80000-0x87FF7 stays zero — first-fit territory for RomBuilder/palette allocations.
@@ -73,8 +75,10 @@ public static partial class RomPrep
     /// V22 gives the separate-midway ROUTINE a block of its own too, away from the secondary
     /// tables Lunar Magic re-allocates — and zeroes — on a secondary-entrance save.
     /// V23 moves the v2 GFX arm stub out of Lunar Magic's ExGFX pointer table, where its ExGFX
-    /// import was zeroing it from under the LoadLevel hook.
-    public const int Version = 23;
+    /// import was zeroing it from under the LoadLevel hook;
+    /// V24 replaces v1's private palette stubs with Lunar Magic's own palette engine, byte for
+    /// byte, so an LM ExGFX import lands on code that is already there.
+    public const int Version = 24;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -209,8 +213,24 @@ public static partial class RomPrep
     /// <summary>LM's level-word mirror (`$05D8E2 → JSL`, 16-bit A): `$0E` → `$010B`, level+1 → `$FE`,
     /// Y = level*2. v10 restamps LM's 12-byte `$0EF300` stub (bank only) and adds this.</summary>
     public const int LmLevelWordStub = 0x0EF550;
-    public const int PalTrampoline = 0x0EFC50, PalApply = 0x0EFC90, PalThunk = 0x00FF93;
-    public const int PalHook2Stub = 0x0EFC60;      // second hook: re-apply after $00A5BC
+    public const int PalTrampoline = 0x0EFC50, PalApply = 0x0EFC90, PalThunk = 0x00FF93;   // v1-v23
+    public const int PalHook2Stub = 0x0EFC60;      // second hook: re-apply after $00A5BC (v1-v23)
+
+    // ---- V24: Lunar Magic's own palette engine, byte for byte, over v1's private stubs ----
+    /// <summary>LM's 176-byte block: `$0EFC00` its 4bpp RAM-expander wrapper (present because the
+    /// block is one unit; nothing of ours hooks it yet), `$0EFC50` and `$0EFC80` the two halves of
+    /// the `$0095E9` hook — they save and restore LM's staging around the vanilla loads and hand
+    /// the custom palette to `$05809E → $1FAFF1`, which v10 already carries.</summary>
+    public const int LmPaletteEngine = 0x0EFC00;
+    /// <summary>LM's fade-in re-apply, JSL'd from `$00A5BF`: `$FE` (level+1) names the level,
+    /// <see cref="LmPaletteApply"/> copies its `$0EF600` blob into the `$0701` staging, then it
+    /// clears `$FE` and tail-calls the displaced `$05BE8A`. 0x57 bytes, identical in ShaoBase,
+    /// BigEye and DogsOfWar.</summary>
+    public const int LmPaletteFadeIn = 0x0EF570, LmPaletteApply = 0x0EF583;
+    /// <summary>LM's NMI-enable fix — `LDA #$81 : BIT $4212 : BVC/BVS : STA $4200 : RTL`, waiting
+    /// for the vblank edge — which every LM install carries in a 0x20 block of its own (ShaoBase
+    /// `$10EE10`). JSL'd from `$0093F7` over vanilla's `LDA #$81 : STA $4200`.</summary>
+    public const int LmNmiFixHook = 0x0093F7, LmNmiFixTagPc = 0x9C600, LmNmiFix = 0x13C608;
 
     // ---- V2: in-game GFX stage (bank-0F FF tail $0FEF90-$0FFFFF + expansion tables) ----
     public const int GfxArmStub = 0x0FF770;        // JSL target at $0583B8 (LoadLevel), v2-v22
@@ -419,7 +439,10 @@ public static partial class RomPrep
            // satisfies this too.
            && (version < 23 || (rom.ReadByte(0x0583B8) == 0x22
                                 && rom.ReadValue(0x0583B9, 3) is var armTarget
-                                && (armTarget < Gfx.ExGfx80Table || armTarget >= GfxLoaderEntry)));
+                                && (armTarget < Gfx.ExGfx80Table || armTarget >= GfxLoaderEntry)))
+           // V24: the second palette hook is LM's — the property every LM base with the palette
+           // engine has (ShaoBase, BigEye, DogsOfWar), and v1-v23's `JSL $0EFC60` does not.
+           && (version < 24 || (rom.ReadByte(0x00A5BF) == 0x22 && rom.ReadValue(0x00A5C0, 3) == LmPaletteFadeIn));
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying

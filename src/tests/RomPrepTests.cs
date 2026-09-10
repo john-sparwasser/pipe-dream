@@ -72,6 +72,7 @@ public class RomPrepTests
     private const string GoldenPrepV21Sha256 = "94fcfcea85ead1e4fe98a9e171bb8f666a8459bba13f7ec1e8ac10fd852e5378";
     private const string GoldenPrepV22Sha256 = "ccb23c83a78fdd486174d8184fa0a1c0d3c3edb047cde351f3e6a28f1edbcd01";
     private const string GoldenPrepV23Sha256 = "0020a80c7a158882159afca01d577d6466e4c1ad03600c073ef3c8e13a44a8aa";
+    private const string GoldenPrepV24Sha256 = "6817b894574dbf52fafb6ea4241ce14142fdff06b7f2b6e0c821a1e0a767aaeb";
 
     private static Rom Prepped()
     {
@@ -295,10 +296,10 @@ public class RomPrepTests
         string word = Disasm.Dis(rom, RomPrep.LmLevelWordStub, 6, m8: false, x8: false);
         Assert.Contains("STA $010B", word);
 
-        string pal = Disasm.Dis(rom, RomPrep.PalApply, 30, m8: true, x8: true);
-        Assert.Contains("LDA $010B", pal);
+        // V24: the apply is Lunar Magic's, reading the $0EF600 table for the level in A.
+        string pal = Disasm.Dis(rom, RomPrep.LmPaletteApply, 30, m8: false, x8: false);
+        Assert.Contains("LDA $F600,Y", pal);
         Assert.Contains("STA $0701,Y", pal);
-        Assert.Contains("CPY #$0202", pal);
 
         // V23: the arm stub moved out of LM's ExGFX pointer table — its last sixteen bytes (ids
         // 0xFB-0xFF) read "no file" again — and the LoadLevel hook still JSLs, which is what keeps
@@ -352,17 +353,22 @@ public class RomPrepTests
         Assert.Equal(0x07, cpu.Ram7E[0xD0]);
     }
 
+    /// <summary>Lunar Magic's own fade-in re-apply (v24), run as code over a palette this editor
+    /// wrote: the level in $FE (level+1) gets its $0EF600 blob copied into the $0701 staging and
+    /// $FE cleared; a level without one leaves the staging alone.</summary>
     [Fact]
-    public void palette_apply_copies_the_blob_and_ignores_null_pointers()
+    public void lunar_magics_palette_apply_copies_the_blob_and_ignores_null_pointers()
     {
         var rom = Prepped();
         var colors = new ushort[256];
         for (int i = 0; i < 256; i++) colors[i] = (ushort)(0x4000 | i);
         rom.WriteLmCustomPalette(0x05, 0x2345, colors);
 
+        // The apply routine on its own: A = level, as $0EF570 hands it over.
         var cpu = new Cpu65816(rom);
-        cpu.Ram7E[0x010B] = 0x05;
-        cpu.CallNear(RomPrep.PalApply, 200_000);
+        cpu.PresetWidths(m8: false, x8: false);
+        cpu.PresetRegs(a: 0x05, x: 0, y: 0);
+        cpu.CallNear(RomPrep.LmPaletteApply, 200_000);
         Assert.Equal(0x45, cpu.Ram7E[0x0701]);     // back-area color word
         Assert.Equal(0x23, cpu.Ram7E[0x0702]);
         for (int i = 1; i < 256; i++)              // colors at $0703+ (row color 0 stored 0)
@@ -373,20 +379,35 @@ public class RomPrepTests
 
         // level without a custom palette (pointer 0): staging untouched
         cpu = new Cpu65816(rom);
-        cpu.Ram7E[0x010B] = 0x06;
+        cpu.PresetWidths(m8: false, x8: false);
+        cpu.PresetRegs(a: 0x06, x: 0, y: 0);
         cpu.Ram7E[0x0701] = 0xAB; cpu.Ram7E[0x0703] = 0xCD;
-        cpu.CallNear(RomPrep.PalApply, 200_000);
+        cpu.CallNear(RomPrep.LmPaletteApply, 200_000);
         Assert.Equal(0xAB, cpu.Ram7E[0x0701]);
         Assert.Equal(0xCD, cpu.Ram7E[0x0703]);
+        // The hook around it ($0EF570: $FE in, staging out, $FE cleared, then the displaced
+        // $05BE8A) runs in custom_back_color_survives_the_fade_in_palette_reload, on the real ROM —
+        // $05BE8A is vanilla bank-05 code this synthetic image does not carry.
+    }
 
-        // pointer FFFFFF: also untouched
-        int tfo = rom.FileOffset(LunarMagic.LmPaletteTable + 0x07 * 3);
-        rom.Data[tfo] = rom.Data[tfo + 1] = rom.Data[tfo + 2] = 0xFF;
-        cpu = new Cpu65816(rom);
-        cpu.Ram7E[0x010B] = 0x07;
-        cpu.Ram7E[0x0701] = 0xAB;
-        cpu.CallNear(RomPrep.PalApply, 200_000);
-        Assert.Equal(0xAB, cpu.Ram7E[0x0701]);
+    /// <summary>V24 IS Lunar Magic's palette engine: every byte LM's ExGFX import wrote onto a v23
+    /// base at these sites is what the prep now stamps, and ShaoBase carries the same.</summary>
+    [LmRefRomFact]
+    public void v24_stamps_lunar_magics_palette_engine_byte_for_byte()
+    {
+        var ours = PreppedReal();
+        var shao = Rom.Load(ReferenceRoms.ShaoBase);
+        byte[] Bytes(Rom r, int snes, int n) => r.Data.AsSpan(r.FileOffset(snes), n).ToArray();
+        foreach (var (snes, n) in new[] { (RomPrep.LmPaletteEngine, 176), (RomPrep.LmPaletteFadeIn, 0x57),
+                                          (0x0095E9, 12), (0x00A5BF, 4) })
+            Assert.Equal(Bytes(shao, snes, n), Bytes(ours, snes, n));
+        // The NMI fix is a per-ROM block, so compare the routine through each ROM's own hook.
+        Assert.Equal(0x22, ours.ReadByte(RomPrep.LmNmiFixHook)); Assert.Equal(0x22, shao.ReadByte(RomPrep.LmNmiFixHook));
+        Assert.Equal(Bytes(shao, shao.ReadValue(RomPrep.LmNmiFixHook + 1, 3), 17),
+                     Bytes(ours, ours.ReadValue(RomPrep.LmNmiFixHook + 1, 3), 17));
+        Assert.Equal(0x60, ours.ReadByte(RomPrep.LmNmiFixHook + 4));                // the vanilla RTS survives
+        // ...and v1's stubs are gone: the thunk is vanilla free space again.
+        Assert.All(Bytes(ours, RomPrep.PalThunk, 7), b => Assert.Equal(0xFF, b));
     }
 
     /// <summary>
@@ -581,11 +602,15 @@ public class RomPrepTests
             Assert.Equal(GoldenPrepV22Sha256, RomHash.HeaderlessSha256File(tmp));
 
             File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
-            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V23)
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 23));     // frozen V23 stamp list
+            Assert.Equal(GoldenPrepV23Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V24)
             string cur = RomHash.HeaderlessSha256File(tmp);
             // Spelled out rather than left to the assertion message: xunit truncates a mismatch,
             // and this hash is what the NEXT version bump has to be told.
-            Assert.True(GoldenPrepV23Sha256 == cur, $"V23 golden hash is now {cur}");
+            Assert.True(GoldenPrepV24Sha256 == cur, $"V24 golden hash is now {cur}");
         }
         finally { File.Delete(tmp); }
     }
@@ -1264,10 +1289,12 @@ public class RomPrepTests
         var cpu = new Cpu65816(prep);
         cpu.Ram7F[0x8000] = 0x6B;                          // JSL $7F8000 utility → RTL stub
         cpu.Ram7E[0x010B] = 0x05; cpu.Ram7E[0x010C] = 0x01;
+        cpu.Ram7E[0xFE] = 0x06; cpu.Ram7E[0xFF] = 0x01;      // level+1, as LM's $0EF550 leaves it (v24's hook reads this)
         cpu.Ram7E[0x1930] = 0x01; cpu.Ram7E[0x192B] = 0x09;   // header mirrors for LoadPalette
         cpu.CallNear(0x00A5B9, 30_000_000);                // the whole fade-in mode step
 
         Assert.Equal(0x7FFF, cpu.Ram7E[0x0701] | (cpu.Ram7E[0x0702] << 8));   // $2132 home
+        Assert.Equal(0, cpu.Ram7E[0xFE] | cpu.Ram7E[0xFF] << 8);              // LM's hook clears the arm
         Assert.Equal(0x2011, cpu.Ram7E[0x0703 + 0x11 * 2] | (cpu.Ram7E[0x0704 + 0x11 * 2] << 8));
         // the fade copy ($00A5D8) propagates the custom values to the display buffer too
         Assert.Equal(0x7FFF, cpu.Ram7E[0x0903] | (cpu.Ram7E[0x0904] << 8));

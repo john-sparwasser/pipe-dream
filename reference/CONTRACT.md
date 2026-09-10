@@ -2224,6 +2224,34 @@ $0EFC60` pointing into the middle of LM's routine (boots, correctness unverified
 `JSL $0EF570`); and LM records the imported file's pointer at `$258AA5` in the 2MB expansion, not
 in our `$138008` table, so the editor does not see it.
 
+PREP V24 replaces v1's private palette stubs with Lunar Magic's palette engine, byte for byte
+(`RomPrep.AppendV24Stamps`; measured 2026-09-11, reference/LM_PARITY.md §2). LM installs the engine
+as one unit and its ExGFX import wrote all of it onto a v23 base: the 176-byte block at
+`$0EFC00`-`$0EFCAF` (identical in ShaoBase, BigEye and DogsOfWar), the 12-byte hook
+`$0095E9 → JML $0EFC50 : JSR LoadPalette : JML $0EFC80 : NOP NOP` (its first four bytes were v1's
+hook, which is why `$0095E9 == 0x5C` has always been the detector), the NMI-enable fix `$0093F7 →
+JSL` a 13-byte routine in a 0x20 block of its own, and — the one the import did NOT write, leaving
+v1's `$00A5BF → JSL $0EFC60` pointing into the middle of LM's `$0EFC50` loop — the fade-in hook
+`$00A5BF → JSL $0EF570` with LM's 0x57-byte routine at `$0EF570`: `$FE` names the level,
+`$0EF583` copies its `$0EF600` blob into the `$0701` staging, `STZ $FE`, then the displaced
+`JSL $05BE8A`. The first-load apply, `$05809E → $1FAFF1`, was LM's already (v10, byte-identical).
+Clearing `$FE` is safe for our loader: no `UploadSpriteGFX` runs after `$00A5BF` inside a level
+(`$0094D7`/`$009658`/`$009840` are title and credits paths), the overworld skips that block on
+`$0D9B` at `$00A5B2`, and the next LoadLevel re-arms through `$0EF550`. Retired: `$0EFC50/60/90`
+(under LM's block) and the bank-00 thunk at `$00FF93`. The `$0EF600` table and blob format were
+LM's all along (§7e), so `Rom.WriteLmCustomPalette`/`LmCustomPalette` are untouched; LM's
+`$0EF583` treats only a zero pointer as "none" (v1's stub also skipped `FFFFFF`; the writer never
+emits it). `$0EFC00` itself — LM's 4bpp RAM-expander wrapper — rides along unhooked: the
+`$00A830`/`$03DDC9` repoints are LM's 4bpp mode, which stays ours. Verified: LM's `$0EF583` under
+`Cpu65816` over a palette this editor wrote, the whole fade-in step on the real ROM, prep and
+post-import ROMs boot in Mesen, and the import now writes only its 4bpp-mode pieces (`$00A149`,
+`$00A830`, `$00AB0B`, `$00B895`, `$03DDC9`) plus its file and bookkeeping; LM saves a level on the
+result silently. IsPrepped v24 = `$00A5BF` is `JSL $0EF570`, which ShaoBase/BigEye/DogsOfWar have.
+Golden V24 pinned. STILL OPEN: LM's 4bpp-mode remainder (the two expander repoints, `$00AB0B`'s
+filter body, the `#$32` compares with plane 3 baked into GFX08/1E, GFX33 as 4bpp with
+`$00B88A/95`, and the `$00A149` NOP, which needs an AN2 pass in our loader first or the overworld's
+animated tiles lose their source), and the `$258AA5` ExGFX pointer location.
+
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 
 No unified sprite→tile table exists; each sprite's look comes from its graphics routine.

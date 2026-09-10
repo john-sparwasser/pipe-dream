@@ -58,6 +58,8 @@ public static partial class RomPrep
         // V23 retires the GFX arm stub: vanilla bytes back at $0583B8, and the GFX block
         // restamped with the ExGFX pointer table's tail back to zero.
         if (version >= 23) AppendV23Stamps(s);
+        // V24 restamps the palette sites with Lunar Magic's own engine over v1's stubs.
+        if (version >= 24) AppendV24Stamps(s);
         return s;
     }
 
@@ -580,6 +582,53 @@ public static partial class RomPrep
     {
         s.Add((Pc(0x0583B8), [0x22, GfxArmStubV23 & 0xFF, GfxArmStubV23 >> 8 & 0xFF, GfxArmStubV23 >> 16, 0xEA]));
         s.Add((Pc(GfxArmStub), GfxCode(23)));
+    }
+
+    /// <summary>
+    /// V24: Lunar Magic's palette engine, byte for byte, over v1's private stubs. LM installs it as
+    /// one unit — its ExGFX import wrote every one of these onto a v23 base (reference/LM_PARITY.md
+    /// §2 "`-ImportExGFX`") — so after v24 that import lands on code that is already there:
+    ///
+    /// - `$0EFC00`-`$0EFCAF`: LM's block, identical in ShaoBase, BigEye and DogsOfWar. `$0EFC50`
+    ///   restores LM's staging and runs the vanilla `UploadSpriteGFX`; `$0EFC80` backs it up again
+    ///   and hands the level to `$05809E → $1FAFF1`, LM's first-load palette apply, which v10 has
+    ///   carried since (byte-identical here and in ShaoBase). `$0EFC00` is LM's 4bpp RAM-expander
+    ///   wrapper: it rides along because the block is one unit, but nothing hooks it yet — the
+    ///   `$00A830`/`$03DDC9` repoints are part of LM's 4bpp mode, which stays ours (LM_PARITY §2).
+    /// - `$0095E9`: `JML $0EFC50 : JSR LoadPalette : JML $0EFC80 : NOP NOP`. Its first four bytes
+    ///   are what v1's hook was, which is why byte `$0095E9 == 0x5C` has always been the detector.
+    /// - `$00A5BF → JSL $0EF570`, and the 0x57-byte routine there: `$FE` names the level, `$0EF583`
+    ///   copies its `$0EF600` blob into the `$0701` staging, then `STZ $FE` and the displaced
+    ///   `JSL $05BE8A`. This is the one LM did NOT write on import, so v1's `JSL $0EFC60` was left
+    ///   pointing into the middle of LM's `$0EFC50` loop — the reason this transplant exists.
+    ///   Clearing `$FE` is safe for our loader: no `UploadSpriteGFX` runs after `$00A5BF` inside a
+    ///   level (the other callers are title and credits paths), the overworld skips that block on
+    ///   `$0D9B` at `$00A5B2`, and the next LoadLevel re-arms through `$0EF550`.
+    /// - `$0093F7 → JSL` LM's NMI-enable fix, in a 0x20 block of its own like LM's (ShaoBase
+    ///   `$10EE10`): the same 13 bytes and `LM 00 01`.
+    ///
+    /// Retired: `$0EFC50/60/90` (under LM's block) and the bank-00 thunk at `$00FF93`, back to
+    /// vanilla's $FF. The table at `$0EF600` and the blob format were LM's all along (CONTRACT §7e),
+    /// so `Rom.WriteLmCustomPalette` and `Rom.LmCustomPalette` are untouched.
+    /// </summary>
+    private static void AppendV24Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        s.Add((Pc(LmPaletteEngine), Convert.FromHexString(
+            "2228BA0008C23048DA5AA20000A00000A90800850AB7005A9B97007AC8C8E8E8C60AD0F1A90800850AE220B700" +
+            "5A9B97007AC8C8E8C60AD0F2C220C00010D0D07AFA68286BFFFFFFFFFFFFFFFFFFFFFF08C23048DA5AA20000BF" +
+            "00B97E9F00207EE8E8E00004D0F17AFA6828C220A9EC9548E2305CDAA900FFFFFFFFFFFFFFFF08C23048DA5AA2" +
+            "0000BF00207E9F00B97EE8E8E00004D0F17AFA6828229E8005C220A9F59548E2205CF9A500FFFFFFFF")));
+        s.Add((Pc(0x0095E9), [0x5C, 0x50, 0xFC, 0x0E, 0x20, 0xED, 0xAB, 0x5C, 0x80, 0xFC, 0x0E, 0xEA, 0xEA]));
+        s.Add((Pc(0x00A5BF), [0x22, LmPaletteFadeIn & 0xFF, LmPaletteFadeIn >> 8 & 0xFF, LmPaletteFadeIn >> 16]));
+        s.Add((Pc(LmPaletteFadeIn), Convert.FromHexString(
+            "C230A5FEF0063A2083F564FEE230228ABE056BE2108B4BABC21085000A186500A8B900F68504C8B900F6D002AB" +
+            "60AB8505E210A0008508B704990107E604E604A900011865048507B704990307B707990308C8C8D0F260")));
+        s.Add((Pc(PalThunk), [0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]));   // v1's bank-00 thunk, retired
+        s.Add((Pc(LmNmiFixHook), [0x22, LmNmiFix & 0xFF, LmNmiFix >> 8 & 0xFF, LmNmiFix >> 16, 0x60]));
+        var nmi = new byte[0x20];
+        Array.Fill(nmi, (byte)0xFF);
+        Convert.FromHexString("A9812C124230FB70F98D00426B4C4D0001").CopyTo(nmi, 0);
+        s.Add((LmNmiFixTagPc, Rats(nmi)));
     }
 
     /// <summary>

@@ -314,7 +314,11 @@ trap on `$00:`/`$7E:` addresses never sees):
   GFX0F/00 RAM expanders are our v4 rewrites (LM: `$00A830 → $0EFC00`, `BRA` at `$00A873`); the
   upload itself and the ExGFX/bypass loader are ours (LM: `$00AA50 → $0FF780`, `$00AA6C →
   $0FF160`, records at `$12AD08`, pointers at `$0FF200`). Taking those is a rework of the
-  loader and the project's GFX layout, not a stamp.
+  loader and the project's GFX layout, not a stamp. **The palette engine is no longer on this
+  list**: prep v24 stamps LM's `$0EFC00` block, `$0095E9` and `$00A5BF → $0EF570` byte for byte
+  (measured 2026-09-11 against three LM hacks and an LM import). What remains ours of LM's 4bpp
+  mode is exactly the set an ExGFX import still writes onto a v24 base: the `$00A830`/`$03DDC9`
+  repoints into `$0EFC00`, `$00AB0B`, `$00B895` (GFX33 4bpp) and the `$00A149` NOP.
 
 ### Per-submap GFX — LM reads and writes ours from prep v19, without its loader  [MEASURED 2026-09-09/10; four LM installs on a v17 base, then eight round trips on v18/v19 builds]
 
@@ -475,14 +479,16 @@ What the import DOES install on a v23 base, and what is still open about it:
   expander, over our v4 rewrites), `$00B895` `LDY #$2000 → #$7D00` (GFX33 read as 4bpp — ours is
   3bpp, §2 "4bpp graphics"), `$0093F7 → JSL` a per-ROM 13-byte NMI-wait routine (`LDA #$81 : BIT
   $4212 … STA $4200 : RTL` + `LM 00 01`; xg `$108150`, ShaoBase `$10EE10`), `$00A149` NOPped, and
-  373 bytes of bookkeeping at `$0FEFCB`. Our v1 palette stubs at `$0EFC50/60/90` are gone under
-  it; LM's `$0EFC80` path applies the `$0EF600` palette through `JSL $05809E → $1FAFF1`, which v10
-  already carries, so the first-load path is LM's and coherent. **Our second hook `$00A5BF → JSL
-  $0EFC60` is left pointing into the middle of LM's `$0EFC50` copy loop** (LM's own is `JSL
-  $0EF570`, a 0x57-byte routine at `$0EF570` that re-applies the `$0EF600` palette and clears
-  `$FE`). The boot smoke passes with it, so it is not fatal on that path, but palette correctness
-  after an import is unverified. Closing this is the LM_PARITY "4bpp graphics" transplant, with
-  the `$0EF570` routine and the `$00A5BF` hook added to its list.  [OPEN]
+  373 bytes of bookkeeping at `$0FEFCB`. **The palette half of this is prep v24** (CONTRACT
+  §7d-24): `$0EFC00`-`$0EFCAF`, the `$0095E9` hook, `$00A5BF → JSL $0EF570` with LM's 0x57-byte
+  fade-in routine — the one piece the import did NOT write, which had left v1's `JSL $0EFC60`
+  pointing into the middle of LM's `$0EFC50` loop — and the `$0093F7` NMI fix, all byte for byte
+  (ShaoBase, BigEye and DogsOfWar agree); v1's stubs are retired. On a v24 base the import writes
+  only the 4bpp-mode pieces: `$00A830`/`$03DDC9 → JML $0EFC00`, `$00AB0B`'s filter body, `$00B895`,
+  and the `$00A149` NOP — those stay ours for now (below), and after an import they are LM's code
+  over our 3bpp GFX33 and unbaked GFX08/1E, plus a NOPped GFX14 decompress our loader does not
+  replace with an AN2 pass, so AN1 and the overworld's animated tiles are the expected casualties
+  of an import on this base. Boots either way; neither is verifiable headless.  [OPEN]
 - **The imported file's pointer is where we do not read.** LM allocated the file at `$208000` (a
   2230-byte block in the 2MB expansion it grew the ROM to) and wrote the pointer at `$258AA5` —
   unprotected, in that expansion — while entry 0 of our 0x100+ table at `$138008` stayed zero.
