@@ -436,7 +436,7 @@ public static partial class RomPrep
         // holds and the sixteen bytes go back to being pointer slots (ids 0xFB-0xFF, no file).
         if (version >= 23) a.Db(new byte[16]); else EmitGfxArmStub(a);
         EmitGfxLoader(a, version);
-        EmitGfxResolve(a);
+        EmitGfxResolve(a, version);
         if (version >= 23) { a.PadTo(GfxArmStubV23); EmitGfxArmStub(a); }
         EmitGfxSlotTab(a);
         if (version < 14) return a.Bytes();
@@ -633,7 +633,7 @@ public static partial class RomPrep
 
     /// <summary>$0FF810: file# → $8A-$8C source pointer (vanilla tables, $0FF600, or the
     /// ExGFX 0x100+ table); carry set = skip.</summary>
-    private static void EmitGfxResolve(Asm a)
+    private static void EmitGfxResolve(Asm a, int version)
     {
         // ---- Resolve: A = file# → $8A-$8C source pointer, carry set = skip ----
         a.PadTo(GfxResolve)
@@ -647,8 +647,9 @@ public static partial class RomPrep
          .LdaLongX(Gfx.PtrBank).StaDp(0x8C)
          .Rep(0x20)
          .Clc()
-         .Rts()
-         .Label("r1")
+         .Rts();
+        if (version >= 27) { EmitGfxResolveTail(a); return; }
+        a.Label("r1")
          .CmpImm16(0x0080)
          .Bcc("bad")                         // 0x34-0x7F: invalid ids
          .CmpImm16(0x0100)
@@ -685,6 +686,70 @@ public static partial class RomPrep
          .Rep(0x20)
          .Clc()
          .Rts()
+         .Label("badr")
+         .Rep(0x20)
+         .Label("bad")
+         .Sec()
+         .Rts();
+    }
+
+    /// <summary>
+    /// V27: the same three paths, laid out so the 0x100+ table's `LDA table,X` operand lands on
+    /// <see cref="ExGfxPtrOperand"/> — the fixed address Lunar Magic reads that table's address
+    /// from, and through v26 the place our own `LDA $8A : AND $8B` happened to sit, which is what
+    /// sent an imported file's pointer to `$258AA5`.
+    ///
+    /// Only the ORDER changes: the 0x80-0xFF path and the shared validity check move up so the
+    /// 0x100+ index arithmetic ends flush against the fetch, and the fetch branches back to that
+    /// check instead of falling into it. `PadTo` and `AssertAt` turn a future byte over budget
+    /// into a prep-time throw, since the exact address is the whole point.
+    /// </summary>
+    private static void EmitGfxResolveTail(Asm a)
+    {
+        a.Label("r1")
+         .CmpImm16(0x0080)
+         .Bcc("bad")                         // 0x34-0x7F: invalid ids
+         .CmpImm16(0x0100)
+         .Bcs("i100")
+         .Label("e80")                       // 0x80-0xFF via the fixed $0FF600 table
+         .Sec().SbcImm16(0x0080)
+         .StaDp(0x8A)
+         .Asl()                              // *3 (ASL leaves carry clear: A ≤ 0x7F)
+         .AdcDp(0x8A)
+         .Tax()
+         .LdaLongX(Gfx.ExGfx80Table)         // ptr low+mid (16-bit)
+         .StaDp(0x8A)
+         .Sep(0x20)
+         .LdaLongX(Gfx.ExGfx80Table + 2)     // bank
+         .StaDp(0x8C)
+         .Label("chk")                       // 8-bit M: reject 000000 / FFFFFF pointers
+         .LdaDp(0x8A).OraDp(0x8B).OraDp(0x8C).Beq("badr")
+         .LdaDp(0x8A).AndDp(0x8B).AndDp(0x8C).CmpImm8(0xFF).Beq("badr")
+         .Rep(0x20)
+         .Clc()
+         .Rts()
+         // The eleven [SCAN] bytes run up to the fetch, whose opcode sits one byte before the
+         // operand — the same shape the record fetch has at LmGfxBaseOperand (v20). A linear
+         // disasm sweep reaches here after chk's `REP #$20`, so it still carries 16-bit M; the
+         // NOP is the one byte of slack, spent here rather than as fill so the sweep stays
+         // aligned through the idiom. PadTo is left as the guard, and pads nothing.
+         .Nop()
+         .PadTo(ExGfxPtrOperand - 1 - 11)
+         .Label("i100")
+         .Sec()                              // [SCAN]
+         .SbcImm16(0x0100)                   // [SCAN]
+         .StaDp(0x8A)                        // [SCAN]
+         .Asl()                              // [SCAN]
+         .Clc()                              // [SCAN]
+         .AdcDp(0x8A)                        // [SCAN] *3
+         .Tax()                              // [SCAN]
+         .AssertAt(ExGfxPtrOperand - 1)
+         .LdaLongX(ExGfxPtrTable)            // [SCAN operand] — where LM reads the table's address
+         .StaDp(0x8A)
+         .Sep(0x20)
+         .LdaLongX(ExGfxPtrTable + 2)        // bank
+         .StaDp(0x8C)
+         .Bra("chk")
          .Label("badr")
          .Rep(0x20)
          .Label("bad")

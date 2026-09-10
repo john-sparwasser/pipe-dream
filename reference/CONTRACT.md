@@ -2310,6 +2310,27 @@ with its per-tileset pages and leaves range 0 at "no defs", so `IsPrepped`'s v1 
 slot — the same state `after.smc` has always been in (§7a-rev). IsPrepped v26 = the `LM 10 01`
 marker at `$06F5FC`. Golden V26 pinned.
 
+PREP V27 names the ExGFX 0x100+ pointer table where Lunar Magic reads it (`RomPrep.ExGfxPtrOperand`
+= `$0FF873`; measured 2026-09-11, reference/LM_PARITY.md §2). LM takes that table's address from the
+24-bit operand of a `LDA table,X` at a FIXED offset — the same arrangement as the bypass records at
+`$0FF7FF` (§7d-20) — and through v26 our resolver carried the identical idiom 0x2F bytes earlier, so
+the bytes at `$0FF873` were our own `LDA $8A : AND $8B` (`A5 8A 25`). `-ImportExGFX` therefore read
+`$258AA5` and wrote the inserted file's pointer into the middle of the 2MB expansion, where nothing
+reads it, leaving our table's entry 0 zero and the file invisible to this editor. V27 relays
+`EmitGfxResolve`: the 0x80-0xFF path and the shared 000000/FFFFFF check move up so the eleven
+`[SCAN]` bytes of the 0x100+ index arithmetic end flush against the fetch at `$0FF872`, which then
+branches back to that check; one NOP is the slack, spent as an instruction so a linear disassembly
+stays aligned through the idiom, and `PadTo`/`AssertAt` make a future byte over budget a prep-time
+throw. Nothing else moves — the table stays at `$138008` in its own 0x2D00 block, and the block
+shape turns out never to have mattered: on ShaoBase the same import writes straight to the value at
+its `$0FF873` with no validation of the block. LM's second copy of the address at `$0FF937` is not
+what it reads (planting it there alone changed nothing, and neither did FF-filling our table).
+Verified on a fresh v27 base: the import writes `$138008` entry 0 = `$208000`, `--gfxsheet <rom>
+100` decodes the file as 128 tiles 4bpp, and base and post-import ROM both boot to level `0xC7` in
+Mesen. IsPrepped v27 = `$0FF873` names the table our own scanner finds, a property every LM ROM
+carrying the feature has (gfx_after, juz, ShaoBase, ShaoBasePrepatch, BigEye, DogsOfWar, TestRom;
+`after.smc` lacks the feature and has `FF` there). Golden V27 pinned.
+
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 
 No unified sprite→tile table exists; each sprite's look comes from its graphics routine.

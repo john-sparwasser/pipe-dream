@@ -78,7 +78,7 @@ public static partial class RomPrep
     /// import was zeroing it from under the LoadLevel hook;
     /// V24 replaces v1's private palette stubs with Lunar Magic's own palette engine, byte for
     /// byte, so an LM ExGFX import lands on code that is already there.
-    public const int Version = 26;
+    public const int Version = 27;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -264,6 +264,21 @@ public static partial class RomPrep
     public const int GfxRecordsPc = 0x91000;
     public const int ExGfxPtrTable = 0x138008;     // 3 B/file, files 0x100-0xFFF (RATS pc 0x98000)
     public const int ExGfxPtrPc = 0x98008;
+
+    /// <summary>
+    /// V27: the fixed address Lunar Magic takes the ExGFX 0x100+ pointer table's address from —
+    /// the 24-bit operand of a `LDA table,X` whose opcode is at `ExGfxPtrOperand - 1`. The
+    /// analogue of <see cref="LmGfxBaseOperand"/> for the other table, and measured the same way:
+    /// every LM ROM carrying the feature (gfx_after, juz, ShaoBase, ShaoBasePrepatch, BigEye,
+    /// DogsOfWar, TestRom) holds its own table's address here, with `BF` in front of it.
+    ///
+    /// Through v26 our resolver carried the identical idiom 0x2F bytes earlier, so `-ImportExGFX`
+    /// read whatever our code happened to put here — `A5 8A 25` (`LDA $8A : AND $8B`), i.e.
+    /// `$258AA5` — and wrote the inserted file's pointer into the middle of the ROM's expansion
+    /// where nothing reads it. LM's own second copy at `$0FF937` is NOT what it reads: planting
+    /// the address there alone changed nothing (both measured 2026-09-11).
+    /// </summary>
+    public const int ExGfxPtrOperand = 0x0FF873;
     public const int GfxSlotTab = 0x0FF8A0;        // 8 words: record offset | $2117 page &lt;&lt; 8
     public const int GfxResolve = 0x0FF810;        // file# → $8A-$8C src ptr (near JSR)
 
@@ -475,7 +490,11 @@ public static partial class RomPrep
            && (version < 25 || rom.ReadValue(0x00A830, 3) == LmPaletteEngine)
            // V26: Lunar Magic's acts-like core is present, which its own marker states. Every LM
            // ROM measured has it (juz, TestRom, ShaoBase, BigEye, DogsOfWar, ShaoBasePrepatch).
-           && (version < 26 || rom.ReadValue(LmActsMarker, 4) == 0x01104D4C);
+           && (version < 26 || rom.ReadValue(LmActsMarker, 4) == 0x01104D4C)
+           // V27: the ExGFX 0x100+ table is named at the address LM reads it from. A property of
+           // every LM ROM that carries the feature, not of our particular resolver.
+           && (version < 27 || (rom.LmExGfxBase > 0
+                                && rom.ReadValue(ExGfxPtrOperand, 3) == rom.LmExGfxBase));
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying

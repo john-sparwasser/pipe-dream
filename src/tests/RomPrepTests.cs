@@ -75,6 +75,7 @@ public class RomPrepTests
     private const string GoldenPrepV24Sha256 = "6817b894574dbf52fafb6ea4241ce14142fdff06b7f2b6e0c821a1e0a767aaeb";
     private const string GoldenPrepV25Sha256 = "f16c8cf9c60c982d262909e8081b3af50574c8946e033196c9b9417eaf59d943";
     private const string GoldenPrepV26Sha256 = "ed549b0d5557a759451196b5951d2361152e7aa8cdb81eec425a81d8ca75c77e";
+    private const string GoldenPrepV27Sha256 = "779c53f327ec2cd00da84433d9eabc95a5cf9c71657fd80f545639553942b206";
 
     private static Rom Prepped()
     {
@@ -326,7 +327,9 @@ public class RomPrepTests
         Assert.Equal(RomPrep.GfxBypassRecords, rom.ReadValue(RomPrep.LmGfxBaseOperand, 3));
         Assert.Equal(RomPrep.GfxBypassRecords, rom.LmGfxBypassBase);   // ...and our scanner agrees
 
-        string res = Disasm.Dis(rom, RomPrep.GfxResolve, 45, m8: false, x8: false);
+        // 50 instructions: from v27 the 0x100+ idiom sits at the END of the routine, so that its
+        // operand lands on the address LM reads the table from (RomPrep.ExGfxPtrOperand).
+        string res = Disasm.Dis(rom, RomPrep.GfxResolve, 50, m8: false, x8: false);
         Assert.Contains("SBC #$0100", res);          // the LmExGfxBase scanner idiom
         Assert.Contains("LDA $138008,X", res);
         Assert.Contains("LDA $00B992,X", res);       // vanilla pointer tables
@@ -513,6 +516,53 @@ public class RomPrepTests
         int bank = v25.ReadByte(0x00B890);
         Assert.Equal(bank, Gfx.SourceSnes(v25, 0x33) >> 16);
         Assert.Equal(bank, Gfx.SourceSnes(v25, 0x32) >> 16);
+    }
+
+    // ---------------------------------------------------------------- V27: LM finds our ExGFX table
+
+    /// <summary>V27: the ExGFX 0x100+ table is named at the fixed address Lunar Magic takes it
+    /// from. Through v26 our resolver's `LDA $8A : AND $8B` sat there, so `-ImportExGFX` read
+    /// `A5 8A 25` as `$258AA5` and wrote the inserted file's pointer into the ROM's expansion
+    /// where nothing reads it. Stated as a property, because every LM ROM carrying the feature
+    /// holds its own table's address here behind the same `BF` opcode.</summary>
+    [RealRomFact]
+    public void v27_names_the_exgfx_table_where_lunar_magic_reads_it()
+    {
+        var rom = PreppedReal();
+        Assert.Equal(0xBF, rom.ReadByte(RomPrep.ExGfxPtrOperand - 1));          // LDA table,X
+        Assert.Equal(RomPrep.ExGfxPtrTable, rom.ReadValue(RomPrep.ExGfxPtrOperand, 3));
+        Assert.Equal(RomPrep.ExGfxPtrTable, rom.LmExGfxBase);                   // our scanner agrees
+
+        if (!File.Exists(ReferenceRoms.ShaoBase)) return;
+        var lm = Rom.Load(ReferenceRoms.ShaoBase);
+        Assert.Equal(0xBF, lm.ReadByte(RomPrep.ExGfxPtrOperand - 1));
+        Assert.Equal(lm.LmExGfxBase, lm.ReadValue(RomPrep.ExGfxPtrOperand, 3));
+    }
+
+    /// <summary>Putting it there moved the 0x80-0xFF path and the shared validity check, so
+    /// resolve one file from each of the three tables plus a dead id, which must be left alone.</summary>
+    [RealRomFact]
+    public void v27_resolver_still_reads_all_three_tables()
+    {
+        var rom = PreppedReal();
+        int e80 = rom.FileOffset(Gfx.ExGfx80Table + 3);                 // ExGFX 0x81
+        rom.Data[e80] = 0x34; rom.Data[e80 + 1] = 0x12; rom.Data[e80 + 2] = 0x1A;
+        int e100 = rom.FileOffset(RomPrep.ExGfxPtrTable + 3);            // ExGFX 0x101
+        rom.Data[e100] = 0x78; rom.Data[e100 + 1] = 0x56; rom.Data[e100 + 2] = 0x1B;
+
+        int Resolve(int file)
+        {
+            var cpu = new Cpu65816(rom);
+            cpu.PresetWidths(m8: false, x8: false);
+            cpu.PresetRegs(a: file, x: 0, y: 0);
+            cpu.Ram7E[0x8A] = 0xEE; cpu.Ram7E[0x8B] = 0xEE; cpu.Ram7E[0x8C] = 0xEE;
+            cpu.CallNear(RomPrep.GfxResolve, 100_000);
+            return cpu.Ram7E[0x8A] | (cpu.Ram7E[0x8B] << 8) | (cpu.Ram7E[0x8C] << 16);
+        }
+        Assert.Equal(Gfx.SourceSnes(rom, 0x02), Resolve(0x02));          // vanilla byte tables
+        Assert.Equal(0x1A1234, Resolve(0x81));                           // $0FF600 table
+        Assert.Equal(0x1B5678, Resolve(0x101));                          // the 0x100+ table
+        Assert.Equal(0xEEEEEE, Resolve(0x40));                           // 0x34-0x7F: invalid id
     }
 
     // ---------------------------------------------------------------- V26: LM's acts-like core
@@ -791,11 +841,15 @@ public class RomPrepTests
             Assert.Equal(GoldenPrepV25Sha256, RomHash.HeaderlessSha256File(tmp));
 
             File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
-            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V26)
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 26));     // frozen V26 stamp list
+            Assert.Equal(GoldenPrepV26Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V27)
             string cur = RomHash.HeaderlessSha256File(tmp);
             // Spelled out rather than left to the assertion message: xunit truncates a mismatch,
             // and this hash is what the NEXT version bump has to be told.
-            Assert.True(GoldenPrepV26Sha256 == cur, $"V26 golden hash is now {cur}");
+            Assert.True(GoldenPrepV27Sha256 == cur, $"V27 golden hash is now {cur}");
         }
         finally { File.Delete(tmp); }
     }

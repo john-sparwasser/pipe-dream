@@ -416,7 +416,7 @@ on the save that touches it. Nobody needs to audit these again; the rows say wha
 | OW ExAnimation record table (v17) | `$1EB440`, own 0x15 block | LM's install: 0x15 | setup operand (`LmOwExAnimBase`) | two overworld saves: untouched | **right** |
 | OW ExAnimation settings (v17) | `$1EB460`, own 7-byte block | LM's: 7-byte block | blob + 0x4A | see below — LM re-installs its own on the first OW save | right; nothing to fix |
 | GFX bypass records (v2/v18) | `$129000`, own 0x40E0 block | ShaoBase: 0x2D08 INTO one 0x6E00 block at `$108000` (ExGFX pointers first) | `$0FF7FF` operand (v20) | Super GFX Bypass save writes the slot in place | right — but the size rule is EXACT (below) |
-| ExGFX 0x100+ pointers (v2) | `$138008`, own 0x2D00 block | first 0x2D00 of that same 0x6E00 block | our loader's operand; LM's — unknown | **`-ImportExGFX` never reaches it** (below) | OPEN, not a shape fix |
+| ExGFX 0x100+ pointers (v2) | `$138008`, own 0x2D00 block | first 0x2D00 of that same 0x6E00 block | `$0FF873` operand (v27) | `-ImportExGFX` writes entry 0 in place (below) | right from v27 — and the shape never mattered |
 | extended Map16 defs (v1) | `$128008`, own 0x800 block (page 2, all default) | one full bank per range | ladder slot 0 | Map16 F9 save drops range 0 to bank 0 and populates ranges 1-2 of its own; frees our block if we claim its marker (below) | shape right; the marker is the rule |
 | acts-like table (v1) | `$118000`, own 0x8000 block | LM: same table, its lookup's operand | our `$06F800` remap (v26) AND LM's `$06F617` core, both reading it | untouched by every save tried, and the Map16 save keeps our address (below) | right from v26 |
 | checksum balance (v9) | `0x80000`, own 0x140 block | — (ours only) | `RatsWriter.Balance` | untouched by every save tried | right |
@@ -500,13 +500,31 @@ What the import DOES install on a v23 base, and what is still open about it:
   decompress with no AN2 pass behind it. **Prep v25 stamps those too** (§2 "4bpp graphics"), and
   the same import on a v25 base writes its file, the `$0FEFAD` bookkeeping, `$0FFFE7` and the size
   byte — no code (measured 2026-09-11; both ROMs boot in Mesen).  [CLOSED]
-- **The imported file's pointer is where we do not read.** LM allocated the file at `$208000` (a
-  2230-byte block in the 2MB expansion it grew the ROM to) and wrote the pointer at `$258AA5` —
-  unprotected, in that expansion — while entry 0 of our 0x100+ table at `$138008` stayed zero.
-  LM's own table lives 0x2D08 ahead of its records in one block; on our base the records are a
-  standalone block at `$129000`, so where LM derived `$258AA5` from is unknown (planting our
-  table's address at `$0FF937` changed nothing). Our editor therefore does not see an ExGFX file
-  LM inserted.  [OPEN]
+- **The imported file's pointer went where we do not read — LM was reading our opcodes.**
+  [FIXED in prep v27]  LM allocated the file at `$208000` (a 2230-byte block in the 2MB expansion
+  it grew the ROM to) and wrote the pointer at `$258AA5`, unprotected in that expansion, while
+  entry 0 of our 0x100+ table at `$138008` stayed zero. **`$258AA5` was our own code**: LM takes
+  the table's address from the 24-bit operand at the fixed `$0FF873`, and through v26 that byte
+  was the `A5 8A 25` of our resolver's `LDA $8A : AND $8B` — `$258AA5` read little-endian. This is
+  `$0FF7FF` for the records (v20) all over again, and the block shape had nothing to do with it.
+
+  Measured, in this order: (1) on **ShaoBase** the same `-ImportExGFX` writes the pointer straight
+  into `$108008`, exactly the value at its `$0FF873` — so LM reads that address and does not
+  validate the block; (2) planting the address at `$0FF937` (LM's *other* copy of it) changed
+  nothing, and neither did FF-filling our table to look like LM's; (3) hand-patching
+  `BF 08 80 13` at `$0FF872` made the very same import write `00 80 20` into `$138008`. Every LM
+  ROM carrying the feature holds its own table's address at `$0FF873` behind a `BF` opcode
+  (gfx_after, juz, ShaoBase, ShaoBasePrepatch, BigEye, DogsOfWar, TestRom); `after.smc`, which
+  lacks the feature, has `FF` there.
+
+  **Prep v27 relays the resolver** so the 0x100+ fetch's operand lands on `$0FF873`
+  (`RomPrep.ExGfxPtrOperand`, CONTRACT §7d-27) — only the order of its three paths changes.
+  Verified on a fresh v27 base: the import writes `$138008` entry 0, `--gfxsheet <rom> 100`
+  decodes the file (128 tiles, 4bpp), and base and post-import ROM both boot to level `0xC7`.
+
+  Tooling note that cost an hour here: `--diff` compares only up to the SMALLER file, so every
+  byte LM wrote in the expansion — the `$258AA5` pointer included — was invisible in the diff of a
+  1MB base against a 2MB result. Scan the whole file when a claim rests on the expansion.
 
 **Map16 F9 on a prepped base: LM's acts-like core landed on our remap.**  [FIXED in prep v26]
 Editors ▸ 16x16 Tile Map Editor, F9, no edits, on a v25 base: LM wrote 13 runs — the ladder slots

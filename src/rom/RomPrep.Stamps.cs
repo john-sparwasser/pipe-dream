@@ -66,6 +66,8 @@ public static partial class RomPrep
         // V26 stamps LM's acts-like core, which a Map16 save writes over the v1 remap's address,
         // and moves the remap (and the four sites' JSLs) clear of it.
         if (version >= 26) AppendV26Stamps(s);
+        // V27 relays the resolver so the ExGFX 0x100+ table is named where Lunar Magic reads it.
+        if (version >= 27) s.Add((Pc(GfxArmStub), GfxCode(27)));
         return s;
     }
 
