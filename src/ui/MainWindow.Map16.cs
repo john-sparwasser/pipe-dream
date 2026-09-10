@@ -173,7 +173,7 @@ public partial class MainWindow
         if (m16.ReadDef(h.Tile) is null) return "unallocated";
         // Same two reasons the header greys its acts-as box: say which, rather than going blank
         // and leaving the gutter looking broken.
-        if (m16.ActsAs(h.Tile) is not { } a)
+        if (m16.ActsAsResolved(h.Tile) is not { } a)
             return h.Tile >= 0x4000 ? "acts-like: n/a for BG tiles" : "acts-like: no LM table";
         string what = ActsAs.Describe(a);
         return what.Length > 0 ? $"acts 0x{a:X3}  {what}" : $"acts 0x{a:X3}";
@@ -349,7 +349,7 @@ public partial class MainWindow
     /// </summary>
     private void ShowActsTip(KeyModifiers mods)
     {
-        int? acts = map16 is { } m16 && map16Canvas.HoverQuad is { } h ? m16.ActsAs(h.Tile) : null;
+        int? acts = map16 is { } m16 && map16Canvas.HoverQuad is { } h ? m16.ActsAsResolved(h.Tile) : null;
         m16ActsTip.IsVisible = acts is not null;
         if (acts is not { } a) return;
         int tile = map16Canvas.HoverQuad!.Value.Tile;

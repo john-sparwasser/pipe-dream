@@ -100,6 +100,30 @@ public static class LunarMagic
         /// acts as. Base 0 = the LM code slot exists but no table was allocated (all-vanilla behavior).</summary>
         public int ActsAs(int tile) => rom.LmActsAsBase <= 0 ? tile : rom.ReadValue(rom.LmActsAsBase + tile * 2, 2);
 
+        /// <summary>
+        /// What a tile ends up behaving as — the value the GAME arrives at, not the byte in the
+        /// table. An entry of 0x200 or more is not a behaviour but another TILE, whose entry is
+        /// read in turn: Lunar Magic's lookup loops on it, and ours does from prep v28. Default
+        /// data resolves on the first read (identity below 0x200, 0x130 above), so this differs
+        /// from <see cref="ActsAs"/> only where a chain was authored.
+        ///
+        /// Bounded, because a cycle in the table hangs the game and must not hang the editor: at
+        /// the limit it answers with the last entry read, which is what the readout would have
+        /// shown anyway. Use <see cref="ActsAs"/> for the value a field EDITS, this for what the
+        /// tile does — hitboxes and the behaviour descriptions.
+        /// </summary>
+        public int ActsAsResolved(int tile)
+        {
+            int v = rom.ActsAs(tile);
+            for (int hop = 0; v is >= 0x200 and < 0x4000 && hop < 8; hop++)
+            {
+                int next = rom.ActsAs(v);
+                if (next == v) break;                          // a self-cycle: nothing more to learn
+                v = next;
+            }
+            return v;
+        }
+
         /// <summary>First tile a range's defs cover (range 0 starts past the vanilla defs).</summary>
         private static int RangeStart(int range) => range == 0 ? 0x200 : range << 12;
 

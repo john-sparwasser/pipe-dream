@@ -150,7 +150,7 @@ public partial class MainWindow
     {
         if (canvas.HoverCell is not { } c) return "";
         if (session.TileAt(c.X, c.Y) is not { } tile) return $"({c.X,3},{c.Y,2})  empty";
-        string acts = map16?.ActsAs(tile) is { } a ? $"  acts 0x{a:X3}" : "";
+        string acts = map16?.ActsAsResolved(tile) is { } a ? $"  acts 0x{a:X3}" : "";
         return $"({c.X,3},{c.Y,2})  tile 0x{tile:X3}{acts}";
     }
 

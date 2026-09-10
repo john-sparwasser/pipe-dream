@@ -37,7 +37,7 @@ public partial class MainWindow
             m16Hitboxes.IsChecked = on;
             canvas.Hitboxes = on ? LevelHitbox : null;
             map16Canvas.Hitboxes = on && session.Rom is { } r
-                ? tile => Hitboxes.Of(r, r.ActsAs(tile), session.Tileset) : null;
+                ? tile => Hitboxes.Of(r, r.ActsAsResolved(tile), session.Tileset) : null;
             canvas.InvalidateVisual();
             map16Canvas.InvalidateVisual();
         }

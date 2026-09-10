@@ -267,6 +267,12 @@ public sealed class Map16Edit
     public int? ActsAs(int tile)
         => HasActsAs && tile < 0x4000 ? rom.ActsAs(tile) : null;
 
+    /// <summary>What the tile ends up behaving as, chain followed (<see cref="Rom.ActsAsResolved"/>).
+    /// The readouts and the hitboxes ask this; the acts-like FIELD asks <see cref="ActsAs"/>, so
+    /// that editing a chained tile rewrites the entry it shows rather than the chain's answer.</summary>
+    public int? ActsAsResolved(int tile)
+        => HasActsAs && tile < 0x4000 ? rom.ActsAsResolved(tile) : null;
+
     /// <summary>
     /// Remap what the selected tiles behave as. One stroke, so a selection's worth is one undo
     /// entry, and undo takes it back like any definition edit. The tile numbers are recorded in

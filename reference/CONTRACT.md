@@ -2331,6 +2331,24 @@ Mesen. IsPrepped v27 = `$0FF873` names the table our own scanner finds, a proper
 carrying the feature has (gfx_after, juz, ShaoBase, ShaoBasePrepatch, BigEye, DogsOfWar, TestRom;
 `after.smc` lacks the feature and has `FF` there). Golden V27 pinned.
 
+PREP V28 makes the acts-like remap follow a CHAIN, as Lunar Magic's own lookup does
+(`RomPrep.ActsRemap(chain: true)`; measured 2026-09-11, reference/LM_PARITY.md §1). An entry of
+0x200 or more in the acts-like table at `$118000` is not a behaviour but another TILE, whose entry
+is read in turn: LM's lookup at `$06F617` branches back to its own `TAY` on `CMP #$0200 : BCS`,
+where ours kept the original tile and handed that to `$00F545`. Two bytes — a `BRA` back to the
+`TAY`, which is why the entry point's byte +0x16 (`RomPrep.ActsChainBra`) is a `BRA` from v28 and
+the `TYA` it displaced moves down one. Reached only by an authored chain: the table's defaults
+(identity below 0x200, `0x130` above) resolve on the first read, so no existing project changes.
+The reader gains `Rom.ActsAsResolved`, which the behaviour readouts and the hitbox overlay use
+while the acts-like FIELD keeps reading `Rom.ActsAs` — editing a chained tile must rewrite the
+entry it shows, not the chain's answer — and which is bounded at eight hops because a cycle hangs
+the game (LM's hazard too) and must not hang the editor. Verified: LM's own
+`-ExportAllMap16`/`-ImportAllMap16` round-trip our table byte for byte in both directions
+(including a `310 → 2A5 → 1C0` chain, which LM stores without complaint), a chained tile reaches
+the same `$1693`/`$1423`/A state under `Cpu65816` as the direct entry does, and the base boots to
+level `0xC7`. IsPrepped v28 = either there is no remap of ours at `$06F800` (every LM save leaves
+that run `FF`) or the one there chains. Golden V28 pinned.
+
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 
 No unified sprite→tile table exists; each sprite's look comes from its graphics routine.

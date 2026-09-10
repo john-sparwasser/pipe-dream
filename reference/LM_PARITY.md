@@ -41,11 +41,31 @@ INFERRED means the address and shape say so but nothing has been run against it.
 `$00BF36`, `$00BF81`, `$00C117`, `$019501`, `$0292FA`, `$0295ED`, `$02A6BB`, `$02BA72`,
 `$02D18D` all change one read: `LDA $00BA70,X` → `LDA $000CC6,X`. LM relocates the block-type
 table into RAM; we instead repoint the four `JSL $00F545` acts-like sites at our own remap
-(`$06F800` from v26, `$06F5F0` before — table at `$118000`). CONFIRMED different, INFERRED
-compatible. **This is the likeliest place for the two to disagree about the same tile**, because
-both are live at once on a ROM that has met both editors — though from v26 LM's own acts-like
-lookup is stamped beside ours and reads the SAME table (§2 "Map16 F9"), so the disagreement is
-narrowed to LM's chaining and its RAM block-type table. Worth an explicit experiment.
+(`$06F800` from v26, `$06F5F0` before — table at `$118000`). CONFIRMED different, and now
+CONFIRMED compatible for the table itself.
+
+**The round trip, measured 2026-09-11 through LM's own command line** (`-ExportAllMap16` /
+`-ImportAllMap16`, whose `.map16` format carries "Act As data" as its own indexed section, 2 bytes
+per tile, tile-numbered — see reference/lm-help/html/info_map16_file_format.htm):
+
+- **Ours → LM: exact.** Write entries for tiles `030`, `105` and `2A5` into `$118000` on a v27
+  base, export: LM's Act As section holds `0E0`, `02F`, `1C0` at those tiles, identity everywhere
+  below 0x200 and `130` above — our table's defaults, verbatim.
+- **LM → ours: exact.** Edit the same file's Act As bytes and import: LM writes them straight into
+  our table (the diff lands on `$118060`, `$118140`, `$11820A`, `$11854A`, `$118620` — tiles
+  `030`, `0A0`, `105`, `2A5`, `310`), and the ROM still boots and builds a level. So the address,
+  the layout, the 2-byte order and the defaults are all right in both directions.
+- **The one real divergence was CHAINING, and prep v28 closes it.** LM's lookup treats an entry of
+  0x200 or more not as a behaviour but as another TILE, and reads ITS entry (`BCS` back to its own
+  `TAY`); ours stopped and kept the original tile. LM's import stores such an entry without
+  complaint — tile `310` → `2A5` → `1C0` survived a full round trip — so a hack can carry one, and
+  on our base the game would have gone one way while LM's editor predicted the other. V28 adds the
+  same loop to the remap (two bytes) and `Rom.ActsAsResolved` to the reader, so the hitboxes and
+  the behaviour readouts follow the chain while the acts-like FIELD still edits the entry it shows.
+  The reader is bounded: a cycle hangs the game — LM's hazard too — but must not hang the editor.
+
+What is left of this item is LM's RAM block-type table (`LDA $00BA70,X → $000CC6,X` at the nine
+sites above), which is a different feature from acts-like, and its four per-site trampolines.
 
 ### Sprite stream — LM's loader, TAKEN (v10, block C of the level engine)
 `$02A67A`, `$02A826` (→ `JML $1090A3` / `$109198` / `$10917B` / `$108F2D`), `$02A95B`
@@ -573,12 +593,11 @@ data; LM honours tags it did not write.
 0. **4bpp graphics** (§2 above) — done: the overworld half in v13, the rest in v25 (GFX33 as
    4bpp, the filter dispatch and body, the expander wrapper, the AN2 pass). What stays ours is
    the loader itself.
-1. **Acts-like.** Two live mechanisms, but from v26 they read ONE table: our remap at `$06F800`
-   drives the game, LM's own core sits at `$06F5E4`-`$06F643` with its lookup's operand pointing at
-   the same `$118000`, and an LM Map16 save keeps it there (above). What is left is the experiment
-   this item always wanted: a tile whose behaviour we set, opened and saved in LM, read back here —
-   plus LM's four per-site trampolines and the chaining its lookup does (an acts value ≥ 0x200 is
-   looked up again) which ours does not.
+1. ~~**Acts-like**~~ — done. From v26 both mechanisms read ONE table (`$118000`); the round trip
+   through `-ExportAllMap16`/`-ImportAllMap16` is exact in both directions, and v28 adds LM's
+   chaining to the remap and to the reader (§1 "Block behaviour"). What remains is LM's RAM
+   block-type table (`$00BA70,X → $000CC6,X`, nine sites) — a different feature — and its four
+   per-site trampolines.
 2. ~~Sprite extra bytes~~ — done: size table read at LM's registration and authored the same way.
 3. **The Map16 ladder's remaining ranges**, so a ROM that has met LM does not address tiles we
    cannot.

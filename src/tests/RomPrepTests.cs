@@ -76,6 +76,7 @@ public class RomPrepTests
     private const string GoldenPrepV25Sha256 = "f16c8cf9c60c982d262909e8081b3af50574c8946e033196c9b9417eaf59d943";
     private const string GoldenPrepV26Sha256 = "ed549b0d5557a759451196b5951d2361152e7aa8cdb81eec425a81d8ca75c77e";
     private const string GoldenPrepV27Sha256 = "779c53f327ec2cd00da84433d9eabc95a5cf9c71657fd80f545639553942b206";
+    private const string GoldenPrepV28Sha256 = "8856686d449e8769b132870658215a036f8e7836312836a4674e225b2431120b";
 
     private static Rom Prepped()
     {
@@ -518,6 +519,63 @@ public class RomPrepTests
         Assert.Equal(bank, Gfx.SourceSnes(v25, 0x32) >> 16);
     }
 
+    // ---------------------------------------------------------------- V28: acts-like chaining
+
+    /// <summary>V28: an acts-like entry of 0x200 or more is not a behaviour, it names another TILE
+    /// whose entry is read in turn — Lunar Magic's own loop, which ours did not follow. Measured
+    /// through LM's `-ImportAllMap16`, which stores such an entry without complaint, so a hack can
+    /// carry one (reference/LM_PARITY.md §1). Asserted as an equivalence — a chain must land where
+    /// the direct entry does — because what `$00F545` then does with it is vanilla's business.</summary>
+    [RealRomFact]
+    public void v28_acts_remap_follows_a_chain_like_lunar_magics_lookup()
+    {
+        var rom = PreppedReal();
+        Assert.Equal(0x80, rom.ReadByte(RomPrep.ActsRemapEntryV26 + RomPrep.ActsChainBra));  // BRA
+        void Acts(int tile, int v)
+        {
+            int fo = rom.FileOffset(RomPrep.ActsTableSnes + tile * 2);
+            rom.Data[fo] = (byte)v; rom.Data[fo + 1] = (byte)(v >> 8);
+        }
+        Acts(0x310, 0x2A5);                     // a chain: 0x310 acts like tile 0x2A5...
+        Acts(0x2A5, 0x1C0);                     // ...which acts like 0x1C0, a real behaviour
+        Acts(0x311, 0x1C0);                     // the same behaviour, named directly
+        Acts(0x312, 0x130);                     // and the default, for contrast
+
+        (byte Low, byte Slope, int A) Run(int tile)
+        {
+            var cpu = new Cpu65816(rom);
+            cpu.Ram7E[0x1693] = (byte)tile;
+            cpu.PresetRegs(a: tile >> 8, x: 0, y: 0);
+            cpu.CallLong(RomPrep.ActsRemapEntryV26, 500_000);
+            return (cpu.Ram7E[0x1693], cpu.Ram7E[0x1423], cpu.Acc & 0xFF);
+        }
+        Assert.Equal(Run(0x311), Run(0x310));     // the chain lands where the direct entry does
+        Assert.NotEqual(Run(0x312), Run(0x310));  // and not merely where any extended tile does
+    }
+
+    /// <summary>...and the editor resolves the same chain, so the readouts and the hitboxes say
+    /// what the tile will DO while the acts-like field still edits the entry it shows.</summary>
+    [RealRomFact]
+    public void acts_as_resolved_follows_the_chain_and_survives_a_cycle()
+    {
+        var rom = PreppedReal();
+        void Acts(int tile, int v)
+        {
+            int fo = rom.FileOffset(RomPrep.ActsTableSnes + tile * 2);
+            rom.Data[fo] = (byte)v; rom.Data[fo + 1] = (byte)(v >> 8);
+        }
+        Acts(0x310, 0x2A5);
+        Acts(0x2A5, 0x1C0);
+        Assert.Equal(0x2A5, rom.ActsAs(0x310));            // the entry, which the field edits
+        Assert.Equal(0x1C0, rom.ActsAsResolved(0x310));    // what it resolves to
+        Assert.Equal(0x1C0, rom.ActsAsResolved(0x2A5));    // one hop is idempotent
+        Assert.Equal(0x0B0, rom.ActsAsResolved(0x0B0));    // identity below 0x200 is untouched
+
+        Acts(0x320, 0x321);                                 // a cycle: the game would spin
+        Acts(0x321, 0x320);
+        Assert.InRange(rom.ActsAsResolved(0x320), 0x200, 0x3FFF);   // the editor answers regardless
+    }
+
     // ---------------------------------------------------------------- V27: LM finds our ExGFX table
 
     /// <summary>V27: the ExGFX 0x100+ table is named at the fixed address Lunar Magic takes it
@@ -845,11 +903,15 @@ public class RomPrepTests
             Assert.Equal(GoldenPrepV26Sha256, RomHash.HeaderlessSha256File(tmp));
 
             File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
-            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V27)
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 27));     // frozen V27 stamp list
+            Assert.Equal(GoldenPrepV27Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V28)
             string cur = RomHash.HeaderlessSha256File(tmp);
             // Spelled out rather than left to the assertion message: xunit truncates a mismatch,
             // and this hash is what the NEXT version bump has to be told.
-            Assert.True(GoldenPrepV27Sha256 == cur, $"V27 golden hash is now {cur}");
+            Assert.True(GoldenPrepV28Sha256 == cur, $"V28 golden hash is now {cur}");
         }
         finally { File.Delete(tmp); }
     }

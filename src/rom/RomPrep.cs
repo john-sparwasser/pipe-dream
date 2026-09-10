@@ -78,7 +78,7 @@ public static partial class RomPrep
     /// import was zeroing it from under the LoadLevel hook;
     /// V24 replaces v1's private palette stubs with Lunar Magic's own palette engine, byte for
     /// byte, so an LM ExGFX import lands on code that is already there.
-    public const int Version = 27;
+    public const int Version = 28;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -104,6 +104,10 @@ public static partial class RomPrep
     /// trampolines ($06F800-$06F9FF is FF in every LM ROM measured, and our own bank-06 blocks
     /// start again at $06FA00).</summary>
     public const int ActsRemapEntryV26 = 0x06F800;
+
+    /// <summary>Offset into the remap of the `BRA` that follows a chain (v28): the byte v26/v27
+    /// spend on the `TYA` that keeps the original tile instead. The IsPrepped tell.</summary>
+    public const int ActsChainBra = 0x16;
     public const int Map16DefsPc = 0x90008;        // = $12:8008; imm $7008 / bank $12
     public const int Handler22 = 0x0DF08A, Handler23 = 0x0DF08E, Handler26 = 0x0DF130;
     public const int Handler27 = 0x0DF150, Handler28 = 0x0DF160, Handler29 = 0x0DFF50;
@@ -494,7 +498,13 @@ public static partial class RomPrep
            // V27: the ExGFX 0x100+ table is named at the address LM reads it from. A property of
            // every LM ROM that carries the feature, not of our particular resolver.
            && (version < 27 || (rom.LmExGfxBase > 0
-                                && rom.ReadValue(ExGfxPtrOperand, 3) == rom.LmExGfxBase));
+                                && rom.ReadValue(ExGfxPtrOperand, 3) == rom.LmExGfxBase))
+           // V28: the acts-like remap follows a chain, as LM's own lookup does. Stated so that a
+           // ROM with no remap of OURS at that address — every LM save, which leaves the run
+           // behind its trampolines at 0xFF — still reads as prepped: the only false case is our
+           // own v26/v27 remap, whose `TYA` sits where the chaining `BRA` goes.
+           && (version < 28 || rom.ReadByte(ActsRemapEntryV26) != 0xDA
+                            || rom.ReadByte(ActsRemapEntryV26 + ActsChainBra) == 0x80);
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying

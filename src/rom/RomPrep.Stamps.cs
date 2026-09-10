@@ -68,6 +68,10 @@ public static partial class RomPrep
         if (version >= 26) AppendV26Stamps(s);
         // V27 relays the resolver so the ExGFX 0x100+ table is named where Lunar Magic reads it.
         if (version >= 27) s.Add((Pc(GfxArmStub), GfxCode(27)));
+        // V28: the acts-like remap follows a chain, the way LM's own lookup does. Measured through
+        // LM's own `-ExportAllMap16`/`-ImportAllMap16`, which round-trip our table byte for byte
+        // and will happily store an entry of 0x200 or more (reference/LM_PARITY.md §1).
+        if (version >= 28) s.Add((Pc(ActsRemapEntryV26), ActsRemap(ActsRemapEntryV26, chain: true)));
         return s;
     }
 

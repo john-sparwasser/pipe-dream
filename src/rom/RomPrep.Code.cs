@@ -111,16 +111,18 @@ public static partial class RomPrep
     /// <summary>V26: the acts-like remap on its own, at the address the four `JSL $00F545` sites
     /// name from then on — clear of Lunar Magic's own acts-like core, which a Map16 save writes
     /// over the v1 address (see <c>AppendV26Stamps</c>).</summary>
-    private static byte[] ActsRemap(int entry)
+    private static byte[] ActsRemap(int entry, bool chain = false)
     {
         var a = new Asm(entry);
-        EmitActsRemap(a, entry);
+        EmitActsRemap(a, entry, chain);
         return a.Bytes();
     }
 
     /// <summary>The acts-like remap the four vanilla `JSL $00F545` sites are repointed to (the
-    /// second half of the Map16Lookup summary above). At $06F5F0 through v25, $06F800 from v26.</summary>
-    private static void EmitActsRemap(Asm a, int entry)
+    /// second half of the Map16Lookup summary above). At $06F5F0 through v25, $06F800 from v26.
+    /// <paramref name="chain"/> is v28: an entry of 0x200 or more names another TILE, whose entry
+    /// is read in turn, which is what Lunar Magic's own lookup does.</summary>
+    private static void EmitActsRemap(Asm a, int entry, bool chain = false)
     {
         // NOTE the hidden accumulator byte: vanilla $00F545 is pure 8-bit code, so the
         // caller's B (high accumulator byte) survives it. SMW's loaders run 8-bit LDA +
@@ -135,14 +137,20 @@ public static partial class RomPrep
          .Pha()                              // save caller's B
          .LdaAbs(0x1693)                     // A = tile low (B = page)
          .Rep(0x30)                          // A = full tile; 16-bit X for the table index
+         .Label("chain")
          .Tay()                              // [SCAN] keep the original tile
          .Asl()                              // [SCAN] tile*2
          .Tax()                              // [SCAN]
          .Bmi("keep")                        // [SCAN] tile >= 0x4000: out of table range
          .LdaLongX(ActsTableSnes)            // [SCAN] acts word
          .CmpImm16(0x0200)                   // [SCAN suffix]
-         .Bcc("use")                         // sane acts value (< 0x200): substitute it
-         .Label("keep")
+         .Bcc("use");                        // sane acts value (< 0x200): substitute it
+        // V28: an entry of 0x200 or more is not a behaviour, it is another TILE — read ITS entry,
+        // which is Lunar Magic's own `BCS` back to the same TAY. A cycle in the table hangs the
+        // game; LM has that hazard too, and the defaults (identity below 0x200, 0x130 above)
+        // resolve on the first read, so only an authored chain can reach a second one.
+        if (chain) a.Bra("chain");
+        a.Label("keep")
          .Tya()
          .Label("use")
          .Sep(0x30)                          // A = final low, B = final page
