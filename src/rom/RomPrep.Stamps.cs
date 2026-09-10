@@ -52,6 +52,9 @@ public static partial class RomPrep
         if (version >= 20) AppendV20Stamps(s);
         // V21 restamps the midway blob with its tables moved into a block of their own.
         if (version >= 21) AppendV21Stamps(s);
+        // V22 gives the midway blob itself a block of its own and repoints the two hooks; the
+        // v10 copy at the secondary block's tail stays as frozen, unreferenced bytes.
+        if (version >= 22) AppendV22Stamps(s);
         return s;
     }
 
@@ -435,8 +438,8 @@ public static partial class RomPrep
         s.Add((SecondaryExtTagPc, Rats(new byte[SecondaryExtSize])));
 
         // Separate midway settings — LM's blob, its five operands pointed at our tables and at
-        // itself. V21 moves the tables, so the blob is emitted per table address.
-        s.Add((Pc(MidwayRoutineSnes), MidwayRoutine(MidwayTablesSnes)));
+        // itself. V21 moves the tables and v22 the blob, so it is emitted per address.
+        s.Add((Pc(MidwayRoutineSnes), MidwayRoutine(MidwayTablesSnes, MidwayRoutineSnes)));
         s.Add((Pc(LmMidwayHook), Jsl(MidwayRoutineSnes)));
         s.Add((Pc(LmExitArrivalHook), Jsl(MidwayRoutineSnes + 0xA0)));
 
@@ -445,10 +448,10 @@ public static partial class RomPrep
         s.Add((Pc(Rom.LmEntranceFgBg), Enumerable.Repeat((byte)0x1A, 0x200).ToArray()));
         s.Add((Pc(0x05D9C3), [0xAD]));                          // STA $13CD → LDA $13CD
         s.Add((Pc(LmMidwayStore), [0x85, 0x01, 0xEA, 0xEA, 0xEA]));
-
-        static byte[] Long(int snes) => [(byte)snes, (byte)(snes >> 8), (byte)(snes >> 16)];
-        static byte[] Jsl(int snes) => [0x22, .. Long(snes)];
     }
+
+    private static byte[] Long(int snes) => [(byte)snes, (byte)(snes >> 8), (byte)(snes >> 16)];
+    private static byte[] Jsl(int snes) => [0x22, .. Long(snes)];
 
     /// <summary>
     /// V11: Lunar Magic's ExAnimation engine (LmExAnimEngine), byte-for-byte LM's own code
@@ -486,9 +489,9 @@ public static partial class RomPrep
     /// <summary>
     /// Lunar Magic's separate-midway-settings blob (ShaoBase $10FDDF, juz $11FA63, DogsOfWar
     /// $12EF20 — byte-identical apart from these operands), with its four table operands pointed
-    /// at <paramref name="tables"/> and its fifth at itself.
+    /// at <paramref name="tables"/> and its fifth at <paramref name="self"/>, where the blob sits.
     /// </summary>
-    private static byte[] MidwayRoutine(int tables)
+    private static byte[] MidwayRoutine(int tables, int self)
     {
         var mid = Convert.FromHexString(
             "4A4A4A4AC21148A60EBF088012A8291003018301988920F06429084A4A4A85959829C78D2A19BF088212A829F0" +
@@ -498,11 +501,35 @@ public static partial class RomPrep
             "FA85015CA1D9056829384A4A6B");
         foreach (var (at, snes) in new[] { (0x0A, tables), (0x27, tables + 0x200),
                                            (0x48, tables + 0x600), (0x57, tables + 0x400),
-                                           (0xAF, MidwayRoutineSnes) })
+                                           (0xAF, self) })
         {
             mid[at] = (byte)snes; mid[at + 1] = (byte)(snes >> 8); mid[at + 2] = (byte)(snes >> 16);
         }
         return mid;
+    }
+
+    /// <summary>
+    /// V22: the midway routine in a RATS block of its own, the way Lunar Magic keeps it. V10 put
+    /// the blob at the tail of the 0xD00 secondary-extension block, and LM's *Modify Secondary
+    /// Entrances* save — which re-allocates the two secondary tables it finds through the reader
+    /// operands into fresh blocks and RELEASES the old one, zeroing every byte of it — wiped the
+    /// routine while `$05D9E3` and `$05D979` still jumped into it. Measured 2026-09-10 on a v21
+    /// build; the same save on ShaoBase, whose routine has its own block, left it intact.
+    ///
+    /// The block is LM's exact shape (ShaoBase `$10FDD7`: tag, the 0xC4-byte blob, eight `$FF`,
+    /// then its `LM 10 01` stamp — 0xD0 bytes), and the two hooks move with it. Nothing in the
+    /// editor moves: <see cref="LunarMagic.HasFreeMidwayPosition"/> and
+    /// <see cref="LunarMagic.LmMidwayTable"/> already follow the hook's operand. The v10 copy at
+    /// `$13BC00` stays in the frozen list, unreferenced.
+    /// </summary>
+    private static void AppendV22Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        byte[] block = [.. MidwayRoutine(MidwayTablesV21Snes, MidwayRoutineV22Snes),
+                        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x4C, 0x4D, 0x10, 0x01];
+        if (block.Length != MidwayRoutineBlockSize) throw new InvalidOperationException("midway block is not LM's 0xD0");
+        s.Add((MidwayRoutineTagPc, Rats(block)));
+        s.Add((Pc(LmMidwayHook), Jsl(MidwayRoutineV22Snes)));
+        s.Add((Pc(LmExitArrivalHook), Jsl(MidwayRoutineV22Snes + 0xA0)));
     }
 
     /// <summary>
@@ -522,7 +549,7 @@ public static partial class RomPrep
     private static void AppendV21Stamps(List<(int Pc, byte[] Bytes)> s)
     {
         s.Add((MidwayTablesTagPc, Rats(new byte[MidwayTablesSize])));
-        s.Add((Pc(MidwayRoutineSnes), MidwayRoutine(MidwayTablesV21Snes)));
+        s.Add((Pc(MidwayRoutineSnes), MidwayRoutine(MidwayTablesV21Snes, MidwayRoutineSnes)));
     }
 
     /// <summary>

@@ -630,6 +630,25 @@ public static class LunarMagic
             }
         }
 
+        /// <summary>
+        /// Whether the midway ROUTINE the `$05D9E3` hook names sits in a RATS block of its own
+        /// (a valid tag 8 bytes ahead of it), as LM's own blobs do. Prep v10-v21 had it at the
+        /// tail of the secondary-extension block, which LM's *Modify Secondary Entrances* save
+        /// releases — zeroing the routine under the hook (reference/LM_PARITY.md §2). V22 moves it.
+        /// </summary>
+        public bool HasLmMidwayRoutineBlock
+        {
+            get
+            {
+                if (!rom.HasFreeMidwayPosition) return false;
+                int fo = rom.FileOffset(rom.ReadValue(RomPrep.LmMidwayHook + 1, 3) - 8);
+                return fo >= 0 && fo + 8 <= rom.Data.Length
+                    && rom.Data[fo] == 0x53 && rom.Data[fo + 1] == 0x54
+                    && rom.Data[fo + 2] == 0x41 && rom.Data[fo + 3] == 0x52          // "STAR"
+                    && ((rom.Data[fo + 4] | rom.Data[fo + 5] << 8) ^ (rom.Data[fo + 6] | rom.Data[fo + 7] << 8)) == 0xFFFF;
+            }
+        }
+
         /// <summary>SNES address of LM's per-record Y-high table for secondary entrances (the
         /// operand of `LDA long,X` at $05DC85). Only meaningful when
         /// <see cref="HasFreeSecondaryPositions"/>.</summary>

@@ -2173,6 +2173,32 @@ are a stale copy. `Rom.SecondaryEntranceTable(t)` now follows the reader's opera
 reader exists and keeps the vanilla address where it does not, so the editor reads and writes
 whichever copy the game does.
 
+PREP V22 gives the separate-midway ROUTINE a RATS block of its own (`RomPrep.AppendV22Stamps`;
+measured 2026-09-10, reference/LM_PARITY.md §2 "RATS block shapes"). V10 had put the 0xC4-byte
+blob at `$13BC00`, the tail of the 0xD00 secondary-extension block, and Lunar Magic's *Modify
+Secondary Entrances* save re-allocates the two extension tables it finds through the
+`$05DC85`/`$05DC8A` operands and RELEASES the block they were in — zeroing tag and data, the
+routine included — while `$05D9E3`/`$05D979` still JSL into it. No warning: a released block is
+not an error to LM. ShaoBase's routine has a 0xD0-byte block of its own (`$10FDD7`: tag, blob,
+eight `$FF`, `LM 10 01`) and survived the same save. V22 stamps exactly that block at
+`MidwayRoutineV22Snes` = `$13C510` (tag at `MidwayRoutineTagPc`), points its four table operands at
+the v21 tables and its self-operand at itself, and repoints the two hooks; the v10 copy stays in the
+frozen list, unreferenced (LM zeroes it with the block, harmlessly). Nothing in the editor moved:
+`HasFreeMidwayPosition` and `LmMidwayTable` follow the hook. Verified on a v22 build: the secondary
+save released the old block and left the routine, its tag and both hooks intact; a Main/Midway save
+with separate settings on wrote the flag into the v21 tables; Mesen builds a level on both.
+IsPrepped v22 = `HasLmMidwayRoutineBlock` — a valid tag 8 bytes ahead of the routine the hook
+names, which ShaoBase and juz have and after.smc (no routine) does not. Golden V22 pinned.
+
+ALSO from that audit, and not prep changes — every prep-stamped block's shape against LM's is
+tabled in reference/LM_PARITY.md §2: the overworld-ExAnimation settings relocation is LM's first
+overworld save installing its suite (the record table our reader follows is untouched); the GFX
+bypass block's 0x40E0 is the one size LM accepts for a standalone block; the level-ExAnimation
+table takes an LM save in place. Two round-trip breakers found there and left OPEN: LM's
+`-ImportExGFX` never reaches our ExGFX 0x100+ table and zeroes the v2 arm stub at `$0FF770`, and
+LM's Map16 save installs its acts-like machinery over the `$06F5F0` remap — both ROMs stop
+building a level in Mesen.
+
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 
 No unified sprite→tile table exists; each sprite's look comes from its graphics routine.

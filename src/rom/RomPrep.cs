@@ -69,8 +69,10 @@ public static partial class RomPrep
     /// V20 parks the loader's record fetch where LM reads the table address from, which is what
     /// makes a LEVEL's bypass slots readable in its Super GFX Bypass dialog;
     /// V21 gives the separate-midway tables a RATS block of their own, without which Lunar Magic
-    /// refuses to save a level at all.
-    public const int Version = 21;
+    /// refuses to save a level at all;
+    /// V22 gives the separate-midway ROUTINE a block of its own too, away from the secondary
+    /// tables Lunar Magic re-allocates — and zeroes — on a secondary-entrance save.
+    public const int Version = 22;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -107,7 +109,10 @@ public static partial class RomPrep
     /// then the two per-ROM tables — Y high and FG/BG — whose addresses are the operands.</summary>
     public const int LmSecondaryReaders = 0x05DC80;
     /// <summary>Where our two secondary tables go (LM allocates its own; the reader operands
-    /// carry the address, so any RATS block does). 0x200 records each.</summary>
+    /// carry the address, so any RATS block does). 0x200 records each. Lunar Magic's *Modify
+    /// Secondary Entrances* save RE-ALLOCATES both — fresh blocks, readers repointed — and
+    /// RELEASES this block by zeroing all of it (measured 2026-09-10), so nothing the game still
+    /// jumps to may share it: v10 put the midway routine at its tail, and v22 moved it out.</summary>
     public const int SecondaryExtTagPc = 0x9AFF8, SecondaryExtPc = 0x9B000, SecondaryExtSize = 0xD00;
     public const int SecondaryYHighSnes = 0x13B000, SecondaryFgBgSnes = 0x13B200;
     /// <summary>LM's "separate midway settings": a routine hooked from $05D9E3 (and, 0xA0 bytes
@@ -130,6 +135,21 @@ public static partial class RomPrep
     public const int MidwayTablesTagPc = 0x9BD00, MidwayTablesV21Snes = 0x13BD08;
     /// <summary>Four per-level tables 0x200 apart — flags, position, FG/BG, Y high.</summary>
     public const int MidwayTablesSize = 0x800;
+
+    // ---- V22: the midway routine in a block of its own, away from what LM re-allocates ----
+    /// <summary>
+    /// Where the separate-midway routine lives from v22: its own RATS block in Lunar Magic's own
+    /// shape — ShaoBase `$10FDDF` and juz `$11FA63` are 0xD0-byte blocks holding the 0xC4-byte
+    /// blob, eight `$FF` and LM's `LM 10 01` stamp. V10 put the blob at the tail of the
+    /// secondary-extension block, and a *Modify Secondary Entrances* save in LM re-allocates the
+    /// two tables it finds through the `$05DC85`/`$05DC8A` operands and RELEASES the old block,
+    /// zeroing all 0xD00 bytes of it — the routine included, while `$05D9E3` still JSLs into it.
+    /// Measured 2026-09-10 on a v21 build (reference/LM_PARITY.md §2); ShaoBase, whose routine
+    /// has a block of its own, survived the same save.
+    /// </summary>
+    public const int MidwayRoutineTagPc = 0x9C508, MidwayRoutineV22Snes = 0x13C510;
+    /// <summary>LM's block: blob (0xC4), FF x8, `4C 4D 10 01`.</summary>
+    public const int MidwayRoutineBlockSize = 0xD0;
     /// <summary>LM's midway fix: `STA $01` instead of `STA $95` at $05D9E7 and the following
     /// `JMP $05DA17` NOPped, so the midway screen goes through the shared tail and works on
     /// vertical levels too. Kept because the tail is what applies method 2's screen.</summary>
@@ -382,7 +402,10 @@ public static partial class RomPrep
                                 && rom.ReadValue(LmGfxBaseOperand, 3) == rom.LmGfxBypassBase))
            // V21: the midway tables in their own RATS block — the shape LM demands, and the one
            // an LM-saved ROM that carries the feature already has.
-           && (version < 21 || rom.HasLmMidwayTableBlock);
+           && (version < 21 || rom.HasLmMidwayTableBlock)
+           // V22: the midway routine in a RATS block of its own — LM's own blobs have one, and
+           // it is what keeps a secondary-entrance save from zeroing the routine.
+           && (version < 22 || rom.HasLmMidwayRoutineBlock);
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying

@@ -342,9 +342,10 @@ section used to call for; the probe is why:
   it is wrong. Measured both ways: on a v18 ROM (no stamp) LM's overworld save is a no-op,
   0 changed runs, records untouched; on a v19 ROM LM updates the slot it was asked to and leaves
   the other six records alone.
-- **Two saves in, LM still keeps its hands off our GFX code**, but it does re-point our v17
-  overworld-ExAnimation transplant's settings operand (`$1EA84A`) at 8 bytes of its own in the
-  gap at `$1EB458`. Untidy, not broken, and it predates this work — it happens on a v17 base too.
+- **Two saves in, LM still keeps its hands off our GFX code.** It does repoint our v17
+  overworld-ExAnimation transplant's settings operand (`$1EA84A`) and zero our tag at `$1EB458`
+  — that is LM's FIRST overworld save installing its own hack suite, settled under "RATS block
+  shapes" below; the record table our reader follows is untouched.
 
 What stays divergent: the loader is ours (see the bullet above this section), and **AN2 (record
 w0) is editor-only** on our side because the overworld still runs vanilla's
@@ -382,6 +383,98 @@ our ROM.
 Not verified in-game on hardware: the headless Mesen harness cannot reach the overworld at all
 (reference/MESEN.md, "The OVERWORLD is unreachable too"), so the overworld load path is checked
 under `Cpu65816` — the real stub, the real loader, the VRAM writes captured.
+
+### RATS block shapes — every table the prep stamps, audited against LM  [MEASURED 2026-09-10, ShaoBase/juz as controls]
+
+The midway lesson (above): Lunar Magic validates the SHAPE of a block it owns — a dedicated block,
+data at tag + 8, the size LM itself would allocate — and byte-correct data in the wrong shape
+fails in one of three ways: a refusal box, a silent relocation, or a silent release that zeroes
+the block. Every prep-stamped table was checked for the shape LM uses and for what LM does to it
+on the save that touches it. Nobody needs to audit these again; the rows say what was run.
+
+| table (prep) | ours | LM's own | read via | what LM's save did | verdict |
+|---|---|---|---|---|---|
+| separate-midway tables (v21) | `$13BD08`, own 0x800 block | ShaoBase `$128008`, 0x800 | blob operand (`LmMidwayTable`) | level save silent, writes flags into ours | **right** |
+| separate-midway routine (v10 → **v22**) | v10: tail of the 0xD00 secondary block; v22: own 0xD0 block at `$13C510` | ShaoBase `$10FDD7`: tag + 0xC4 blob + 8×`FF` + `LM 10 01` = 0xD0 | hook operands `$05D9E3`/`$05D979` | **secondary save on v21 ZEROED it** (below); on v22 untouched | **fixed, v22** |
+| secondary Y-high / FG-BG (v10) | `$13B000`/`$13B200` in one 0xD00 block | two 0x1FE blocks (ShaoBase `$10F0C5`/`$10F1CB`) | reader operands `$05DC85`/`$05DC8A` (`LmSecondaryYHighTable`) | *Modify Secondary Entrances* save re-allocates both into bank $10 (3261-byte blocks), repoints the readers, **releases ours: tag AND all 0xD00 bytes zeroed**; the four vanilla tables move too (`Rom.SecondaryEntranceTable`) | fine once nothing else shares the block; no warning either way |
+| level ExAnimation table (v11) | `$1EA0A0`, own 0x600 block | ShaoBase `$12A313`, 0x600 (`STAR FF05 00FA`) | engine operand (`LmExAnimBase`) | *Edit Level ExAnimated Frames* + save: LM wrote the 17-byte record as its own block and repointed **our** entry in place; tag untouched; ShaoBase identical | **right** |
+| OW ExAnimation record table (v17) | `$1EB440`, own 0x15 block | LM's install: 0x15 | setup operand (`LmOwExAnimBase`) | two overworld saves: untouched | **right** |
+| OW ExAnimation settings (v17) | `$1EB460`, own 7-byte block | LM's: 7-byte block | blob + 0x4A | see below — LM re-installs its own on the first OW save | right; nothing to fix |
+| GFX bypass records (v2/v18) | `$129000`, own 0x40E0 block | ShaoBase: 0x2D08 INTO one 0x6E00 block at `$108000` (ExGFX pointers first) | `$0FF7FF` operand (v20) | Super GFX Bypass save writes the slot in place | right — but the size rule is EXACT (below) |
+| ExGFX 0x100+ pointers (v2) | `$138008`, own 0x2D00 block | first 0x2D00 of that same 0x6E00 block | our loader's operand; LM's — unknown | **`-ImportExGFX` never reaches it** (below) | OPEN, not a shape fix |
+| extended Map16 defs (v1) | `$128008`, own 0x800 block (page 2, all default) | one full bank per range | ladder slot 0 | Map16 F9 save: LM installs its Map16/acts machinery and drops range 0 to bank 0 (below) | OPEN, not a shape fix |
+| acts-like table (v1) | `$118000`, own 0x8000 block | LM: RAM table via `$000CC6,X` hooks | our `$06F5F0` remap | untouched by every save tried; the Map16 save overwrites the REMAP (below) | table right; mechanism divergent (§4) |
+| checksum balance (v9) | `0x80000`, own 0x140 block | — (ours only) | `RatsWriter.Balance` | untouched by every save tried | right |
+| level engine blocks A-F, render bank $1F (v10), ExAnim engine/MVN/clear (v11), OW ExAnim blob (v17) | LM's own bytes, each `Pc(x) - 8` = tag + 8 | same code, LM-allocated | hook operands | untouched by level, secondary, ExAnim, overworld and Map16 saves | right |
+| sprite size table (`SetSpriteEntrySize`) | `RatsWriter.Allocate`: tag + 8, 0x400 | 0x400 (help "Custom Sprite List Sizes") | `$0EF30C` + `0x42` | not exercised | right by construction |
+| ExGFX 0x80-0xFF pointers `$0FF600`, palette table `$0EF600`, sprite bank table `$0EF100`, `$03BCC0` alt-ExGFX, method-2 bytes `$05DE00`/`$06FC00`/`$06FE00` | vanilla-space tables at LM's own addresses | same | fixed | — | not RATS blocks; nothing to shape |
+
+**The midway ROUTINE — a secondary-entrance save wiped it (v10-v21), fixed by v22.** Found in
+yesterday's F2/F3 probes and reproduced today: *Modify Secondary Entrances* + save on a v21 build
+re-allocates the two extension tables into fresh blocks, repoints `$05DC85`/`$05DC8A`, and RELEASES
+the block they came from — LM's release zeroes the tag AND the data, all 0xD00 bytes of
+`$13AFF8..$13BD00`. V10 had put the midway routine at `$13BC00`, the tail of that block, so after
+the save `$05D9E3` and `$05D979` JSL into zeros (`BRK`) and `HasFreeMidwayPosition` reads false.
+LM raised nothing — a release is not an error to it. ShaoBase's routine has a 0xD0-byte block of
+its own (`$10FDD7`: tag, blob, eight `$FF`, `LM 10 01`) and the same save left it alone. Prep
+**v22** stamps exactly that block at `$13C510` and repoints the two hooks; the readers already
+followed the hook operand. Re-run on a v22 build: the save released the secondary block as before
+and the routine block, its tag and both hooks came through untouched; a Main/Midway save with
+"separate settings" on then wrote `0x20` into the v21 flags table at `$13BE0D` and nothing else
+of ours; Mesen builds a level on both. `HasLmMidwayRoutineBlock` is the property (ShaoBase and
+juz have it, after.smc does not).
+
+**The overworld-ExAnimation settings — LM re-installs, once; not a shape problem.** The `$1EA84A`
++ `$1EB458` runs in every overworld save of ours (A-E, L5, R2, RT, U, Z, and ow1 today) are LM's
+FIRST overworld save installing its whole overworld hack suite (55 runs: bank 03/04/05 hooks,
+three big bank-$10 blocks). As part of it LM writes the seven settings bytes into a fresh 7-byte
+block of its own (`$10CF82`, `STAR 0600 F9FF` — the same shape as ours), repoints the blob's
+`LDA long,X` at +0x4A to it, and releases ours by zeroing the tag (the data was already zero). The
+record table at `$1EB440` and its tag are untouched, so `LmOwExAnimBase` and `ExAnimation.ReadSubmap`
+read the right thing. A second overworld save (ow1 → ow2) changed two bytes — the slot edited and
+one in `$0FF06F` — so this is not a per-save relocation. Nothing of ours reads the settings; if
+something ever does, it reads them through the operand at blob+0x4A (the hook at `$048086` names
+the blob), never at `$1EB460`. No control on an LM-authored base exists: none of the reference
+ROMs carries the overworld hack (`$048086` is vanilla in ShaoBase, juz, after.smc, exanim_0-4).
+
+**The GFX bypass table — LM's size check is EXACT, and 0x40E0 is exactly right.** Four probes on a
+v21 base, tag size word set to 0x1000, 0x4000 (the v2-v17 shape), 0x5000, and the tag removed:
+LM's Super GFX Bypass dialog showed `0` for every slot in all four. Only 0x40E0 — 0x207 records
+of 0x20, the count LM's layout stamp `LM 03 01` defines — reads. LM's own table is not a block of
+its own at all: in ShaoBase, gfx_after and juz it sits 0x2D08 into one 0x6E00 block at `$108000`
+(ExGFX 0x100+ pointers, then 0x40E0 of records, then a 0x20 default record), so LM evidently
+accepts either its own layout or a standalone block of the exact standalone size. Nothing to fix;
+do not resize this block.
+
+**`-ImportExGFX` does not reach our ExGFX table, and breaks the ROM.**  [OPEN] Vanilla's GFX00
+exported and re-inserted as ExGFX100 on a v21 base (`Invoke-LunarMagic -ImportExGFX`): "ExGFX
+Insertion Complete", exit 0 — and the pointer went to `$258AA6`, an unprotected byte in the 2MB
+expansion nothing reads, while entry 0 of our table at `$138008` stayed zero. The same run
+installed LM's decompression/palette hack over our v1 palette stubs (`$0EFC00`-`$0EFCAF`,
+`$0095ED`, `$00A830`, `$03DDC9`, `$00B895`), initialised its `$0FEFCD` table, NOPped the `JSL
+$00BA28` at `$00A147`, and **zeroed `$0FF770-$0FF77F` — our v2 GFX arm stub — while `$0583B8`
+still JSLs to it**: the ROM no longer builds a level in Mesen (exit 1; the v21 base exits 0).
+ShaoBase, same run: entry 0 of its table at `$108008` repointed, silent. Planting our table's
+address at `$0FF937` (the operand of LM's own fetch idiom, by analogy with `$0FF7FF`) changed
+nothing, so where LM takes the ExGFX base from is still unknown. This is the v2 loader's shape,
+not a table's, and it is a round-trip breaker in its own right — a separate piece of work.
+
+**Map16 F9 on a prepped base: LM installs its Map16 and acts-like machinery over ours.**  [OPEN]
+Editors ▸ 16x16 Tile Map Editor, F9, no edits: LM wrote 13 runs — its wrappers at `$06F553` (31
+B) and `$06F5E4` (96 B, **over our acts-like remap at `$06F5F0`**, which the four vanilla sites
+still JSL), hooks at `$04DCFA`/`$058A65`/`$058B45`/`$058C33`/`$058D2A`, `$06F65C`/`$06F70B`/
+`$06F7A0`, a 0x8000 acts-like block at `$198000`, and slot 0 of the ladder set to `$00:F000` —
+"no defs" — because our page 2 is all default tiles and LM saves nothing for an unused range. Our
+0x800 defs block stays, orphaned but tagged. The ROM no longer builds a level in Mesen. ShaoBase:
+F9 changed nothing. This is §4 item 1 (two live acts-like mechanisms) measured as breakage, and
+the fix is the Map16-machinery transplant §2 already lists — not a block shape.
+
+**The methods that worked, for next time.** `lm-savelevel.ps1`, `lm-entrance.ps1` (`-MenuDown 3`
+= ExAnimated Frames, 7 = Main/Midway, 8 = Secondary; `-Combos`/`-Fields`/`-Checks` dirty the
+level), `lm-levelgfx.ps1`, `lm-submapgfx.ps1`, `lm-map16.ps1` (F9), and
+`tools/lm/Invoke-LunarMagic.ps1 -LmArgs @('-ImportExGFX', rom)` with an `ExGraphics/ExGFX100.bin`
+beside the ROM. `--diff` prints at most 60 runs and 20 new blocks and compares only up to the
+smaller file; read the tag bytes directly when a claim rests on one address.
 
 ## 3. What we write that LM does not
 

@@ -194,6 +194,42 @@ public class EntrancePlacementTests(ITestOutputHelper log)
     }
 
     /// <summary>
+    /// V22: the midway ROUTINE in a RATS block of its own, in Lunar Magic's exact shape (ShaoBase
+    /// `$10FDD7`: tag, the 0xC4-byte blob, eight `$FF`, its `LM 10 01` stamp — 0xD0 bytes). V10-V21
+    /// had it at the tail of the secondary-extension block, which LM's *Modify Secondary Entrances*
+    /// save releases and zeroes, routine included, while the hooks still jump into it (measured
+    /// 2026-09-10, reference/LM_PARITY.md §2). The readers needed no change: they follow the hook.
+    /// </summary>
+    [LmRefRomFact]
+    public void v22_gives_the_midway_routine_a_rats_block_of_its_own()
+    {
+        var v21 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v21, 21);
+        Assert.False(v21.HasLmMidwayRoutineBlock, "v21 had the routine inside the secondary block");
+
+        var ours = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(ours);
+        Assert.True(ours.HasLmMidwayRoutineBlock);
+        Assert.True(ours.HasFreeMidwayPosition);
+        Assert.Equal(RomPrep.MidwayRoutineV22Snes, ours.ReadValue(RomPrep.LmMidwayHook + 1, 3));
+        Assert.Equal(RomPrep.MidwayRoutineV22Snes + 0xA0, ours.ReadValue(RomPrep.LmExitArrivalHook + 1, 3));
+        Assert.Equal(RomPrep.MidwayTablesV21Snes, ours.LmMidwayTable);           // the tables stay put
+
+        // The whole block — tag included — is ShaoBase's byte for byte outside the five operands.
+        var shao = Rom.Load(ReferenceRoms.ShaoBase);
+        int theirs = shao.ReadValue(RomPrep.LmMidwayHook + 1, 3);
+        int[] operands = [0x0A, 0x27, 0x48, 0x57, 0xAF];
+        for (int i = -8; i < RomPrep.MidwayRoutineBlockSize; i++)
+        {
+            if (operands.Any(o => i >= o && i < o + 3)) continue;
+            Assert.True(ours.ReadByte(RomPrep.MidwayRoutineV22Snes + i) == shao.ReadByte(theirs + i), $"+{i:X2}");
+        }
+        Assert.True(shao.HasLmMidwayRoutineBlock);
+        Assert.True(Rom.Load(ReferenceRoms.InProject("juz", "SMW.smc")).HasLmMidwayRoutineBlock);
+        Assert.False(Rom.Load(ReferenceRoms.LmAfter).HasLmMidwayRoutineBlock);   // no routine at all
+        // That it still RUNS from its new home is the_midway_routine_places_mario_from_its_own_record,
+        // which calls the routine the hook names.
+    }
+
+    /// <summary>
     /// The four vanilla secondary-entrance tables are read through the operands that NAME them,
     /// not at their vanilla addresses — because Lunar Magic's own *Modify Secondary Entrances*
     /// save can relocate them (measured: all four moved into bank $10 with the readers
@@ -246,7 +282,7 @@ public class EntrancePlacementTests(ITestOutputHelper log)
             cpu.Ram7E[0x0E] = 0x05; cpu.Ram7E[0x0F] = 0x01;
             cpu.Ram7E[0x94] = 0x11; cpu.Ram7E[0x96] = 0x33; cpu.Ram7E[0x97] = 0x44;
             cpu.PresetRegs(a: rom.ReadMainEntrance(0x105).ToBytes()[2], x: 0, y: 0x105);   // $F400 byte
-            cpu.CallLong(RomPrep.MidwayRoutineSnes);
+            cpu.CallLong(rom.ReadValue(RomPrep.LmMidwayHook + 1, 3));       // the copy the hook names (v22 moved it)
             at = (cpu.Ram7E[0x94], cpu.Ram7E[0x96] | (cpu.Ram7E[0x97] << 8));
             return cpu.Acc & 0xFF;
         }
