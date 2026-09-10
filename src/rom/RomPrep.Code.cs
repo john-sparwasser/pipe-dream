@@ -419,9 +419,13 @@ public static partial class RomPrep
     private static byte[] GfxCode(int version)
     {
         var a = new Asm(GfxArmStub);
-        EmitGfxArmStub(a);
+        // V23 moves the arm stub behind the resolver: $0FF770 is the tail of LM's ExGFX pointer
+        // table, and its import zeroes it. The block still starts there, so the stamp address
+        // holds and the sixteen bytes go back to being pointer slots (ids 0xFB-0xFF, no file).
+        if (version >= 23) a.Db(new byte[16]); else EmitGfxArmStub(a);
         EmitGfxLoader(a, version);
         EmitGfxResolve(a);
+        if (version >= 23) { a.PadTo(GfxArmStubV23); EmitGfxArmStub(a); }
         EmitGfxSlotTab(a);
         if (version < 14) return a.Bytes();
         EmitL3Loop(a);
@@ -431,7 +435,14 @@ public static partial class RomPrep
         return a.Bytes();
     }
 
-    /// <summary>$0FF770: arm $FE = level+1, then the displaced `LDA $1925 : CMP #$09`.</summary>
+    /// <summary>The arm stub: $FE = level+1, then the displaced `LDA $1925 : CMP #$09`. At $0FF770
+    /// through v22, $0FF890 from v23 — $0FF770 is the last sixteen bytes of Lunar Magic's ExGFX
+    /// 0x80-0xFF pointer table ($0FF600, 0x180 bytes; ids 0xFB-0xFF), which LM re-initialises to
+    /// zero on `-ImportExGFX`, leaving `$0583B8` JSLing into zeros (measured 2026-09-10: the ROM
+    /// no longer built a level). The re-arm itself has been redundant since v10 — LM's own
+    /// `$0EF550` stub stores level+1 into $FE at `$05D8E2`, earlier in the load — but the hook
+    /// must stay: LM reads a JSL at `$0583B8` as "GFX bypass installed" and re-installs its whole
+    /// loader over ours without one (also measured, also fatal).</summary>
     private static void EmitGfxArmStub(Asm a)
     {
         a.Rep(0x20)

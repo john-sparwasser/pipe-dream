@@ -72,7 +72,9 @@ public static partial class RomPrep
     /// refuses to save a level at all;
     /// V22 gives the separate-midway ROUTINE a block of its own too, away from the secondary
     /// tables Lunar Magic re-allocates — and zeroes — on a secondary-entrance save.
-    public const int Version = 22;
+    /// V23 moves the v2 GFX arm stub out of Lunar Magic's ExGFX pointer table, where its ExGFX
+    /// import was zeroing it from under the LoadLevel hook.
+    public const int Version = 23;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -211,7 +213,12 @@ public static partial class RomPrep
     public const int PalHook2Stub = 0x0EFC60;      // second hook: re-apply after $00A5BC
 
     // ---- V2: in-game GFX stage (bank-0F FF tail $0FEF90-$0FFFFF + expansion tables) ----
-    public const int GfxArmStub = 0x0FF770;        // JSL target at $0583B8 (LoadLevel)
+    public const int GfxArmStub = 0x0FF770;        // JSL target at $0583B8 (LoadLevel), v2-v22
+    /// <summary>Where the arm stub lives from v23: the gap Lunar Magic's own layout leaves between
+    /// its loader group ($0FF780-$0FF884) and the slot tables at $0FF8A0, which two LM installs
+    /// over our bases left untouched. V2 had it at $0FF770 — the last sixteen bytes of LM's ExGFX
+    /// 0x80-0xFF pointer table — and LM's ExGFX import zeroes those (see AppendV23Stamps).</summary>
+    public const int GfxArmStubV23 = 0x0FF890;
     public const int GfxLoaderEntry = 0x0FF780;    // JSL target at $00AA50 (HasLmGfxLoader)
     public const int GfxThunks = 0x00FF9A;         // JSR $B8DE:RTL / JSR $AA80:RTL (bank-00 tail)
     public const int GfxBypassRecords = 0x129000;  // 0x20 B/level ×0x200, ×0x207 from v18 (RATS at pc 0x90FF8)
@@ -405,7 +412,14 @@ public static partial class RomPrep
            && (version < 21 || rom.HasLmMidwayTableBlock)
            // V22: the midway routine in a RATS block of its own — LM's own blobs have one, and
            // it is what keeps a secondary-entrance save from zeroing the routine.
-           && (version < 22 || rom.HasLmMidwayRoutineBlock);
+           && (version < 22 || rom.HasLmMidwayRoutineBlock)
+           // V23: the LoadLevel hook is there — LM reads a JSL at $0583B8 as "my GFX bypass is
+           // installed", and re-installs its whole loader over ours without one — but it no
+           // longer targets the ExGFX pointer table's tail. LM's own (ShaoBase, `JSL $0FF7F0`)
+           // satisfies this too.
+           && (version < 23 || (rom.ReadByte(0x0583B8) == 0x22
+                                && rom.ReadValue(0x0583B9, 3) is var armTarget
+                                && (armTarget < Gfx.ExGfx80Table || armTarget >= GfxLoaderEntry)));
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying

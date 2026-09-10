@@ -55,6 +55,9 @@ public static partial class RomPrep
         // V22 gives the midway blob itself a block of its own and repoints the two hooks; the
         // v10 copy at the secondary block's tail stays as frozen, unreferenced bytes.
         if (version >= 22) AppendV22Stamps(s);
+        // V23 retires the GFX arm stub: vanilla bytes back at $0583B8, and the GFX block
+        // restamped with the ExGFX pointer table's tail back to zero.
+        if (version >= 23) AppendV23Stamps(s);
         return s;
     }
 
@@ -550,6 +553,33 @@ public static partial class RomPrep
     {
         s.Add((MidwayTablesTagPc, Rats(new byte[MidwayTablesSize])));
         s.Add((Pc(MidwayRoutineSnes), MidwayRoutine(MidwayTablesV21Snes, MidwayRoutineSnes)));
+    }
+
+    /// <summary>
+    /// V23: move the v2 GFX arm stub out of Lunar Magic's ExGFX pointer table, where LM's ExGFX
+    /// import was zeroing it from under the LoadLevel hook. Two measurements, 2026-09-10:
+    ///
+    /// - The stub sat at $0FF770 — the last sixteen bytes of LM's 0x80-0xFF pointer table
+    ///   ($0FF600, 0x180 bytes; ids 0xFB-0xFF). `-ImportExGFX` re-initialises that table, so
+    ///   afterwards `$0583B8` JSL'd into zeros and the ROM no longer built a level in Mesen.
+    ///   Restoring vanilla's five bytes at `$0583B8` on that broken ROM, and nothing else, made it
+    ///   build one again — the stub's re-arm has been redundant since v10, because LM's own
+    ///   `$0EF550` stub stores level+1 into $FE at `$05D8E2`, before `$0583B8` runs.
+    /// - But the hook cannot simply go: on a base with vanilla bytes at `$0583B8`, the same import
+    ///   installed LM's ENTIRE GFX-bypass loader over ours (`$0FF780`-`$0FFE93`, a 0x6E00 records
+    ///   block, the DM16 dispatch entries) and the ROM stopped booting. On a base with a JSL there
+    ///   — any target; v2's pointed at $0FF770 — it did not. So a JSL at `$0583B8` is part of how
+    ///   LM decides its bypass is installed, and it stays.
+    ///
+    /// LM's own target, `$0FF7F0`, needs 0x43 bytes where our resolver lives; the stub goes to
+    /// `$0FF890` instead, the gap LM's layout leaves between its loader group and the slot tables,
+    /// which both LM installs over our bases left alone. The sixteen bytes at $0FF770 go back to
+    /// zero — pointer slots, "no file", as LM keeps them.
+    /// </summary>
+    private static void AppendV23Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        s.Add((Pc(0x0583B8), [0x22, GfxArmStubV23 & 0xFF, GfxArmStubV23 >> 8 & 0xFF, GfxArmStubV23 >> 16, 0xEA]));
+        s.Add((Pc(GfxArmStub), GfxCode(23)));
     }
 
     /// <summary>

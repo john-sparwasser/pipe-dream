@@ -621,9 +621,11 @@ public static class Gfx
     /// The ExGFX ids (0x80-0xFFF) the ROM's OWN tables resolve — files Lunar Magic inserted into
     /// the base, as opposed to the project's imports. They are base files: not renameable, and an
     /// edit forks them like any stock sheet. A pointer only counts when it decompresses to whole
-    /// tiles at the ROM's depth, because the tables are not clean on every base: our prep's arm
-    /// stub at $0FF770 sits inside LM's 0x80 table where ids 0xFA-0xFF would live, so those read
-    /// as pointers into code (CONTRACT §7d; RomPrep.GfxArmStub).
+    /// tiles at the ROM's depth, because the tables are not clean on every base: prep v2-v22 put
+    /// the GFX arm stub at $0FF770, inside LM's 0x80 table where ids 0xFB-0xFF live, so on those
+    /// images they read as pointers into code (CONTRACT §7d). V23 gave the slots back — LM's
+    /// ExGFX import zeroes them, which is how the stub was found — but the guard stays for the
+    /// images that still carry it.
     /// </summary>
     public static IEnumerable<int> RomExGfx(Rom rom)
     {

@@ -446,18 +446,50 @@ its own at all: in ShaoBase, gfx_after and juz it sits 0x2D08 into one 0x6E00 bl
 accepts either its own layout or a standalone block of the exact standalone size. Nothing to fix;
 do not resize this block.
 
-**`-ImportExGFX` does not reach our ExGFX table, and breaks the ROM.**  [OPEN] Vanilla's GFX00
-exported and re-inserted as ExGFX100 on a v21 base (`Invoke-LunarMagic -ImportExGFX`): "ExGFX
-Insertion Complete", exit 0 — and the pointer went to `$258AA6`, an unprotected byte in the 2MB
-expansion nothing reads, while entry 0 of our table at `$138008` stayed zero. The same run
-installed LM's decompression/palette hack over our v1 palette stubs (`$0EFC00`-`$0EFCAF`,
-`$0095ED`, `$00A830`, `$03DDC9`, `$00B895`), initialised its `$0FEFCD` table, NOPped the `JSL
-$00BA28` at `$00A147`, and **zeroed `$0FF770-$0FF77F` — our v2 GFX arm stub — while `$0583B8`
-still JSLs to it**: the ROM no longer builds a level in Mesen (exit 1; the v21 base exits 0).
-ShaoBase, same run: entry 0 of its table at `$108008` repointed, silent. Planting our table's
-address at `$0FF937` (the operand of LM's own fetch idiom, by analogy with `$0FF7FF`) changed
-nothing, so where LM takes the ExGFX base from is still unknown. This is the v2 loader's shape,
-not a table's, and it is a round-trip breaker in its own right — a separate piece of work.
+**`-ImportExGFX` no longer breaks the ROM — prep v23.**  [MEASURED 2026-09-10/11] Vanilla's GFX00
+re-inserted as ExGFX100 on a v21 base ("ExGFX Insertion Complete", exit 0) left a ROM that no
+longer built a level in Mesen. The killer was one write: LM re-initialises its ExGFX 0x80-0xFF
+pointer table (`$0FF600`, 0x180 bytes) on import, and **prep v2 had parked the GFX arm stub at
+`$0FF770` — the table's last sixteen bytes, ids 0xFB-0xFF** — so `$0583B8` JSL'd into zeros.
+Proof by subtraction: restoring vanilla's five bytes at `$0583B8` on the broken ROM, and nothing
+else, made it build a level again (the stub's re-arm has been redundant since v10, because LM's
+own `$0EF550` stub stores level+1 into `$FE` at `$05D8E2`, before `$0583B8` runs).
+
+**But the JSL at `$0583B8` is part of how LM decides its GFX bypass is installed.** The first
+v23 candidate put vanilla's bytes back there; the same import then installed LM's ENTIRE loader
+over ours — `$0FF780`-`$0FFE93`, a 0x6E00 pointers+records block, `$0583B8 → JSL $0FF7F0`, the
+five DM16 dispatch entries — and the ROM stopped booting (Mesen exit 1). On a base with a JSL at
+`$0583B8`, any target, it does not. So v23 keeps the hook and moves only the body, to `$0FF890`:
+the gap LM's own layout leaves between its loader group (`$0FF780`-`$0FF884`) and the slot
+tables at `$0FF8A0`, which both LM installs over our bases left untouched. LM's own target,
+`$0FF7F0`, is its record-cache fetch (0x43 bytes, `PHP … STA $7FC006/8/9 … PLP : LDA $1925 : CMP
+#$09 : RTL`) and needs the address our resolver occupies. Verified on a v23 build: the same
+import leaves `$0583B8`, `$0FF890` and `$0FF770` alone, installs no loader, and the ROM boots.
+
+What the import DOES install on a v23 base, and what is still open about it:
+
+- **LM's 4bpp/palette bundle lands on our v1 and v4 stubs.** `$0EFC00`-`$0EFCAF` (176 bytes,
+  byte-identical in ShaoBase/BigEye/DogsOfWar; juz lacks it), `$0095E9` → `JML $0EFC50 : JSR
+  LoadPalette : JML $0EFC80 : NOP NOP` (its first four bytes are our v1 hook, which is why byte
+  `$0095E9 == 0x5C` was ever a detector), `$00A830`/`$03DDC9 → JML $0EFC00` (its GFX00/0F RAM
+  expander, over our v4 rewrites), `$00B895` `LDY #$2000 → #$7D00` (GFX33 read as 4bpp — ours is
+  3bpp, §2 "4bpp graphics"), `$0093F7 → JSL` a per-ROM 13-byte NMI-wait routine (`LDA #$81 : BIT
+  $4212 … STA $4200 : RTL` + `LM 00 01`; xg `$108150`, ShaoBase `$10EE10`), `$00A149` NOPped, and
+  373 bytes of bookkeeping at `$0FEFCB`. Our v1 palette stubs at `$0EFC50/60/90` are gone under
+  it; LM's `$0EFC80` path applies the `$0EF600` palette through `JSL $05809E → $1FAFF1`, which v10
+  already carries, so the first-load path is LM's and coherent. **Our second hook `$00A5BF → JSL
+  $0EFC60` is left pointing into the middle of LM's `$0EFC50` copy loop** (LM's own is `JSL
+  $0EF570`, a 0x57-byte routine at `$0EF570` that re-applies the `$0EF600` palette and clears
+  `$FE`). The boot smoke passes with it, so it is not fatal on that path, but palette correctness
+  after an import is unverified. Closing this is the LM_PARITY "4bpp graphics" transplant, with
+  the `$0EF570` routine and the `$00A5BF` hook added to its list.  [OPEN]
+- **The imported file's pointer is where we do not read.** LM allocated the file at `$208000` (a
+  2230-byte block in the 2MB expansion it grew the ROM to) and wrote the pointer at `$258AA5` —
+  unprotected, in that expansion — while entry 0 of our 0x100+ table at `$138008` stayed zero.
+  LM's own table lives 0x2D08 ahead of its records in one block; on our base the records are a
+  standalone block at `$129000`, so where LM derived `$258AA5` from is unknown (planting our
+  table's address at `$0FF937` changed nothing). Our editor therefore does not see an ExGFX file
+  LM inserted.  [OPEN]
 
 **Map16 F9 on a prepped base: LM installs its Map16 and acts-like machinery over ours.**  [OPEN]
 Editors ▸ 16x16 Tile Map Editor, F9, no edits: LM wrote 13 runs — its wrappers at `$06F553` (31

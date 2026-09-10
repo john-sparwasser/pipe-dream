@@ -71,6 +71,7 @@ public class RomPrepTests
     private const string GoldenPrepV20Sha256 = "963e5813830ebe4bb8a2e4142011cedade6f33edb9348164ff212561dd1e2008";
     private const string GoldenPrepV21Sha256 = "94fcfcea85ead1e4fe98a9e171bb8f666a8459bba13f7ec1e8ac10fd852e5378";
     private const string GoldenPrepV22Sha256 = "ccb23c83a78fdd486174d8184fa0a1c0d3c3edb047cde351f3e6a28f1edbcd01";
+    private const string GoldenPrepV23Sha256 = "0020a80c7a158882159afca01d577d6466e4c1ad03600c073ef3c8e13a44a8aa";
 
     private static Rom Prepped()
     {
@@ -299,7 +300,13 @@ public class RomPrepTests
         Assert.Contains("STA $0701,Y", pal);
         Assert.Contains("CPY #$0202", pal);
 
-        string arm = Disasm.Dis(rom, RomPrep.GfxArmStub, 8, m8: true, x8: true);
+        // V23: the arm stub moved out of LM's ExGFX pointer table — its last sixteen bytes (ids
+        // 0xFB-0xFF) read "no file" again — and the LoadLevel hook still JSLs, which is what keeps
+        // LM from re-installing its loader over ours.
+        Assert.Equal(0x22, rom.ReadByte(0x0583B8));
+        Assert.Equal(RomPrep.GfxArmStubV23, rom.ReadValue(0x0583B9, 3));
+        Assert.All(rom.Data.AsSpan(rom.FileOffset(RomPrep.GfxArmStub), 16).ToArray(), b => Assert.Equal(0, b));
+        string arm = Disasm.Dis(rom, RomPrep.GfxArmStubV23, 8, m8: true, x8: true);
         Assert.Contains("LDA $010B", arm);
         Assert.Contains("STA $FE", arm);
         Assert.Contains("CMP #$09", arm);
@@ -570,11 +577,15 @@ public class RomPrepTests
             Assert.Equal(GoldenPrepV21Sha256, RomHash.HeaderlessSha256File(tmp));
 
             File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
-            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V22)
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 22));     // frozen V22 stamp list
+            Assert.Equal(GoldenPrepV22Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V23)
             string cur = RomHash.HeaderlessSha256File(tmp);
             // Spelled out rather than left to the assertion message: xunit truncates a mismatch,
             // and this hash is what the NEXT version bump has to be told.
-            Assert.True(GoldenPrepV22Sha256 == cur, $"V22 golden hash is now {cur}");
+            Assert.True(GoldenPrepV23Sha256 == cur, $"V23 golden hash is now {cur}");
         }
         finally { File.Delete(tmp); }
     }
@@ -696,6 +707,7 @@ public class RomPrepTests
     public void gfx_arm_stub_arms_fe_and_preserves_the_mode_compare()
     {
         var rom = PreppedReal();
+        int stub = rom.ReadValue(0x0583B9, 3);                   // wherever the version keeps it
         (int Fe, byte Marker) Run(int mode)
         {
             var cpu = new Cpu65816(rom);
@@ -704,7 +716,7 @@ public class RomPrepTests
             // driver: JSL armstub : BEQ eq : LDA #$01 : BRA w / eq: LDA #$02 / w: STA $7FF000 : RTL
             byte[] d =
             [
-                0x22, 0x70, 0xF7, 0x0F,        // JSL GfxArmStub
+                0x22, (byte)stub, (byte)(stub >> 8), (byte)(stub >> 16),   // JSL the arm stub
                 0xF0, 0x04,                    // BEQ eq (flags must survive the RTL)
                 0xA9, 0x01, 0x80, 0x02,        // LDA #$01 : BRA w
                 0xA9, 0x02,                    // eq: LDA #$02

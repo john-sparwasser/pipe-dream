@@ -2194,10 +2194,35 @@ ALSO from that audit, and not prep changes — every prep-stamped block's shape 
 tabled in reference/LM_PARITY.md §2: the overworld-ExAnimation settings relocation is LM's first
 overworld save installing its suite (the record table our reader follows is untouched); the GFX
 bypass block's 0x40E0 is the one size LM accepts for a standalone block; the level-ExAnimation
-table takes an LM save in place. Two round-trip breakers found there and left OPEN: LM's
-`-ImportExGFX` never reaches our ExGFX 0x100+ table and zeroes the v2 arm stub at `$0FF770`, and
-LM's Map16 save installs its acts-like machinery over the `$06F5F0` remap — both ROMs stop
-building a level in Mesen.
+table takes an LM save in place. Two round-trip breakers found there: LM's `-ImportExGFX` zeroed
+the v2 arm stub at `$0FF770` (fixed in V23, below), and LM's Map16 save installs its acts-like
+machinery over the `$06F5F0` remap — that ROM stops building a level in Mesen and is still OPEN.
+
+PREP V23 moves the v2 GFX arm stub out of Lunar Magic's ExGFX 0x80-0xFF pointer table
+(`RomPrep.AppendV23Stamps`; measured 2026-09-10/11, reference/LM_PARITY.md §2 "`-ImportExGFX`").
+V2 put the stub at `$0FF770`, the table's last sixteen bytes (`$0FF600`, 0x180 bytes; ids
+0xFB-0xFF — the very slots `Gfx.RomExGfx` has always had to guard against), and LM's ExGFX import
+re-initialises that table: afterwards `$0583B8` JSL'd into zeros and the ROM no longer built a level
+in Mesen. Restoring vanilla's five bytes at `$0583B8` on the broken ROM, and nothing else, made it
+build one — the re-arm has been redundant since v10, because LM's own `$0EF550` stub stores
+level+1 into `$FE` at `$05D8E2`, earlier in the same load. BUT the hook itself has to stay: on a
+base with vanilla bytes at `$0583B8` the same import installed LM's ENTIRE GFX-bypass loader over
+ours (`$0FF780`-`$0FFE93`, a 0x6E00 pointers+records block, `$0583B8 → JSL $0FF7F0`, the DM16
+dispatch entries) and the ROM stopped booting; with a JSL there — any target — it did not. A JSL
+at `$0583B8` is part of LM's "bypass installed" test. So V23 keeps `JSL : NOP` at `$0583B8` and
+moves the sixteen-byte body to `GfxArmStubV23` = `$0FF890`, the gap LM's own layout leaves between
+its loader group (`$0FF780`-`$0FF884`) and the slot tables at `$0FF8A0`, which both LM installs
+over our bases left alone; LM's own target `$0FF7F0` is its 0x43-byte record-cache fetch and needs
+the address our resolver occupies. `$0FF770` goes back to zero ("no file", as LM keeps those
+slots). Verified on a v23 build: the same import leaves `$0583B8`, `$0FF890` and `$0FF770`
+untouched, installs only its palette/4bpp bundle, and the ROM boots. IsPrepped v23 = a JSL at
+`$0583B8` whose target is outside `$0FF600`-`$0FF77F` — true of ShaoBase's `JSL $0FF7F0` as well.
+Golden V23 pinned. STILL OPEN after an import, both measured and written up in LM_PARITY §2: LM's
+4bpp/palette bundle replaces our v1 palette stubs and v4 expanders at `$0EFC00`-`$0EFCAF` /
+`$0095E9` / `$00A830` / `$03DDC9` / `$00B895`, leaving our second palette hook `$00A5BF →
+$0EFC60` pointing into the middle of LM's routine (boots, correctness unverified; LM's own is
+`JSL $0EF570`); and LM records the imported file's pointer at `$258AA5` in the 2MB expansion, not
+in our `$138008` table, so the editor does not see it.
 
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 
