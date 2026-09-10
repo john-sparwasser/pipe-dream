@@ -454,24 +454,34 @@ public static partial class RomPrep
          .LdaDpX(0x04)
          .StaAbsX(0x0105)
          .Dex()
-         .Bpl("cache")
-         .Rep(0x30)
-         .LdaDp(0xFE)                        // [SCAN] armed level+1
-         .Beq("noL3")                        // [SCAN] not a level load — layer 3 too
-         .DecA()                             // [SCAN]
-         .Asl().Asl().Asl().Asl().Asl()      // [SCAN] level * 0x20
-         .Tax()                              // [SCAN]
-         .LdaLongX(GfxBypassRecords)         // [SCAN operand] record w0
-         .AndImm16(0x8000);
-        // A record past the levels is a SUBMAP's (v18): Lunar Magic leaves w0's enable bit clear
-        // on those seven and reads them unconditionally, so the bit is only a level's business.
-        if (version >= 18)
-            a.Bne("on")
-             .LdaDp(0xFE)
-             .CmpImm16(OwGfxRecordIndex + 1)
-             .Bcc("exit")                    // a level, and its record is not enabled
-             .Label("on");
-        else a.Beq("exit");                  // record not enabled
+         .Bpl("cache");
+        // V20 moves the record fetch to the END of the block, so its 24-bit operand lands on
+        // LmGfxBaseOperand — the fixed address Lunar Magic's dialog reads the table from. The
+        // body then sits in the gap that leaves, and the fetch branches back into it. The gap is
+        // the body's size to the byte, which is why this is a BRA and not a JMP; PadTo and
+        // AssertAt below turn any future byte over budget into a prep-time throw.
+        if (version >= 20) a.Bra("fetch").Label("body");
+        else
+        {
+            a.Rep(0x30)
+             .LdaDp(0xFE)                    // [SCAN] armed level+1
+             .Beq("noL3")                    // [SCAN] not a level load — layer 3 too
+             .DecA()                         // [SCAN]
+             .Asl().Asl().Asl().Asl().Asl()  // [SCAN] level * 0x20
+             .Tax()                          // [SCAN]
+             .LdaLongX(GfxBypassRecords)     // [SCAN operand] record w0
+             .AndImm16(0x8000);
+            // A record past the levels is a SUBMAP's (v18): Lunar Magic leaves w0's enable bit
+            // clear on those seven and reads them unconditionally, so the bit is only a level's
+            // business.
+            if (version >= 18)
+                a.Bne("on")
+                 .LdaDp(0xFE)
+                 .CmpImm16(OwGfxRecordIndex + 1)
+                 .Bcc("exit")                // a level, and its record is not enabled
+                 .Label("on");
+            else a.Beq("exit");              // record not enabled
+        }
         a.StxDp(0x03)                        // record byte offset — NOT $0C: the vanilla
          .LdxImm16(0x0000)                   // expander writes $0A/$0C (and INC $00s the
          .Label("slot")                      // dest); the decompressor writes $8A-$8F.
@@ -511,11 +521,42 @@ public static partial class RomPrep
          .Plx()
          .Inx().Inx()
          .CpxImm16(0x0010)
-         .Bcc("slot")
-         .Label("exit");
-        // The layer-3 pass runs for EVERY armed level, bypassed or not — it is what puts 28-2B
-        // back after a level that repointed them. Only reachable when $FE is armed, so it can
-        // recompute the record base from it.
+         .Bcc("slot");
+        // V20 keeps the shared tail with the fetch block, so the body fits the gap the fetch's
+        // fixed address leaves it; before that it simply falls through.
+        if (version >= 20) a.Bra("exit");
+        else
+        {
+            a.Label("exit");
+            // The layer-3 pass runs for EVERY armed level, bypassed or not — it is what puts
+            // 28-2B back after a level that repointed them. Only reachable when $FE is armed, so
+            // it can recompute the record base from it.
+            if (version >= 14) a.Jsr(L3Loop);
+            a.Label("noL3").Sep(0x30).Rtl();
+            return;
+        }
+        // ---- V20: the fetch, parked so its operand is at LmGfxBaseOperand ----
+        // The `LDA base,X` opcode sits one byte before the operand, and 13 bytes of prologue run
+        // up to it; AssertAt is the guard, since the exact address is the whole point. What
+        // follows has to fit in what is left of the block, which is why the enable test reads
+        // bit 15 with BMI rather than `AND #$8000 : BNE`, and why `exit` is the fall-through.
+        a.PadTo(GfxRecordFetch)
+         .Label("fetch")
+         .Rep(0x30)
+         .LdaDp(0xFE)                        // [SCAN] armed level+1
+         .Beq("noL3")                        // [SCAN] not a level load — layer 3 too
+         .DecA()                             // [SCAN]
+         .Asl().Asl().Asl().Asl().Asl()      // [SCAN] level * 0x20
+         .Tax()                              // [SCAN]
+         .AssertAt(LmGfxBaseOperand - 1)
+         .LdaLongX(GfxBypassRecords)         // [SCAN operand] record w0 — where LM reads the base
+         .Bmi("body")                        // w0 bit 15: this level bypasses
+         // A record past the levels is a SUBMAP's: LM leaves w0's enable bit clear on those seven
+         // and reads them unconditionally, so the bit is only a level's business. X is already
+         // the record's byte offset, so the test is on X rather than on $FE.
+         .CpxImm16(OwGfxRecordIndex * 0x20)
+         .Bcs("body")
+         .Label("exit");                     // an armed level that does not bypass: layer 3 only
         if (version >= 14) a.Jsr(L3Loop);
         a.Label("noL3")
          .Sep(0x30)

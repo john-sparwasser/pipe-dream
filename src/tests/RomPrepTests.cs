@@ -68,6 +68,7 @@ public class RomPrepTests
     private const string GoldenPrepV17Sha256 = "02ee912d42e1672db9ff3d797b062549dfd61a3e8d55afd738cd7b3069eedd71";
     private const string GoldenPrepV18Sha256 = "55c6e7bf8e35a6d0958d66f9fba184ea6eb94a4666931e0a8547cadbd10ab8f2";
     private const string GoldenPrepV19Sha256 = "426d325657835b69c4d69a1dc9434f68527de4952d213a5ba9ac911fc34f1d72";
+    private const string GoldenPrepV20Sha256 = "963e5813830ebe4bb8a2e4142011cedade6f33edb9348164ff212561dd1e2008";
 
     private static Rom Prepped()
     {
@@ -302,11 +303,16 @@ public class RomPrepTests
         Assert.Contains("CMP #$09", arm);
 
         string loader = Disasm.Dis(rom, RomPrep.GfxLoaderEntry, 50, m8: true, x8: true);
-        Assert.Contains("LDA $FE", loader);
-        Assert.Contains("LDA $129000,X", loader);
-        Assert.Contains("AND #$8000", loader);
         Assert.Contains("JSL $00FF9A", loader);
         Assert.Contains("STA $2117", loader);
+
+        // V20: the record fetch is parked so its operand lands on the fixed address Lunar Magic
+        // reads the table's base from — and it is still the idiom our own scanner keys on.
+        string fetch = Disasm.Dis(rom, RomPrep.GfxRecordFetch, 14, m8: false, x8: false);
+        Assert.Contains("LDA $FE", fetch);
+        Assert.Contains($"LDA ${RomPrep.GfxBypassRecords:X6},X", fetch);
+        Assert.Equal(RomPrep.GfxBypassRecords, rom.ReadValue(RomPrep.LmGfxBaseOperand, 3));
+        Assert.Equal(RomPrep.GfxBypassRecords, rom.LmGfxBypassBase);   // ...and our scanner agrees
 
         string res = Disasm.Dis(rom, RomPrep.GfxResolve, 45, m8: false, x8: false);
         Assert.Contains("SBC #$0100", res);          // the LmExGfxBase scanner idiom
@@ -550,11 +556,15 @@ public class RomPrepTests
             Assert.Equal(GoldenPrepV18Sha256, RomHash.HeaderlessSha256File(tmp));
 
             File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
-            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V19)
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 19));     // frozen V19 stamp list
+            Assert.Equal(GoldenPrepV19Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V20)
             string cur = RomHash.HeaderlessSha256File(tmp);
             // Spelled out rather than left to the assertion message: xunit truncates a mismatch,
             // and this hash is what the NEXT version bump has to be told.
-            Assert.True(GoldenPrepV19Sha256 == cur, $"V19 golden hash is now {cur}");
+            Assert.True(GoldenPrepV20Sha256 == cur, $"V20 golden hash is now {cur}");
         }
         finally { File.Delete(tmp); }
     }

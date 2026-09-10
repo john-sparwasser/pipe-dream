@@ -2135,10 +2135,25 @@ by the `$FE` arming our loader reads. IsPrepped v19 = `HasLmOwGfxMarker`, true o
 as well. Golden V19 pinned; v18's stub stays byte-frozen (`OwGfxArmStub(version)`). This is NOT
 the loader transplant §2 used to call for — with the stamp in, LM never installs the newer loader
 over ours, so that transplant buys nothing. Still divergent: the loader is ours, AN2 is
-editor-only, and LM's *level* Super GFX Bypass dialog still does not read a level's record (an
-older, separate gap — it shows 0 for all eleven slots with or without this stamp). Not verified
+editor-only. Not verified
 on hardware: the headless Mesen harness cannot reach the overworld (reference/MESEN.md), so the
 path is checked under `Cpu65816` — real stub, real loader, VRAM writes captured.
+
+PREP V20 makes Lunar Magic's *Level ▸ Super GFX Bypass* dialog read and write a LEVEL's record —
+which it never had, on any prepped base, since v2 (`RomPrep.AppendV20Stamps`; the experiments are
+in reference/LM_PARITY.md §2). LM takes the table's address from ONE fixed offset, the operand of
+the `LDA base,X` in its own loader at `$0FF7FF` = `LmGfxBaseOperand`; it does not scan, so our
+identical fetch idiom 0x67 bytes earlier bought nothing. V20 restamps the GFX block with that
+fetch parked at `GfxRecordFetch` so its operand lands there: the loader's body moves into the gap
+the fetch vacates (entered by `BRA`, and the fetch branches back), and the enable test becomes
+`BMI` on w0 bit 15 plus `CPX #$4000` for the submaps' bit-less records — two bytes cheaper, which
+is what makes it fit. The gap is the body's size to the byte, so `PadTo`/`AssertAt` turn any
+future overrun into a prep-time throw rather than a corrupt image. The record LAYOUT needed no
+change: with v19's layout stamp in, LM reads the eleven slots off exactly §7d's words. IsPrepped
+v20 = the operand at `LmGfxBaseOperand` equals `LmGfxBypassBase` — the property an LM-saved ROM
+has too. Golden V20 pinned. STILL OPEN: LM's level save warns "Existing data format or size not
+recognized! — Midway entrance data" about our v10 entrance structures (it writes the record
+anyway).
 
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 

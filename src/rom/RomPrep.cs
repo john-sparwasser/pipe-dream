@@ -65,8 +65,10 @@ public static partial class RomPrep
     /// V18 gives each submap its own GFX file list — Lunar Magic's Overworld ▸ Submap GFX,
     /// seven more entries on the same per-level record table (see <see cref="AppendV18Stamps"/>);
     /// V19 makes Lunar Magic's own dialog read and write those seven, by carrying its layout
-    /// stamp and shaping the arming stub so the address is in the two fields LM reads it from.
-    public const int Version = 19;
+    /// stamp and shaping the arming stub so the address is in the two fields LM reads it from;
+    /// V20 parks the loader's record fetch where LM reads the table address from, which is what
+    /// makes a LEVEL's bypass slots readable in its Super GFX Bypass dialog.
+    public const int Version = 20;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -297,6 +299,22 @@ public static partial class RomPrep
     public const int OwGfxMarker = 0x0FF15C;
     public static readonly byte[] OwGfxMarkerBytes = [0x4C, 0x4D, 0x03, 0x01];
 
+    // ---- V20: where Lunar Magic reads the record table's address from ----
+    /// <summary>
+    /// The 24-bit operand of the `LDA base,X` that fetches a record's w0 — at a FIXED address in
+    /// Lunar Magic's own loader, and the only place its *Super GFX Bypass* dialog looks for the
+    /// table. It does not scan for the instruction: our loader had the identical idiom 0x67 bytes
+    /// earlier and the dialog showed nothing (measured 2026-09-10, reference/LM_PARITY.md §2). So
+    /// from v20 our own record fetch sits exactly here, which is what makes a level's slots
+    /// readable in LM as the submaps' already are.
+    /// </summary>
+    public const int LmGfxBaseOperand = 0x0FF7FF;
+
+    /// <summary>Where the record fetch therefore starts from v20: thirteen bytes of prologue
+    /// (`REP #$30 : LDA $FE : BEQ : DEC : ASL x5 : TAX`) and then the `LDA base,X` whose operand
+    /// is <see cref="LmGfxBaseOperand"/>.</summary>
+    public const int GfxRecordFetch = LmGfxBaseOperand - 1 - 13;
+
     /// <summary>The four vanilla `JSL $00F545` acts-like call sites (banks 00/01/02),
     /// repointed to our remap so gameplay collision resolves extended tiles.</summary>
     public static readonly int[] ActsCallSites = [0x00F4DD, 0x019533, 0x02961A, 0x02A6EB];
@@ -342,7 +360,11 @@ public static partial class RomPrep
            && (version < 18 || rom.HasOwGfxBypass)
            // V19: LM's layout stamp for that hack, which its own install writes as well — so
            // this clause is true of an LM-saved ROM, as every clause here has to be.
-           && (version < 19 || rom.HasLmOwGfxMarker);
+           && (version < 19 || rom.HasLmOwGfxMarker)
+           // V20: the record table's address sits where LM reads it. Also the PROPERTY, not our
+           // bytes: on an LM-saved ROM that operand is exactly where LM's own loader keeps it.
+           && (version < 20 || (rom.LmGfxBypassBase > 0
+                                && rom.ReadValue(LmGfxBaseOperand, 3) == rom.LmGfxBypassBase));
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying

@@ -322,11 +322,38 @@ section used to call for; the probe is why:
   overworld-ExAnimation transplant's settings operand (`$1EA84A`) at 8 bytes of its own in the
   gap at `$1EB458`. Untidy, not broken, and it predates this work — it happens on a v17 base too.
 
-What stays divergent: the loader is ours (see the bullet above this section), **AN2 (record w0)
-is editor-only** on our side because the overworld still runs vanilla's `LDY #$14 : JSL $00BA28`
-at `$00A147` where LM NOPs the JSL, and **LM's *level* Super GFX Bypass dialog still does not
-read a level's record** — on a v18/v19 build it shows 0 for all eleven slots, with or without the
-stamp (so it is gated on something else, and it is an older gap this pass does not touch).
+What stays divergent: the loader is ours (see the bullet above this section), and **AN2 (record
+w0) is editor-only** on our side because the overworld still runs vanilla's
+`LDY #$14 : JSL $00BA28` at `$00A147` where LM NOPs the JSL.
+
+### The LEVEL Super GFX Bypass dialog — readable and writable from prep v20  [MEASURED 2026-09-10]
+
+Found while closing the submap one: LM's *Level ▸ Super GFX Bypass* dialog showed `0` for all
+eleven slots on any prepped base, which had been true and unnoticed since prep **v2**. Two
+independent causes, both now measured, and neither was a bug in our record:
+
+- **LM takes the table's address from a FIXED offset**, the 24-bit operand of the `LDA base,X`
+  in its own loader at `$0FF7FF` (`RomPrep.LmGfxBaseOperand`) — the one place in an LM save
+  where that address appears at all. It does not scan: our loader carried the identical fetch
+  idiom 0x67 bytes earlier and the dialog read `$E8E8FA` out of whatever sat at `$0FF7FF`.
+  Planting the address there made the dialog read our records. **Prep v20 therefore parks the
+  loader's own record fetch at that address** (a code motion inside the block — the body moves
+  into the gap the fetch leaves, the enable test becomes `BMI` to pay for it, and `PadTo` /
+  `AssertAt` make a future byte over budget a prep-time throw).
+- **The record LAYOUT was right all along** (w7 FG1, w6 FG2, w5 BG1, w4 FG3, w3 BG2, w2 BG3,
+  w11-w8 SP1-SP4, w0 AN2 — CONTRACT §7d). The first measurement looked one word off because a
+  base without the v19 layout stamp makes LM read an OLDER record layout; with the stamp in, a
+  record whose word k held `0x10+k` read back as FG1=0x17, FG2=0x16 … AN2=0x10, exactly ours.
+
+Verified on plain `--buildproject` output: a v20 build with level `$105`'s FG1/BG1/SP1 repointed
+shows `F` / `3` / `C` in LM's dialog with the rest "7F Skip File", and a slot changed in LM lands
+at `$12B0AC` — `base + 0x105*0x20 + 0x0C`, w6 — with our other three slots untouched.
+
+**LM's level SAVE still warns** "Existing data format or size not recognized! — Midway entrance
+data" (our v10 entrance structures; a separate, older gap). It writes the record anyway, and its
+two routine bank-00 level-save patches (`$00F4A0` `PLX : LDY #$25` → `STY $1693`, and `$00F4EB`)
+are the same two it applies to its own saves, so they are LM being LM rather than a reaction to
+our ROM.
 
 Not verified in-game on hardware: the headless Mesen harness cannot reach the overworld at all
 (reference/MESEN.md, "The OVERWORLD is unreachable too"), so the overworld load path is checked

@@ -48,6 +48,8 @@ public static partial class RomPrep
         // V19 restamps v18's arming stub in LM's own shape and adds LM's layout stamp, which is
         // what makes LM's Submap GFX dialog read the seven records v18 wrote.
         if (version >= 19) AppendV19Stamps(s);
+        // V20 restamps the GFX block with the record fetch parked where LM reads the table from.
+        if (version >= 20) AppendV20Stamps(s);
         return s;
     }
 
@@ -550,6 +552,24 @@ public static partial class RomPrep
         s.Add((Pc(OwGfxMarker), OwGfxMarkerBytes));
         s.Add((Pc(OwGfxStub), OwGfxArmStub(19)));
     }
+
+    /// <summary>
+    /// V20: make Lunar Magic's *Level ▸ Super GFX Bypass* dialog read a level's record too. One
+    /// change, and it is a code motion rather than new behaviour: the loader's record fetch moves
+    /// to the end of its block so the `LDA base,X` operand lands on <see cref="LmGfxBaseOperand"/>,
+    /// the fixed address LM takes the table's address from.
+    ///
+    /// Measured 2026-09-10 (reference/LM_PARITY.md §2). Our loader has always carried the same
+    /// fetch idiom — the one our own scanner keys on — just 0x67 bytes earlier, and LM's dialog
+    /// showed every slot as 0 because it never looks there: planting the address at that one
+    /// offset made the dialog read our records. It also settled that the record LAYOUT was right
+    /// all along (w7 FG1 … w0 AN2, exactly CONTRACT §7d): with the v19 layout stamp in, LM's
+    /// dialog reads the eleven slots off precisely those words. Without the stamp it reads an
+    /// OLDER layout, one word over, which is what made the first measurement look like a bug in
+    /// ours.
+    /// </summary>
+    private static void AppendV20Stamps(List<(int Pc, byte[] Bytes)> s)
+        => s.Add((Pc(GfxArmStub), GfxCode(20)));
 
     /// <summary>
     /// The sixteen words Lunar Magic writes into every submap's record when it installs the hack,
