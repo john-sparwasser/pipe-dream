@@ -78,13 +78,32 @@ public static partial class RomPrep
     /// import was zeroing it from under the LoadLevel hook;
     /// V24 replaces v1's private palette stubs with Lunar Magic's own palette engine, byte for
     /// byte, so an LM ExGFX import lands on code that is already there.
-    public const int Version = 25;
+    public const int Version = 26;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
-    public const int ActsRemapEntry = 0x06F5F0;    // JSL target at the 4 acts-like sites
+    public const int ActsRemapEntry = 0x06F5F0;    // JSL target at the 4 acts-like sites, v1-v25
     public const int ActsTableSnes = 0x118000;     // pc 0x88000 (RATS tag at 0x87FF8)
     public const int ActsTablePc = 0x88000;
+
+    // ---- V26: Lunar Magic's acts-like core, and our remap out from under it ----
+    /// <summary>Lunar Magic's second Map16 wrapper and acts-like core, `$06F5E4`-`$06F643`: the
+    /// wrapper `$04DCFA` calls, the `LM 10 01` marker at <see cref="LmActsMarker"/>, the
+    /// `TYA : JML $00F545` tail at `$06F602`, the overworld bail at `$06F608` and the acts-like
+    /// lookup at `$06F617`. Byte-identical in juz, TestRom, ShaoBase, BigEye, DogsOfWar and
+    /// ShaoBasePrepatch apart from the table bank at <see cref="LmActsTableOperand"/> — and it is
+    /// what an LM Map16 save writes, which is why v1-v25's remap at <see cref="ActsRemapEntry"/>
+    /// (inside this span) left the ROM unable to build a level after one.</summary>
+    public const int LmActsCore = 0x06F5E4;
+    public const int LmActsMarker = 0x06F5FC;         // "LM 10 01" — the acts-like hack's stamp
+    public const int LmActsLookup = 0x06F617;         // the lookup LM's own trampolines reach
+    public const int LmActsTableOperand = 0x06F626;   // bank byte of its `LDA $xx8000,X`
+    public const int LmMap16Marker = 0x06F65C;        // "LM 12 01" — the Map16 hack's stamp
+
+    /// <summary>Where our acts-like remap lives from v26: the free run behind Lunar Magic's
+    /// trampolines ($06F800-$06F9FF is FF in every LM ROM measured, and our own bank-06 blocks
+    /// start again at $06FA00).</summary>
+    public const int ActsRemapEntryV26 = 0x06F800;
     public const int Map16DefsPc = 0x90008;        // = $12:8008; imm $7008 / bank $12
     public const int Handler22 = 0x0DF08A, Handler23 = 0x0DF08E, Handler26 = 0x0DF130;
     public const int Handler27 = 0x0DF150, Handler28 = 0x0DF160, Handler29 = 0x0DFF50;
@@ -453,7 +472,10 @@ public static partial class RomPrep
            && (version < 24 || (rom.ReadByte(0x00A5BF) == 0x22 && rom.ReadValue(0x00A5C0, 3) == LmPaletteFadeIn))
            // V25: the GFX0F expander decompresses through LM's `$0EFC00` wrapper — the 4bpp-mode
            // repoint every LM base has, and the one an ExGFX import wrote onto v24.
-           && (version < 25 || rom.ReadValue(0x00A830, 3) == LmPaletteEngine);
+           && (version < 25 || rom.ReadValue(0x00A830, 3) == LmPaletteEngine)
+           // V26: Lunar Magic's acts-like core is present, which its own marker states. Every LM
+           // ROM measured has it (juz, TestRom, ShaoBase, BigEye, DogsOfWar, ShaoBasePrepatch).
+           && (version < 26 || rom.ReadValue(LmActsMarker, 4) == 0x01104D4C);
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying

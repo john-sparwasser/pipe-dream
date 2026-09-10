@@ -63,6 +63,9 @@ public static partial class RomPrep
         // V25 takes the rest of LM's 4bpp mode: the wrapper repoints, the filter dispatch and body,
         // the GFX33 load, the $00A149 NOP, and the loader restamped with its AN2 pass.
         if (version >= 25) AppendV25Stamps(s);
+        // V26 stamps LM's acts-like core, which a Map16 save writes over the v1 remap's address,
+        // and moves the remap (and the four sites' JSLs) clear of it.
+        if (version >= 26) AppendV26Stamps(s);
         return s;
     }
 
@@ -670,6 +673,51 @@ public static partial class RomPrep
         s.Add((Pc(0x00B895), Convert.FromHexString("7D8400A97E850220DEB8C230A0002084004CD7B8")));
         s.Add((Pc(0x00A149), [0xEA, 0xEA, 0xEA, 0xEA]));
         s.Add((Pc(GfxArmStub), GfxCode(25)));
+    }
+
+    /// <summary>
+    /// V26: Lunar Magic's acts-like core, and our remap moved out from under it.
+    ///
+    /// *Editors ▸ 16x16 Tile Map Editor ▸ F9* on a v25 base left the ROM unable to build a level.
+    /// Measured 2026-09-11 (reference/LM_PARITY.md §2): the save writes LM's 96-byte acts-like
+    /// core over `$06F5E4`-`$06F643`, and v1 had parked our remap at `$06F5F0` — inside it. The
+    /// four vanilla `JSL $00F545` sites still pointed there, where they now met LM's
+    /// `STA $65 : LDY #$0000 : RTL`, so the level renderer got a clobbered stream pointer.
+    ///
+    /// LM did NOT repoint those four sites (it repoints them to per-site trampolines of its own
+    /// on its bases, but it leaves a foreign hook alone — same conservatism as `$0583B8`, v23).
+    /// So the fix is both halves: the remap moves to <see cref="ActsRemapEntryV26"/>, behind LM's
+    /// trampolines where nothing writes, and LM's core goes down at LM's own address with LM's own
+    /// bytes — including the `LM 10 01` marker by which LM knows the acts-like hack is installed,
+    /// and with its lookup reading the acts-like table we already own at
+    /// <see cref="ActsTableSnes"/>, which is the bank ShaoBase, BigEye and DogsOfWar carry too.
+    /// The core is dead code on our base — nothing calls its wrapper, and its lookup is a second
+    /// reader of the same table — but it is what makes an LM Map16 save leave us alone.
+    ///
+    /// The **Map16** hack's own marker (`LM 12 01` at <see cref="LmMap16Marker"/>) is deliberately
+    /// NOT stamped, though a save writes it: with it in, LM reads the extended-def block as its own
+    /// to manage, and since a fresh prep's page 2 is all default tiles it FREES our block at
+    /// `$128000` (tag and all) and installs two more 0x8000 blocks of machinery. Measured, and the
+    /// reason this version claims only the hack it actually carries.
+    ///
+    /// Also still LM's on a save, and deliberately not taken here: `$04DCFA → JSL $06F5E4` and the
+    /// four `$058A65`/`B45`/`C33`/`D2A` → `JSL $06F540`, which route four more bank-05/04 render
+    /// paths through the ladder. They are LM's code over the ladder we already stamp byte for byte
+    /// (v12), self-consistent either way, but they change what those paths draw — a render change
+    /// that wants its own Mesen pass, not a byte pass.
+    /// </summary>
+    private static void AppendV26Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        var core = Convert.FromHexString(
+            "0A4B6202008254FFA40B84668565A000006BFFFFFFFFFFFF4C4D1001EAEA985C45F500EAAC9B0D100A7A7A" +
+            "80F2EAEAEAEAEAEAEBAD9316DAC230A80AAA3016BF008011C90002B0F28403E230FA8D9316EBA8A30860BF" +
+            "0080FFC90002B0DC80E8");
+        core[LmActsTableOperand - LmActsCore] = (byte)(ActsTableSnes >> 16);
+        s.Add((Pc(LmActsCore), core));
+        s.Add((Pc(ActsRemapEntryV26), ActsRemap(ActsRemapEntryV26)));
+        foreach (int site in ActsCallSites)
+            s.Add((Pc(site), [0x22, ActsRemapEntryV26 & 0xFF,
+                              ActsRemapEntryV26 >> 8 & 0xFF, ActsRemapEntryV26 >> 16]));
     }
 
     /// <summary>

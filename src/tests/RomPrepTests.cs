@@ -74,6 +74,7 @@ public class RomPrepTests
     private const string GoldenPrepV23Sha256 = "0020a80c7a158882159afca01d577d6466e4c1ad03600c073ef3c8e13a44a8aa";
     private const string GoldenPrepV24Sha256 = "6817b894574dbf52fafb6ea4241ce14142fdff06b7f2b6e0c821a1e0a767aaeb";
     private const string GoldenPrepV25Sha256 = "f16c8cf9c60c982d262909e8081b3af50574c8946e033196c9b9417eaf59d943";
+    private const string GoldenPrepV26Sha256 = "ed549b0d5557a759451196b5951d2361152e7aa8cdb81eec425a81d8ca75c77e";
 
     private static Rom Prepped()
     {
@@ -267,7 +268,7 @@ public class RomPrepTests
             Assert.Contains("LDY #$0000", s);
         }
 
-        string remap = Disasm.Dis(rom, RomPrep.ActsRemapEntry, 22, m8: true, x8: true);
+        string remap = Disasm.Dis(rom, RomPrep.ActsRemapEntryV26, 22, m8: true, x8: true);
         Assert.Contains("LDA $118000,X", remap);
         Assert.Contains("CMP #$0200", remap);
         Assert.Contains("JML $00F545", remap);
@@ -514,6 +515,46 @@ public class RomPrepTests
         Assert.Equal(bank, Gfx.SourceSnes(v25, 0x32) >> 16);
     }
 
+    // ---------------------------------------------------------------- V26: LM's acts-like core
+
+    /// <summary>V26 IS Lunar Magic's acts-like core: the 96 bytes at $06F5E4 that an LM Map16 save
+    /// writes, which through v25 landed on our own remap at $06F5F0 and left the ROM unable to
+    /// build a level. Byte-identical to ShaoBase's — including the table operand, because LM's
+    /// lookup reads the acts-like table at the address our prep has always used.</summary>
+    [LmRefRomFact]
+    public void v26_stamps_lunar_magics_acts_like_core_byte_for_byte()
+    {
+        var ours = PreppedReal();
+        var shao = Rom.Load(ReferenceRoms.ShaoBase);
+        byte[] Bytes(Rom r, int snes, int n) => r.Data.AsSpan(r.FileOffset(snes), n).ToArray();
+        Assert.Equal(Bytes(shao, RomPrep.LmActsCore, 0x60), Bytes(ours, RomPrep.LmActsCore, 0x60));
+        Assert.Equal(0x01104D4C, ours.ReadValue(RomPrep.LmActsMarker, 4));      // "LM 10 01"
+        Assert.Equal(RomPrep.ActsTableSnes >> 16, ours.ReadByte(RomPrep.LmActsTableOperand));
+        // The Map16 hack's OWN marker stays absent: claiming it makes LM manage the extended-def
+        // block and free ours (see AppendV26Stamps).
+        Assert.NotEqual(0x01124D4C, ours.ReadValue(RomPrep.LmMap16Marker, 4));
+    }
+
+    /// <summary>...and our remap is out from under it, with the four `JSL $00F545` sites naming the
+    /// new address. LM does not repoint those four on our base — it leaves a foreign hook alone —
+    /// so the remap has to be somewhere its own core will not land on.</summary>
+    [RealRomFact]
+    public void v26_moves_the_acts_remap_clear_of_lunar_magics_core()
+    {
+        var rom = PreppedReal();
+        Assert.True(RomPrep.ActsRemapEntryV26 >= RomPrep.LmActsCore + 0x60
+                    || RomPrep.ActsRemapEntryV26 < RomPrep.LmActsCore);
+        foreach (int site in RomPrep.ActsCallSites)
+        {
+            Assert.Equal(0x22, rom.ReadByte(site));
+            Assert.Equal(RomPrep.ActsRemapEntryV26, rom.ReadValue(site + 1, 3));
+        }
+        // Both readers of the acts-like table — ours and LM's core — name the same table, so the
+        // editor's scanner cannot disagree with the game whichever one it finds first.
+        Assert.Equal(RomPrep.ActsTableSnes, rom.LmActsAsBase);
+        Assert.Equal(RomPrep.ActsTableSnes, rom.ReadValue(RomPrep.ActsRemapEntryV26 + 0x0E, 3));
+    }
+
     /// <summary>The loader's AN2 pass (v25): whatever it uploaded, the buffer is left holding record
     /// word 0's file — an enabled level's, a submap's always, GFX14 otherwise and for Skip File —
     /// because `$00A149`, vanilla's GFX14 decompress after the uploads, is NOPped the way LM NOPs
@@ -746,11 +787,15 @@ public class RomPrepTests
             Assert.Equal(GoldenPrepV24Sha256, RomHash.HeaderlessSha256File(tmp));
 
             File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
-            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V25)
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 25));     // frozen V25 stamp list
+            Assert.Equal(GoldenPrepV25Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V26)
             string cur = RomHash.HeaderlessSha256File(tmp);
             // Spelled out rather than left to the assertion message: xunit truncates a mismatch,
             // and this hash is what the NEXT version bump has to be told.
-            Assert.True(GoldenPrepV25Sha256 == cur, $"V25 golden hash is now {cur}");
+            Assert.True(GoldenPrepV26Sha256 == cur, $"V26 golden hash is now {cur}");
         }
         finally { File.Delete(tmp); }
     }
@@ -1411,7 +1456,7 @@ public class RomPrepTests
                 b = SpriteRender.Capture(prep, new Sprite(1, 4, 10, 0, num));
                 SpriteRender.Trace = false;
                 remapRan |= SpriteRender.LastPcHot?.Any(pc =>
-                    pc >= RomPrep.ActsRemapEntry && pc < RomPrep.ActsRemapEntry + 0x30) == true;
+                    pc >= RomPrep.ActsRemapEntryV26 && pc < RomPrep.ActsRemapEntryV26 + 0x30) == true;
             }
             Assert.NotNull(a);
             Assert.Equal(a, b);
@@ -1579,7 +1624,7 @@ public class RomPrepTests
         for (int tile = 0; tile < 0x200; tile++)
         {
             var v = Run(clean, 0x00F545, tile);
-            var p = Run(prep, RomPrep.ActsRemapEntry, tile);
+            var p = Run(prep, RomPrep.ActsRemapEntryV26, tile);
             if (v != p)
                 Assert.Fail($"tile {tile:X3}: clean A={v.A:X2} B={v.B:X2} $1693={v.Low:X2} " +
                             $"prep A={p.A:X2} B={p.B:X2} $1693={p.Low:X2}");
@@ -1587,7 +1632,7 @@ public class RomPrepTests
         }
 
         // and an extended tile resolves to its acts value (default 0x130)
-        var e = Run(prep, RomPrep.ActsRemapEntry, 0x2A5);
+        var e = Run(prep, RomPrep.ActsRemapEntryV26, 0x2A5);
         Assert.Equal((0x01, 0x5A, 0x30), (e.A, e.B, e.Low));
     }
 

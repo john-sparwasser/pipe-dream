@@ -41,9 +41,11 @@ INFERRED means the address and shape say so but nothing has been run against it.
 `$00BF36`, `$00BF81`, `$00C117`, `$019501`, `$0292FA`, `$0295ED`, `$02A6BB`, `$02BA72`,
 `$02D18D` all change one read: `LDA $00BA70,X` → `LDA $000CC6,X`. LM relocates the block-type
 table into RAM; we instead repoint the four `JSL $00F545` acts-like sites at our own remap
-(`$06F5F0` → table at `$118000`). CONFIRMED different, INFERRED compatible. **This is the
-likeliest place for the two to disagree about the same tile**, because both are live at once
-on a ROM that has met both editors. Worth an explicit experiment.
+(`$06F800` from v26, `$06F5F0` before — table at `$118000`). CONFIRMED different, INFERRED
+compatible. **This is the likeliest place for the two to disagree about the same tile**, because
+both are live at once on a ROM that has met both editors — though from v26 LM's own acts-like
+lookup is stamped beside ours and reads the SAME table (§2 "Map16 F9"), so the disagreement is
+narrowed to LM's chaining and its RAM block-type table. Worth an explicit experiment.
 
 ### Sprite stream — LM's loader, TAKEN (v10, block C of the level engine)
 `$02A67A`, `$02A826` (→ `JML $1090A3` / `$109198` / `$10917B` / `$108F2D`), `$02A95B`
@@ -415,8 +417,8 @@ on the save that touches it. Nobody needs to audit these again; the rows say wha
 | OW ExAnimation settings (v17) | `$1EB460`, own 7-byte block | LM's: 7-byte block | blob + 0x4A | see below — LM re-installs its own on the first OW save | right; nothing to fix |
 | GFX bypass records (v2/v18) | `$129000`, own 0x40E0 block | ShaoBase: 0x2D08 INTO one 0x6E00 block at `$108000` (ExGFX pointers first) | `$0FF7FF` operand (v20) | Super GFX Bypass save writes the slot in place | right — but the size rule is EXACT (below) |
 | ExGFX 0x100+ pointers (v2) | `$138008`, own 0x2D00 block | first 0x2D00 of that same 0x6E00 block | our loader's operand; LM's — unknown | **`-ImportExGFX` never reaches it** (below) | OPEN, not a shape fix |
-| extended Map16 defs (v1) | `$128008`, own 0x800 block (page 2, all default) | one full bank per range | ladder slot 0 | Map16 F9 save: LM installs its Map16/acts machinery and drops range 0 to bank 0 (below) | OPEN, not a shape fix |
-| acts-like table (v1) | `$118000`, own 0x8000 block | LM: RAM table via `$000CC6,X` hooks | our `$06F5F0` remap | untouched by every save tried; the Map16 save overwrites the REMAP (below) | table right; mechanism divergent (§4) |
+| extended Map16 defs (v1) | `$128008`, own 0x800 block (page 2, all default) | one full bank per range | ladder slot 0 | Map16 F9 save drops range 0 to bank 0 and populates ranges 1-2 of its own; frees our block if we claim its marker (below) | shape right; the marker is the rule |
+| acts-like table (v1) | `$118000`, own 0x8000 block | LM: same table, its lookup's operand | our `$06F800` remap (v26) AND LM's `$06F617` core, both reading it | untouched by every save tried, and the Map16 save keeps our address (below) | right from v26 |
 | checksum balance (v9) | `0x80000`, own 0x140 block | — (ours only) | `RatsWriter.Balance` | untouched by every save tried | right |
 | level engine blocks A-F, render bank $1F (v10), ExAnim engine/MVN/clear (v11), OW ExAnim blob (v17) | LM's own bytes, each `Pc(x) - 8` = tag + 8 | same code, LM-allocated | hook operands | untouched by level, secondary, ExAnim, overworld and Map16 saves | right |
 | sprite size table (`SetSpriteEntrySize`) | `RatsWriter.Allocate`: tag + 8, 0x400 | 0x400 (help "Custom Sprite List Sizes") | `$0EF30C` + `0x42` | not exercised | right by construction |
@@ -506,15 +508,33 @@ What the import DOES install on a v23 base, and what is still open about it:
   table's address at `$0FF937` changed nothing). Our editor therefore does not see an ExGFX file
   LM inserted.  [OPEN]
 
-**Map16 F9 on a prepped base: LM installs its Map16 and acts-like machinery over ours.**  [OPEN]
-Editors ▸ 16x16 Tile Map Editor, F9, no edits: LM wrote 13 runs — its wrappers at `$06F553` (31
-B) and `$06F5E4` (96 B, **over our acts-like remap at `$06F5F0`**, which the four vanilla sites
-still JSL), hooks at `$04DCFA`/`$058A65`/`$058B45`/`$058C33`/`$058D2A`, `$06F65C`/`$06F70B`/
-`$06F7A0`, a 0x8000 acts-like block at `$198000`, and slot 0 of the ladder set to `$00:F000` —
-"no defs" — because our page 2 is all default tiles and LM saves nothing for an unused range. Our
-0x800 defs block stays, orphaned but tagged. The ROM no longer builds a level in Mesen. ShaoBase:
-F9 changed nothing. This is §4 item 1 (two live acts-like mechanisms) measured as breakage, and
-the fix is the Map16-machinery transplant §2 already lists — not a block shape.
+**Map16 F9 on a prepped base: LM's acts-like core landed on our remap.**  [FIXED in prep v26]
+Editors ▸ 16x16 Tile Map Editor, F9, no edits, on a v25 base: LM wrote 13 runs — the ladder slots
+at `$06F553`, its acts-like core at `$06F5E4` (96 B, **over our remap at `$06F5F0`**, which the
+four vanilla `JSL $00F545` sites still pointed at), hooks at `$04DCFA` and
+`$058A65`/`B45`/`C33`/`D2A`, `$06F65C`/`$06F70B`/`$06F7A0`, a 0x8000 acts-like table at `$1A8000`,
+and slot 0 of the ladder set to `$00:F000` ("no defs" — our page 2 is all default tiles). The four
+sites then met LM's `STA $65 : LDY #$0000 : RTL`: the ROM no longer built a level in Mesen
+(`Test-RomBoots` level `0x00`, exit 1). ShaoBase: F9 changed nothing, because it has the core.
+
+**Prep v26 is that core, at LM's address with LM's bytes, and our remap moved to `$06F800`** —
+the free run behind LM's trampolines, FF in juz, TestRom, ShaoBase, BigEye, DogsOfWar and
+ShaoBasePrepatch (CONTRACT §7d-26). Measured after: the same F9 boots and builds level `0xC7`,
+LM keeps our acts-like table (its lookup's operand stays `$118000`, where on v25 it had allocated
+a fresh one), leaves the four sites and our remap alone, and a second F9 writes nothing.
+
+Two findings worth keeping from getting there:
+
+- **Claim only the hack you carry.** The first v26 also stamped LM's *Map16* marker (`LM 12 01` at
+  `$06F65C`, which the save writes). With it in, LM reads the extended-def block as its own to
+  manage: it FREED our 0x800 block at `$128000`, tag and all. Without it, LM leaves the block and
+  only re-points the slot. Same family as the RATS-shape rule below — a marker is a promise.
+- **LM's install is staged.** Once the acts-like core is present, that save moves on to the next
+  piece: it stops writing the `$04DCFA`/`$058A65` hooks and instead populates ladder ranges 1 and 2
+  (banks `$1A`/`$1C`, two fresh 0x8000 blocks) with its per-tileset pages, leaving range 0 at "no
+  defs". Legal by §7a-rev (holes are), and our reader follows the slots — but it does mean
+  `IsPrepped`'s v1 clause (`LmMap16Defs.Bank != 0`) reads false on such a base and the app offers
+  an upgrade, which restamps our block and slot 0. Same as it already is for `after.smc`.
 
 **The methods that worked, for next time.** `lm-savelevel.ps1`, `lm-entrance.ps1` (`-MenuDown 3`
 = ExAnimated Frames, 7 = Main/Midway, 8 = Secondary; `-Combos`/`-Fields`/`-Checks` dirty the
@@ -527,7 +547,7 @@ smaller file; read the tag bytes directly when a claim rests on one address.
 
 Direct Map16 object handlers (`$0DF150`, `$0DF08A` extent), the exit destination bit 8 before
 LM's own patch exists on a vanilla base, the checksum balance at pc `0x80000`, our acts-like
-remap at `$06F5F0` + table at `$118000`, and the v2 GFX loader. All RATS-tagged where they are
+remap at `$06F800` (v26; `$06F5F0` before) + table at `$118000`, and the v2 GFX loader. All RATS-tagged where they are
 data; LM honours tags it did not write.
 
 ## 4. Where to start
@@ -535,8 +555,12 @@ data; LM honours tags it did not write.
 0. **4bpp graphics** (§2 above) — done: the overworld half in v13, the rest in v25 (GFX33 as
    4bpp, the filter dispatch and body, the expander wrapper, the AN2 pass). What stays ours is
    the loader itself.
-1. **Acts-like.** Two live mechanisms for one feature, and it decides collision. Build the
-   experiment: a tile whose behaviour we set, opened and saved in LM, read back here.
+1. **Acts-like.** Two live mechanisms, but from v26 they read ONE table: our remap at `$06F800`
+   drives the game, LM's own core sits at `$06F5E4`-`$06F643` with its lookup's operand pointing at
+   the same `$118000`, and an LM Map16 save keeps it there (above). What is left is the experiment
+   this item always wanted: a tile whose behaviour we set, opened and saved in LM, read back here —
+   plus LM's four per-site trampolines and the chaining its lookup does (an acts value ≥ 0x200 is
+   looked up again) which ours does not.
 2. ~~Sprite extra bytes~~ — done: size table read at LM's registration and authored the same way.
 3. **The Map16 ladder's remaining ranges**, so a ROM that has met LM does not address tiles we
    cannot.

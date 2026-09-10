@@ -104,20 +104,32 @@ public static partial class RomPrep
              .Label("toblank")
              .Jmp("blank");
 
-        EmitActsRemap(a);
+        EmitActsRemap(a, ActsRemapEntry);
         return a.Bytes();
     }
 
-    /// <summary>$06F5F0: the acts-like remap the four vanilla `JSL $00F545` sites are repointed
-    /// to (the second half of the Map16Lookup summary above).</summary>
-    private static void EmitActsRemap(Asm a)
+    /// <summary>V26: the acts-like remap on its own, at the address the four `JSL $00F545` sites
+    /// name from then on — clear of Lunar Magic's own acts-like core, which a Map16 save writes
+    /// over the v1 address (see <c>AppendV26Stamps</c>).</summary>
+    private static byte[] ActsRemap(int entry)
+    {
+        var a = new Asm(entry);
+        EmitActsRemap(a, entry);
+        return a.Bytes();
+    }
+
+    /// <summary>The acts-like remap the four vanilla `JSL $00F545` sites are repointed to (the
+    /// second half of the Map16Lookup summary above). At $06F5F0 through v25, $06F800 from v26.</summary>
+    private static void EmitActsRemap(Asm a, int entry)
     {
         // NOTE the hidden accumulator byte: vanilla $00F545 is pure 8-bit code, so the
         // caller's B (high accumulator byte) survives it. SMW's loaders run 8-bit LDA +
         // TAX with 16-bit X everywhere, where TAX transfers B:A — a leaked B poisons every
         // such table index by 0x100 (real bug: garbage entrance state → TIME UP on level
-        // 104). The remap therefore saves the caller's B and restores it on exit.
-        a.PadTo(ActsRemapEntry)
+        // 104). The remap therefore saves the caller's B and restores it on exit — LM's own
+        // lookup at $06F617 does not, which is one reason v26 keeps ours on the four sites and
+        // stamps LM's core beside it rather than calling into it.
+        a.PadTo(entry)
          .Phx()                              // X is precious at every call site
          .Xba()                              // B = page, A = caller's B
          .Pha()                              // save caller's B

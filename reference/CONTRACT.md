@@ -2282,6 +2282,34 @@ pass under all four arming cases, prep and post-import ROMs boot in Mesen, and t
 base writes its file and bookkeeping and NO code. IsPrepped v25 = `$00A830` is `JSL $0EFC00`.
 Golden V25 pinned.
 
+PREP V26 puts Lunar Magic's acts-like core where LM puts it and moves our remap out from under it
+(`RomPrep.AppendV26Stamps`; measured 2026-09-11, reference/LM_PARITY.md §2 "Map16 F9"). *Editors ▸
+16x16 Tile Map Editor ▸ F9* writes LM's 96-byte core over `$06F5E4`-`$06F643` — the wrapper
+`$04DCFA` calls, the `LM 10 01` marker at `$06F5FC`, the `TYA : JML $00F545` tail at `$06F602`, the
+overworld bail at `$06F608` and the acts-like lookup at `$06F617` — and v1 had parked our remap at
+`$06F5F0`, inside that span. LM does not repoint the four vanilla `JSL $00F545` sites on our base
+(it uses per-site trampolines at `$06F660`/`$06F700`/`$06F760`/`$06F7A0` on its own, but leaves a
+foreign hook alone, as at `$0583B8`), so after a save those four met LM's `STA $65 : LDY #$0000 :
+RTL` and the level renderer got a clobbered stream pointer: the ROM stopped building levels. V26
+stamps the core byte for byte (identical in juz, TestRom, ShaoBase, BigEye, DogsOfWar and
+ShaoBasePrepatch apart from the table bank at `$06F626`, which is set to our own `$118000` — the
+bank ShaoBase, BigEye and DogsOfWar carry too), and the remap moves to `$06F800`
+(`ActsRemapEntryV26`), the free run behind LM's trampolines: `$06F800`-`$06F9FF` is FF in every LM
+ROM measured and our own bank-06 blocks resume at `$06FA00`. The four sites' JSLs follow it. The
+core is dead code on our base — nothing calls its wrapper and its lookup is a second reader of the
+same table — but it is what makes the save leave us alone. LM's **Map16** marker (`LM 12 01` at
+`$06F65C`) is deliberately NOT stamped even though the save writes it: with it in, LM treats the
+extended-def block as its own and frees ours at `$128000`, tag and all. Verified: the same F9 now
+boots and builds level `0xC7` in Mesen (v25: exit 1, level `0x00`), LM keeps the acts-like table at
+`$118000`, our remap and the four sites are untouched, and a second F9 writes nothing. Not taken,
+and still LM's on a save: `$04DCFA → JSL $06F5E4` and `$058A65`/`B45`/`C33`/`D2A` → `JSL $06F540`,
+four more render paths through the ladder — LM's code over the ladder we already stamp (v12), but a
+render change that wants its own Mesen pass. After the save LM also populates ladder ranges 1-2
+with its per-tileset pages and leaves range 0 at "no defs", so `IsPrepped`'s v1 clause
+(`LmMap16Defs.Bank != 0`) reads false and the app offers an upgrade, which restamps our block and
+slot — the same state `after.smc` has always been in (§7a-rev). IsPrepped v26 = the `LM 10 01`
+marker at `$06F5FC`. Golden V26 pinned.
+
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 
 No unified sprite→tile table exists; each sprite's look comes from its graphics routine.
