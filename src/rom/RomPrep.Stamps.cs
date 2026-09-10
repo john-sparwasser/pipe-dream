@@ -50,6 +50,8 @@ public static partial class RomPrep
         if (version >= 19) AppendV19Stamps(s);
         // V20 restamps the GFX block with the record fetch parked where LM reads the table from.
         if (version >= 20) AppendV20Stamps(s);
+        // V21 restamps the midway blob with its tables moved into a block of their own.
+        if (version >= 21) AppendV21Stamps(s);
         return s;
     }
 
@@ -432,19 +434,9 @@ public static partial class RomPrep
                                         0xBF, .. Long(SecondaryFgBgSnes), 0x6B]));
         s.Add((SecondaryExtTagPc, Rats(new byte[SecondaryExtSize])));
 
-        // Separate midway settings — LM's blob (ShaoBase $10FDDF, juz $11FA63, DogsOfWar $12EF20)
-        // with its five operands pointed at our tables and at itself.
-        var mid = Convert.FromHexString(
-            "4A4A4A4AC21148A60EBF088012A8291003018301988920F06429084A4A4A85959829C78D2A19BF088212A829F0" +
-            "8596980A0A0A0A8594BF00FC0629808504BF00FE06293F8DCD13BF088612297F0404293F8597A900EBBF08841285" +
-            "028920D01FA82903AABF0CD705852098290C4A4AAABF08D705851C9829C00CCD1338686BAD1A1418D0F89C2A1984" +
-            "0EA5022901850FFAFA5CB7D805FFFFFFFFFFFF4C4D10012C2A19501A48AD1A14F013B900F422DFFD10A40E9008FA" +
-            "FA85015CA1D9056829384A4A6B");
-        foreach (var (at, snes) in new[] { (0x0A, MidwayTablesSnes), (0x27, MidwayTablesSnes + 0x200),
-                                           (0x48, MidwayTablesSnes + 0x600), (0x57, MidwayTablesSnes + 0x400),
-                                           (0xAF, MidwayRoutineSnes) })
-            Long(snes).CopyTo(mid, at);
-        s.Add((Pc(MidwayRoutineSnes), mid));
+        // Separate midway settings — LM's blob, its five operands pointed at our tables and at
+        // itself. V21 moves the tables, so the blob is emitted per table address.
+        s.Add((Pc(MidwayRoutineSnes), MidwayRoutine(MidwayTablesSnes)));
         s.Add((Pc(LmMidwayHook), Jsl(MidwayRoutineSnes)));
         s.Add((Pc(LmExitArrivalHook), Jsl(MidwayRoutineSnes + 0xA0)));
 
@@ -489,6 +481,48 @@ public static partial class RomPrep
         s.Add((Pc(LmOwExAnimEngine.TableSnes) - 8, Rats(LmOwExAnimEngine.EmptyTable())));
         s.Add((Pc(LmOwExAnimEngine.SettingsSnes) - 8, Rats(LmOwExAnimEngine.EmptySettings())));
         foreach (var (site, bytes) in LmOwExAnimEngine.Hooks()) s.Add((Pc(site), bytes));
+    }
+
+    /// <summary>
+    /// Lunar Magic's separate-midway-settings blob (ShaoBase $10FDDF, juz $11FA63, DogsOfWar
+    /// $12EF20 — byte-identical apart from these operands), with its four table operands pointed
+    /// at <paramref name="tables"/> and its fifth at itself.
+    /// </summary>
+    private static byte[] MidwayRoutine(int tables)
+    {
+        var mid = Convert.FromHexString(
+            "4A4A4A4AC21148A60EBF088012A8291003018301988920F06429084A4A4A85959829C78D2A19BF088212A829F0" +
+            "8596980A0A0A0A8594BF00FC0629808504BF00FE06293F8DCD13BF088612297F0404293F8597A900EBBF08841285" +
+            "028920D01FA82903AABF0CD705852098290C4A4AAABF08D705851C9829C00CCD1338686BAD1A1418D0F89C2A1984" +
+            "0EA5022901850FFAFA5CB7D805FFFFFFFFFFFF4C4D10012C2A19501A48AD1A14F013B900F422DFFD10A40E9008FA" +
+            "FA85015CA1D9056829384A4A6B");
+        foreach (var (at, snes) in new[] { (0x0A, tables), (0x27, tables + 0x200),
+                                           (0x48, tables + 0x600), (0x57, tables + 0x400),
+                                           (0xAF, MidwayRoutineSnes) })
+        {
+            mid[at] = (byte)snes; mid[at + 1] = (byte)(snes >> 8); mid[at + 2] = (byte)(snes >> 16);
+        }
+        return mid;
+    }
+
+    /// <summary>
+    /// V21: give the four separate-midway tables a RATS block of their own, because Lunar Magic
+    /// will not save a level otherwise. V10 pointed the blob 0x400 into the secondary block's
+    /// run; LM follows that operand, looks for a tag 8 bytes ahead of the tables, and refuses
+    /// with *"Existing data format or size not recognized! Midway entrance data"* — once per
+    /// write attempt, so the box comes back as fast as it is dismissed.
+    ///
+    /// Measured 2026-09-10 with ShaoBase as the control (same edit, same save, silent): moving
+    /// the tables into a 0x800 block with the data at tag + 8, LM's own shape, and changing
+    /// nothing else makes the save silent and it writes the midway screen where our reader reads
+    /// it (vanilla's `$05F400` table, since "separate settings" was off). Nothing in the editor
+    /// moves with them: <see cref="LunarMagic.LmMidwayTable"/> already follows the blob's own
+    /// operand rather than a constant.
+    /// </summary>
+    private static void AppendV21Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        s.Add((MidwayTablesTagPc, Rats(new byte[MidwayTablesSize])));
+        s.Add((Pc(MidwayRoutineSnes), MidwayRoutine(MidwayTablesV21Snes)));
     }
 
     /// <summary>

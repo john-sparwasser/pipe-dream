@@ -610,6 +610,26 @@ public static class LunarMagic
         /// <see cref="HasFreeMidwayPosition"/>.</summary>
         public int LmMidwayTable => rom.ReadValue(rom.ReadValue(RomPrep.LmMidwayHook + 1, 3) + 0x0A, 3);
 
+        /// <summary>
+        /// Whether those four tables sit in a RATS block of their OWN — data at tag + 8, size
+        /// 0x800 and nothing else in it, which is how Lunar Magic allocates them and, as of LM
+        /// 3.40, the only shape it will save a level over. Point the blob into the middle of a
+        /// bigger block (prep v10-v20 did) and every level save refuses with "Existing data
+        /// format or size not recognized! Midway entrance data" (reference/LM_PARITY.md §2).
+        /// </summary>
+        public bool HasLmMidwayTableBlock
+        {
+            get
+            {
+                if (rom.ReadByte(RomPrep.LmMidwayHook) != 0x22) return false;      // no blob at all
+                int fo = rom.FileOffset(rom.LmMidwayTable - 8);
+                return fo >= 0 && fo + 8 <= rom.Data.Length
+                    && rom.Data[fo] == 0x53 && rom.Data[fo + 1] == 0x54
+                    && rom.Data[fo + 2] == 0x41 && rom.Data[fo + 3] == 0x52          // "STAR"
+                    && (rom.Data[fo + 4] | rom.Data[fo + 5] << 8) == RomPrep.MidwayTablesSize - 1;
+            }
+        }
+
         /// <summary>SNES address of LM's per-record Y-high table for secondary entrances (the
         /// operand of `LDA long,X` at $05DC85). Only meaningful when
         /// <see cref="HasFreeSecondaryPositions"/>.</summary>

@@ -132,8 +132,32 @@ bit 0 its high bit; the blob restarts the load at `$05D8B7`). Y high: bits 0-5; 
 every record it writes, and so does the prep. With bit 5 clear the blob hands the screen back and
 touches nothing, so an unplaced level plays as vanilla with a fifth screen bit.
 
-Prep v10 stamps the blob at `$13BC00` with its tables at `$13B400`, and both hooks; `Rom.LmMidwayTable`
+Prep v10 stamps the blob at `$13BC00`, and both hooks; `Rom.LmMidwayTable`
 follows the `$05D9E3` operand into whichever ROM's copy, so ShaoBase and juz read the same way.
+
+**The tables need a RATS block of their OWN — v21.**  [MEASURED 2026-09-10, ShaoBase as the silent control]
+V10 put them 0x400 into the secondary block's run (`$13B400` inside the 0xD00 block at
+`$13B000`), and **every LM level save on a prepped base refused with "Existing data format or
+size not recognized! Midway entrance data"** — once per write attempt, so the box returns as
+fast as it is dismissed. It had been that way since v10 and nothing had checked. LM follows the
+blob's own operand to the tables and wants a tag 8 bytes ahead of them with the size it uses
+itself (`STAR`, 0x800, data at tag+8 — ShaoBase `$128000`/`$128008`); anything else is refused.
+Prep **v21** moves them to `$13BD08` in a block of exactly that shape and changes nothing else:
+LM's save then goes through silently, writing the midway screen into vanilla's own `$05F400`
+table where our reader reads it (measured with "separate settings" off), and the editor needed
+no change because `LmMidwayTable` already followed the operand. `HasLmMidwayTableBlock` is the
+property, and ShaoBase and juz have it too.
+
+**LM can RELOCATE the four vanilla secondary tables, so read them through the operands.**
+`Modify Secondary Entrances` + save on a v21 build came back with `$05F800/FA00/FC00/FE00` all
+copied into bank $10, 0xCC5 apart, and the four readers repointed (`$0DE191`/`$0DE198`/`$0DE19F`
+in LM's reader block, `$05DC81` in its secondary readers). The same save on ShaoBase left the
+vanilla four alone and merely re-allocated the two extension tables 2 bytes lower, so this is
+not something every save does — but once it has happened, reading the vanilla address shows a
+stale copy and writing there goes where the game no longer looks. `Rom.SecondaryEntranceTable`
+therefore follows the reader's operand when the reader is present and keeps the vanilla address
+when it is not; the relocation itself is left to LM (it copies the contents across, and no
+warning is raised). What triggers it on a prepped base and not on ShaoBase is unprobed.
 `EntrancePlacementTests.v10_stamps_lunar_magics_separate_midway_routine` pins the blob equality;
 `the_midway_routine_places_mario_from_its_own_record` runs it. ShaoBase and DogsOfWar ALSO route
 the midway branch through a bank-14 block (`$05D9DA JML $14EE49`, keyed on RAM `$7FB426` that a

@@ -133,11 +133,28 @@ public sealed class Rom
     }
 
     // Secondary entrances: four parallel 512-entry tables, one byte each (see
-    // SecondaryEntrance for the bit layout). Vanilla addresses — LM extends the index range
-    // but leaves the tables where they are.
+    // SecondaryEntrance for the bit layout).
     public const int SecondaryEntranceCount = 0x200;
-    private static readonly int[] SecondaryEntranceTables =
+    private static readonly int[] VanillaSecondaryTables =
         [0x05F800, 0x05FA00, 0x05FC00, 0x05FE00];
+    /// <summary>The `LDA long,X` operands that name those four tables — three in LM's reader
+    /// block at $0DE190 and the fourth in its secondary readers at $05DC80.</summary>
+    private static readonly int[] SecondaryTableReaders =
+        [0x0DE191, 0x0DE198, 0x0DE19F, 0x05DC81];
+
+    /// <summary>
+    /// Where secondary-entrance byte table <paramref name="t"/> actually is. Vanilla keeps the
+    /// four at $05F800/FA00/FC00/FE00 and LM usually leaves them there — but its own *Modify
+    /// Secondary Entrances* save can RELOCATE and expand them: measured 2026-09-10, a save on a
+    /// prepped base came back with all four in bank $10, 0xCC5 apart, with the readers repointed
+    /// (it left ShaoBase's alone, so this is not something every save does). Reading the vanilla
+    /// address after that would show the stale copy and write where nothing reads, so the address
+    /// to trust is the one the reader names. Without the reader — a plain vanilla ROM — the
+    /// vanilla address stands.
+    /// </summary>
+    public int SecondaryEntranceTable(int t)
+        => ReadByte(SecondaryTableReaders[t] - 1) == 0xBF     // `LDA long,X`, so the operand is live
+            ? ReadValue(SecondaryTableReaders[t], 3) : VanillaSecondaryTables[t];
 
     /// <summary>The fifth byte (LM's Y high) lives wherever the reader at $05DC85 points, and
     /// only where that reader exists — a base without it reads the byte as zero and drops it
@@ -145,7 +162,7 @@ public sealed class Rom
     public SecondaryEntrance ReadSecondaryEntrance(int index)
     {
         Span<byte> b = stackalloc byte[6];
-        for (int t = 0; t < 4; t++) b[t] = Data[FileOffset(SecondaryEntranceTables[t] + index)];
+        for (int t = 0; t < 4; t++) b[t] = Data[FileOffset(SecondaryEntranceTable(t) + index)];
         if (this.HasFreeSecondaryPositions)
         {
             b[4] = Data[FileOffset(this.LmSecondaryYHighTable + index)];
@@ -157,7 +174,7 @@ public sealed class Rom
     public void WriteSecondaryEntrance(int index, SecondaryEntrance e)
     {
         byte[] b = e.ToBytes();
-        for (int t = 0; t < 4; t++) Data[FileOffset(SecondaryEntranceTables[t] + index)] = b[t];
+        for (int t = 0; t < 4; t++) Data[FileOffset(SecondaryEntranceTable(t) + index)] = b[t];
         if (!this.HasFreeSecondaryPositions) return;
         Data[FileOffset(this.LmSecondaryYHighTable + index)] = b[4];
         Data[FileOffset(this.LmSecondaryFgBgTable + index)] = b[5];

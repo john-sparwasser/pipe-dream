@@ -2151,9 +2151,27 @@ is what makes it fit. The gap is the body's size to the byte, so `PadTo`/`Assert
 future overrun into a prep-time throw rather than a corrupt image. The record LAYOUT needed no
 change: with v19's layout stamp in, LM reads the eleven slots off exactly §7d's words. IsPrepped
 v20 = the operand at `LmGfxBaseOperand` equals `LmGfxBypassBase` — the property an LM-saved ROM
-has too. Golden V20 pinned. STILL OPEN: LM's level save warns "Existing data format or size not
-recognized! — Midway entrance data" about our v10 entrance structures (it writes the record
-anyway).
+has too. Golden V20 pinned.
+
+PREP V21 gives the four separate-midway tables a RATS block of their own, which is what makes
+Lunar Magic willing to save a level at all (`RomPrep.AppendV21Stamps`; measured 2026-09-10 with
+ShaoBase as the silent control, reference/LM_PARITY.md §2). V10 pointed the blob 0x400 into the
+secondary block's run, and LM — which follows that operand and expects a `STAR` tag 8 bytes ahead
+of the tables with its own 0x800 size — refused every level save with *"Existing data format or
+size not recognized! Midway entrance data"*, once per write attempt. V21 moves them to
+`MidwayTablesV21Snes` = `$13BD08` in a 0x800 block at `MidwayTablesTagPc`, restamps the blob's
+four table operands, and changes nothing else; the editor needed no change because
+`LmMidwayTable` already follows the operand rather than a constant. With it, LM's save is silent
+and writes the midway screen into vanilla's `$05F400` where our reader reads it. IsPrepped v21 =
+`HasLmMidwayTableBlock`, a property ShaoBase and juz have as well. Golden V21 pinned.
+
+ALSO in that pass, and not a prep change: **LM can RELOCATE the four vanilla secondary-entrance
+tables**. A `Modify Secondary Entrances` save on a prepped base copied `$05F800/FA00/FC00/FE00`
+into bank $10 and repointed the four readers (`$0DE191`/`$0DE198`/`$0DE19F`/`$05DC81`); the same
+save on ShaoBase left them alone, so it is not universal, but afterwards the vanilla addresses
+are a stale copy. `Rom.SecondaryEntranceTable(t)` now follows the reader's operand where the
+reader exists and keeps the vanilla address where it does not, so the editor reads and writes
+whichever copy the game does.
 
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 

@@ -67,8 +67,10 @@ public static partial class RomPrep
     /// V19 makes Lunar Magic's own dialog read and write those seven, by carrying its layout
     /// stamp and shaping the arming stub so the address is in the two fields LM reads it from;
     /// V20 parks the loader's record fetch where LM reads the table address from, which is what
-    /// makes a LEVEL's bypass slots readable in its Super GFX Bypass dialog.
-    public const int Version = 20;
+    /// makes a LEVEL's bypass slots readable in its Super GFX Bypass dialog;
+    /// V21 gives the separate-midway tables a RATS block of their own, without which Lunar Magic
+    /// refuses to save a level at all.
+    public const int Version = 21;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -115,6 +117,19 @@ public static partial class RomPrep
     /// tables with the tables in front of it.</summary>
     public const int LmMidwayHook = 0x05D9E3, LmExitArrivalHook = 0x05D979;
     public const int MidwayTablesSnes = 0x13B400, MidwayRoutineSnes = 0x13BC00;
+
+    // ---- V21: the midway tables in a block of their own, which is what LM insists on ----
+    /// <summary>
+    /// Where the four midway tables live from v21: their own RATS block, data at tag + 8 and
+    /// nothing else in it, exactly as Lunar Magic allocates its own (ShaoBase `$128008` in a
+    /// 0x800 block). V10 put them 0x400 into the secondary block's run instead, and LM's level
+    /// save refused that with *"Existing data format or size not recognized! Midway entrance
+    /// data"* — measured 2026-09-10 against ShaoBase as the silent control, and fixed by moving
+    /// them and nothing else (reference/LM_PARITY.md §2).
+    /// </summary>
+    public const int MidwayTablesTagPc = 0x9BD00, MidwayTablesV21Snes = 0x13BD08;
+    /// <summary>Four per-level tables 0x200 apart — flags, position, FG/BG, Y high.</summary>
+    public const int MidwayTablesSize = 0x800;
     /// <summary>LM's midway fix: `STA $01` instead of `STA $95` at $05D9E7 and the following
     /// `JMP $05DA17` NOPped, so the midway screen goes through the shared tail and works on
     /// vertical levels too. Kept because the tail is what applies method 2's screen.</summary>
@@ -364,7 +379,10 @@ public static partial class RomPrep
            // V20: the record table's address sits where LM reads it. Also the PROPERTY, not our
            // bytes: on an LM-saved ROM that operand is exactly where LM's own loader keeps it.
            && (version < 20 || (rom.LmGfxBypassBase > 0
-                                && rom.ReadValue(LmGfxBaseOperand, 3) == rom.LmGfxBypassBase));
+                                && rom.ReadValue(LmGfxBaseOperand, 3) == rom.LmGfxBypassBase))
+           // V21: the midway tables in their own RATS block — the shape LM demands, and the one
+           // an LM-saved ROM that carries the feature already has.
+           && (version < 21 || rom.HasLmMidwayTableBlock);
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying

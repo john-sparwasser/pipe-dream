@@ -171,6 +171,63 @@ public class EntrancePlacementTests(ITestOutputHelper log)
         Assert.Equal(RomPrep.MidwayRoutineSnes + 0xA0, ours.ReadValue(RomPrep.LmExitArrivalHook + 1, 3));
     }
 
+    /// <summary>
+    /// V21: those four tables in a RATS block of their OWN, data at tag + 8 and size 0x800 —
+    /// Lunar Magic's shape, and the only one it will save a level over. V10-V20 pointed the blob
+    /// 0x400 into the secondary block's run and every LM level save refused with "Existing data
+    /// format or size not recognized! Midway entrance data" (reference/LM_PARITY.md §2).
+    /// </summary>
+    [RealRomFact]
+    public void v21_gives_the_midway_tables_a_rats_block_of_their_own()
+    {
+        var v20 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v20, 20);
+        Assert.False(v20.HasLmMidwayTableBlock, "v20 had the tables inside another block");
+
+        var ours = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(ours);
+        Assert.True(ours.HasLmMidwayTableBlock);
+        Assert.Equal(RomPrep.MidwayTablesV21Snes, ours.LmMidwayTable);
+        // The same property Lunar Magic's own bases have — it is the shape, not our address.
+        Assert.True(Rom.Load(ReferenceRoms.ShaoBase).HasLmMidwayTableBlock);
+        Assert.True(Rom.Load(ReferenceRoms.InProject("juz", "SMW.smc")).HasLmMidwayTableBlock);
+        // A plain save carries no separate-midway feature at all, so there is no block to find.
+        Assert.False(Rom.Load(ReferenceRoms.LmAfter).HasLmMidwayTableBlock);
+    }
+
+    /// <summary>
+    /// The four vanilla secondary-entrance tables are read through the operands that NAME them,
+    /// not at their vanilla addresses — because Lunar Magic's own *Modify Secondary Entrances*
+    /// save can relocate them (measured: all four moved into bank $10 with the readers
+    /// repointed). Reading the vanilla copy after that shows stale bytes and writing there goes
+    /// nowhere the game looks.
+    /// </summary>
+    [RealRomFact]
+    public void a_secondary_entrance_follows_a_relocated_table()
+    {
+        var rom = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(rom);
+        var before = rom.ReadSecondaryEntrance(0xBF);
+
+        // Move table 0 the way LM does: repoint its reader's operand at free space, and copy the
+        // bytes over. Only the relocated copy then gets the edit.
+        const int moved = 0x108800;
+        int operand = rom.FileOffset(0x0DE191);
+        Assert.Equal(0xBF, rom.Data[operand - 1]);                       // `LDA long,X`
+        for (int i = 0; i < Rom.SecondaryEntranceCount; i++)
+            rom.Data[rom.FileOffset(moved + i)] = rom.Data[rom.FileOffset(0x05F800 + i)];
+        rom.Data[operand] = moved & 0xFF; rom.Data[operand + 1] = moved >> 8 & 0xFF; rom.Data[operand + 2] = moved >> 16;
+        Assert.Equal(moved, rom.SecondaryEntranceTable(0));
+
+        rom.Data[rom.FileOffset(moved + 0xBF)] = 0x77;                   // the live copy only
+        Assert.Equal(0x77, rom.ReadSecondaryEntrance(0xBF).DestinationLevel & 0xFF);
+        Assert.NotEqual(before.DestinationLevel, rom.ReadSecondaryEntrance(0xBF).DestinationLevel);
+        // ...and a write goes to the live copy, leaving the stale vanilla bytes alone.
+        rom.WriteSecondaryEntrance(0xBF, before);
+        Assert.Equal(before.DestinationLevel & 0xFF, rom.Data[rom.FileOffset(moved + 0xBF)]);
+
+        // Without the reader — a plain vanilla ROM — the vanilla address stands.
+        var van = Rom.Load(TestRom.RealRomPath);
+        Assert.Equal(0x05F800, van.SecondaryEntranceTable(0));
+    }
+
     /// <summary>The midway routine, run as code: without the separate flag it hands back the
     /// screen (plus the fifth bit) and touches nothing; with it, Mario's position is the
     /// record's, where <see cref="EntrancePlacement"/> says.</summary>
