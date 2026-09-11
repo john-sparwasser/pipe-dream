@@ -163,6 +163,55 @@ public class OverworldGfxTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(vanilla.Where(w => w.Word >= fg1Page), repointed.Where(w => w.Word >= fg1Page));
     }
 
+    /// <summary>
+    /// ...and the submap's LAYER 3 files with them, which came for free and was never checked.
+    /// Prep v14's layer-3 pass derives its record from `$FE`, and v18's overworld stub arms `$FE`
+    /// with the submap index, so w0 bit 14 and words 15-12 (LG1-LG4) work on a submap exactly as
+    /// on a level. Lunar Magic's *Overworld ▸ Submap Layer 3 GFX/Tilemap Bypass* dialog reads and
+    /// writes these same words in our table with no stamp beyond v19's (measured 2026-09-11 in
+    /// both directions; reference/OVERWORLD.md §4).
+    ///
+    /// NOT covered, because it is not implemented: the TILEMAP half (LT3, word 1, gated by w0
+    /// bit 13). `L3Map` keys on `$010B` and hangs off level-load hooks, so a submap's word 1 is
+    /// never read — LM can author it into the record and the game ignores it.
+    /// </summary>
+    [Fact]
+    public void the_loader_uploads_a_submaps_layer_3_files_too()
+    {
+        if (Open() is not { } rom) { log.WriteLine("SKIP: no ROM"); return; }
+        const int submap = 1, l3Lo = 0x4000, l3Hi = 0x5000;         // LG1-LG4 land in words $4000-$4FFF
+
+        List<(int Word, int Value)> Run()
+        {
+            var cpu = new Cpu65816(rom) { VramWrites = [] };
+            cpu.Ram7E[0x1931] = (byte)(Overworld.Tileset + submap);
+            cpu.PresetWidths(m8: false, x8: true);
+            cpu.PresetX(submap * 2);
+            cpu.CallLong(RomPrep.OwGfxStub, 10_000);
+            cpu.PresetWidths(m8: true, x8: true);
+            cpu.CallLong(RomPrep.GfxLoaderEntry, 40_000_000);
+            return cpu.VramWrites!;
+        }
+        static IEnumerable<(int Word, int Value)> L3(List<(int Word, int Value)> w)
+            => w.Where(x => x.Word >= l3Lo && x.Word < l3Hi);
+
+        // The record ships with the vanilla files in words 15-12 and the bypass OFF, so the pass
+        // uploads 0x28-0x2B either way: turning the bit on alone must change nothing.
+        int fo = rom.FileOffset(rom.LmGfxBypassBase + (RomPrep.OwGfxRecordIndex + submap) * 0x20);
+        var off = Run();
+        Assert.NotEmpty(L3(off));
+        rom.Data[fo + 1] |= 0x40;                                   // w0 bit 14: layer-3 bypass on
+        Assert.Equal(L3(off), L3(Run()));
+
+        // Now repoint LG1 (w15). Only the layer-3 window moves, and only its first quarter.
+        rom.Data[fo + 15 * 2] = 0x2B;                               // LG1: 0x28 -> 0x2B
+        var moved = Run();
+        Assert.NotEqual(L3(off), L3(moved));
+        Assert.Equal(off.Where(w => w.Word < l3Lo || w.Word >= l3Hi),
+                     moved.Where(w => w.Word < l3Lo || w.Word >= l3Hi));
+        Assert.Equal(L3(off).Where(w => w.Word >= 0x4400), L3(moved).Where(w => w.Word >= 0x4400));
+    }
+
     [Fact]
     public void a_submaps_slot_set_in_the_session_survives_the_project_and_a_build()
     {

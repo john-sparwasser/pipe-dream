@@ -102,11 +102,31 @@ so the two bytes join into an 8x8 word (`Overworld.EventPieces`). 0xD00 cells in
     `$FE` arming. With the stamp in, LM reads the seven records, writes an edited slot into our
     table, and installs none of its own loader — measured in both directions on real
     `--buildproject` output (reference/LM_PARITY.md §2 has the experiments and the negatives).
-  - **Not done: per-submap LAYER 3 GFX and tilemap bypass** (`ov_overworld_layer3_gfx.htm`) is a
-    SECOND, separate hack with its own dialog, its own per-submap enable checkbox, and a bypass
-    that `level_layer3_gfx.htm` says turns on per level *and* per submap once any level or submap
-    is saved with it. Opening that dialog installs it immediately too — it was opened by accident
-    during this probe, which is how we know it is a different install. Untouched here.
+  - **Per-submap LAYER 3 GFX: done, and it came for free** (`ov_overworld_layer3_gfx.htm` is LM's
+    *Overworld ▸ Submap Layer 3 GFX/Tilemap Bypass*, the Overworld menu's second item — a separate
+    hack with its own dialog and its own per-submap enable checkbox). Nothing had to be built:
+    prep v14's layer-3 pass derives its record from `$FE`, and v18's stub arms `$FE` with the
+    submap index, so w0 bit 14 and words 15-12 (LG1-LG4) behave on a submap exactly as on a level.
+    Measured 2026-09-11, four ways:
+    - **LM reads ours.** Its dialog's submap list labels each submap with its LG values; with word
+      15 of submap 1's record patched to `0x2B` it showed `LG1=02B` for Yoshi's Island and `028`
+      for the other six. No stamp beyond v19's — the layer-3 dialog reads the same table.
+    - **LM writes ours.** Picking submap 2, ticking "Enable bypass of standard Layer 3 GFX" and
+      choosing `2F` for LG1 left our record at `w0 = 0x4014` (bit 14 set, AN2 untouched) and
+      `w15 = 0x002F`.
+    - **The game honours it**: with the bit on and LG1 = `0x2B`, the layer-3 VRAM page changed on
+      the map in Mesen, and the ROM still reached it (`Test-RomOverworld.ps1`).
+    - **LM's own install leaves us alone.** Opening the dialog and saving the overworld wrote 55
+      runs, none of them in the loader block `$0FF700-$0FFDFF`, the record table, or the `$0FF15C`
+      marker. (Opening the dialog does not write the file; the save does.)
+
+    Pinned by `OverworldGfxTests.the_loader_uploads_a_submaps_layer_3_files_too`.
+  - **Not done: the per-submap layer 3 TILEMAP (LT3).** LM's dialog authors it — the tilemap combo
+    plus "Enable bypass of standard Layer 3 tilemap for this submap", i.e. record word 1 gated by
+    w0 bit 13, as for a level — but our `L3Map` (v15) keys on `$010B` and hangs off the level-load
+    hooks `$00A01F`/`$00A041`, so a submap's word 1 is never read and the game ignores it. Per LM's
+    help the overworld tilemap loads on map entry and is NOT reloaded by an exit tile, so the hook
+    is a different site from the level one; finding it is the work.
 - **Animated tiles**: VRAM tiles 0x75-0x7F are rebuilt every frame from GFX14 (the file
   decompressed last, still in `$7EAD00`) and uploaded by `$00A4E3` (0x160 bytes to VRAM word
   $0750). Three water tiles, GFX14 0x50-0x52 (`$048000`), scrolled in RAM every eight frames
