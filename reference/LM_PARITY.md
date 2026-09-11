@@ -603,6 +603,59 @@ level), `lm-levelgfx.ps1`, `lm-submapgfx.ps1`, `lm-map16.ps1` (F9), and
 beside the ROM. `--diff` prints at most 60 runs and 20 new blocks and compares only up to the
 smaller file; read the tag bytes directly when a claim rests on one address.
 
+## 2b. LM's WRITE ROUTES — the audit  [MEASURED 2026-09-11, prep v29 base]
+
+Every way Lunar Magic writes to a ROM, and whether it lands on something prep owns.
+`tools/lm/Test-RomRails.ps1` is the check: it asks the prep itself for every byte it stamps
+(`--stampranges`, 409 ranges) plus the handful `Apply` writes as DATA, and flags any changed run
+that overlaps. **An overlap is "look", not "broken"** — three routes legitimately co-own a
+structure with us, and the in-game checks say they are fine.
+
+| route | runs | verdict |
+|---|---|---|
+| Level save (Ctrl+S) | — | clear (earlier sessions; v21/v22 fixed the midway refusals) |
+| Secondary entrances save | — | co-owns: relocates the vanilla tables and repoints the readers (below) |
+| Main/midway entrance save | — | clear from v21/v22 |
+| ExAnimated frames save | — | clear |
+| Overworld save | 55 | clear — nothing in the loader block, records or `$0FF15C` |
+| Map16 F9 save | 25 | clear from **v26**; before that it landed on the acts remap and the ROM stopped building levels |
+| Submap GFX / Submap Layer 3 dialogs | — | clear; both round-trip our records |
+| `-ImportExGFX` | 6 | clear from **v25/v27**: no code at all, and the pointer lands in our table |
+| `-ImportAllMap16` | 34 | clear; writes acts-like into our `$118000` |
+| `-ImportCustomPalette` | — | clear; stores what we wrote, byte for byte |
+| `-ImportSharedPalette` | 2 | clear |
+| `-ExpandROM 2MB` | 3 | clear |
+| `-TransferLevelGlobalExAnim` | 2 | clear |
+| `-ImportLevel` (MWL) | 28 | **co-owns** 5 — see below; boots and reaches `$105` |
+| `-ImportMultLevels` | 32 | **co-owns** 6 — same set; boots and reaches `$105` |
+| `-ImportGFX` | 11 | **co-owns** 3 — takes GFX over wholesale; verified in game |
+
+**The three legitimate overlaps**, all of them structures LM has every right to write:
+
+- **`-ImportGFX` takes over graphics management.** It re-inserts every file from the `Graphics`
+  folder, moves the GFX32/GFX33 boot blobs back to its own layout (`$08:8000` / `$08:9C68`,
+  exactly TestRom's), rewrites the three pointer tables at `$00B992`, and FREES prep v6's
+  converted-GFX blocks and v25's blob block. Safe because everything of ours that reads those
+  files reads through the operands rather than constants: after the import our reader still
+  decodes GFX08/1E/32/33 at their new homes, v25's `$00B895` 4bpp load is untouched, the ROM
+  boots, and the overworld's tile graphics still match the base exactly.
+- **`-ImportLevel` / `-ImportMultLevels` touch the secondary-entrance machinery** — `$05DC81`
+  and `$0DE191` (the table readers) and the block at `$13AFF8` — which is the "silently
+  relocate" behaviour already recorded under RATS block shapes. `Rom.SecondaryEntranceTable`
+  follows the operand for exactly this reason.
+- ...and **`$0EF100`**, LM's per-level sprite bank table (v10): a level import setting the
+  imported level's entry is the table being used as intended, not damage.
+
+**Not exercised**, and why: `-ImportMap16` (needs a single-level `.map16`, which only the GUI can
+produce); `-ImportTitleMoves`/`-ExportTitleMoves` (refused — "ASM code not detected", the playback
+hack is not installed on our base); and the GUI-only title-screen, credits and recording saves.
+Those are the remaining unknowns in this table.
+
+**Blind spot worth knowing about:** `--stampranges` reports STAMPS. What `Apply` writes as data —
+`ConvertGfxTo4bpp`, `BakeLmFourBppFiles`, `MigrateSecondaryDestinationBit` — is listed by hand in
+the script, and that list is what caught `-ImportGFX`. A new data step needs adding there or the
+audit will wave it through.
+
 ## 3. What we write that LM does not
 
 Direct Map16 object handlers (`$0DF150`, `$0DF08A` extent), the exit destination bit 8 before

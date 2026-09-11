@@ -586,6 +586,21 @@ public static partial class RomPrep
         return null;
     }
 
+    /// <summary>
+    /// Every byte this prep writes, as (SNES address, length) — the authority on "what do we
+    /// own", used by tools/lm/Test-RomRails.ps1 to tell whether a Lunar Magic write route landed
+    /// on one of our structures. Asking the prep beats a hand-kept list, which is how an audit
+    /// came to miss v10's plane-pointer patches: the list is generated, so it cannot drift.
+    ///
+    /// The RATS-tagged blocks are reported from their TAG, because the tag is ours too — an LM
+    /// write that lands on it orphans the block just as surely as one that lands on the data.
+    /// </summary>
+    public static IEnumerable<(int Snes, int Length)> StampedRanges(int version = Version)
+    {
+        foreach (var (pc, bytes) in BuildStamps(version))
+            yield return (Rom.PcToSnes(pc), bytes.Length);
+    }
+
     /// <summary>Where v6 parks the converted graphics: past the prep's own tables (the ExGFX
     /// pointer table ends around pc 0x9AD08) rather than at 0x80000, which is first-fit
     /// territory for RomBuilder's level/palette allocations — converted files would eat it.</summary>

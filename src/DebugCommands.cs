@@ -26,6 +26,8 @@ static class DebugCommands
         // --fixchecksum <rom> : rebalance a hand-patched probe ROM so Lunar Magic stops calling
         // it corrupt (reference/LUNAR_MAGIC.md) — the same pass every write through Rom does.
         ("--fixchecksum",       (a, i) => { var r = Rom.Load(a[i + 1]); RatsWriter.SaveAs(r, a[i + 1]); Console.WriteLine($"checksum fixed, sha256 {RomHash.HeaderlessSha256File(a[i + 1])}"); return 0; }),
+        // --stampranges [version] : every byte the prep writes, for tools/lm/Test-RomRails.ps1.
+        ("--stampranges",       (a, i) => { foreach (var (s, n) in RomPrep.StampedRanges(a.Length > i + 1 && int.TryParse(a[i + 1], out int v) ? v : RomPrep.Version)) Console.WriteLine($"{s:X6} {n}"); return 0; }),
         ("--globalexanim",      (a, i) => DumpGlobalExAnim(a[i + 1])),
         ("--exanimtypes",       (a, i) => ExAnimTypeOracle(a[i + 1])),
         // --exanimrun <rom> <levelHex> : run LM's engine on a level's list and print the DMA queue it emits.
