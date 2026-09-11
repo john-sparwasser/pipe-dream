@@ -188,4 +188,26 @@ public partial class MainWindow
         if (!dlg.Confirmed || !session.ResetPalette()) return;
         AdoptSession();
     }
+
+    /// <summary>Lunar Magic's "Export Level Palette to File", on the palette bar rather than in a
+    /// File menu: it is about the palette in front of you, and that is where the eye is.</summary>
+    private async void OnExportPalette(object? sender, RoutedEventArgs e)
+    {
+        if (await PickSaveFile("Export this level's palette",
+                               $"level{session.LevelNum:X3}.pal",
+                               new FilePickerFileType("Palette") { Patterns = ["*.pal"] }) is not { } path)
+            return;
+        session.ExportLevelPalette(path);
+        UpdateTitle();
+    }
+
+    /// <summary>...and the import, which lands as ordinary colour edits — one undo, recorded in
+    /// the project, so a rebuild keeps it.</summary>
+    private async void OnImportPalette(object? sender, RoutedEventArgs e)
+    {
+        if (await PickFile("Import a level palette",
+                           new FilePickerFileType("Palette") { Patterns = ["*.pal"] }) is not { } path)
+            return;
+        if (session.ImportLevelPalette(path)) { AdoptSession(); UpdateTitle(); }
+    }
 }

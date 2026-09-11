@@ -74,9 +74,10 @@ our canvas and gesture layer (`Gestures.cs`, `Overlay.cs`) and are not listed it
 |---|---|---|
 | Open ROM / level / next / previous / recent | n/a | we open a project, not a ROM |
 | Save level / save as / save to directory | n/a | project model |
-| **MWL level import/export** (`file_open_mwl`, `file_save_mwl`) | **missing** | LM's level interchange format, and its `-ExportLevel`/`-ImportLevel` CLI — the most interop-relevant gap here |
+| **MWL level import/export** (`file_open_mwl`, `file_save_mwl`) | **missing** | format now DECODED (reference/LM_FILE_FORMATS.md); two fields of section 0 and sections 5/6/7 still unnamed |
 | Insert/extract GFX + ExGFX (`file_insert_gfx`, `file_extract_exgfx`, …) | partial | Gfx mode imports/exports single files; no bulk folder round-trip like LM's |
-| Insert/extract/import/export **palette files** | missing | nothing handles `.pal` |
+| Import/export **level palette** (`file_import_palette`, `file_export_palette`) | done | `PalFile`, Palette mode's Export…/Import…; LM reads what we write (reference/LM_FILE_FORMATS.md) |
+| Extract/insert **shared palettes** (`file_extract_palette`, `file_insert_palette`) | partial | export is byte-identical to LM's `smw.pal`; import deferred until the project file can record base-ROM data |
 | Insert/extract **bypass** files (`file_*_bypass`) | missing | |
 | Expand ROM (`file_expand_rom`) | partial | `RomBuilder`/prep expand as needed; no user-facing command |
 | Restore system (`file_restore*`, IPS) | n/a | LM's `sysLMRestore`; we have BPS export + project history |
@@ -100,7 +101,9 @@ Three clusters, in the order I would take them:
 
 1. **MWL import/export.** The one gap that blocks a workflow rather than a feature: it is how
    levels move between LM and anything else, and LM's command line already speaks it, so it is
-   testable the way the GFX work was. Nothing in `src/` touches it today.
+   testable the way the GFX work was. The container is now decoded (reference/LM_FILE_FORMATS.md)
+   — what is left is naming two per-level fields in section 0 and sections 5/6/7, by the same
+   change-one-thing-and-diff method, before export can be more than guesswork.
 2. **The overworld text/list dialogs** — level names, message box text, boss text, music
    selection, the four level lists, reveal tiles, events passed. Individually small, all reading
    tables we can locate the same way the submap GFX records were located, and together they are

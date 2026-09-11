@@ -197,4 +197,72 @@ public sealed partial class EditorSession
         for (int i = 0; i < 256; i++) if (pal.Rgba[i] == want) return i;
         return null;
     }
+
+    // ---------------------------------------------------------------- palette files
+
+    /// <summary>
+    /// This level's palette as a 256-colour `.pal` — Lunar Magic's "Export Level Palette to
+    /// File", and the format every tile editor reads (<see cref="PalFile"/>). What goes out is
+    /// what the screen SHOWS, edits included, not what the ROM holds: exporting a palette you
+    /// have been adjusting and getting the old one back would be a trap.
+    /// </summary>
+    public bool ExportLevelPalette(string path)
+    {
+        if (Scene?.Palettes[0] is not { } pal) { Report("no level palette to export"); return false; }
+        var file = new byte[PalFile.LevelSize];
+        for (int i = 0; i < 256; i++)
+        {
+            ushort c = pal.Bgr[i];
+            file[i * 3] = (byte)((c & 0x1F) << 3);
+            file[i * 3 + 1] = (byte)((c >> 5 & 0x1F) << 3);
+            file[i * 3 + 2] = (byte)((c >> 10 & 0x1F) << 3);
+        }
+        if (!Guard("export the palette", () => File.WriteAllBytes(path, file), path)) return false;
+        Report($"wrote {Path.GetFileName(path)} — 256 colours");
+        return true;
+    }
+
+    /// <summary>
+    /// ...and back. Applied as ORDINARY COLOUR EDITS through the same stroke the picker uses, so
+    /// the import is one undo, is recorded in the project, and survives a rebuild — rather than
+    /// poking the ROM, which a build would then throw away. A colour equal to the ROM's records
+    /// no edit at all, which is what makes re-importing the file you just exported a no-op.
+    /// </summary>
+    public bool ImportLevelPalette(string path)
+    {
+        byte[] file;
+        try { file = File.ReadAllBytes(path); }
+        catch (Exception e) { Report($"could not read {Path.GetFileName(path)}: {e.Message}"); return false; }
+        if (file.Length != PalFile.LevelSize)
+        {
+            Report($"not a 256-colour .pal: expected {PalFile.LevelSize} bytes, got {file.Length}");
+            return false;
+        }
+        BeginPaletteStroke();
+        int changed = 0;
+        for (int i = 0; i < 256; i++)
+        {
+            ushort c = (ushort)(file[i * 3] >> 3 | (file[i * 3 + 1] >> 3) << 5 | (file[i * 3 + 2] >> 3) << 10);
+            if (SetPaletteColor(i, c)) changed++;
+        }
+        EndPaletteStroke();
+        Report(changed == 0 ? $"{Path.GetFileName(path)} matches this level's palette — nothing changed"
+                            : $"imported {Path.GetFileName(path)} — {changed} colours");
+        return true;
+    }
+
+    /// <summary>
+    /// The ROM's SHARED palettes as LM's `smw.pal` — a flat copy of `$00B0A0` onwards
+    /// (<see cref="PalFile.SharedSnes"/>). Export only: these are base-ROM data, and this
+    /// editor's project replays edits onto a freshly prepped base, so an import would be
+    /// discarded by the next build. Giving it a home in the project file is what it needs.
+    /// </summary>
+    public bool ExportSharedPalettes(string path)
+    {
+        if (Rom is not { } rom) { Report("no ROM open"); return false; }
+        if (!Guard("export the shared palettes", () => File.WriteAllBytes(path, PalFile.ExportShared(rom)), path))
+            return false;
+        Report($"wrote {Path.GetFileName(path)} — 0x{PalFile.SharedSize:X} bytes of shared palette data");
+        return true;
+    }
 }

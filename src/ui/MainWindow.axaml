@@ -617,6 +617,10 @@
                   <StackPanel Orientation="Horizontal" Spacing="8">
                     <TextBlock x:Name="PaletteIndex" Classes="mono" Width="150"/>
                     <Button x:Name="PaletteReset" Content="Reset" Padding="10,2" Click="OnResetPalette"/>
+                    <Button x:Name="PaletteExport" Content="Export…" Padding="10,2" Click="OnExportPalette"
+                            ToolTip.Tip="Write this level's palette out as a 256-colour .pal (Lunar Magic, YY-CHR)"/>
+                    <Button x:Name="PaletteImport" Content="Import…" Padding="10,2" Click="OnImportPalette"
+                            ToolTip.Tip="Load a 256-colour .pal into this level, as ordinary colour edits"/>
                     <!-- Layer 3 can reach 32 of these 256, and hunting for them in a 16x16 block
                          is the whole problem. Four wide by eight tall over CGRAM 00-1F puts one
                          palette GROUP on each row, which is also the shape of the answer to
