@@ -1,8 +1,12 @@
 # Headless Mesen testing
 
-Mesen has a **test runner** that loads a ROM plus a Lua script with no GUI, no video, no
-audio and no input device. This replaces driving the Mesen window with synthetic clicks and
-keystrokes, which needed the foreground, stole focus, and took minutes per check.
+Mesen has a **test runner** that loads a ROM plus a Lua script with no GUI, no video and no
+audio. This replaces driving the Mesen window with synthetic clicks and keystrokes, which
+needed the foreground, stole focus, and took minutes per check.
+
+**It DOES have input** — this file said for months that it did not, and that was a bug in
+`prelude.lua`, not a property of the runner. See "Input" below before believing anything here
+about what cannot be reached.
 
 ```
 Mesen.exe /testrunner <rom> <script.lua> /timeout=<wall-clock seconds>
@@ -14,8 +18,9 @@ Tooling lives in `tools/mesen/`:
 |---|---|
 | `Invoke-MesenTest.ps1` | runs a ROM + script, returns `{ExitCode, TimedOut, Seconds}` |
 | `New-MesenProbe.ps1` | pastes `prelude.lua` in front of a Lua body, writes it, runs it |
-| `prelude.lua` | `T.rb/rw/vram`, `T.pass/fail/report`, `T.hold`, `T.each` |
+| `prelude.lua` | `T.rb/rw/vram`, `T.pass/fail/report`, `T.hold`, `T.each`, `T.mode`, `T.onOverworld`, `T.OverworldFrame` |
 | `Test-RomBoots.ps1` | smoke: ROM reaches the gameplay loop and keeps ticking |
+| `Test-RomOverworld.ps1` | smoke: ROM reaches the MAP and keeps ticking; `-Reference` diffs its tile graphics against another ROM |
 | `Dump-OwPalette.ps1` | the overworld's real CGRAM, row by row, to diff against `--owrows` |
 
 Set `PIPEDREAM_MESEN` to point at the emulator; otherwise PATH, then `~/Mesen.exe`.
@@ -127,29 +132,59 @@ currently no known way to choose which level that is:
 as the requested level while the game runs a different one — an assertion on it then passes
 green for the wrong reason. An earlier version of `Test-RomBoots.ps1` did exactly that.
 
-Next thing to try: verify controller input actually reaches the game (pulsing Start was never
-shown to change anything — boot reaches `$07` on its own, so that was not evidence), then
-drive file-select → overworld → level normally. Failing that, prepare save data so the game
-starts on the wanted overworld tile.
+Still unsolved for a CHOSEN level, but no longer for the reason recorded here: input works
+(below), so the route is now to drive the overworld — walk to a tile and press A — rather than
+to poke a level number. Unwritten.
 
-## The OVERWORLD is unreachable too  [MEASURED 2026-09-10, prep v19's stub as the tell]
+## Input — `emu.setInput` MUST be called from `inputPolled`  [MEASURED 2026-09-11]
 
-Same wall, and worth knowing before designing an overworld probe. The signal used was a byte
-only the overworld's GFX load writes (`$7FC009 = #$42`, prep v19's arming stub), so "did the
-overworld load run" had an unambiguous answer:
+This is the single fact that unblocked the overworld, and getting it wrong is silent:
 
-- `T.bootPulse` for 3000 frames leaves the game on the **title screen**: mode `$07`, and
-  `$1F11` (the submap) still `0`. Pulsing Start does not advance SMW's menus here, so the
-  prelude's "clear the title screen and the file select" comment is aspirational — what makes
-  `Test-RomBoots` work is POKING the mode, not the input.
-- Poking mode `$0D` lands in a level (`$14` by frame 2400), not the map.
-- Poking mode `$0E` sticks at `$0E` but the load never runs — the overworld's GFX load happens
-  on the TRANSITION into the mode, which poking the mode mid-flight skips.
+- `emu.setInput(buttons, 0)` from a **`startFrame`** callback does nothing at all. The
+  controller is read after the frame starts, so the poll overwrites whatever the script set.
+  `$7E:0015`/`0016` stay `0x00` with Start held for 240 frames.
+- The same call from an **`inputPolled`** callback works: `$7E:0015` reads `0x10` for Start and
+  `0x91` for Start+B+Right, and SMW's menus advance.
 
-So an overworld claim cannot be made from this harness today; it needs working menu input or
-prepared save data (see above). Prep v18/v19's overworld path is verified under `Cpu65816`
-instead — the real stub and the real loader, with the VRAM writes captured
-(`OverworldGfxTests.the_loader_uploads_the_submaps_own_files`).
+`prelude.lua` had it at frame start, so every input experiment came back dead, and this file
+concluded — in three places — that the runner has no input device and that menus, the
+overworld and level selection were all unreachable. **None of that was true.** The prelude now
+registers one `inputPolled` callback and `T.hold` just sets the held set.
+
+## The OVERWORLD — reachable by playing  [MEASURED 2026-09-11, vanilla + prep v28]
+
+Pulsing Start from boot walks the whole way: title screen, file select, new game, the intro
+level (mode `$14` by frame ~600) and then **the map** — mode `$0E`, submap `$1F11` = 1 (Yoshi's
+Island), frame counter ticking — by **frame 2400** (~7 s wall clock). Identical on vanilla and
+on a prepped base, so vanilla is a valid control. `Test-RomOverworld.ps1` is this, with the
+hang check `Test-RomBoots` uses.
+
+- **Mode `$0E` alone is not the test.** The boot sequence passes through `$0E` around frame 608
+  on its way into the intro level, so a probe that stops at the first `$0E` reports the wrong
+  thing. Wait out the level; `T.OverworldFrame` is that wait.
+- `$7FC009 = #$42` (prep v19's arming stub) reads back on the map, so the overworld's GFX load
+  really ran — the thing poking mode `$0E` could never make happen.
+- The earlier account of this — 3000 frames of pulsing leaving the game on the title screen at
+  mode `$07` — was the `startFrame` input bug above, not the game.
+
+**Comparing the map's graphics between ROMs** (`-Reference`) needs two windows left out:
+
+| VRAM | why |
+|---|---|
+| `$0800-$0FFF` | the animated tiles, which cycle — vanilla's own checksum there changes between frame 2400 and 2408, so a fixed-frame comparison catches two ROMs at different phases |
+| `$4000`+ | the tilemaps, i.e. the hack's CONTENT. TestRom (an LM-saved vanilla with an edited map) differs from both vanilla and a prepped base there, while every graphics window matches |
+
+What that comparison then shows, and it is the first in-game check of the 4bpp work: **a prep
+v28 base's overworld tile graphics are byte-identical to Lunar Magic's** (TestRom and
+ShaoBasePrepatch both `True`) and deliberately NOT identical to stock vanilla's (`False`) —
+`$2000-$2FFF` is where they part, which is LM's GFX08 compromise: vanilla's uploader ORs plane 3
+into every GFX08 tile on an overworld tileset, LM's baked file carries it on 24 (LM_PARITY §2,
+prep v25). Prep v18/v19's per-submap path is still verified under `Cpu65816` as well
+(`OverworldGfxTests.the_loader_uploads_the_submaps_own_files`), which remains the finer-grained
+check; this one covers the whole pipeline at once.
+
+Not covered: the other submaps. A new game lands on Yoshi's Island and this harness stays
+there. Reaching Donut Plains means walking the map, which input now makes possible.
 
 ## What the boot smoke does and does not cover
 

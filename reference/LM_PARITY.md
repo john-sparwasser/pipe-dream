@@ -343,6 +343,12 @@ trap on `$00:`/`$7E:` addresses never sees):
   these bytes** (`RomPrep.AppendV13Stamps`, compared against ShaoBase in
   `v13_overworld_tile_reader_takes_4bpp_like_lunar_magic`), verified in Mesen: fresh prep and
   the dev project on an upgraded base both render the OW identically to vanilla.
+- **The whole overworld pipeline now has an in-game check** (2026-09-11, `Test-RomOverworld.ps1`;
+  reference/MESEN.md). A prep v28 base reaches the map by playing — pulsed Start, mode `$0E`,
+  submap 1 — and its tile graphics come out **byte-identical to Lunar Magic's** (two LM-saved
+  vanillas agree) and deliberately NOT to stock vanilla's: `$2000-$2FFF` is where they part, which
+  is the GFX08 compromise v25 adopted. That covers v13's reader, v18/v19's stub and v25's AN2 pass
+  end to end, which is what the "not verifiable headless" note here used to disclaim.
 - **The rest is prep v25** (2026-09-11, CONTRACT §7d-25). Through v24 these stayed ours: the
   `$00AA80` dispatch kept vanilla's filter path (LM: `CPY #$08/#$1E → #$32` with the plane baked
   into its files), GFX33 stayed 3bpp behind vanilla's `$00B888` expander (LM reads it as 4bpp —
