@@ -212,6 +212,50 @@ public class OverworldGfxTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(L3(off).Where(w => w.Word >= 0x4400), L3(moved).Where(w => w.Word >= 0x4400));
     }
 
+    /// <summary>
+    /// V29: the submap's layer-3 TILEMAP (LT3), which did NOT come for free — v15's level pass
+    /// keys on `$010B` and hangs off level-load hooks, so the overworld needed its own. Hooked at
+    /// vanilla's `LDA #$02 : STA $420B : RTL` in bank 04, after the DMA that puts the overworld's
+    /// own tilemap at VRAM word $3000; the stub fires that DMA and then writes the submap's file
+    /// over it, so the bypass being off is exactly vanilla.
+    ///
+    /// The record word and its encoding are a level's, because that is what LM's dialog writes
+    /// into our table: w0 bit 13 enables, w1 = file | size index | destination index. Here the
+    /// dialog's own defaults are used — file 0x28, size 0x800, "Start of Layer 3".
+    /// </summary>
+    [Fact]
+    public void the_overworld_uploads_a_submaps_layer_3_tilemap()
+    {
+        if (Open() is not { } rom) { log.WriteLine("SKIP: no ROM"); return; }
+        const int submap = 1;
+
+        List<(int Word, int Value)> Run()
+        {
+            var cpu = new Cpu65816(rom) { VramWrites = [] };
+            cpu.Ram7E[0x0DD6] = 0x00;                               // player 0, as the host derives it
+            cpu.Ram7E[0x1F11] = submap;
+            cpu.PresetWidths(m8: true, x8: true);                   // the host's SEP #$30 state
+            cpu.CallLong(RomPrep.OwL3Map, 40_000_000);
+            return cpu.VramWrites!;
+        }
+
+        // Bypass off: our stub adds nothing. (Vanilla's DMA is not modelled here, which is the
+        // point — what this asserts is that we write no words of our own.)
+        Assert.Empty(Run());
+
+        int fo = rom.FileOffset(rom.LmGfxBypassBase + (RomPrep.OwGfxRecordIndex + submap) * 0x20);
+        rom.Data[fo + 1] |= 0x20;                                   // w0 bit 13: tilemap bypass
+        rom.Data[fo + 2] = 0x28; rom.Data[fo + 3] = 0x60;            // w1: file 0x28, 0x800, start
+        var words = Run();
+
+        Assert.Equal(0x400, words.Count);                           // 0x800 bytes is 0x400 words
+        Assert.Equal(RomPrep.OwL3Window, words[0].Word);            // at the OVERWORLD's layer 3,
+        Assert.Equal(RomPrep.OwL3Window + 0x3FF, words[^1].Word);   // not a level's $5000
+        byte[] file = Gfx.DecompressFile(rom, 0x28);
+        for (int i = 0; i < words.Count; i++)
+            Assert.Equal(file[i * 2] | (file[i * 2 + 1] << 8), words[i].Value);
+    }
+
     [Fact]
     public void a_submaps_slot_set_in_the_session_survives_the_project_and_a_build()
     {

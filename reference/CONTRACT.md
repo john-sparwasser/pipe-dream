@@ -2359,6 +2359,33 @@ the same `$1693`/`$1423`/A state under `Cpu65816` as the direct entry does, and 
 level `0xC7`. IsPrepped v28 = either there is no remap of ours at `$06F800` (every LM save leaves
 that run `FF`) or the one there chains. Golden V28 pinned.
 
+PREP V29 loads a SUBMAP's layer-3 tilemap (LT3), the overworld's half of v15 (`AppendV29Stamps`;
+measured 2026-09-11, reference/OVERWORLD.md §4). The GFX half of that feature needed nothing —
+v14's layer-3 pass derives its record from `$FE` and v18's stub arms `$FE` with the submap index,
+so w0 bit 14 and words 15-12 already worked, and LM's *Overworld ▸ Submap Layer 3 GFX/Tilemap
+Bypass* dialog already read and wrote them in our table. The tilemap did need code: v15's `L3Map`
+keys on `$010B` and hangs off `$00A01F`/`$00A041`, which are level-load sites. The overworld's own
+site is vanilla's `LDA #$02 : STA $420B : RTL` at `$04D76A`, the tail of the bank-04 routine that
+sets VRAM word `$3000` and DMAs 0x2000 bytes there from `$7F:4000` (or `$7F:6000` for a submap,
+per `$1F11`); found in the disassembly and confirmed by mutating the DMA's source byte, which
+moved VRAM `$6000-$7FFF` on the map. Three stamps: the hook (`JSL $13C708 : NOP` over the first
+five bytes, vanilla's `RTL` kept), a 4-byte `JSR resolve : RTL` thunk at `$0FFA18` so bank-04 code
+can reach the bank-0F resolver, and the routine itself in its own 0xC0 RATS block at `$13C708`
+(behind v24's NMI fix, which ends at `$13C628`). The stub fires vanilla's DMA first and writes the
+submap's file over the top, so the bypass being off is byte-for-byte vanilla; the record word and
+its encoding are a level's (w0 bit 13 enables; w1 = file 0-11 | size index 12-13 | destination
+index 14-15), with `L3DestWordTab`'s answer rebased from a level's `$5000` window to the
+overworld's `$3000`. The submap is derived from `$0DD6`/`$1F11` as the host routine does, not from
+`$FE`, because this site is in the overworld's own load. Verified: LM's dialog writes
+`w0 = 0x2014`/`w1 = 0x6028` into our record and our hook survives the overworld save that follows
+(LM leaves `$04D730-$04D7A0` alone, checked against a control save); in Mesen a v29 base with the
+bypass off matches v28 exactly and with it on loads the file, at the same VRAM as a hand-written
+record; `OverworldGfxTests.the_overworld_uploads_a_submaps_layer_3_tilemap` pins the words under
+`Cpu65816`. IsPrepped v29 = the hook is ours — the one clause that is NOT also true of an LM-saved
+ROM, because LM's equivalent lives inside its overworld suite and leaves `$04D76A` vanilla; `Apply`
+is only ever reached for a base of ours, so the cost is `IsPrepped(foreign, 29)` reading false.
+Golden V29 pinned.
+
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 
 No unified sprite→tile table exists; each sprite's look comes from its graphics routine.

@@ -111,6 +111,92 @@ public static partial class RomPrep
     /// <summary>V26: the acts-like remap on its own, at the address the four `JSL $00F545` sites
     /// name from then on — clear of Lunar Magic's own acts-like core, which a Map16 save writes
     /// over the v1 address (see <c>AppendV26Stamps</c>).</summary>
+    /// <summary>
+    /// V29: a submap's layer-3 TILEMAP (LT3), which is v15's level pass done for the overworld.
+    ///
+    /// Same record word and the same encoding as a level's — w0 bit 13 enables, w1 carries the
+    /// file in bits 0-11, the size index in 12-13 and the destination index in 14-15 — because
+    /// Lunar Magic's *Overworld ▸ Submap Layer 3 GFX/Tilemap Bypass* dialog writes exactly that
+    /// into our record (measured: it set submap 0's w1 high byte to `0x60`, i.e. size index 2 =
+    /// 0x800 and destination index 1 = "Start of Layer 3"). What differs is where layer 3 LIVES:
+    /// a level's window starts at VRAM word `$5000`, the overworld's at <see cref="OwL3Window"/>,
+    /// so the table's answer is rebased.
+    ///
+    /// Hooked at <see cref="OwL3MapHook"/>, whose displaced `LDA #$02 : STA $420B` fires vanilla's
+    /// own tilemap DMA first — so a submap with the bypass off keeps exactly the tilemap it had,
+    /// and one with it on gets our file written over the top rather than instead. The submap comes
+    /// from `$0DD6`/`$1F11` the way the host routine derives it, not from `$FE`: this site is in
+    /// the overworld's own load and nothing guarantees the GFX loader's arming has happened yet.
+    ///
+    /// DBR is 0 here (the host does `STA.W $2115`), which is why every table read is long and
+    /// there is no PHK/PLB: absolute reads have to keep reaching RAM and the PPU ports.
+    /// </summary>
+    private static byte[] OwL3MapCode()
+    {
+        var a = new Asm(OwL3Map);
+        a.LdaImm8(0x02).StaAbs(0x420B)       // displaced: vanilla's tilemap DMA, unchanged
+         .Php()
+         .Rep(0x30)
+         .LdaAbs(0x0DD6).AndImm16(0x00FF)    // the host routine's own player index
+         .Lsr().Lsr()
+         .Tax()
+         .LdaAbsX(0x1F11).AndImm16(0x00FF)   // the submap that player is on
+         .Clc().AdcImm16(OwGfxRecordIndex)   // submap N is record 0x200+N (v18)
+         .Asl().Asl().Asl().Asl().Asl()
+         .Tax()
+         .LdaLongX(GfxBypassRecords)         // w0
+         .AndImm16(0x2000)                   // the tilemap enable, distinct from the GFX ones
+         .Bne("owgo")
+         .Plp().Rtl()                        // a NEAR exit — the far one is out of branch range,
+         .Label("owgo")                      // and vanilla's DMA already stands either way
+         .Inx().Inx()
+         .LdaLongX(GfxBypassRecords)         // w1
+         .Pha()
+         .AndImm16(0x0FFF)
+         .CmpImm16(0x007F)
+         .Beq("owpop")                       // 0x7F = Skip File
+         .Jsl(L3ResolveThunk)                // file# → $8A-$8C; carry set = not inserted
+         .Bcs("owpop")
+         .Sep(0x20)
+         .StzDp(0x00)                        // decompress to the tilemap's own buffer (v16)
+         .LdaImm8(L3MapBuffer >> 8 & 0xFF).StaDp(0x01)
+         .LdaImm8(L3MapBuffer >> 16).StaDp(0x02)
+         .Jsl(GfxThunks)                     // LC_LZ2 core ($8A-$8C → [$00])
+         .Rep(0x30)
+         .Pla().Pha()                        // peek w1: the destination index
+         .Xba().Lsr().Lsr().Lsr().Lsr().Lsr().Lsr()
+         .AndImm16(0x0003).Asl()
+         .Tax()
+         .LdaLongX(L3DestWordTab)
+         .Sec().SbcImm16(0x5000)             // the offset INTO the layer-3 window...
+         .StaDp(0x8D)
+         .Clc().AdcImm16(OwL3Window)         // ...which on the overworld starts here
+         .StaDp(0x8B)
+         .LdaDp(0x8D).Asl().StaDp(0x8D)      // the same offset into the file, in bytes
+         .Pla()                              // and now the size index
+         .Xba().Lsr().Lsr().Lsr().Lsr()
+         .AndImm16(0x0003).Asl()
+         .Tax()
+         .LdaLongX(L3SizeTab)
+         .Sec().SbcDp(0x8D)
+         .Beq("owdone")                      // "Do not use", or a file the offset swallows
+         .Bmi("owdone")
+         .Lsr().DecA()
+         .Tax()                              // X = words - 1
+         .Sep(0x20).LdaImm8(0x80).StaAbs(0x2115).Rep(0x20)
+         .LdaDp(0x8B).StaAbs(0x2116)         // 16-bit: $2116/$2117 take the word address
+         .LdyDp(0x8D)
+         .Label("owcopy")
+         .LdaIndLongY(0x00).StaAbs(0x2118)
+         .Iny().Iny()
+         .Dex().Bpl("owcopy")
+         .Label("owdone")
+         .Plp().Rtl()
+         .Label("owpop").Pla()
+         .Label("owexit").Plp().Rtl();
+        return a.Bytes();
+    }
+
     private static byte[] ActsRemap(int entry, bool chain = false)
     {
         var a = new Asm(entry);

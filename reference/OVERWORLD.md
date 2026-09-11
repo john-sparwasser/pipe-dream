@@ -121,12 +121,31 @@ so the two bytes join into an 8x8 word (`Overworld.EventPieces`). 0xD00 cells in
       marker. (Opening the dialog does not write the file; the save does.)
 
     Pinned by `OverworldGfxTests.the_loader_uploads_a_submaps_layer_3_files_too`.
-  - **Not done: the per-submap layer 3 TILEMAP (LT3).** LM's dialog authors it — the tilemap combo
-    plus "Enable bypass of standard Layer 3 tilemap for this submap", i.e. record word 1 gated by
-    w0 bit 13, as for a level — but our `L3Map` (v15) keys on `$010B` and hangs off the level-load
-    hooks `$00A01F`/`$00A041`, so a submap's word 1 is never read and the game ignores it. Per LM's
-    help the overworld tilemap loads on map entry and is NOT reloaded by an exit tile, so the hook
-    is a different site from the level one; finding it is the work.
+  - **Per-submap layer 3 TILEMAP (LT3): prep v29.** This one did NOT come for free — v15's level
+    pass keys on `$010B` and hangs off the level-load hooks `$00A01F`/`$00A041`, so the overworld
+    needed its own. The site is vanilla's `LDA #$02 : STA $420B : RTL` at the tail of the bank-04
+    routine (`$04D73F`) that sets VRAM word **`$3000`** and DMAs 0x2000 bytes there from
+    `$7F:4000`, or `$7F:6000` when `$1F11` says the player is on a submap (`DATA_04DAB3` =
+    `01 18 00 40 7F 00 20`). Found in the disassembly and confirmed by mutation: changing that
+    source byte moved VRAM `$6000-$7FFF` on the map, so the routine runs on the path a new game
+    takes and word `$3000` really is the overworld's layer-3 tilemap.
+
+    v29 hooks it with a JSL to a stub in its own block (`$13C708`, behind v24's NMI fix). The stub
+    fires vanilla's DMA first and then writes the submap's file over the top, so **the bypass being
+    off is byte-for-byte vanilla** — verified in game against a v28 base. The record word and its
+    encoding are a level's, because that is what LM writes: w0 bit 13 enables, w1 = file (0-11) |
+    size index (12-13) | destination index (14-15). The one difference is the window base — a
+    level's layer 3 starts at word `$5000`, the overworld's at `$3000` — so `L3DestWordTab`'s
+    answer is rebased. The submap comes from `$0DD6`/`$1F11` the way the host routine derives it,
+    not from `$FE`: this is the overworld's own load and the GFX loader's arming may not have
+    happened yet.
+
+    End to end, measured 2026-09-11: ticking "Enable bypass of standard Layer 3 tilemap for this
+    submap" in LM and choosing file `28` left our record at `w0 = 0x2014`, `w1 = 0x6028`; our hook
+    at `$04D76A` survived that overworld save (LM does not touch `$04D730-$04D7A0`, checked against
+    a control save); and the map's layer-3 tilemap in Mesen came out at the same value a
+    hand-written record produces. Pinned by
+    `OverworldGfxTests.the_overworld_uploads_a_submaps_layer_3_tilemap`.
 - **Animated tiles**: VRAM tiles 0x75-0x7F are rebuilt every frame from GFX14 (the file
   decompressed last, still in `$7EAD00`) and uploaded by `$00A4E3` (0x160 bytes to VRAM word
   $0750). Three water tiles, GFX14 0x50-0x52 (`$048000`), scrolled in RAM every eight frames

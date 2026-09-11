@@ -72,6 +72,9 @@ public static partial class RomPrep
         // LM's own `-ExportAllMap16`/`-ImportAllMap16`, which round-trip our table byte for byte
         // and will happily store an entry of 0x200 or more (reference/LM_PARITY.md §1).
         if (version >= 28) s.Add((Pc(ActsRemapEntryV26), ActsRemap(ActsRemapEntryV26, chain: true)));
+        // V29: the overworld's half of the layer-3 TILEMAP bypass — the GFX half needed nothing,
+        // because v14's pass is index-driven (reference/OVERWORLD.md §4).
+        if (version >= 29) AppendV29Stamps(s);
         return s;
     }
 
@@ -724,6 +727,29 @@ public static partial class RomPrep
         foreach (int site in ActsCallSites)
             s.Add((Pc(site), [0x22, ActsRemapEntryV26 & 0xFF,
                               ActsRemapEntryV26 >> 8 & 0xFF, ActsRemapEntryV26 >> 16]));
+    }
+
+    /// <summary>
+    /// V29: a submap's layer-3 TILEMAP (LT3). Three stamps and no new data — the record word is
+    /// one a submap record already had, and LM's *Overworld ▸ Submap Layer 3 GFX/Tilemap Bypass*
+    /// dialog already reads and writes it in our table (measured 2026-09-11 both ways; the GFX
+    /// half of that dialog needed nothing at all, see reference/OVERWORLD.md §4).
+    ///
+    /// The hook is vanilla's own `LDA #$02 : STA $420B : RTL` at the tail of the bank-04 routine
+    /// that DMAs the overworld's layer-3 tilemap to VRAM word `$3000`; our stub fires that DMA
+    /// first and then writes the submap's file over the top, so the bypass being off is exactly
+    /// vanilla. Lunar Magic's overworld save leaves `$04D730-$04D7A0` alone, so the hook survives
+    /// one (measured against a control save that opened a different dialog).
+    /// </summary>
+    private static void AppendV29Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        s.Add((Pc(OwL3MapHook), [0x22, OwL3Map & 0xFF, OwL3Map >> 8 & 0xFF, OwL3Map >> 16,
+                                 0xEA, 0x6B]));                      // JSL … : NOP : the kept RTL
+        s.Add((Pc(L3ResolveThunk), [0x20, GfxResolve & 0xFF, GfxResolve >> 8 & 0xFF, 0x6B]));
+        var block = new byte[0xC0];
+        Array.Fill(block, (byte)0xFF);
+        OwL3MapCode().CopyTo(block, 0);
+        s.Add((OwL3MapTagPc, Rats(block)));
     }
 
     /// <summary>

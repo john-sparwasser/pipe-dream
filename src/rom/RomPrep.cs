@@ -78,7 +78,7 @@ public static partial class RomPrep
     /// import was zeroing it from under the LoadLevel hook;
     /// V24 replaces v1's private palette stubs with Lunar Magic's own palette engine, byte for
     /// byte, so an LM ExGFX import lands on code that is already there.
-    public const int Version = 28;
+    public const int Version = 29;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -350,6 +350,34 @@ public static partial class RomPrep
     /// shorten the status bar (CONTRACT §12b).</summary>
     public const int L3SizeTab = 0x0FFEB4, L3DestWordTab = 0x0FFEBC, L3BarSize = 0x0FFEC4;
 
+    // ---- V29: the per-submap layer-3 TILEMAP (LT3), the overworld's half of v15 ----
+    /// <summary>
+    /// Where the overworld uploads its layer-3 tilemap, and so where LT3 has to be applied:
+    /// vanilla's `LDA #$02 : STA $420B : RTL` at the tail of the bank-04 routine that sets VRAM
+    /// word `$3000` and DMAs 0x2000 bytes there from `$7F:4000`, or `$7F:6000` when `$1F11` says
+    /// the player is on a submap (`DATA_04DAB3` = `01 18 00 40 7F 00 20`). Measured 2026-09-11 by
+    /// mutation — changing that source byte moved VRAM `$6000-$7FFF` on the map — so this routine
+    /// really is the overworld's layer-3 tilemap load, and it runs on the path a new game takes.
+    ///
+    /// Lunar Magic's own overworld save does NOT touch `$04D730-$04D7A0` (measured against a
+    /// control save), so the hook survives one.
+    /// </summary>
+    public const int OwL3MapHook = 0x04D76A;
+
+    /// <summary>The LT3 upload for a submap, in a block of its own behind v24's NMI fix (which
+    /// ends at `$13C628`). Not in the loader block: what is left there is measured in single
+    /// digits, and this needs ~0x60 bytes.</summary>
+    public const int OwL3MapTagPc = 0x9C700, OwL3Map = 0x13C708;
+
+    /// <summary>`JSR resolve : RTL`, so the bank-04 hook can reach the bank-0F resolver, which is
+    /// a near routine. Eight free bytes at the tail of v14's layer-3 pass.</summary>
+    public const int L3ResolveThunk = 0x0FFA18;
+
+    /// <summary>VRAM word where the OVERWORLD's layer 3 starts. A level's starts at `$5000`,
+    /// which is what <see cref="L3DestWordTab"/> is written against, so the overworld's upload
+    /// rebases the table's answer by this much.</summary>
+    public const int OwL3Window = 0x3000;
+
     // ---- V16: the ADVANCED layer-3 bypass (initial position, blend, scroll rate) ----
     /// <summary>The nibble reader, inside LM's own `$0FFD80` block (332 B; our prep uses none of that
     /// range). The ADDRESS need not be LM's — <see cref="LunarMagic.HasLmLayer3Advanced"/> scans
@@ -504,7 +532,15 @@ public static partial class RomPrep
            // behind its trampolines at 0xFF — still reads as prepped: the only false case is our
            // own v26/v27 remap, whose `TYA` sits where the chaining `BRA` goes.
            && (version < 28 || rom.ReadByte(ActsRemapEntryV26) != 0xDA
-                            || rom.ReadByte(ActsRemapEntryV26 + ActsChainBra) == 0x80);
+                            || rom.ReadByte(ActsRemapEntryV26 + ActsChainBra) == 0x80)
+           // V29: the overworld's layer-3 tilemap load is ours. UNLIKE every other clause this is
+           // NOT a property an LM-saved ROM shares — LM's equivalent lives inside its overworld
+           // suite and leaves $04D76A vanilla (measured against a control save). Apply is only
+           // ever reached for a base of ours (PrepInPlace hash-gates vanilla; the upgrade path
+           // runs on a project's own base), so the cost is that IsPrepped(foreign, 29) reads
+           // false, never a stamp over someone else's ROM.
+           && (version < 29 || (rom.ReadByte(OwL3MapHook) == 0x22
+                                && rom.ReadValue(OwL3MapHook + 1, 3) == OwL3Map));
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying
