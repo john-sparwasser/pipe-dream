@@ -18,9 +18,10 @@ Tooling lives in `tools/mesen/`:
 |---|---|
 | `Invoke-MesenTest.ps1` | runs a ROM + script, returns `{ExitCode, TimedOut, Seconds}` |
 | `New-MesenProbe.ps1` | pastes `prelude.lua` in front of a Lua body, writes it, runs it |
-| `prelude.lua` | `T.rb/rw/vram`, `T.pass/fail/report`, `T.hold`, `T.each`, `T.mode`, `T.onOverworld`, `T.OverworldFrame` |
+| `prelude.lua` | `T.rb/rw/vram`, `T.pass/fail/report`, `T.hold`, `T.each`, `T.mode`, `T.onOverworld`, `T.bootToLevel`, `T.inLevel`, `T.OverworldFrame`, `T.LevelFrame` |
 | `Test-RomBoots.ps1` | smoke: ROM reaches the gameplay loop and keeps ticking |
 | `Test-RomOverworld.ps1` | smoke: ROM reaches the MAP and keeps ticking; `-Reference` diffs its tile graphics against another ROM |
+| `Test-RomLevel.ps1` | smoke on a CHOSEN level: walks the map (`-Walk left` = `$105`), enters, reports the level |
 | `Dump-OwPalette.ps1` | the overworld's real CGRAM, row by row, to diff against `--owrows` |
 
 Set `PIPEDREAM_MESEN` to point at the emulator; otherwise PATH, then `~/Mesen.exe`.
@@ -115,10 +116,45 @@ The layer-1 Map16 map is built at `$7E:C800` (tile low byte) and `$7F:C800` (pag
 `0x3800` bytes; confirmed populated in a running level, with page bytes `$00`/`$01` for
 vanilla tiles.
 
-## Selecting a level — UNSOLVED
+## Selecting a level — SOLVED by playing  [MEASURED 2026-09-11]
 
-Forcing game mode `$0B` from the title screen enters **the title demo's level**, and there is
-currently no known way to choose which level that is:
+`Test-RomLevel.ps1`. Pulse Start to the map (above), take ONE step, press A. From where a new
+game starts on Yoshi's Island the step chooses the level:
+
+| `-Walk` | level | |
+|---|---|---|
+| `none` | `$104` | Yoshi's House — the tile a new game stands on |
+| `left` | **`$105`** | this repo's canonical test level |
+| `right` | `$106` | |
+| `up`, `down` | `$104` | no path that way, so it stays put |
+
+One step is all a hold buys: the map walks tile to tile and stops at the next level, so 8
+frames and 150 frames land identically, and anything further needs the level in between
+beaten. **So the way to reach an arbitrary structure is to put it in `$105`** — e.g.
+`--writedm16 <rom> 105 <out> <tile> <row>` — not to try to walk to some far tile.
+
+**THE ROW MATTERS, and this is the part that fooled the first attempt.** SMW looks a Map16
+tile's definition up only when it DRAWS the tile, so content parked in the level's empty sky
+(row 8, `--writedm16`'s default) never exercises the lookup at all. Row 13 is on the opening
+screen. Proven by mutation, which is also the answer to "does this check cover the ladder":
+
+| ROM | range dispatcher | result |
+|---|---|---|
+| tile `$1234` on row 13 | intact | pass |
+| tile `$1234` on row 13 | `$06F54A` = `STP` | **exit 1** — halts during the level build |
+| tile `$1234` on row 8 | `$06F54A` = `STP` | pass — never drawn, never looked up |
+| no extended tile | `$06F54A` = `STP` | pass — the path is never entered |
+
+`$06F54A` is the first instruction only a tile `>= 0x400` reaches (after `$06F540`'s
+`CMP #$0400 : BCC` sends vanilla tiles down the `$0FBE` path). Note that the older claim here —
+"a ROM with the range dispatcher at `$06F538` overwritten with `STP` still passes" — was
+patching **`FF` padding**: v12's ladder blob starts with eight filler bytes and the entry is at
+`$06F540`. That mutation proved nothing either way.
+
+### What does NOT work, and why the above is not a poke
+
+Forcing game mode `$0B` from the title screen enters **the title demo's level**, and none of
+this chooses which level that is:
 
 - Poking `$7E:010B` (level number) has **no effect** — measured with `$0C5`, `$101`, `$105`
   and `$024`: every one still reported `$010B = 0xC7` afterwards and produced a
@@ -132,9 +168,8 @@ currently no known way to choose which level that is:
 as the requested level while the game runs a different one — an assertion on it then passes
 green for the wrong reason. An earlier version of `Test-RomBoots.ps1` did exactly that.
 
-Still unsolved for a CHOSEN level, but no longer for the reason recorded here: input works
-(below), so the route is now to drive the overworld — walk to a tile and press A — rather than
-to poke a level number. Unwritten.
+So the level number is an OBSERVATION on the poke path, never an input. Walking the map is
+what makes it an input, which is what the section above does.
 
 ## Input — `emu.setInput` MUST be called from `inputPolled`  [MEASURED 2026-09-11]
 
@@ -191,8 +226,18 @@ there. Reaching Donut Plains means walking the map, which input now makes possib
 `Test-RomBoots.ps1` asserts the ROM reaches gameplay and keeps ticking. Measured: vanilla and
 a prep-v3 base both pass in ~5 s.
 
-It does **not** cover the extended Map16 ranges. A ROM with the range dispatcher at `$06F538`
-overwritten with `STP` still passes, because the demo level only uses tiles below `$200`,
-which return through the vanilla `$0FBE` path before the dispatcher is ever reached. Covering
-the ladder in game needs a level that actually uses an extended tile — which needs level
-selection, above.
+It does **not** cover the extended Map16 ranges: the demo level only uses tiles below `$200`,
+which return through the vanilla `$0FBE` path before the dispatcher is ever reached. (The
+mutation that used to be cited here as evidence, `STP` at `$06F538`, was patching `FF` padding
+— see "Selecting a level".)
+
+**The ladder IS coverable now**, and this is the recipe:
+
+```
+PipeDream.exe --writedm16 <rom> 105 out.smc 1234 D   # tile $1234 into level $105, row 13
+tools/mesen/Test-RomLevel.ps1 -Rom out.smc -Walk left
+```
+
+Measured: passes with the ladder intact, exits 1 with `$06F54A` replaced by `STP`. Range 1
+(`$1234`) means the second ladder slot, not just range 0. Worth running on a prep bump that
+touches `Map16Lookup`, `LmMap16Ladder` or `EnsureMap16Tiles`.

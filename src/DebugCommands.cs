@@ -403,17 +403,24 @@ static class DebugCommands
         // its Map16 page and giving it a visible definition first. This is how the headless
         // Mesen check gets an extended tile (0x200+, including the ranges past 0xFFF) into a
         // real level — nothing else in the pipeline places one on demand.
+        //
+        // Optional 5th arg: the row. It defaults to 8, which is empty sky and therefore ABOVE
+        // THE CAMERA where the level starts — fine for "is the tile in the Map16 map", useless
+        // for "did the game resolve its definition", because SMW only looks a tile's def up
+        // when it draws it. Pass a row the opening screen actually shows (13 works) to exercise
+        // the lookup ladder in game; reference/MESEN.md has the mutation test that proves it.
         LevelObject[] added;
         if (args.ElementAtOrDefault(wi + 4) is { } tileArg)
         {
             int tile = Convert.ToInt32(tileArg, 16);
+            int row = Convert.ToInt32(args.ElementAtOrDefault(wi + 5) ?? "8", 16);
             if (rom.EnsureMap16Tiles(tile + 1) is { } allocErr)
             { Console.WriteLine("ERROR: " + allocErr); return 1; }
             int defFo = Map16.DefFileOffset(rom, lv.Header.Tileset, tile);
             if (defFo < 0) { Console.WriteLine($"ERROR: tile 0x{tile:X} has no definition slot"); return 1; }
             for (int q = 0; q < 4; q++)      // all four quadrants = 8x8 tile $130, palette 2
             { rom.Data[defFo + q * 2] = 0x30; rom.Data[defFo + q * 2 + 1] = 0x09; }
-            added = [LevelObject.MakeDm16(tile, screen: 0, xNib: 2, y: 8)];
+            added = [LevelObject.MakeDm16(tile, screen: 0, xNib: 2, y: row)];
             Console.WriteLine($"tile 0x{tile:X} def at pc 0x{defFo - rom.HeaderOffset:X}, " +
                               $"Map16TileCount now 0x{rom.Map16TileCount:X}");
         }

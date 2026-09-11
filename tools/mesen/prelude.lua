@@ -63,4 +63,27 @@ M.OverworldFrame = 2400
 
 function M.onOverworld() return M.mode() == 0x0E end
 
+-- ...and on from the map into a LEVEL, by walking a tile and pressing A. `dir` is nil or one
+-- of "left"/"right"/"up"/"down"; from where a new game starts on Yoshi's Island that selects
+-- which level loads, measured on vanilla and a prep v28 base:
+--
+--   nil    level $104 (Yoshi's House)      up, down   $104 — no path that way, so it stays
+--   left   level $105                      right      $106
+--
+-- One step is all a hold buys: the map walks tile to tile and stops at the next level, so 8
+-- frames and 150 frames land in the same place. Reaching anything further means beating the
+-- level in between, which this cannot do — so for a level of one's OWN choosing, put the
+-- content in $105 (see --writedm16) rather than trying to walk to it.
+M.LevelFrame = 3400
+
+function M.bootToLevel(frame, dir)
+    local at = M.OverworldFrame
+    if frame < at then M.bootPulse(frame)
+    elseif frame < at + 24 then M.hold(dir and { [dir] = true } or {})
+    elseif frame < at + 300 then M.hold{}                       -- let the step finish
+    else M.hold(frame % 32 < 4 and { a = true } or {}) end      -- A is edge-triggered too
+end
+
+function M.inLevel() return M.mode() == 0x14 end
+
 return M
