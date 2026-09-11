@@ -615,6 +615,12 @@ data; LM honours tags it did not write.
    this item used to list with it are a different feature — LM's per-level Map16 plane-pointer
    tables — and have been ours since v10's variable-height engine, pinned against LM's own ROM.
 2. ~~Sprite extra bytes~~ — done: size table read at LM's registration and authored the same way.
-3. **The Map16 ladder's remaining ranges**, so a ROM that has met LM does not address tiles we
-   cannot.
+3. ~~**The Map16 ladder's remaining ranges**~~ — measured 2026-09-11, and the reading half was
+   already done: all eight slots are decoded, with sgdq2024 (ranges 4 and 5) as the oracle and
+   `Map16RangeTests.the_reader_knows_all_eight_slots` pinning it. What that measurement DID turn
+   up is a numbering collision — ranges 4-7 are LM's FG tiles 0x4000-0x7FFF, which is where this
+   editor renumbers LM's BG pages — so `Map16TileCount` now stops at the BG boundary rather than
+   letting the ladder shadow the fixed `$0D9100` table (CONTRACT §7a-rev). Writing those ranges
+   stays out of scope: our numbering has nowhere to put LM's high FG tiles, and LM's own
+   Direct-Map16 objects cannot address them either.
 4. Everything in bank 03 and the level-load pipeline is unmapped; treat as research, not work.

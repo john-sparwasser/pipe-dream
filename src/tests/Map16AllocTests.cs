@@ -176,4 +176,43 @@ public class Map16AllocTests : IDisposable
         Assert.Contains("upgrade", rom.EnsureMap16Tiles(0x1100) ?? "");
         Assert.Equal(0x1000, rom.Map16TileCount);               // and nothing was half-written
     }
+
+    /// <summary>
+    /// The ladder stops at the BG boundary. LM numbers its BG pages 0x8000+ and this editor
+    /// renumbers them 0x4000+, while LM's own 0x4000-0x7FFF are more FG tiles reached through the
+    /// ladder's SECOND chain (ranges 4-7 at `$06F593`…). A base with ranges 0-3 full and range 4
+    /// populated must therefore still resolve our BG tiles to the fixed `$0D9100` table, and must
+    /// not let the count run past 0x4000 — otherwise DefFileOffset hands the BG numbers to the
+    /// ladder. Latent, not observed: no sampled LM ROM populates ranges 4-7 (the one that does,
+    /// sgdq2024, is SA-1, whose Map16 hijack does not even point at `$06F5D0`).
+    /// </summary>
+    [RealRomFact]
+    public void the_ladder_stops_at_the_bg_boundary_even_with_a_populated_range_4()
+    {
+        var tmp = Path.Combine(dir, "highrange.smc");
+        File.Copy(TestRom.RealRomPath, tmp);
+        Assert.Null(RomPrep.PrepInPlace(tmp));
+        var rom = Rom.Load(tmp);
+
+        // Fill ranges 0-3 and populate range 4 the way LM's second chain would. Slot addresses
+        // are CONTRACT §7a-rev's; the defs behind them need not exist for the addressing to run.
+        void Slot(int at, int imm, int bank)
+        {
+            int fo = rom.FileOffset(at);
+            rom.Data[fo] = 0x69; rom.Data[fo + 1] = (byte)imm; rom.Data[fo + 2] = (byte)(imm >> 8);
+            rom.Data[fo + 3] = 0xA0; rom.Data[fo + 4] = 0x00; rom.Data[fo + 5] = (byte)bank;
+        }
+        foreach (var (at, bank) in new[] { (0x06F552, 0x12), (0x06F55B, 0x13),
+                                           (0x06F566, 0x14), (0x06F56F, 0x15), (0x06F593, 0x16) })
+            Slot(at, 0x0008, bank);
+
+        Assert.Equal(0x16, rom.LmMap16Slot(4).Bank);            // the slot is read...
+        Assert.False(rom.HasMap16Range(4));                     // ...but it is not a range of ours
+        Assert.True(rom.LmMap16DefAddr(Map16.BgTileBase) > 0);  // ...and still addressable on purpose
+        Assert.True(rom.Map16TileCount <= Map16.BgTileBase,     // what stops is the COUNT
+                    $"count is 0x{rom.Map16TileCount:X}");
+        // So a BG tile still resolves to the fixed table, which is what the game reads.
+        Assert.Equal(rom.FileOffset(0x0D9100), Map16.DefFileOffset(rom, 0, Map16.BgTileBase));
+        Assert.Equal(rom.FileOffset(0x0D9100 + 8), Map16.DefFileOffset(rom, 0, Map16.BgTileBase + 1));
+    }
 }

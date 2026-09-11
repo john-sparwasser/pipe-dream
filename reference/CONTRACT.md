@@ -558,6 +558,16 @@ than aliasing across it; the high pages appear once ordinary allocation fills th
   RATS tag at the bank start — so a full range takes two banks and parks its tag in the
   first one's tail. Our own prep emits ranges 0-3 (the editor's ceiling is 0x3FFF, which is
   also all LM's Direct-Map16 objects can address: the page byte is masked `& 0x3F`).
+- **The two numberings collide above 0x3FFF, and the COUNT is what stops.** Ranges 4-7 address
+  LM's own FG tiles 0x4000-0x7FFF, which is exactly where this editor renumbers LM's BG pages
+  (LM calls them 0x8000+, §10). `Rom.Map16TileCount` therefore stops at `Map16.BgTileBase`:
+  without that, a base with ranges 0-3 full and range 4 populated would run the count into the BG
+  numbers and `Map16.DefFileOffset` would hand them to the ladder, shadowing the fixed `$0D9100`
+  BG table. `LmMap16DefAddr` still answers for a high tile asked for explicitly — that is how
+  sgdq2024's ranges 4/5 are read — so nothing is lost except the ability to ADDRESS LM's high FG
+  tiles, which our numbering has nowhere to put. Latent, not observed: sgdq2024's own range 0 is
+  partial, so its count caps far below the boundary. Pinned by
+  `the_ladder_stops_at_the_bg_boundary_even_with_a_populated_range_4`.
 
 ### 7a. LM extended Map16 table  [SUPERSEDED by 7a-rev — kept for the diff history]
 
