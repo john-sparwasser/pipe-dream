@@ -604,6 +604,54 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
     }
 
     /// <summary>
+    /// The drawer's right-hand filter column hides a whole group at a time — its cards AND its
+    /// heading, so a group that is off leaves no trace. The three are independent, and all three
+    /// off is an empty list rather than a fallback to everything.
+    /// </summary>
+    [AvaloniaFact]
+    public void the_filter_column_hides_a_group_heading_and_all()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = Vanilla;
+        var w = new MainWindow();
+        w.Show();
+        w.GetControl<ToggleButton>("ModeGfx").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+
+        var bins = w.GetControl<StackPanel>("GfxBins");
+        int all = bins.Children.Count;
+        string[] Heads() => [.. bins.Children.OfType<TextBlock>().Select(t => $"{t.Text}"),
+                             .. bins.Children.OfType<Grid>().Select(g => $"{g.Children.OfType<TextBlock>().Single().Text}")];
+
+        void Toggle(string name)
+        {
+            var b = w.GetControl<ToggleButton>(name);
+            b.IsChecked = b.IsChecked != true;
+            b.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        // Overworld off: its eleven cards, the heading row holding its submap picker, and the
+        // rule under it.
+        Toggle("GfxFilterOw");
+        Assert.Equal(all - 13, bins.Children.Count);
+        Assert.Equal(["Layer 3", "Animation slots"], Heads());
+
+        // Animations off too: AN1/AN2, the four ExAnimation files and their heading with its rule.
+        Toggle("GfxFilterAnim");
+        Assert.Equal(["Layer 3"], Heads());
+        Assert.Equal(SessionOf(w).GfxBins.Length - 2 + 2, bins.Children.Count);   // 14 cards + heading + rule
+
+        // Level off as well: nothing left, which is a state the list can be in.
+        Toggle("GfxFilterLevel");
+        Assert.Empty(bins.Children);
+
+        // And back on one at a time, ending where it started.
+        Toggle("GfxFilterLevel"); Toggle("GfxFilterAnim"); Toggle("GfxFilterOw");
+        Assert.Equal(all, bins.Children.Count);
+    }
+
+    /// <summary>
     /// The layer-3 window is four ordinary bins, below SP4 and above the animation slots. They
     /// are the ones LM's Layer 3 GFX/Tilemap Bypass sets, and they ride in the same per-level
     /// record as the rest — behind their own enable bit (CONTRACT §12b).

@@ -36,6 +36,8 @@ public partial class MainWindow
     private DockPanel gfxToolPanel = null!, gfxScroll = null!;
     private Border gfxPaletteBar = null!;
     private StackPanel gfxBins = null!;
+    /// <summary>The drawer's right-hand filter column, one button per group of the bin list.</summary>
+    private ToggleButton gfxFilterLevel = null!, gfxFilterAnim = null!, gfxFilterOw = null!;
     private ComboBox gfxPalRow = null!, gfxBpp = null!;
     private PaletteGridView gfxColors = null!;
     private TextBlock gfxPalNote = null!;
@@ -76,6 +78,9 @@ public partial class MainWindow
         gfxToolPanel = this.GetControl<DockPanel>("GfxToolPanel");
         gfxPaletteBar = this.GetControl<Border>("GfxPaletteBar");
         gfxBins = this.GetControl<StackPanel>("GfxBins");
+        gfxFilterLevel = this.GetControl<ToggleButton>("GfxFilterLevel");
+        gfxFilterAnim = this.GetControl<ToggleButton>("GfxFilterAnim");
+        gfxFilterOw = this.GetControl<ToggleButton>("GfxFilterOw");
         gfxPalRow = this.GetControl<ComboBox>("GfxPalRow");
         gfxBpp = this.GetControl<ComboBox>("GfxBpp");
         gfxColors = this.GetControl<PaletteGridView>("GfxColors");
@@ -679,6 +684,9 @@ public partial class MainWindow
     /// near-identical composites and a template plus a view model for each would be more
     /// machinery than the thing it builds.
     /// </summary>
+    /// <summary>A filter button: the list is rebuilt, nothing else about the mode changes.</summary>
+    private void OnGfxFilter(object? sender, RoutedEventArgs e) => RefreshGfxBins();
+
     private void RefreshGfxBins()
     {
         gfxBins.Children.Clear();
@@ -697,8 +705,16 @@ public partial class MainWindow
         // own 0-15, so Load and the selection can tell the two apart.
         int owFirst = bins.Count;
         bins.AddRange(session.OverworldGfxBins);
+        // The filter column's three buttons, against the same three stretches the headings mark:
+        // everything before AN1 is the level's own graphics, AN1 to the overworld's first bin is
+        // the animation slots, the rest is the overworld. A bin whose button is off is skipped
+        // heading and all, so an unwanted group leaves no trace of itself in the list.
+        int animFirst = bins.FindIndex(b => b.Name == "AN1");
+        bool Showing(int i) =>
+            (i >= owFirst ? gfxFilterOw : i >= animFirst ? gfxFilterAnim : gfxFilterLevel).IsChecked == true;
         for (int i = 0; i < bins.Count; i++)
         {
+            if (!Showing(i)) continue;
             var bin = bins[i];
             // Headed groups after the ten VRAM bins: the level's layer-3 window, the animation
             // slots, then the overworld. LG1-LG4 are real bins with a real bypass — LM's Layer 3

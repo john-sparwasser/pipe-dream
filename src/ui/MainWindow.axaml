@@ -736,6 +736,26 @@
                   </StackPanel>
                 </DockPanel>
               </Border>
+              <!-- Which groups of the list below are showing. Icon-only, and the icons are the
+                   main tab bar's, so the column reads as "the Level files / the Animation files /
+                   the Overworld files" without a word of chrome. Each is independent: turning all
+                   three off leaves an empty list, which is a legible state, not a broken one. -->
+              <Border DockPanel.Dock="Right" Classes="panel bar" BorderThickness="1,0,0,0" Padding="4,6">
+                <StackPanel Orientation="Vertical" Spacing="4">
+                  <ToggleButton x:Name="GfxFilterLevel" MinWidth="34" IsChecked="True" Click="OnGfxFilter"
+                                ToolTip.Tip="Level graphics — the FG/BG and sprite bins and the layer 3 window">
+                    <Path Data="{StaticResource IconTentTree}"/>
+                  </ToggleButton>
+                  <ToggleButton x:Name="GfxFilterAnim" MinWidth="34" IsChecked="True" Click="OnGfxFilter"
+                                ToolTip.Tip="Animation graphics — the AN1/AN2 slots and the ExAnimation source files">
+                    <Path Data="{StaticResource IconFilm}"/>
+                  </ToggleButton>
+                  <ToggleButton x:Name="GfxFilterOw" MinWidth="34" IsChecked="True" Click="OnGfxFilter"
+                                ToolTip.Tip="Overworld graphics — the chosen submap's own files">
+                    <Path Data="{StaticResource IconMap}"/>
+                  </ToggleButton>
+                </StackPanel>
+              </Border>
               <ScrollViewer>
                 <StackPanel x:Name="GfxBins" Margin="10,6" Spacing="10"/>
               </ScrollViewer>
