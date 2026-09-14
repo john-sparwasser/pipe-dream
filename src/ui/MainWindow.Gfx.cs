@@ -734,6 +734,9 @@ public partial class MainWindow
                         SelectedIndex = session.OwGfxSubmap,
                         MinWidth = 150,
                         HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+                        // Without this the box stretches over the whole row — including the gap
+                        // above the heading — and reads as sitting low against the word beside it.
+                        VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
                     };
                     pick.SelectionChanged += (_, _) =>
                     {
@@ -741,7 +744,8 @@ public partial class MainWindow
                         session.OwGfxSubmap = pick.SelectedIndex;
                         RefreshGfx();
                     };
-                    var head = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+                    var head = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = sep.Margin };
+                    sep.Margin = default;
                     head.Children.Add(sep);
                     Grid.SetColumn(pick, 1);
                     head.Children.Add(pick);
