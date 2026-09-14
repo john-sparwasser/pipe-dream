@@ -736,11 +736,11 @@
                   </StackPanel>
                 </DockPanel>
               </Border>
-              <!-- Which groups of the list below are showing. Icon-only, and the icons are the
+              <!-- Which groups of the list beside it are showing. Icon-only, and the icons are the
                    main tab bar's, so the column reads as "the Level files / the Animation files /
                    the Overworld files" without a word of chrome. Each is independent: turning all
                    three off leaves an empty list, which is a legible state, not a broken one. -->
-              <Border DockPanel.Dock="Right" Classes="panel bar" BorderThickness="1,0,0,0" Padding="4,6">
+              <Border DockPanel.Dock="Left" Classes="panel bar" BorderThickness="0,0,1,0" Padding="4,6">
                 <StackPanel Orientation="Vertical" Spacing="4">
                   <ToggleButton x:Name="GfxFilterLevel" MinWidth="34" IsChecked="True" Click="OnGfxFilter"
                                 ToolTip.Tip="Level graphics — the FG/BG and sprite bins and the layer 3 window">
