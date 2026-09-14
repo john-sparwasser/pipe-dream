@@ -177,7 +177,7 @@ public class EntrancePlacementTests(ITestOutputHelper log)
     /// 0x400 into the secondary block's run and every LM level save refused with "Existing data
     /// format or size not recognized! Midway entrance data" (reference/LM_PARITY.md §2).
     /// </summary>
-    [RealRomFact]
+    [LmRefRomFact]
     public void v21_gives_the_midway_tables_a_rats_block_of_their_own()
     {
         var v20 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v20, 20);
