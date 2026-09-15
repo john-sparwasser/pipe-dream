@@ -75,7 +75,9 @@ public partial class LevelPropertiesWindow : Window
         // one place the two dimensions are next to each other.
         H(Choice("Height", entry.HeightIndex, choices.Height, SetE(v => entry with { HeightIndex = v })));
 
-        H(Section("Palettes"));
+        // "Base": these four pick the ROM's built-in colour blocks the level STARTS from — the
+        // Palette tab edits colours on top of whatever they assemble.
+        H(Section("Base palettes"));
         H(Number("FG palette", header.FgPalette, 0, 7, SetH(v => header with { FgPalette = v })));
         H(Number("BG palette", header.BgPalette, 0, 7, SetH(v => header with { BgPalette = v })));
         H(Number("Sprite palette", header.SpritePalette, 0, 7, SetH(v => header with { SpritePalette = v })));

@@ -105,7 +105,7 @@ public class LevelPropertiesTests(ITestOutputHelper log)
             .Where(r => r.Children.OfType<T>().Any())
             .Select(r => $"{r.Children.OfType<TextBlock>().First().Text}")];
 
-        Assert.Equal(["Level", "Palettes", "Play", "Scrolling", "Entry", "Sprites"],
+        Assert.Equal(["Level", "Base palettes", "Play", "Scrolling", "Entry", "Sprites"],
                      fields.Children.OfType<TextBlock>().Select(t => $"{t.Text}"));
         // Named values: a list. Bare numbers: a spinner. Single bits: a box carrying its words.
         Assert.Equal(["Level mode", "Height", "Music", "Time", "Item memory",
