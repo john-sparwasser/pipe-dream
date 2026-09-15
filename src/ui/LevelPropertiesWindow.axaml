@@ -34,10 +34,11 @@
       </StackPanel>
     </Border>
 
-    <!-- The two records these fields pack into, at the foot rather than beside their own
-         sections: the sections are grouped by what a setting DOES, so a field's record is no
-         longer something the reader can see from where it sits. -->
-    <Border DockPanel.Dock="Bottom" Padding="0,10,0,0">
+    <!-- The two records these fields pack into. Hidden: the grouping above says what each
+         setting does, and raw bytes under it asked the reader to care which record a field
+         lands in. Still built and still kept current, so the test that the staged records are
+         what would be written has something to read, and showing them again is one flag. -->
+    <Border DockPanel.Dock="Bottom" Padding="0,10,0,0" IsVisible="False">
       <StackPanel Spacing="2">
         <TextBlock x:Name="HeaderBytes" Classes="mono"/>
         <TextBlock x:Name="EntryBytes" Classes="mono"/>
