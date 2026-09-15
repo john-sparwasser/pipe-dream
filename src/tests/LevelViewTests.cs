@@ -194,6 +194,39 @@ public class LevelViewTests
         window.Close();
     }
 
+    /// <summary>
+    /// Holding Alt grabs the camera anywhere inside it — Lunar Magic's own gesture, and the one
+    /// that works when the frame is off screen or under what you are looking at. Alt+left stays
+    /// the eyedropper everywhere the camera is not.
+    /// </summary>
+    [AvaloniaFact]
+    public void alt_drags_the_camera_from_anywhere_inside_it()
+    {
+        var (window, view) = Show(1024, 864);
+        var sampled = new List<(int X, int Y)>();
+        view.SampleRequested += (_, px) => sampled.Add(px);
+        view.ShowCamera = true;
+        view.CameraAt = (128, 64);
+        Dispatcher.UIThread.RunJobs();
+
+        // Alt well inside the frame: the camera moves and nothing is sampled.
+        double z = view.Zoom;
+        window.MouseDown(new Point((128 + 100) * z, (64 + 100) * z), MouseButton.Left, RawInputModifiers.Alt);
+        window.MouseMove(new Point((128 + 132) * z, (64 + 116) * z),
+                         RawInputModifiers.Alt | RawInputModifiers.LeftMouseButton);
+        Assert.Equal((128 + 32, 64 + 16), view.CameraAt);
+        window.MouseUp(new Point((128 + 132) * z, (64 + 116) * z), MouseButton.Left, RawInputModifiers.Alt);
+        Assert.Empty(sampled);
+
+        // Alt OUTSIDE it is still the eyedropper, and the camera stays where it was put.
+        var (cx, cy) = view.CameraAt;
+        window.MouseDown(new Point(16 * z, 16 * z), MouseButton.Left, RawInputModifiers.Alt);
+        window.MouseUp(new Point(16 * z, 16 * z), MouseButton.Left, RawInputModifiers.Alt);
+        Assert.Equal([(16, 16)], sampled);
+        Assert.Equal((cx, cy), view.CameraAt);
+        window.Close();
+    }
+
     /// <summary>The camera never leaves the level by its top or left — a probe at a negative
     /// pixel is describing a screen the game cannot show.</summary>
     [AvaloniaFact]

@@ -314,10 +314,10 @@ public class LevelView : Control
         LastClickedCell = cell;
         CellPressed?.Invoke(this, cell);
 
-        // The camera frame takes a left press before any mode does — it is drawn over all of
-        // them, and a handle you can see but not grab is worse than no handle. Its inside is
-        // left alone, so the level underneath still edits normally.
-        if (props.IsLeftButtonPressed && OnCameraFrame(e.GetPosition(this)))
+        // The camera takes a left press before any mode does — it is drawn over all of them,
+        // and a handle you can see but not grab is worse than no handle. Without Alt only its
+        // frame grabs, so the level under the probe still edits normally.
+        if (props.IsLeftButtonPressed && CameraGrab(e.GetPosition(this), e.KeyModifiers))
         {
             var at = LevelPixel(e.GetPosition(this));
             cameraGrab = (at.X - CameraAt.X, at.Y - CameraAt.Y);
@@ -487,9 +487,10 @@ public class LevelView : Control
             InvalidateVisual();
             return;
         }
-        // The frame says it can be grabbed, the way the exit badges say they are links.
+        // Whatever would grab the camera says so, the way the exit badges say they are links —
+        // which is also how holding Alt over it announces that Alt means drag here, not sample.
         if (ShowCamera && Mode != EditMode.Exits)
-            Cursor = OnCameraFrame(e.GetPosition(this)) ? UiCursors.Hand : Cursor.Default;
+            Cursor = CameraGrab(e.GetPosition(this), e.KeyModifiers) ? UiCursors.Hand : Cursor.Default;
         // A badge is a link, so it says so under the cursor — otherwise nothing distinguishes it
         // from the rest of the screen, which opens the prompt instead.
         if (Mode == EditMode.Exits)
@@ -958,13 +959,21 @@ public class LevelView : Control
         Overlay.CameraScreen(ctx, screen);
     }
 
-    /// <summary>Within grab distance of the camera frame — the band around its edge that takes a
-    /// drag. In screen pixels, so it stays reachable at any zoom.</summary>
-    private bool OnCameraFrame(Point p)
+    /// <summary>
+    /// Where a press takes hold of the camera view. Two ways, because they answer different
+    /// moments: the FRAME grabs bare, so the probe can be nudged without a modifier, and holding
+    /// Alt grabs it ANYWHERE inside, which is how Lunar Magic moves it and what you want once
+    /// the frame is off screen or sitting under the object you are looking at.
+    ///
+    /// Alt+left is this canvas's eyedropper everywhere else, and stays so: the camera has to be
+    /// showing and the pointer inside it before Alt means drag instead of sample.
+    /// </summary>
+    private bool CameraGrab(Point p, KeyModifiers mods)
     {
         if (!ShowCamera) return false;
         var r = PixelRect(CameraAt.X, CameraAt.Y, CameraView.ScreenWidth, CameraView.ScreenHeight, Zoom);
-        const double grab = 5;
+        if (mods.HasFlag(KeyModifiers.Alt)) return r.Contains(p);
+        const double grab = 5;                       // screen pixels, so it is reachable at any zoom
         return r.Inflate(grab).Contains(p) && !r.Deflate(grab).Contains(p);
     }
 
