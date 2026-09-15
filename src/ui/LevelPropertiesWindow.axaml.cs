@@ -102,7 +102,9 @@ public partial class LevelPropertiesWindow : Window
         // Background tab's "Layer 3 Options", where the result is on screen.
 
         H(Section("Entry"));
-        H(Check("Skip the entrance walk", entry.SkipEntranceWalk != 0,
+        // $141F, read at $00A6A7 and $05DA42: both gate the No-Yoshi intro — Mario dismounting
+        // and walking in — which only runs at all on the tilesets DATA_00A625 marks (1,2,5,6,8,D).
+        H(Check("Skip level intro", entry.SkipEntranceWalk != 0,
                 on => { entry = entry with { SkipEntranceWalk = on ? 1 : 0 }; Refresh(); }));
         // LM's own warning: on in a vertical level, off in a horizontal one, or an entrance
         // lands somewhere that kills the player on arrival (level_change_other.htm).

@@ -49,6 +49,9 @@ public readonly record struct MainEntrance
     public int VerticalScroll { get; init; }     // $05F400 bits 0-1
     public int ScreenBoundaryY { get; init; }    // $05F400 bits 2-3
     public int VerticalLevel { get; init; }      // $05F600 bits 5-6
+    /// <summary>$05F600 bit 7 → $141F. Both readers ($00A6A7, $05DA42) gate the No-Yoshi
+    /// level intro on it — Mario dismounting and walking in — which the tilesets marked in
+    /// DATA_00A625 (1,2,5,6,8,D) are the only ones to run. Hence the UI's "Skip level intro".</summary>
     public int SkipEntranceWalk { get; init; }   // $05F600 bit 7
 
     /// <summary>$05F400 bits 4-7 — the MIDWAY entrance's screen.</summary>

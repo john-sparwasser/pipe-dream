@@ -112,7 +112,7 @@ public class LevelPropertiesTests(ITestOutputHelper log)
                       "Layer 1 vertical", "Layer 2 rate", "Spawn range"], Labels<ComboBox>());
         Assert.Equal(["Screens", "FG palette", "BG palette", "Sprite palette", "Back area color",
                       "BG height (tiles)"], Labels<NumericUpDown>());
-        Assert.Equal(["Skip the entrance walk", "Vertical entrance positioning", "Vertical level",
+        Assert.Equal(["Skip level intro", "Vertical entrance positioning", "Vertical level",
                       "Unknown vertical level", "Smart spawn"],
                      fields.Children.OfType<CheckBox>().Select(c => $"{c.Content}"));
 
