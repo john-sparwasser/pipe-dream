@@ -317,15 +317,14 @@ public class LevelView : Control
     {
         base.OnPointerPressed(e);
         Focus();
-        if (CellAt(e.GetPosition(this)) is not { } cell) return;
-        var props = e.GetCurrentPoint(this).Properties;
-        LastClickedCell = cell;
-        CellPressed?.Invoke(this, cell);
 
-        // The camera takes a left press before any mode does — it is drawn over all of them,
-        // and a handle you can see but not grab is worse than no handle. Without Alt only its
-        // frame grabs, so the level under the probe still edits normally.
-        if (props.IsLeftButtonPressed && CameraGrab(e.GetPosition(this), e.KeyModifiers))
+        // The camera takes a left press before ANYTHING else, the cell lookup and CellPressed
+        // included: it is drawn over every mode, and a press that reached the level first would
+        // report the cell under the probe to whatever mode is running — dragging the camera
+        // across a level would keep disturbing its selection. Without Alt only its frame grabs,
+        // so a bare press on the level under the probe still edits it normally.
+        if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed
+            && CameraGrab(e.GetPosition(this), e.KeyModifiers))
         {
             var at = LevelPixel(e.GetPosition(this));
             cameraGrab = (at.X - CameraAt.X, at.Y - CameraAt.Y);
@@ -333,6 +332,11 @@ public class LevelView : Control
             e.Handled = true;
             return;
         }
+
+        if (CellAt(e.GetPosition(this)) is not { } cell) return;
+        var props = e.GetCurrentPoint(this).Properties;
+        LastClickedCell = cell;
+        CellPressed?.Invoke(this, cell);
 
         // Exits mode owns the canvas: a click picks a SCREEN, and nothing else in here runs.
         // The badge is the exception — it is a link to where the exit goes, so it gets the

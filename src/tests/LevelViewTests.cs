@@ -227,6 +227,33 @@ public class LevelViewTests
         window.Close();
     }
 
+    /// <summary>An Alt drag on the camera is the camera's alone: the mode underneath is not
+    /// told the cell was pressed, so dragging the probe across a level cannot disturb what is
+    /// selected in it.</summary>
+    [AvaloniaFact]
+    public void an_alt_drag_on_the_camera_reaches_nothing_underneath()
+    {
+        var (window, view) = Show(1024, 864);
+        var pressed = new List<(int X, int Y)>();
+        view.CellPressed += (_, c) => pressed.Add(c);
+        view.ShowCamera = true;
+        view.CameraAt = (128, 8);
+        Dispatcher.UIThread.RunJobs();
+
+        double z = view.Zoom;
+        window.MouseDown(new Point(200 * z, 72 * z), MouseButton.Left, RawInputModifiers.Alt);
+        window.MouseMove(new Point(232 * z, 72 * z), RawInputModifiers.Alt | RawInputModifiers.LeftMouseButton);
+        window.MouseUp(new Point(232 * z, 72 * z), MouseButton.Left, RawInputModifiers.Alt);
+        Assert.Equal((160, 8), view.CameraAt);
+        Assert.Empty(pressed);
+
+        // A bare press in the same place is the level's, as it always was.
+        window.MouseDown(new Point(200 * z, 72 * z), MouseButton.Left);
+        window.MouseUp(new Point(200 * z, 72 * z), MouseButton.Left);
+        Assert.Equal([(200 / 16, 72 / 16)], pressed);
+        window.Close();
+    }
+
     /// <summary>
     /// The camera stays on screens the game can show. Not past the top or left, where the pixels
     /// are negative; and not into the level's last row of tiles, which the game never scrolls

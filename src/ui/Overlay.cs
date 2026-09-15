@@ -25,6 +25,7 @@ internal static class Overlay
     private static readonly Pen AreaPen = new(UiColors.AreaLabel, 1.5) { DashStyle = DashStyle.Dash };
     private static readonly Pen CameraPen = new(UiColors.CameraEdge, 1.5) { DashStyle = DashStyle.Dash };
     private static readonly Pen CameraBandPen = new(UiColors.CameraBand, 1) { DashStyle = DashStyle.Dash };
+    private static readonly Pen CameraBandFlatPen = new(UiColors.CameraBandFlat, 1) { DashStyle = DashStyle.Dash };
     private static readonly Pen BadgeEdge = new(Brushes.Black, 1);
     private static readonly Pen Rung = new(Brushes.Black, 1.5);
     private static readonly Pen Cross = new(Brushes.Black, 2);
@@ -56,7 +57,8 @@ internal static class Overlay
     /// scrolls. Filled as well as framed — three dashed rectangles inside a fourth read as a
     /// diagram, where a tinted strip reads as a region.</summary>
     public static void CameraBand(DrawingContext ctx, Rect r, bool vertical)
-        => ctx.DrawRectangle(vertical ? UiColors.CameraBandFill : UiColors.CameraBandFillFlat, CameraBandPen, r);
+        => ctx.DrawRectangle(vertical ? UiColors.CameraBandFill : UiColors.CameraBandFillFlat,
+                             vertical ? CameraBandPen : CameraBandFlatPen, r);
 
     /// <summary>While a link is armed: a tile it can land on, and the tile it comes from. Lit
     /// rather than ringed, as <see cref="Hover"/> is — a ring on every candidate at once reads
