@@ -690,8 +690,7 @@ public partial class MainWindow : Window
 
     /// <summary>The zoom chord: Alt or Cmd (Meta). Not Ctrl — Ctrl+wheel belongs to the canvas
     /// underneath (the level's reorder), so it has to pass through untouched.</summary>
-    private static bool ZoomChord(KeyModifiers m)
-        => m.HasFlag(KeyModifiers.Alt) || m.HasFlag(KeyModifiers.Meta);
+    private static bool ZoomChord(KeyModifiers m) => Hotkeys.AltOrCmd(m);
 
     // ---- the gutter readout ----
 

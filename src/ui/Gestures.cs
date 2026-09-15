@@ -21,6 +21,17 @@ internal static class Hotkeys
     /// <summary>The command key and nothing else — no Shift, no Alt.</summary>
     public static bool CommandOnly(KeyModifiers m)
         => Command(m) && (m & ~(KeyModifiers.Control | KeyModifiers.Meta)) == 0;
+
+    /// <summary>
+    /// The "look closer" modifier: Alt, or Cmd (Meta) on a Mac, where the window server takes
+    /// Option for its own gestures often enough that Alt alone cannot be relied on. Deliberately
+    /// NOT Ctrl — Ctrl belongs to the canvas underneath on every platform.
+    ///
+    /// Both accepted everywhere rather than switched on the OS, for the same reason
+    /// <see cref="Command"/> is: a habit carried between machines keeps working.
+    /// </summary>
+    public static bool AltOrCmd(KeyModifiers m)
+        => m.HasFlag(KeyModifiers.Alt) || m.HasFlag(KeyModifiers.Meta);
 }
 
 /// <summary>The pointer shapes the canvases show, made once. A canvas that builds a Cursor per

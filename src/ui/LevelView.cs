@@ -988,17 +988,19 @@ public class LevelView : Control
     /// <summary>
     /// Where a press takes hold of the camera view. Two ways, because they answer different
     /// moments: the FRAME grabs bare, so the probe can be nudged without a modifier, and holding
-    /// Alt grabs it ANYWHERE inside, which is how Lunar Magic moves it and what you want once
-    /// the frame is off screen or sitting under the object you are looking at.
+    /// Alt — or Cmd, which is what reaches a Mac when the window server has taken Option —
+    /// grabs it ANYWHERE inside, which is how Lunar Magic moves it and what you want once the
+    /// frame is off screen or sitting under the object you are looking at.
     ///
-    /// Alt+left is this canvas's eyedropper everywhere else, and stays so: the camera has to be
-    /// showing and the pointer inside it before Alt means drag instead of sample.
+    /// Those modifiers mean other things on this canvas: Alt+left is the eyedropper and Cmd+left
+    /// adds to a selection. Both keep their meaning everywhere the camera is not — it has to be
+    /// showing AND the pointer inside it before either one moves it instead.
     /// </summary>
     private bool CameraGrab(Point p, KeyModifiers mods)
     {
         if (!ShowCamera) return false;
         var r = PixelRect(CameraAt.X, CameraAt.Y, CameraView.ScreenWidth, CameraView.ScreenHeight, Zoom);
-        if (mods.HasFlag(KeyModifiers.Alt)) return r.Contains(p);
+        if (Hotkeys.AltOrCmd(mods)) return r.Contains(p);
         const double grab = 5;                       // screen pixels, so it is reachable at any zoom
         return r.Inflate(grab).Contains(p) && !r.Deflate(grab).Contains(p);
     }

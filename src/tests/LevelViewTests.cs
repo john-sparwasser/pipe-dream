@@ -227,6 +227,30 @@ public class LevelViewTests
         window.Close();
     }
 
+    /// <summary>Cmd moves the camera as Alt does — on a Mac the window server takes Option
+    /// often enough that Alt alone cannot be relied on, and both are accepted everywhere so a
+    /// habit carried between machines keeps working.</summary>
+    [AvaloniaFact]
+    public void cmd_moves_the_camera_where_alt_does()
+    {
+        var (window, view) = Show(1024, 864);
+        view.ShowCamera = true;
+        view.CameraAt = (128, 8);
+        Dispatcher.UIThread.RunJobs();
+
+        double z = view.Zoom;
+        window.MouseDown(new Point(200 * z, 72 * z), MouseButton.Left, RawInputModifiers.Meta);
+        window.MouseMove(new Point(232 * z, 72 * z), RawInputModifiers.Meta | RawInputModifiers.LeftMouseButton);
+        window.MouseUp(new Point(232 * z, 72 * z), MouseButton.Left, RawInputModifiers.Meta);
+        Assert.Equal((160, 8), view.CameraAt);
+
+        // Outside the camera, Cmd goes back to meaning what it means on this canvas.
+        window.MouseDown(new Point(16 * z, 16 * z), MouseButton.Left, RawInputModifiers.Meta);
+        window.MouseUp(new Point(16 * z, 16 * z), MouseButton.Left, RawInputModifiers.Meta);
+        Assert.Equal((160, 8), view.CameraAt);
+        window.Close();
+    }
+
     /// <summary>An Alt drag on the camera is the camera's alone: the mode underneath is not
     /// told the cell was pressed, so dragging the probe across a level cannot disturb what is
     /// selected in it.</summary>

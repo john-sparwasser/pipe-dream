@@ -366,7 +366,7 @@ public partial class MainWindow
     /// animations) has nothing that grows, so there the wheel is left alone.</summary>
     private void DrawerWheel(object? sender, PointerWheelEventArgs e)
     {
-        if (!(e.KeyModifiers.HasFlag(KeyModifiers.Alt) || e.KeyModifiers.HasFlag(KeyModifiers.Meta))) return;
+        if (!Hotkeys.AltOrCmd(e.KeyModifiers)) return;
         if (double.IsPositiveInfinity(DrawerRange(drawerPane).Max)) return;
         e.Handled = true;
         drawerWheel += e.Delta.Y;
