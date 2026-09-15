@@ -638,6 +638,12 @@ public sealed partial class EditorSession
 
     public bool HasHeaderOverride => Rom?.LevelHeaderOverrides.ContainsKey(LevelNum) == true;
 
+    /// <summary>What each value of the level's bounded header and entrance fields means, for the
+    /// properties dialog's choice lists. Several are read out of the ROM's own tables — which a
+    /// hack may have rewritten — so they are resolved here rather than in the window, which holds
+    /// no Rom of its own (see LevelOptions).</summary>
+    public LevelChoices LevelOptionChoices => LevelChoices.Of(Rom);
+
     // ---- recomposing ----
     /// <summary>
     /// Recompose the current level from the ROM, keeping the object edits. Needed after a
@@ -777,4 +783,18 @@ public sealed partial class EditorSession
 
     /// <summary>Autosave tick — the project debounces its own writes.</summary>
     public void Tick() => Project?.Tick();
+}
+
+/// <summary>The choice lists whose text comes out of the ROM. The fields whose meanings are
+/// fixed by the game's own code — item memory, the vertical scroll modes, the sprite spawn
+/// range — are constants on <see cref="LevelOptions"/> and need no ROM to name.</summary>
+public readonly record struct LevelChoices(
+    string[] LevelMode, string[] Height, string[] Music, string[] Time, string[] Layer2Scroll)
+{
+    public static LevelChoices Of(Rom? rom) => new(
+        LevelOptions.LevelMode(rom), LevelOptions.LevelHeight(rom), LevelOptions.Music(rom),
+        LevelOptions.Time(rom), LevelOptions.Layer2Scroll(rom));
+
+    /// <summary>What a caller with no ROM open gets: vanilla's own tables.</summary>
+    public static LevelChoices Default => Of(null);
 }

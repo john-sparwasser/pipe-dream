@@ -37,7 +37,8 @@ first byte (bits 6–7 = buoyancy `$190E`), read at `CODE_05D8F9`.
 
 ## C. Level-mode tables (X = `$1925`, one byte per mode, $058417–$0584DB)
 
-- `VerticalTable` $058417 — bit 0 = vertical level → `$5B`. Vertical modes: 02–08, 1F.
+- `VerticalTable` $058417 — bit 0 = vertical level → `$5B`. Vertical modes: 03,04,07,08,0A,0D
+  (the table's bit 7 is something else; reading it instead gives the wrong list).
 - `LevMainScrnTbl`/`LevSubScrnTbl` $058437/$058457 → TM/TS mirrors $0D9D/$0D9E.
 - `LevCGADSUBtable` $058477 → color-math mirror `$40`.
 - `SpecialLevTable` $058497 → `$0D9B`: 00 normal, 80 Iggy/Larry, C0 Morton/Ludwig/Roy,

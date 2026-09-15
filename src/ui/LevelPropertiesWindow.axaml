@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="PipeDream.Ui.LevelPropertiesWindow"
-        Title="Level Properties" Width="440" Height="700"
+        Title="Level Properties" Width="500" Height="720"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
 
@@ -34,13 +34,18 @@
       </StackPanel>
     </Border>
 
-    <ScrollViewer>
-      <StackPanel x:Name="Fields" Spacing="2">
-        <TextBlock Classes="section" Text="Level header"/>
+    <!-- The two records these fields pack into, at the foot rather than beside their own
+         sections: the sections are grouped by what a setting DOES, so a field's record is no
+         longer something the reader can see from where it sits. -->
+    <Border DockPanel.Dock="Bottom" Padding="0,10,0,0">
+      <StackPanel Spacing="2">
         <TextBlock x:Name="HeaderBytes" Classes="mono"/>
-        <TextBlock Classes="section" Text="Main entrance"/>
         <TextBlock x:Name="EntryBytes" Classes="mono"/>
       </StackPanel>
+    </Border>
+
+    <ScrollViewer>
+      <StackPanel x:Name="Fields" Spacing="2"/>
     </ScrollViewer>
   </DockPanel>
 </Window>

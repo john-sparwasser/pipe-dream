@@ -388,7 +388,7 @@ public partial class MainWindow
     private async Task EditLevelProperties()
     {
         if (session.Header is not { } header || session.MainEntrance is not { } entrance) return;
-        var dlg = new LevelPropertiesWindow(header, entrance, session.HasHeaderOverride);
+        var dlg = new LevelPropertiesWindow(header, entrance, session.HasHeaderOverride, session.LevelOptionChoices);
         await dlg.ShowDialog(this);
 
         if (dlg.RevertRequested) { session.RevertHeader(); AdoptSession(); return; }
