@@ -160,6 +160,20 @@ public class LevelView : Control
     public int Phase { get; set; }
     public bool ShowGrid { get; set; } = true;
 
+    /// <summary>The camera view: the SNES screen and the bands the player is held in, drawn
+    /// over the level wherever it has been dragged to. Off by default; the View menu and F3
+    /// turn it on, as Lunar Magic's does.</summary>
+    public bool ShowCamera { get; set; }
+
+    /// <summary>The camera screen's top-left corner, in LEVEL pixels. It is a probe, so it goes
+    /// where it is put rather than following the level: you drag it over the jump you are
+    /// building and read what would be on screen. Snapped to 8, which is Lunar Magic's grid.</summary>
+    public (int X, int Y) CameraAt { get; set; }
+
+    /// <summary>Where a camera drag took hold, as the offset from its corner — so the frame
+    /// stays under the pointer rather than jumping its corner there.</summary>
+    private (int X, int Y)? cameraGrab;
+
     /// <summary>The hitbox of the tile at a cell, when the hitbox overlay is on; null turns it
     /// off. The window supplies it because the shape comes from the ROM's tables and the level's
     /// tileset, neither of which this view holds.</summary>
@@ -299,6 +313,18 @@ public class LevelView : Control
         var props = e.GetCurrentPoint(this).Properties;
         LastClickedCell = cell;
         CellPressed?.Invoke(this, cell);
+
+        // The camera frame takes a left press before any mode does — it is drawn over all of
+        // them, and a handle you can see but not grab is worse than no handle. Its inside is
+        // left alone, so the level underneath still edits normally.
+        if (props.IsLeftButtonPressed && OnCameraFrame(e.GetPosition(this)))
+        {
+            var at = LevelPixel(e.GetPosition(this));
+            cameraGrab = (at.X - CameraAt.X, at.Y - CameraAt.Y);
+            e.Pointer.Capture(this);
+            e.Handled = true;
+            return;
+        }
 
         // Exits mode owns the canvas: a click picks a SCREEN, and nothing else in here runs.
         // The badge is the exception — it is a link to where the exit goes, so it gets the
@@ -452,6 +478,18 @@ public class LevelView : Control
     protected override void OnPointerMoved(PointerEventArgs e)
     {
         base.OnPointerMoved(e);
+        if (cameraGrab is { } grab)
+        {
+            var at = LevelPixel(e.GetPosition(this));
+            // Snapped to 8, Lunar Magic's grid: the camera lands on 8x8 boundaries in the game
+            // too, and a probe that can sit a pixel off reads as a probe you cannot trust.
+            CameraAt = (Math.Max(0, (at.X - grab.X) & ~7), Math.Max(0, (at.Y - grab.Y) & ~7));
+            InvalidateVisual();
+            return;
+        }
+        // The frame says it can be grabbed, the way the exit badges say they are links.
+        if (ShowCamera && Mode != EditMode.Exits)
+            Cursor = OnCameraFrame(e.GetPosition(this)) ? UiCursors.Hand : Cursor.Default;
         // A badge is a link, so it says so under the cursor — otherwise nothing distinguishes it
         // from the rest of the screen, which opens the prompt instead.
         if (Mode == EditMode.Exits)
@@ -584,6 +622,12 @@ public class LevelView : Control
             InvalidateVisual();
             return;
         }
+        if (cameraGrab is not null)
+        {
+            cameraGrab = null;
+            e.Pointer.Capture(null);
+            return;
+        }
         if (sampling)
         {
             sampling = false;
@@ -713,6 +757,7 @@ public class LevelView : Control
         blit.Draw(this, ctx, bmp, src, dst, VisualRoot?.RenderScaling ?? 1);
 
         if (ShowGrid) DrawScreenBoundaries(ctx, dst, z);
+        if (ShowCamera) DrawCamera(ctx, z);
         if (Hitboxes is not null || (Spawns is not null && TileAt is not null)) DrawCellOverlays(ctx, z);
 
         // Exits mode owns the overlay outright: no selection, no handles, no band — the whole
@@ -892,6 +937,35 @@ public class LevelView : Control
                 if (Hitboxes is { } hit) HitboxOverlay.Draw(ctx, hit(cx, cy), CellRect(cx, cy, 1, 1, z));
                 if (Spawns is { } sp && TileAt is { } at) sp.Draw(this, ctx, at(cx, cy), CellRect(cx, cy, 1, 1, z));
             }
+    }
+
+    /// <summary>
+    /// The camera view: the visible screen as a dashed frame, and inside it the bands the scroll
+    /// code holds the player in (CameraView). The frame is the drag handle — pressing INSIDE it
+    /// still edits the level, so the probe can sit over what is being built without swallowing
+    /// the clicks that build it.
+    /// </summary>
+    private void DrawCamera(DrawingContext ctx, double z)
+    {
+        var (cx, cy) = CameraAt;
+        var screen = PixelRect(cx, cy, CameraView.ScreenWidth, CameraView.ScreenHeight, z);
+
+        // The bands first, so the frame reads as the outer edge rather than being cut by them.
+        foreach (var b in CameraView.Bands)
+            Overlay.CameraBand(ctx, b.Vertical
+                ? PixelRect(cx + b.From, cy, b.To - b.From, CameraView.ScreenHeight, z)
+                : PixelRect(cx, cy + b.From, CameraView.ScreenWidth, b.To - b.From, z), b.Vertical);
+        Overlay.CameraScreen(ctx, screen);
+    }
+
+    /// <summary>Within grab distance of the camera frame — the band around its edge that takes a
+    /// drag. In screen pixels, so it stays reachable at any zoom.</summary>
+    private bool OnCameraFrame(Point p)
+    {
+        if (!ShowCamera) return false;
+        var r = PixelRect(CameraAt.X, CameraAt.Y, CameraView.ScreenWidth, CameraView.ScreenHeight, Zoom);
+        const double grab = 5;
+        return r.Inflate(grab).Contains(p) && !r.Deflate(grab).Contains(p);
     }
 
     private void DrawScreenBoundaries(DrawingContext ctx, Rect dst, double z)

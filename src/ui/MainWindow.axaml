@@ -340,6 +340,10 @@
       </MenuItem>
       <MenuItem Header="_View">
         <MenuItem x:Name="ViewGridItem" Header="Screen _grid" Click="OnToggleGrid" HotKey="{OnPlatform Ctrl+G, macOS=Cmd+G}"/>
+        <!-- F3 is Lunar Magic's own key for this, and the one people already have in their
+             fingers. No Ctrl/Cmd variant: a function key is the same on both platforms. -->
+        <MenuItem x:Name="ViewCameraItem" Header="_Camera view" Click="OnToggleCamera" HotKey="F3"
+                  ToolTip.Tip="The SNES screen and the bands the scroll code holds the player in. Drag it by its frame; its inside still edits the level."/>
         <Separator/>
         <MenuItem x:Name="SpriteOverlayItem" Header="_Sprite overlay" Click="OnToggleSprites"/>
         <MenuItem x:Name="AnimateItem" Header="_Animate tiles" Click="OnToggleAnimate"/>

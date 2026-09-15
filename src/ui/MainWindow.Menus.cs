@@ -20,7 +20,8 @@ namespace PipeDream.Ui;
 public partial class MainWindow
 {
     private MenuItem recentMenu = null!, upgradePrepItem = null!, spriteOverlayItem = null!,
-                     animateItem = null!, runEmulatorItem = null!, layer3PreviewItem = null!;
+                     animateItem = null!, runEmulatorItem = null!, layer3PreviewItem = null!,
+                     viewCameraItem = null!;
 
     /// <summary>Menu items whose state follows the session, and the shortcut captions.</summary>
     private void WireMenus()
@@ -32,6 +33,7 @@ public partial class MainWindow
         spriteOverlayItem = this.GetControl<MenuItem>("SpriteOverlayItem");
         animateItem = this.GetControl<MenuItem>("AnimateItem");
         layer3PreviewItem = this.GetControl<MenuItem>("Layer3PreviewItem");
+        viewCameraItem = this.GetControl<MenuItem>("ViewCameraItem");
         if (session.PreviewLayer3) layer3PreviewItem.Icon = new TextBlock { Text = "✓" };
         SetAnimating(true);             // tiles animate as the game does; View ▸ Animate tiles stops it
         // Rebuilt when the menu opens rather than kept in sync: the recent list changes behind

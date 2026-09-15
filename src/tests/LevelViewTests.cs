@@ -156,6 +156,86 @@ public class LevelViewTests
         Assert.True(view.Bounds.Width > 0);
         Assert.NotNull(view.Source!.For(0));
     }
+
+    // ---- camera view (F3) ----
+
+    /// <summary>
+    /// The camera view's frame is a drag handle and its inside is not: the probe has to be able
+    /// to sit over the jump you are building without swallowing the clicks that build it.
+    /// </summary>
+    [AvaloniaFact]
+    public void the_camera_frame_drags_and_its_inside_still_edits()
+    {
+        var (window, view) = Show(1024, 864);
+        view.ShowCamera = true;
+        view.CameraAt = (128, 64);
+        Dispatcher.UIThread.RunJobs();
+
+        // A press INSIDE the frame goes to the level, not to the camera: the cell under it is
+        // the one that registers.
+        double z = view.Zoom;
+        window.MouseDown(new Point((128 + 100) * z, (64 + 100) * z), MouseButton.Left);
+        window.MouseUp(new Point((128 + 100) * z, (64 + 100) * z), MouseButton.Left);
+        Assert.Equal(((128 + 100) / 16, (64 + 100) / 16), view.LastClickedCell);
+        Assert.Equal((128, 64), view.CameraAt);
+
+        // A press ON the frame takes hold of it, and the frame follows — snapped to 8, and the
+        // grab offset kept, so the corner does not jump to the pointer.
+        window.MouseDown(new Point(128 * z, (64 + 100) * z), MouseButton.Left);
+        window.MouseMove(new Point((128 + 64) * z, (64 + 100 + 32) * z), RawInputModifiers.LeftMouseButton);
+        Assert.Equal((128 + 64, 64 + 32), view.CameraAt);
+        window.MouseUp(new Point((128 + 64) * z, (64 + 100 + 32) * z), MouseButton.Left);
+
+        // Off again, the frame is not there to grab: the same press edits the level.
+        view.ShowCamera = false;
+        window.MouseDown(new Point((128 + 64) * z, (64 + 132) * z), MouseButton.Left);
+        window.MouseUp(new Point((128 + 64) * z, (64 + 132) * z), MouseButton.Left);
+        Assert.Equal(((128 + 64) / 16, (64 + 132) / 16), view.LastClickedCell);
+        window.Close();
+    }
+
+    /// <summary>The camera never leaves the level by its top or left — a probe at a negative
+    /// pixel is describing a screen the game cannot show.</summary>
+    [AvaloniaFact]
+    public void the_camera_stops_at_the_levels_corner()
+    {
+        var (window, view) = Show(1024, 864);
+        view.ShowCamera = true;
+        view.CameraAt = (64, 64);
+        Dispatcher.UIThread.RunJobs();
+
+        double z = view.Zoom;
+        window.MouseDown(new Point(64 * z, 100 * z), MouseButton.Left);
+        window.MouseMove(new Point(0, 0), RawInputModifiers.LeftMouseButton);
+        Assert.Equal((0, 0), view.CameraAt);
+        window.MouseUp(new Point(0, 0), MouseButton.Left);
+        window.Close();
+    }
+
+    /// <summary>
+    /// The bands are the scroll code's own constants: the two horizontal ones are the static
+    /// camera region either way the player faces ($142A's 0x60/0x90 centres, minus 0x0C and plus
+    /// 0x18 at $00F6E0), and the vertical one is between the up and down scroll lines
+    /// (DATA_00F69F). All three sit inside the 256x224 the SNES shows.
+    /// </summary>
+    [Fact]
+    public void the_camera_bands_are_the_scroll_codes_own_numbers()
+    {
+        var bands = CameraView.Bands;
+        Assert.Equal(["Scrolling right", "Scrolling left", "No vertical scroll"],
+                     bands.Select(b => b.Name));
+        Assert.Equal((0x60 - 0x0C, 0x60 + 0x18, true), (bands[0].From, bands[0].To, bands[0].Vertical));
+        Assert.Equal((0x90 - 0x0C, 0x90 + 0x18, true), (bands[1].From, bands[1].To, bands[1].Vertical));
+        Assert.Equal((0x64, 0x7C, false), (bands[2].From, bands[2].To, bands[2].Vertical));
+
+        Assert.Equal(256, CameraView.ScreenWidth);
+        Assert.Equal(224, CameraView.ScreenHeight);
+        foreach (var b in bands)
+        {
+            Assert.True(b.From < b.To, b.Name);
+            Assert.InRange(b.To, 0, b.Vertical ? CameraView.ScreenWidth : CameraView.ScreenHeight);
+        }
+    }
 }
 
 public class EntranceMarkerTests

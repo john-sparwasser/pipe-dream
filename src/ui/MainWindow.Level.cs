@@ -232,6 +232,19 @@ public partial class MainWindow
         canvas.InvalidateVisual();
     }
 
+    /// <summary>The camera view (F3, as in Lunar Magic): the SNES screen and the bands the
+    /// scroll code holds the player in. Turning it on puts it where the level is scrolled to,
+    /// so it arrives on screen rather than at a corner of a level the view has left behind.</summary>
+    private void OnToggleCamera(object? sender, RoutedEventArgs e)
+    {
+        canvas.ShowCamera = !canvas.ShowCamera;
+        if (canvas.ShowCamera)
+            canvas.CameraAt = ((int)(canvas.Origin.X / canvas.Zoom) & ~7,
+                               (int)(canvas.Origin.Y / canvas.Zoom) & ~7);
+        viewCameraItem.Icon = canvas.ShowCamera ? new TextBlock { Text = "✓" } : null;
+        canvas.InvalidateVisual();
+    }
+
     // ---- exits and entrances ----
 
     /// <summary>
