@@ -72,10 +72,11 @@ internal static class UiColors
     /// because it annotates rather than selects and must not read as either.</summary>
     public static readonly IBrush AreaLabel = new SolidColorBrush(Color.FromArgb(0xE0, 0xE0, 0x9A, 0x2A));
 
-    // The camera view. The frame borrows the areas' amber so the two dashed annotations read as
-    // the same KIND of thing; the bands inside it are cooler and fainter, because they are what
-    // the frame contains rather than another thing drawn on the level.
-    public static readonly IBrush CameraEdge = new SolidColorBrush(Color.FromArgb(0xE0, 0xE0, 0x9A, 0x2A));
+    // The camera view. Deep red for the frame: it is the one annotation that means "this is the
+    // edge of what the player can see", and red is the only hue in here that is not already
+    // saying something else about the tiles under it. The bands inside are cooler and fainter,
+    // because they are what the frame contains rather than another thing drawn on the level.
+    public static readonly IBrush CameraEdge = new SolidColorBrush(Color.FromArgb(0xE8, 0xB4, 0x1E, 0x1E));
     public static readonly IBrush CameraBand = new SolidColorBrush(Color.FromArgb(0xB0, 0x7F, 0xD4, 0xF5));
     public static readonly IBrush CameraBandFill = new SolidColorBrush(Color.FromArgb(0x22, 0x7F, 0xD4, 0xF5));
     public static readonly IBrush CameraBandFillFlat = new SolidColorBrush(Color.FromArgb(0x22, 0x5F, 0xD0, 0x8A));

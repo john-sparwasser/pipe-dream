@@ -227,10 +227,14 @@ public class LevelViewTests
         window.Close();
     }
 
-    /// <summary>The camera never leaves the level by its top or left — a probe at a negative
-    /// pixel is describing a screen the game cannot show.</summary>
+    /// <summary>
+    /// The camera stays on screens the game can show. Not past the top or left, where the pixels
+    /// are negative; and not into the level's last row of tiles, which the game never scrolls
+    /// fully into view — so the bottom stops a whole tile short. Clamped on the property, so the
+    /// menu's opening position obeys it too, not only a drag.
+    /// </summary>
     [AvaloniaFact]
-    public void the_camera_stops_at_the_levels_corner()
+    public void the_camera_stops_at_the_levels_edges()
     {
         var (window, view) = Show(1024, 864);
         view.ShowCamera = true;
@@ -242,6 +246,17 @@ public class LevelViewTests
         window.MouseMove(new Point(0, 0), RawInputModifiers.LeftMouseButton);
         Assert.Equal((0, 0), view.CameraAt);
         window.MouseUp(new Point(0, 0), MouseButton.Left);
+
+        // Dragged at the floor: the screen's bottom edge lands one tile above the level's.
+        int floor = 864 - CameraView.ScreenHeight - 16;
+        view.CameraAt = (0, 10_000);
+        Assert.Equal((0, floor), view.CameraAt);
+        Assert.Equal(864 - 16, floor + CameraView.ScreenHeight);
+
+        // A level shorter than a screen has nowhere legal to go but the top.
+        view.Source = FakeLevel(512, 128);
+        view.CameraAt = (0, 400);
+        Assert.Equal((0, 0), view.CameraAt);
         window.Close();
     }
 

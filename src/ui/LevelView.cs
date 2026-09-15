@@ -167,8 +167,16 @@ public class LevelView : Control
 
     /// <summary>The camera screen's top-left corner, in LEVEL pixels. It is a probe, so it goes
     /// where it is put rather than following the level: you drag it over the jump you are
-    /// building and read what would be on screen. Snapped to 8, which is Lunar Magic's grid.</summary>
-    public (int X, int Y) CameraAt { get; set; }
+    /// building and read what would be on screen. Snapped to 8, which is Lunar Magic's grid.
+    ///
+    /// Clamped on the way in rather than at each caller, so the menu's opening position and a
+    /// drag cannot disagree about where the camera is allowed to be.</summary>
+    public (int X, int Y) CameraAt
+    {
+        get => cameraAt;
+        set => cameraAt = ClampCamera(value.X, value.Y);
+    }
+    private (int X, int Y) cameraAt;
 
     /// <summary>Where a camera drag took hold, as the offset from its corner — so the frame
     /// stays under the pointer rather than jumping its corner there.</summary>
@@ -483,7 +491,7 @@ public class LevelView : Control
             var at = LevelPixel(e.GetPosition(this));
             // Snapped to 8, Lunar Magic's grid: the camera lands on 8x8 boundaries in the game
             // too, and a probe that can sit a pixel off reads as a probe you cannot trust.
-            CameraAt = (Math.Max(0, (at.X - grab.X) & ~7), Math.Max(0, (at.Y - grab.Y) & ~7));
+            CameraAt = ((at.X - grab.X) & ~7, (at.Y - grab.Y) & ~7);
             InvalidateVisual();
             return;
         }
@@ -957,6 +965,20 @@ public class LevelView : Control
                 ? PixelRect(cx + b.From, cy, b.To - b.From, CameraView.ScreenHeight, z)
                 : PixelRect(cx, cy + b.From, CameraView.ScreenWidth, b.To - b.From, z), b.Vertical);
         Overlay.CameraScreen(ctx, screen);
+    }
+
+    /// <summary>
+    /// Keep the camera on screens the game can actually show. The bottom stops a whole tile
+    /// short of the level's last row: the game never scrolls that row into view — only its top
+    /// line of pixels is ever on screen, which is what Lunar Magic's "Allow viewing full bottom
+    /// row of tiles" exists to change — so a probe that reached it would be describing a screen
+    /// nobody sees.
+    /// </summary>
+    private (int X, int Y) ClampCamera(int x, int y)
+    {
+        int maxY = Source is { } src && src.PxH > 0
+            ? Math.Max(0, src.PxH - CameraView.ScreenHeight - 16) : 0;
+        return (Math.Max(0, x), Math.Clamp(y, 0, maxY));
     }
 
     /// <summary>
