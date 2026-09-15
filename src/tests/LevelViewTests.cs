@@ -251,6 +251,44 @@ public class LevelViewTests
         window.Close();
     }
 
+    /// <summary>
+    /// The cursor says what the modifier will do before the click, and what it is doing during:
+    /// an open hand where a press would take hold of the camera, a fist while it is held, and
+    /// open again the moment it is let go.
+    /// </summary>
+    [AvaloniaFact]
+    public void the_hand_opens_and_closes_around_a_camera_drag()
+    {
+        var (window, view) = Show(1024, 864);
+        view.ShowCamera = true;
+        view.CameraAt = (128, 8);
+        Dispatcher.UIThread.RunJobs();
+
+        double z = view.Zoom;
+        var inside = new Point(200 * z, 72 * z);
+
+        // Bare, over the camera's middle: nothing would grab, so nothing is promised.
+        window.MouseMove(inside);
+        Assert.Equal(Cursor.Default, view.Cursor);
+
+        // Held: the open hand, before any press — and the mode underneath does not paint over it.
+        window.MouseMove(inside, RawInputModifiers.Alt);
+        Assert.Same(HandCursors.OpenHand, view.Cursor);
+        Assert.Same(HandCursors.OpenHand, view.Cursor);
+        window.MouseMove(inside, RawInputModifiers.Meta);
+        Assert.Same(HandCursors.OpenHand, view.Cursor);
+
+        // Dragging: the fist.
+        window.MouseDown(inside, MouseButton.Left, RawInputModifiers.Alt);
+        window.MouseMove(new Point(232 * z, 72 * z), RawInputModifiers.Alt | RawInputModifiers.LeftMouseButton);
+        Assert.Same(HandCursors.ClosedHand, view.Cursor);
+
+        // Let go still over it: open again, without waiting for the next move.
+        window.MouseUp(new Point(232 * z, 72 * z), MouseButton.Left, RawInputModifiers.Alt);
+        Assert.Same(HandCursors.OpenHand, view.Cursor);
+        window.Close();
+    }
+
     /// <summary>An Alt drag on the camera is the camera's alone: the mode underneath is not
     /// told the cell was pressed, so dragging the probe across a level cannot disturb what is
     /// selected in it.</summary>

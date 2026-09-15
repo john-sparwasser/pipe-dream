@@ -182,6 +182,15 @@ public class LevelView : Control
     /// stays under the pointer rather than jumping its corner there.</summary>
     private (int X, int Y)? cameraGrab;
 
+    /// <summary>Set for the length of one pointer move when the camera has claimed the cursor.</summary>
+    private bool cameraCursor;
+
+    /// <summary>A mode's own cursor affordance — the resize grips, the hand over a draggable
+    /// object, the move over an entrance marker. Ignored while the camera has the cursor: the
+    /// camera is drawn over every mode, so the mode underneath must not paint over the hand that
+    /// says the thing under the pointer can be picked up.</summary>
+    private Cursor ModeCursor { set { if (!cameraCursor) Cursor = value; } }
+
     /// <summary>The hitbox of the tile at a cell, when the hitbox overlay is on; null turns it
     /// off. The window supplies it because the shape comes from the ROM's tables and the level's
     /// tileset, neither of which this view holds.</summary>
@@ -492,6 +501,7 @@ public class LevelView : Control
         base.OnPointerMoved(e);
         if (cameraGrab is { } grab)
         {
+            Cursor = HandCursors.ClosedHand;          // held, for as long as it is held
             var at = LevelPixel(e.GetPosition(this));
             // Snapped to 8, Lunar Magic's grid: the camera lands on 8x8 boundaries in the game
             // too, and a probe that can sit a pixel off reads as a probe you cannot trust.
@@ -500,13 +510,15 @@ public class LevelView : Control
             return;
         }
         // Whatever would grab the camera says so, the way the exit badges say they are links —
-        // which is also how holding Alt over it announces that Alt means drag here, not sample.
-        if (ShowCamera && Mode != EditMode.Exits)
-            Cursor = CameraGrab(e.GetPosition(this), e.KeyModifiers) ? UiCursors.Hand : Cursor.Default;
+        // which is also how holding Alt or Cmd over it announces that the modifier means drag
+        // here, not sample or select. An OPEN hand: it closes on the press. Decided first and
+        // held through the rest of this handler, which is where each mode sets its own.
+        cameraCursor = ShowCamera && CameraGrab(e.GetPosition(this), e.KeyModifiers);
+        Cursor = cameraCursor ? HandCursors.OpenHand : Cursor.Default;
         // A badge is a link, so it says so under the cursor — otherwise nothing distinguishes it
         // from the rest of the screen, which opens the prompt instead.
         if (Mode == EditMode.Exits)
-            Cursor = BadgeAt(e.GetPosition(this)) is null ? Cursor.Default : UiCursors.Hand;
+            ModeCursor = BadgeAt(e.GetPosition(this)) is null ? Cursor.Default : UiCursors.Hand;
 
         if (Mode == EditMode.Entrances) { MoveEntrance(e); return; }
 
@@ -537,9 +549,9 @@ public class LevelView : Control
         var p = e.GetPosition(this);
         var badge = EditBadgeAt(p);
         var over = EntranceAt(p, Zoom);
-        Cursor = badge is not null ? UiCursors.Hand
-               : dragEntrance is not null || over is not null ? UiCursors.Move
-               : Cursor.Default;
+        ModeCursor = badge is not null ? UiCursors.Hand
+                   : dragEntrance is not null || over is not null ? UiCursors.Move
+                   : Cursor.Default;
         var hov = over ?? badge ?? LabelAt(p);
         if (hov != hoverEntrance) { hoverEntrance = hov; InvalidateVisual(); }
         // The drag PREVIEWS by moving the marker: the drop snaps to what the ROM can store,
@@ -583,7 +595,7 @@ public class LevelView : Control
         {
             // Same affordance objects get: the hand says this one is draggable.
             var hp = LevelPixel(e.GetPosition(this));
-            Cursor = sp.SelectionCovers(hp.X, hp.Y) ? UiCursors.Hand : Cursor.Default;
+            ModeCursor = sp.SelectionCovers(hp.X, hp.Y) ? UiCursors.Hand : Cursor.Default;
         }
     }
 
@@ -592,9 +604,9 @@ public class LevelView : Control
     {
         // Hovering an edge of a lone selection shows the resize cursor, as the ImGui tool does.
         if (resizeDrag is null && bandStart is null && moveStart is null)
-            Cursor = Grips.CursorFor(HandleEdgeAt(e.GetPosition(this)))
-                  ?? (Edit?.ObjectAt(c.X, c.Y) is int ov && Edit.Selection.Contains(ov)
-                        ? UiCursors.Hand : Cursor.Default);
+            ModeCursor = Grips.CursorFor(HandleEdgeAt(e.GetPosition(this)))
+                      ?? (Edit?.ObjectAt(c.X, c.Y) is int ov && Edit.Selection.Contains(ov)
+                            ? UiCursors.Hand : Cursor.Default);
 
         if (resizeDrag is not null || bandStart is not null || moveStart is not null)
         {
@@ -639,6 +651,9 @@ public class LevelView : Control
         {
             cameraGrab = null;
             e.Pointer.Capture(null);
+            // Opens again under the pointer that just let go, rather than staying a fist until
+            // the next move.
+            Cursor = CameraGrab(e.GetPosition(this), e.KeyModifiers) ? HandCursors.OpenHand : Cursor.Default;
             return;
         }
         if (sampling)
