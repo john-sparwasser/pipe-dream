@@ -1,8 +1,8 @@
 namespace PipeDream.Services;
 
-// EditorSession — the overworld's layer 2 events as the Events tab reads them: which event laid
-// the piece under a canvas cell, an event's steps, and a piece's picture for the step list. The
-// steps themselves are Overworld.EventSteps; nothing here writes yet.
+// EditorSession — the overworld's layer 2 events as the Events tab reads and edits them: which
+// event laid the piece under a canvas cell, an event's steps, a piece's picture for the step list,
+// and adding a step or clearing an event. The steps themselves are Overworld.EventSteps.
 
 public partial class EditorSession
 {
@@ -45,6 +45,38 @@ public partial class EditorSession
                 for (int y = 0; y < 8; y++) Array.Copy(px, y * 8, img, (r * 8 + y) * side + c * 8, 8);
             }
         return img;
+    }
+
+    /// <summary>
+    /// Lay a piece as a new step of an event, its top-left at a canvas cell. The last thing the
+    /// event does, since events play in table order. A reason when it cannot: the cell is not on
+    /// a map, or the piece would hang off the map's edge (the game's writer wraps into the wrong
+    /// screen there). Room is the build's concern — vanilla's table is full and the writer
+    /// moves it (Overworld.WriteEventSteps).
+    /// </summary>
+    public string? OwAddEventStep(int ev, int src, int size, int col, int row)
+    {
+        if (Overworld is not { } ow) return "no overworld";
+        if (!OwMapCell(col, row, out int cx, out int cy, out bool sub)) return "a piece has to land on one of the maps";
+        if (cx + size > 2 * Overworld.Cols || cy + size > 2 * Overworld.Rows) return $"a {size}x{size} piece does not fit there — it would hang off the map";
+        ow.AddEventStep(new Overworld.EventStep(ev, src, cx, cy, sub, size));
+        OwEventStepsChanged();
+        return null;
+    }
+
+    /// <summary>Take every step off an event; how many went.</summary>
+    public int OwClearEvent(int ev)
+    {
+        int gone = Overworld?.ClearEvent(ev) ?? 0;
+        if (gone > 0) OwEventStepsChanged();
+        return gone;
+    }
+
+    private void OwEventStepsChanged()
+    {
+        if (Project is null || Overworld is not { } ow) return;
+        Project.Data.Overworld.EventSteps = Convert.ToBase64String(Overworld.PackEventSteps(ow.EventSteps));
+        Project.MarkDirty();
     }
 
     /// <summary>The submap a step lands on, by name.</summary>

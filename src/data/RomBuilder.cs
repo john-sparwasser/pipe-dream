@@ -141,6 +141,9 @@ internal static class RomBuilder
                 && Overworld.WriteEventPieces(rom, ProjectSession.WordsOf(Convert.FromBase64String(owp))) is { } owpErr)
                 warnings.Add("overworld: " + owpErr);
             if (project.Data.Overworld.Layer1Defs is { } owf) Overworld.WriteLayer1Defs(rom, ProjectSession.WordsOf(Convert.FromBase64String(owf)));
+            if (project.Data.Overworld.EventSteps is { } ows
+                && Overworld.WriteEventSteps(rom, Overworld.UnpackEventSteps(Convert.FromBase64String(ows))) is { } owsErr)
+                warnings.Add("overworld: " + owsErr);
             WriteOwGfxRecords(rom, project.Data, warnings);
 
             // Skip level entries whose key is not a level number. A project should never contain

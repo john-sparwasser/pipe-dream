@@ -122,7 +122,7 @@ public partial class MainWindow
         owSheet.Picked += (_, c) =>
         {
             // On the events sheet a one-cell pick is the desk between pieces: nothing to arm.
-            if (OwModeNow == OwMode.Events) { owEventPiece = null; RefreshOwNote(); return; }
+            if (OwModeNow == OwMode.Events) { owEventPiece = null; SetOwEventPlacing(false); if (owEventPanel.IsVisible) owEventAdd.IsEnabled = false; RefreshOwNote(); return; }
             if (OwModeNow == OwMode.Layer1) { owL1Tile = c.Row * 16 + c.Col; owL1Block = null; owSheet.Selected = owL1Tile; }
             else { owBrushTile = c.Row * 16 + c.Col; owBrushBlock = null; owSheet.Selected = owBrushTile; }
             owView.ClearSelection();
@@ -285,8 +285,9 @@ public partial class MainWindow
             OwMode.Layer1 => "layer 1, the level tiles and paths in 16x16s: right-click places "
                              + (owL1Block is { } b ? $"a {b.W}x{b.H} block" : $"tile 0x{owL1Tile:X2}")
                              + ", a dragged lasso moves" + (session.OwLayer1Edited ? " — edited" : ""),
-            OwMode.Events => (owEvent is { } ev ? $"event {ev:X2}: its steps are in the drawer on the right, its pieces ringed — click bare land to let go"
-                                                : "click a piece on the map to pick its event")
+            OwMode.Events => (owEventPlacing ? $"event {owEvent:X2}: click where the piece should land — Esc calls it off"
+                              : owEvent is { } ev ? $"event {ev:X2}: its steps are in the drawer on the right, its pieces ringed — click bare land to let go"
+                              : "click a piece on the map to pick its event")
                              + " — the drawer's pieces: "
                              + (owEventPiece is { } e ? $"a {e.Size}x{e.Size} piece at 0x{e.Src:X3} is armed" : "click one to arm it"),
             _ => owLinkFrom is not null

@@ -1201,13 +1201,27 @@
                drawer on the right rather than a list under the map, so the map keeps its height;
                hidden the rest of the time, so the map keeps its width. -->
           <Border x:Name="OwEventPanel" DockPanel.Dock="Right" Classes="panel" BorderThickness="1,0,0,0"
-                  Width="260" IsVisible="False">
+                  Width="340" IsVisible="False">
             <DockPanel>
-              <Border DockPanel.Dock="Top" Classes="panel bar" BorderThickness="0,0,0,1" Padding="10,8">
-                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                  <Path Classes="kind" Data="{StaticResource IconZap}"/>
-                  <TextBlock x:Name="OwEventTitle" Classes="subject"/>
-                </StackPanel>
+              <Border DockPanel.Dock="Top" Classes="panel bar" BorderThickness="0,0,0,1" Padding="10,6">
+                <DockPanel>
+                  <!-- Add arms a placement: the next click on the map lays the drawer's armed
+                       piece as the event's last step. Clear takes every step off the event. -->
+                  <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
+                    <ToggleButton x:Name="OwEventAdd" Classes="mode" Click="OnOwEventAdd"
+                                  ToolTip.Tip="Lay the drawer's armed piece as this event's next step: click here, then click where it should land">
+                      <TextBlock Text="Add" VerticalAlignment="Center"/>
+                    </ToggleButton>
+                    <Button x:Name="OwEventClear" Click="OnOwEventClear"
+                            ToolTip.Tip="Take every step off this event, so it lays nothing">
+                      <TextBlock Text="Clear" VerticalAlignment="Center"/>
+                    </Button>
+                  </StackPanel>
+                  <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <Path Classes="kind" Data="{StaticResource IconZap}"/>
+                    <TextBlock x:Name="OwEventTitle" Classes="subject"/>
+                  </StackPanel>
+                </DockPanel>
               </Border>
               <ScrollViewer>
                 <StackPanel x:Name="OwEventSteps" Margin="10,8" Spacing="6"/>

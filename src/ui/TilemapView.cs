@@ -86,6 +86,10 @@ public sealed class TilemapView : Control
     /// <summary>Drawer mode: left picks a tile instead of lassoing, and nothing is paintable.</summary>
     public bool PickOnLeft { get; set; }
 
+    /// <summary>A picking map that still repaints as the pointer moves — for chrome that follows
+    /// the hover cell (a piece about to be laid). Off, a picking map only repaints on a click.</summary>
+    public bool RepaintOnHover { get; set; }
+
     /// <summary>What a moved block leaves behind in the drag preview, by (column, row): the
     /// map's fill under a block being lifted, the map itself under one already floating — so the
     /// hole reads as what will be there, not as a black gap. Null paints the backdrop.</summary>
@@ -500,7 +504,7 @@ public sealed class TilemapView : Control
         // A lasso only grows under a held button. A release this control never saw (the pointer
         // let go elsewhere) must not leave it following the bare pointer around.
         if (lassoStart is not null && !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) lassoStart = null;
-        if (cell != hover) { hover = cell; if (!PickOnLeft) InvalidateVisual(); }
+        if (cell != hover) { hover = cell; if (!PickOnLeft || RepaintOnHover) InvalidateVisual(); }
         // The move arrows say the selection is draggable before you press, the same tell the GFX
         // canvas gives; a grip says which way it would grow.
         Cursor = PickOnLeft || stroke.Active || lassoStart is not null ? null

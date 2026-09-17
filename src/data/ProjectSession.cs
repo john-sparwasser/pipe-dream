@@ -55,6 +55,7 @@ public static class ProjectSession
         if (data.Overworld.Exits is { } owe) rom.OwExits = Convert.FromBase64String(owe);
         if (data.Overworld.EventPieces is { } owp) rom.OwEventPieces = WordsOf(Convert.FromBase64String(owp));
         if (data.Overworld.Layer1Defs is { } owf) rom.OwLayer1Defs = WordsOf(Convert.FromBase64String(owf));
+        if (data.Overworld.EventSteps is { } ows) rom.OwEventSteps = Overworld.UnpackEventSteps(Convert.FromBase64String(ows));
         // A submap's repointed GFX slots ride the same session dictionary the levels' do, under
         // the record index the submaps live at — so Rom.OwGfxBypass overlays them as it does a
         // level's, and the editor draws the submap in its own graphics before any build.

@@ -378,6 +378,7 @@ public partial class MainWindow : Window
     private void OnWindowKeyDown(object? sender, KeyEventArgs e)
     {
         // A half-drawn warp link is modal-ish: Escape gets out of it before anything else does.
+        if (e.Key == Key.Escape && owEventPlacing) { SetOwEventPlacing(false); e.Handled = true; return; }
         if (e.Key == Key.Escape && owLinkFrom is not null)
         {
             CancelOwLink();

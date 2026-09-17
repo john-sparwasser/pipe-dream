@@ -1,5 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 
@@ -15,22 +17,71 @@ public partial class MainWindow
     private Border owEventPanel = null!;
     private TextBlock owEventTitle = null!;
     private StackPanel owEventStepsList = null!;
+    private ToggleButton owEventAdd = null!;
+    private Button owEventClear = null!;
 
     /// <summary>The event picked on the map, or null. Its pieces wear the selection ring, and
     /// its steps fill the right drawer.</summary>
     private int? owEvent;
+
+    /// <summary>Add is armed: the next click on the map lays the armed piece as a step.</summary>
+    private bool owEventPlacing;
 
     private void WireOwEvents()
     {
         owEventPanel = this.GetControl<Border>("OwEventPanel");
         owEventTitle = this.GetControl<TextBlock>("OwEventTitle");
         owEventStepsList = this.GetControl<StackPanel>("OwEventSteps");
+        owEventAdd = this.GetControl<ToggleButton>("OwEventAdd");
+        owEventClear = this.GetControl<Button>("OwEventClear");
     }
 
-    /// <summary>A click on the Events tab's map picks the event whose piece is there; a click
-    /// on bare land picks none. The map has no reticle and no lasso on this tab (PickOnLeft): a
-    /// piece is a thing to point at, not a cell to paint.</summary>
-    private void OwEventClicked((int Col, int Row) cell) => OwSelectEvent(session.OwEventAt(cell.Col, cell.Row));
+    /// <summary>A click on the Events tab's map: with Add armed, it lays the piece there; else it
+    /// picks the event whose piece is there, or none on bare land. The map has no reticle and no
+    /// lasso on this tab (PickOnLeft): a piece is a thing to point at, not a cell to paint.</summary>
+    private async void OwEventClicked((int Col, int Row) cell)
+    {
+        if (owEventPlacing && owEvent is { } ev && owEventPiece is { } piece)
+        {
+            string? why = session.OwAddEventStep(ev, piece.Src, piece.Size, cell.Col, cell.Row);
+            SetOwEventPlacing(false);
+            if (why is not null) { await ConfirmWindow.Notice("Add event step", why).ShowDialog(this); return; }
+            RefreshOwEventPanel();
+            owView.InvalidateVisual();
+            UpdateTitle();
+            return;
+        }
+        OwSelectEvent(session.OwEventAt(cell.Col, cell.Row));
+    }
+
+    private void OnOwEventAdd(object? sender, RoutedEventArgs e) => SetOwEventPlacing(owEventAdd.IsChecked == true);
+
+    /// <summary>Arm or disarm a placement. The button shows the state, the note says what to do,
+    /// and the map previews the piece's footprint under the pointer while it is armed.</summary>
+    private void SetOwEventPlacing(bool on)
+    {
+        owEventPlacing = on && owEvent is not null && owEventPiece is not null;
+        owEventAdd.IsChecked = owEventPlacing;
+        owView.RepaintOnHover = owEventPlacing;                   // the footprint preview follows the pointer
+        owView.InvalidateVisual();
+        RefreshOwNote();
+    }
+
+    /// <summary>Clear asks first: there is no undo for the step table yet, and an event with no
+    /// steps reveals nothing when it fires.</summary>
+    private async void OnOwEventClear(object? sender, RoutedEventArgs e)
+    {
+        if (owEvent is not { } ev) return;
+        int n = session.OwEventSteps(ev).Count();
+        var ask = new ConfirmWindow("Clear event", $"Take all {n} step{(n == 1 ? "" : "s")} off event {ev:X2}? It will reveal nothing when it fires. This cannot be undone.", "Clear");
+        await ask.ShowDialog(this);
+        if (!ask.Confirmed) return;
+        session.OwClearEvent(ev);
+        SetOwEventPlacing(false);
+        RefreshOwEventPanel();
+        owView.InvalidateVisual();
+        UpdateTitle();
+    }
 
     private void OwSelectEvent(int ev)
     {
@@ -51,6 +102,8 @@ public partial class MainWindow
         if (!show) return;
         var steps = session.OwEventSteps(owEvent!.Value).ToList();
         owEventTitle.Text = $"Event {owEvent:X2} — {steps.Count} step{(steps.Count == 1 ? "" : "s")}";
+        owEventAdd.IsEnabled = owEventPiece is not null;          // nothing to lay until the drawer arms a piece
+        owEventClear.IsEnabled = steps.Count > 0;
         for (int i = 0; i < steps.Count; i++) owEventStepsList.Children.Add(OwEventStepRow(i, steps[i]));
     }
 
@@ -105,6 +158,7 @@ public partial class MainWindow
     private void OwEventPicked((int X, int Y, int W, int H) r)
     {
         owEventPiece = Overworld.EventPieceAt(r.X, r.Y);
-        if (owEventPiece is null) owSheet.ClearSelection();
+        if (owEventPiece is null) { owSheet.ClearSelection(); SetOwEventPlacing(false); }
+        if (owEventPanel.IsVisible) owEventAdd.IsEnabled = owEventPiece is not null;
     }
 }

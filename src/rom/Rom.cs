@@ -340,6 +340,10 @@ public sealed class Rom
     /// joined (<see cref="Overworld.EventPieces"/>) — or null to read the ROM's own.</summary>
     public ushort[]? OwEventPieces;
 
+    /// <summary>The edited layer 2 event steps — every event's pieces and where they land
+    /// (<see cref="Overworld.EventSteps"/>) — or null to read the ROM's own table.</summary>
+    public List<Overworld.EventStep>? OwEventSteps;
+
     /// <summary>The edited layer 1 Map16 definitions, four words a tile
     /// (<see cref="Overworld.Layer1Defs"/>), or null to read the ROM's own table.</summary>
     public ushort[]? OwLayer1Defs;

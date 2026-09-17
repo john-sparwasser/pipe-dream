@@ -51,6 +51,9 @@ public partial class MainWindow
         // event reads as one thing however its pieces are scattered.
         if (owEvent is { } picked)
             foreach (var s in ow.EventSteps) if (s.Event == picked) Overlay.Selection(ctx, Foot(s));
+        // Add armed: where the piece would land, under the pointer, at its size.
+        if (owEventPlacing && owEventPiece is { } piece && owView.Hover is { } h)
+            Overlay.Brush(ctx, new Rect(h.Col * step, h.Row * step, piece.Size * step, piece.Size * step));
     }
 
     /// <summary>Per layer 1 tile: the path kind's fill where LM has no picture, and on a level tile

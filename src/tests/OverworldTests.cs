@@ -505,6 +505,132 @@ public class OverworldTests(ITestOutputHelper log)
         Assert.False(panel.IsVisible);
     }
 
+    /// <summary>
+    /// The step table can be written back: a step added to an event lands as that event's last,
+    /// the table stays grouped by event, the cumulative ends count from the reader's own start
+    /// word, and a reload reads back exactly what was written. The destination encode is the
+    /// decode's inverse on every step the ROM has, and the table refuses to grow past its room.
+    /// </summary>
+    [Fact]
+    public void event_steps_write_back_and_round_trip()
+    {
+        if (Open() is not { } ow) { log.WriteLine("SKIP: no ROM"); return; }
+        var rom = ow.Rom;
+        var before = ow.EventSteps.ToList();
+        Assert.NotEmpty(before);
+
+        // Encode is the inverse of decode for every step the ROM carries.
+        foreach (var s in before)
+        {
+            int dst = Overworld.EncodeEventDst(s.Cx, s.Cy, s.SubmapMap);
+            var back = Overworld.UnpackEventSteps(Overworld.PackEventSteps([s]))[0];
+            Assert.Equal(s, back);
+            Assert.Equal(s.SubmapMap, (dst >> 1) >= 0x1000);
+        }
+
+        // A step added to event 5 is its last, and the list stays grouped by event.
+        int ev = 5, had = before.Count(s => s.Event == ev);
+        ow.AddEventStep(new Overworld.EventStep(ev, 0x900 + 4 * 7, 10, 12, false, 2));
+        var mine = ow.EventSteps.Where(s => s.Event == ev).ToList();
+        Assert.Equal(had + 1, mine.Count);
+        Assert.Equal((0x900 + 28, 10, 12, false, 2), (mine[^1].Piece, mine[^1].Cx, mine[^1].Cy, mine[^1].SubmapMap, mine[^1].Size));
+        Assert.Equal(ow.EventSteps.Select(s => s.Event).OrderBy(e => e), ow.EventSteps.Select(s => s.Event));
+
+        // Vanilla's table is FULL — 371 steps in the 371 slots between it and the ends table — so
+        // the 372nd moves the table: into a RATS block, with both reads repointed at it, the
+        // destination read two bytes on. Read back from a file, ends included, it says the same.
+        int room = Overworld.EventStepCapacity(rom);
+        Assert.Equal((0x04E359 - 0x04DD8D) / 4, room);
+        Assert.Equal(room, before.Count);
+        Assert.Equal(0x04DD8D, rom.ReadValue(0x04E49F, 3));
+        Assert.Null(Overworld.WriteEventSteps(rom, ow.EventSteps));
+        int moved = rom.ReadValue(0x04E49F, 3);
+        Assert.NotEqual(0x04DD8D, moved);
+        Assert.Equal(moved + 2, rom.ReadValue(0x04E4A4, 3));
+        Assert.True(Overworld.EventStepCapacity(rom) >= ow.EventSteps.Count);
+        string p = Path.Combine(Path.GetTempPath(), $"pd-events-{Guid.NewGuid():N}.smc");
+        File.WriteAllBytes(p, rom.Data);
+        try { Assert.Equal(ow.EventSteps, new Overworld(Rom.Load(p)).EventSteps); }
+        finally { File.Delete(p); }
+
+        // Clearing an event takes only its steps.
+        int total = ow.EventSteps.Count;
+        Assert.Equal(had + 1, ow.ClearEvent(ev));
+        Assert.Equal(total - had - 1, ow.EventSteps.Count);
+        Assert.DoesNotContain(ow.EventSteps, s => s.Event == ev);
+    }
+
+    /// <summary>
+    /// The right drawer's header edits the event: Add arms a placement — it needs a piece from
+    /// the left drawer — and the next click on the map lays that piece as the event's last step,
+    /// where it was clicked; Clear is offered only when there is something to clear.
+    /// </summary>
+    [AvaloniaFact]
+    public void the_events_drawer_adds_a_step_where_the_map_is_clicked()
+    {
+        if (PreppedRom.Path is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeOverworld").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        var session = (Services.EditorSession)typeof(MainWindow)
+            .GetField("session", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(w)!;
+        w.GetControl<TabStrip>("OwTabs").SelectedIndex = 2;
+        Dispatcher.UIThread.RunJobs();
+        var view = w.GetControl<TilemapView>("OwView");
+        var sheet = w.GetControl<TilemapView>("OwSheet");
+        var add = w.GetControl<ToggleButton>("OwEventAdd");
+        var clear = w.GetControl<Button>("OwEventClear");
+        var ow = session.Overworld!;
+        view.Zoom = 1;
+        Dispatcher.UIThread.RunJobs();
+        var scroller = view.FindAncestorOfType<ScrollViewer>()!;
+        Point MapAt(int c, int r)
+        {
+            scroller.Offset = new Vector(Math.Max(0, c * 8 * view.Zoom - 40), Math.Max(0, r * 8 * view.Zoom - 40));
+            Dispatcher.UIThread.RunJobs();
+            return view.TranslatePoint(new Point(c * 8 * view.Zoom + 2, r * 8 * view.Zoom + 2), w)!.Value;
+        }
+
+        // Pick an event by its first step.
+        var first = ow.EventSteps[0];
+        var foot = Services.EditorSession.OwEventFoot(first);
+        var at = MapAt(foot.X, foot.Y);
+        w.MouseDown(at, MouseButton.Left); w.MouseUp(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        int ev = first.Event, had = ow.EventSteps.Count(s => s.Event == ev);
+        Assert.True(clear.IsEnabled);
+        Assert.False(add.IsEnabled);                              // no piece armed yet
+
+        // Arm a 2x2 piece in the left drawer: Add comes alive.
+        var pick = sheet.TranslatePoint(new Point(3 * 8 * sheet.Zoom + 2, (Overworld.Event2Row + 1) * 8 * sheet.Zoom + 2), w)!.Value;
+        w.MouseDown(pick, MouseButton.Left); w.MouseUp(pick, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(add.IsEnabled);
+
+        // Add, then click bare land well inside the main map: the step lands there, last.
+        add.IsChecked = true;                                     // what a real click does before Click fires
+        add.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Contains("click where the piece should land", w.GetControl<TextBlock>("OwNote").Text);
+        Assert.True(view.RepaintOnHover);
+        var bare = Enumerable.Range(4, 40).SelectMany(r => Enumerable.Range(4, 40).Select(c => (c, r)))
+            .First(cr => session.OwEventAt(cr.c, cr.r) < 0);
+        var land = MapAt(bare.c, bare.r);
+        w.MouseDown(land, MouseButton.Left); w.MouseUp(land, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        var mine = ow.EventSteps.Where(s => s.Event == ev).ToList();
+        Assert.Equal(had + 1, mine.Count);
+        Assert.Equal((0x904, bare.c, bare.r, false, 2), (mine[^1].Piece, mine[^1].Cx, mine[^1].Cy, mine[^1].SubmapMap, mine[^1].Size));
+        Assert.Equal(had + 1, w.GetControl<StackPanel>("OwEventSteps").Children.Count);
+        Assert.False(view.RepaintOnHover);                        // one placement per Add
+        Assert.NotEqual(true, add.IsChecked);
+        // ...and the new piece now picks its event too.
+        Assert.Equal(ev, session.OwEventAt(bare.c, bare.r));
+    }
+
     /// <summary>The Paths &amp; Levels tab is Lunar Magic's Layer 1 16x16 Editor: the drawer's
     /// Map16 tile is placed by right-click on the 16x16 cell under the pointer, a lasso snaps to
     /// those cells — a cell right and down on the lower map, where LM draws them — and dragging
