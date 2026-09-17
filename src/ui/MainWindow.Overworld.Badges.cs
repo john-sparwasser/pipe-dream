@@ -22,7 +22,7 @@ public partial class MainWindow
     {
         if (session.Overworld is not { } ow || OwColorsOnly) return;
         double size = Math.Clamp(step * 2 * 0.4, 8, 13);     // badge text, for a 16x16 tile two cells wide
-        if (OwModeNow == OwMode.Events) DrawOwEventFootprints(ctx, ow, step, size);
+        if (OwModeNow == OwMode.Events) DrawOwEventFootprints(ctx, ow, step);
         if (owShowAreas.IsChecked == true) DrawOwAreas(ctx, step, size);
         DrawOwExitTiles(ctx, ow, step);
         DrawOwLinkTargets(ctx, step);
@@ -35,9 +35,11 @@ public partial class MainWindow
         => new((2 * x + (sub ? EditorSession.OwSubDx : 0)) * step, (2 * y + (sub ? 2 * Overworld.Rows + EditorSession.OwSubDy : 0)) * step);
 
     /// <summary>The Events tab shows what the events lay on the land: every standard step's
-    /// footprint, the event's number on its first piece — Lunar Magic's event tiles. Drawn before
-    /// the tile badges, so those sit on top of the footprints.</summary>
-    private void DrawOwEventFootprints(DrawingContext ctx, Overworld ow, double step, double size)
+    /// footprint — Lunar Magic's event tiles — and the picked event ringed. No number on the
+    /// piece: the Event # toggle labels the level tile that fires the event, and a second copy on
+    /// the piece put the same number on the map twice. Drawn before the tile badges, so those sit
+    /// on top of the footprints.</summary>
+    private void DrawOwEventFootprints(DrawingContext ctx, Overworld ow, double step)
     {
         Rect Foot(Overworld.EventStep s)
         {
@@ -49,9 +51,6 @@ public partial class MainWindow
         // event reads as one thing however its pieces are scattered.
         if (owEvent is { } picked)
             foreach (var s in ow.EventSteps) if (s.Event == picked) Overlay.Selection(ctx, Foot(s));
-        int last = -1;                                   // badges after every footprint, so none sits under a later piece
-        foreach (var s in ow.EventSteps)
-            if (s.Event != last) { Overlay.Badge(ctx, $"E{s.Event:X2}", size, Foot(s).TopLeft + new Vector(1, 1), UiColors.EventBadge); last = s.Event; }
     }
 
     /// <summary>Per layer 1 tile: the path kind's fill where LM has no picture, and on a level tile
