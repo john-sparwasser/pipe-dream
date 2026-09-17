@@ -69,6 +69,7 @@ public partial class MainWindow
         owTabs.SelectionChanged += (_, _) => { CancelOwLink(); if (modeOverworld.IsChecked == true) RefreshOverworld(); };
         WireOwBar();
         WireOwSheet();
+        WireOwEvents();
         WireOwView();
     }
 
@@ -153,7 +154,7 @@ public partial class MainWindow
         owView.Painted += (_, c) => OwPaint(c.Col, c.Row);
         // The map only picks while a link is armed (MainWindow.Overworld.Transitions.cs), so this
         // is that answer and nothing else.
-        owView.Picked += (_, c) => OwLinkPicked(c);
+        owView.Picked += (_, c) => { if (OwModeNow == OwMode.Events) OwEventClicked(c); else OwLinkPicked(c); };
         owView.StrokeEnded += (_, _) => OwStrokeEnded();
         owView.SelectionDragged += (_, d) => OwSelectionDragged(d);
         // A selection that leaves the float's rectangle drops the float. Mid-drag the lasso
@@ -206,14 +207,16 @@ public partial class MainWindow
         bool layer1 = colours || !tiles || owShowLayer1.IsChecked == true, paths = !colours && owShowPaths.IsChecked == true;
         owView.CellAt = (c, r) => r * EditorSession.Ow8Cols + c;
         owView.CellPixels = OwCellPixels;
-        bool warps = OwModeNow == OwMode.Transitions && !colours;
+        bool warps = OwModeNow == OwMode.Transitions && !colours, events = OwModeNow == OwMode.Events && !colours;
         owView.OverlayPixels = layer1Tab ? (c, r) => OwLayer1Overlay(c, r, paths)
                              : warps ? (c, r) => OwTransitionOverlay(c, r, layer1, paths)
                              : layer1 || paths ? (c, r) => session.Ow8Overlay(c, r, layer1, paths) : null;
         // Nothing on the Transitions tab edits a tile, so the map picks rather than paints: no
         // 8x8 reticle following the pointer, no lasso, and a click means "this one" — which is
         // what the Link pick asks for anyway.
-        owView.PickOnLeft = warps;
+        // The Events tab picks too: a click on a piece selects its event, and the map wears
+        // neither the 8x8 reticle nor a lasso, which would promise an edit the tab does not make.
+        owView.PickOnLeft = warps || events;
         // The Paths & Levels tab edits layer 1, the overlay: every gesture snaps to its 16x16
         // tiles (a cell right and down on the lower map), and the drag preview is the overlay's.
         owView.Snap = layer1Tab ? EditorSession.OwLayer1Block : null;
@@ -256,6 +259,7 @@ public partial class MainWindow
             else { owView.ClearSelection(); owSheet.Selected = null; owSheet.ClearSelection(); }
             owSheet.Reshape(16, ((session.Overworld?.Map16Count ?? 0) + 15) / 16, 16);
         }
+        RefreshOwEventPanel();                      // shows on the Events tab with an event picked, else not
         RefreshOwNote();
     }
 
@@ -281,7 +285,9 @@ public partial class MainWindow
             OwMode.Layer1 => "layer 1, the level tiles and paths in 16x16s: right-click places "
                              + (owL1Block is { } b ? $"a {b.W}x{b.H} block" : $"tile 0x{owL1Tile:X2}")
                              + ", a dragged lasso moves" + (session.OwLayer1Edited ? " — edited" : ""),
-            OwMode.Events => "what an event reveals, in order — the drawer's pieces: "
+            OwMode.Events => (owEvent is { } ev ? $"event {ev:X2}: its steps are in the drawer on the right, its pieces ringed — click bare land to let go"
+                                                : "click a piece on the map to pick its event")
+                             + " — the drawer's pieces: "
                              + (owEventPiece is { } e ? $"a {e.Size}x{e.Size} piece at 0x{e.Src:X3} is armed" : "click one to arm it"),
             _ => owLinkFrom is not null
                  ? "pick the tile this one leads to — Esc, or a click anywhere else, calls it off"

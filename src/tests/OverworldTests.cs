@@ -433,6 +433,78 @@ public class OverworldTests(ITestOutputHelper log)
         Assert.NotEqual(0u, sheet.Backdrop);
     }
 
+    /// <summary>
+    /// On the Events tab the map picks rather than paints: no reticle, no lasso, and a click on
+    /// an event's piece selects the event — its pieces ringed, its steps listed in a drawer on
+    /// the right, each with the piece as it lands and where. A click on bare land lets go, and
+    /// the drawer goes with it.
+    /// </summary>
+    [AvaloniaFact]
+    public void the_events_tab_picks_an_event_and_lists_its_steps()
+    {
+        if (PreppedRom.Path is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeOverworld").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        var session = (Services.EditorSession)typeof(MainWindow)
+            .GetField("session", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(w)!;
+        w.GetControl<TabStrip>("OwTabs").SelectedIndex = 2;
+        Dispatcher.UIThread.RunJobs();
+        var view = w.GetControl<TilemapView>("OwView");
+        var panel = w.GetControl<Border>("OwEventPanel");
+        var ow = session.Overworld!;
+        view.Zoom = 1;
+        Dispatcher.UIThread.RunJobs();
+
+        // A picking map: no reticle to follow the pointer, no lasso to start.
+        Assert.True(view.PickOnLeft);
+        Assert.False(panel.IsVisible);
+
+        // Click the first step's first cell: its event is picked and its steps are listed.
+        var first = ow.EventSteps[0];
+        var foot = Services.EditorSession.OwEventFoot(first);
+        Assert.Equal(first.Event, session.OwEventAt(foot.X, foot.Y));
+        var scroller = view.FindAncestorOfType<ScrollViewer>()!;
+        scroller.Offset = new Vector(Math.Max(0, foot.X * 8 * view.Zoom - 40), Math.Max(0, foot.Y * 8 * view.Zoom - 40));
+        Dispatcher.UIThread.RunJobs();
+        var at = view.TranslatePoint(new Point(foot.X * 8 * view.Zoom + 2, foot.Y * 8 * view.Zoom + 2), w)!.Value;
+        w.MouseDown(at, MouseButton.Left); w.MouseUp(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(panel.IsVisible);
+        int count = ow.EventSteps.Count(s => s.Event == first.Event);
+        Assert.Contains($"Event {first.Event:X2}", w.GetControl<TextBlock>("OwEventTitle").Text);
+        Assert.Equal(count, w.GetControl<StackPanel>("OwEventSteps").Children.Count);
+        Assert.Contains($"event {first.Event:X2}", w.GetControl<TextBlock>("OwNote").Text);
+
+        // Each row carries the piece's picture at the size it lands, and names the step's piece.
+        var img = session.OwEventStepImage(first);
+        Assert.Equal(first.Size * 8 * first.Size * 8, img.Length);
+        Assert.Contains(img, px => px != 0);
+        Assert.Contains($"0x{first.Piece:X3}", w.GetControl<StackPanel>("OwEventSteps").Children[0]
+            .GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).First(t => t?.Contains("piece") == true));
+
+        // Bare land: no event there, so the pick lets go and the drawer closes.
+        var bare = Enumerable.Range(0, Services.EditorSession.Ow8MapRows)
+            .SelectMany(r => Enumerable.Range(0, Services.EditorSession.Ow8MapCols).Select(c => (c, r)))
+            .First(cr => session.OwEventAt(cr.c, cr.r) < 0 && Services.EditorSession.OwMapCell(cr.c, cr.r, out _, out _, out _));
+        scroller.Offset = new Vector(Math.Max(0, bare.c * 8 * view.Zoom - 40), Math.Max(0, bare.r * 8 * view.Zoom - 40));
+        Dispatcher.UIThread.RunJobs();
+        var off = view.TranslatePoint(new Point(bare.c * 8 * view.Zoom + 2, bare.r * 8 * view.Zoom + 2), w)!.Value;
+        w.MouseDown(off, MouseButton.Left); w.MouseUp(off, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(panel.IsVisible);
+
+        // Leaving the tab with an event picked puts the drawer away too.
+        w.MouseDown(at, MouseButton.Left); w.MouseUp(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<TabStrip>("OwTabs").SelectedIndex = 0;
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(panel.IsVisible);
+    }
+
     /// <summary>The Paths &amp; Levels tab is Lunar Magic's Layer 1 16x16 Editor: the drawer's
     /// Map16 tile is placed by right-click on the 16x16 cell under the pointer, a lasso snaps to
     /// those cells — a cell right and down on the lower map, where LM draws them — and dragging

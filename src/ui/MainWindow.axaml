@@ -1195,6 +1195,23 @@
                          TextTrimming="CharacterEllipsis" Margin="6,0,10,0"/>
             </DockPanel>
           </Border>
+          <!-- Events tab, with an event picked: its steps, in the order the game lays them. A
+               drawer on the right rather than a list under the map, so the map keeps its height;
+               hidden the rest of the time, so the map keeps its width. -->
+          <Border x:Name="OwEventPanel" DockPanel.Dock="Right" Classes="panel" BorderThickness="1,0,0,0"
+                  Width="260" IsVisible="False">
+            <DockPanel>
+              <Border DockPanel.Dock="Top" Classes="panel bar" BorderThickness="0,0,0,1" Padding="10,8">
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                  <Path Classes="kind" Data="{StaticResource IconZap}"/>
+                  <TextBlock x:Name="OwEventTitle" Classes="subject"/>
+                </StackPanel>
+              </Border>
+              <ScrollViewer>
+                <StackPanel x:Name="OwEventSteps" Margin="10,8" Spacing="6"/>
+              </ScrollViewer>
+            </DockPanel>
+          </Border>
           <!-- The Edit button rides OVER the scroll viewer rather than inside it: a real control,
                so the framework hit-tests it and the canvas below never sees the press as the start
                of a lasso — and the map's own pointer handling is left exactly as it was. It is

@@ -37,11 +37,18 @@ public partial class MainWindow
     /// <summary>The Events tab shows what the events lay on the land: every standard step's
     /// footprint, the event's number on its first piece — Lunar Magic's event tiles. Drawn before
     /// the tile badges, so those sit on top of the footprints.</summary>
-    private static void DrawOwEventFootprints(DrawingContext ctx, Overworld ow, double step, double size)
+    private void DrawOwEventFootprints(DrawingContext ctx, Overworld ow, double step, double size)
     {
         Rect Foot(Overworld.EventStep s)
-            => new((s.Cx + (s.SubmapMap ? EditorSession.OwSubDx : 0)) * step, (s.Cy + (s.SubmapMap ? 2 * Overworld.Rows + EditorSession.OwSubDy : 0)) * step, s.Size * step, s.Size * step);
+        {
+            var f = EditorSession.OwEventFoot(s);
+            return new(f.X * step, f.Y * step, f.W * step, f.H * step);
+        }
         foreach (var s in ow.EventSteps) Overlay.EventPiece(ctx, Foot(s));
+        // The picked event's pieces wear the selection ring, over every other footprint, so the
+        // event reads as one thing however its pieces are scattered.
+        if (owEvent is { } picked)
+            foreach (var s in ow.EventSteps) if (s.Event == picked) Overlay.Selection(ctx, Foot(s));
         int last = -1;                                   // badges after every footprint, so none sits under a later piece
         foreach (var s in ow.EventSteps)
             if (s.Event != last) { Overlay.Badge(ctx, $"E{s.Event:X2}", size, Foot(s).TopLeft + new Vector(1, 1), UiColors.EventBadge); last = s.Event; }
