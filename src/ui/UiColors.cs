@@ -84,6 +84,10 @@ internal static class UiColors
     // blue one, so it reads as a green band and not as a wash.
     public static readonly IBrush CameraBandFlat = new SolidColorBrush(Color.FromArgb(0xC0, 0x2E, 0xA8, 0x60));
     public static readonly IBrush CameraBandFillFlat = new SolidColorBrush(Color.FromArgb(0x46, 0x2E, 0xA8, 0x60));
+    // The L/R look-ahead pair, which only apply while a shoulder button is held: present, but
+    // not competing with the two bands that describe ordinary running.
+    public static readonly IBrush CameraBandFaint = new SolidColorBrush(Color.FromArgb(0x60, 0x7F, 0xD4, 0xF5));
+    public static readonly IBrush CameraBandFillFaint = new SolidColorBrush(Color.FromArgb(0x12, 0x7F, 0xD4, 0xF5));
     public static readonly IBrush LinkTarget = new SolidColorBrush(Color.FromArgb(0x9C, 0x2E, 0xC4, 0xB6));
     public static readonly IBrush LinkSource = new SolidColorBrush(Color.FromArgb(0xB0, 0x5A, 0xE8, 0xDA));
     public static readonly IBrush WarpOneWay = new SolidColorBrush(Color.FromArgb(0xD0, 0xB0, 0x20, 0x20));

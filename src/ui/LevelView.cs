@@ -982,7 +982,8 @@ public class LevelView : Control
         foreach (var b in CameraView.Bands)
             Overlay.CameraBand(ctx, b.Vertical
                 ? PixelRect(cx + b.From, cy, b.To - b.From, CameraView.ScreenHeight, z)
-                : PixelRect(cx, cy + b.From, CameraView.ScreenWidth, b.To - b.From, z), b.Vertical);
+                : PixelRect(cx, cy + b.From, CameraView.ScreenWidth, b.To - b.From, z),
+                b.Vertical, b.LookAhead);
         Overlay.CameraScreen(ctx, screen);
     }
 

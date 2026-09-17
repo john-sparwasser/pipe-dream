@@ -359,17 +359,28 @@ public class LevelViewTests
     public void the_camera_bands_are_the_scroll_codes_own_numbers()
     {
         var bands = CameraView.Bands;
-        Assert.Equal(["Scrolling right", "Scrolling left", "No vertical scroll"],
-                     bands.Select(b => b.Name));
-        Assert.Equal((0x60 - 0x0C, 0x60 + 0x18, true), (bands[0].From, bands[0].To, bands[0].Vertical));
-        Assert.Equal((0x90 - 0x0C, 0x90 + 0x18, true), (bands[1].From, bands[1].To, bands[1].Vertical));
-        Assert.Equal((0x64, 0x7C, false), (bands[2].From, bands[2].To, bands[2].Vertical));
+        Assert.Equal(["Facing right", "Facing left", "Looking right (R held)", "Looking left (L held)",
+                      "Vertical"], bands.Select(b => b.Name));
+
+        // Every horizontal band is one centre plus the same two scroll lines, -0x0C and +0x18.
+        // The centres are where $142A settles: DATA_00F6B3's 0x60/0x90 by facing, and
+        // DATA_00F6CB's 0x20/0xD0 while a shoulder button is held.
+        foreach (var (band, centre) in bands.Where(b => b.Vertical).Zip([0x60, 0x90, 0x20, 0xD0]))
+            Assert.Equal((centre - 0x0C, centre + 0x18), (band.From, band.To));
+        Assert.Equal([false, false, true, true], bands.Where(b => b.Vertical).Select(b => b.LookAhead));
+
+        // The vertical band is DATA_00F69F's two lines, and unlike the horizontal centre it never
+        // drifts: 0x0C either side of the screen's own middle at 0x70.
+        var v = bands.Single(b => !b.Vertical);
+        Assert.Equal((0x64, 0x7C, false), (v.From, v.To, v.LookAhead));
+        Assert.Equal(CameraView.ScreenHeight / 2, v.From + 0x0C);
 
         Assert.Equal(256, CameraView.ScreenWidth);
         Assert.Equal(224, CameraView.ScreenHeight);
         foreach (var b in bands)
         {
             Assert.True(b.From < b.To, b.Name);
+            Assert.InRange(b.From, 0, b.Vertical ? CameraView.ScreenWidth : CameraView.ScreenHeight);
             Assert.InRange(b.To, 0, b.Vertical ? CameraView.ScreenWidth : CameraView.ScreenHeight);
         }
     }
