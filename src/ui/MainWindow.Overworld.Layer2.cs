@@ -100,12 +100,18 @@ public partial class MainWindow
         return row * EditorSession.Ow8Cols + col;
     }
 
-    /// <summary>A stamp that stays on the canvas.</summary>
-    private static bool OwStamp(TilemapEdit map, int col, int row, int word)
-        => EditorSession.OwMapCell(col, row, out _, out _, out _) && map.Stamp(col, row, word);
+    /// <summary>A stamp that lands on an area — the maps, the event pieces or the layer 1
+    /// definitions — and not on the desk between them, whose cells all share one spare slot
+    /// that a write would otherwise "succeed" into. It used to admit the maps alone, so a block
+    /// dropped on either side area drew there and then was refused: the picture snapped back.</summary>
+    private bool OwStamp(TilemapEdit map, int col, int row, int word)
+        => session.OwAreaAt(col, row, out _) is not EditorSession.OwArea.None && map.Stamp(col, row, word);
 
+    /// <summary>What a lifted block leaves behind: the map's fill on the maps, and in the event
+    /// area the word the game treats as empty there — the one the canvas already draws as the X.</summary>
     private int OwFillWord((int X, int Y, int W, int H) r)
-        => session.OwMap?.At(OwFillCell(r) % EditorSession.Ow8Cols, OwFillCell(r) / EditorSession.Ow8Cols) ?? 0;
+        => session.OwAreaAt(r.X, r.Y, out _) is EditorSession.OwArea.EventPieces ? Overworld.BlankEventWord
+         : session.OwMap?.At(OwFillCell(r) % EditorSession.Ow8Cols, OwFillCell(r) / EditorSession.Ow8Cols) ?? 0;
 
     /// <summary>Write the float into the map — fill where it came from, its cells where it is —
     /// as one undo entry, and stop floating.</summary>

@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.VisualTree;
 using Avalonia.Input;
 using Avalonia.LogicalTree;
 using Avalonia.Threading;
@@ -291,6 +292,75 @@ public class OverworldTests(ITestOutputHelper log)
         tabs.SelectedIndex = 2;
         Dispatcher.UIThread.RunJobs();
         Assert.True(w.GetControl<ToggleButton>("OwShowEventNumbers").IsVisible);
+    }
+
+    /// <summary>
+    /// The event pieces and the layer 1 definitions take a stamp THROUGH THE WINDOW, not only
+    /// through the session: the one gate every write on the Tiles tab passes used to admit the
+    /// two maps alone, so a tile painted on either side area drew, was refused, and snapped
+    /// back. The desk between the areas still refuses — its cells share one spare slot.
+    /// </summary>
+    [AvaloniaFact]
+    public void the_tiles_tab_paints_the_event_pieces_and_the_definitions_too()
+    {
+        if (PreppedRom.Path is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeOverworld").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        var session = (Services.EditorSession)typeof(MainWindow)
+            .GetField("session", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(w)!;
+        w.GetControl<TabStrip>("OwTabs").SelectedIndex = 0;
+        Dispatcher.UIThread.RunJobs();
+        var view = w.GetControl<TilemapView>("OwView");
+        var sheet = w.GetControl<TilemapView>("OwSheet");
+        var map = session.OwMap!;
+        var ow = session.Overworld!;
+        view.Zoom = 1;
+        Dispatcher.UIThread.RunJobs();
+
+        // Pick 8x8 tile 0x25 from the sheet (row 2, column 5).
+        var pick = sheet.TranslatePoint(new Point(5 * 8 * sheet.Zoom + 2, 2 * 8 * sheet.Zoom + 2), w)!.Value;
+        w.MouseDown(pick, MouseButton.Left); w.MouseUp(pick, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        int word = 0x25 | Math.Max(0, w.GetControl<ComboBox>("OwPalRow").SelectedIndex) << 10;
+
+        // Canvas (65, 1) is event piece byte 7; the byte has to change, and the word has to be
+        // the one the drawer armed, in the reader's own array where the canvas draws from.
+        Assert.Equal(Services.EditorSession.OwArea.EventPieces, session.OwAreaAt(65, 1, out int piece));
+        Assert.Equal(7, piece);
+        Assert.NotEqual(word, map.At(65, 1));
+        var at = view.TranslatePoint(new Point(65 * 8 * view.Zoom + 2, 1 * 8 * view.Zoom + 2), w)!.Value;
+        w.MouseDown(at, MouseButton.Right); w.MouseUp(at, MouseButton.Right);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(word, map.At(65, 1));
+        Assert.Equal(word, ow.EventPieces[7]);
+
+        // The canvas is taller than the window: bring a row to the top of the viewport before
+        // aiming at it, or the click lands on the desk below the window and nothing hears it.
+        var scroller = view.FindAncestorOfType<ScrollViewer>()!;
+        void Reveal(int row) { scroller.Offset = new Vector(0, row * 8 * view.Zoom - 8); Dispatcher.UIThread.RunJobs(); }
+
+        // A definition cell takes it the same way...
+        Assert.Equal(Services.EditorSession.OwArea.Layer1Defs, session.OwAreaAt(2, 130, out _));
+        Reveal(130);
+        var def = view.TranslatePoint(new Point(2 * 8 * view.Zoom + 2, 130 * 8 * view.Zoom + 2), w)!.Value;
+        w.MouseDown(def, MouseButton.Right); w.MouseUp(def, MouseButton.Right);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(word, map.At(2, 130));
+
+        // ...and a cell on no area does not: the last, short band of 2x2s leaves cells that belong
+        // to nothing, and the desk is not a table.
+        int deskCol = Services.EditorSession.OwEventCol + 40, deskRow = Overworld.EventArea.Rows - 1;
+        Assert.Equal(Services.EditorSession.OwArea.None, session.OwAreaAt(deskCol, deskRow, out _));
+        int spare = map.At(deskCol, deskRow);
+        Reveal(deskRow);
+        var desk = view.TranslatePoint(new Point(deskCol * 8 * view.Zoom + 2, deskRow * 8 * view.Zoom + 2), w)!.Value;
+        w.MouseDown(desk, MouseButton.Right); w.MouseUp(desk, MouseButton.Right);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(spare, map.At(deskCol, deskRow));
     }
 
     /// <summary>The Paths &amp; Levels tab is Lunar Magic's Layer 1 16x16 Editor: the drawer's
