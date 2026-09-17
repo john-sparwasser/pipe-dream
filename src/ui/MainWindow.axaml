@@ -1177,10 +1177,6 @@
                               ToolTip.Tip="Label each level tile with the level it enters">
                   <Path Data="{StaticResource IconFlag}"/>
                 </ToggleButton>
-                <ToggleButton x:Name="OwShowEventNumbers" Classes="mode" IsChecked="True"
-                              ToolTip.Tip="Label each level tile with the event its normal exit fires; a secret exit adds its number. Events tab only">
-                  <TextBlock Text="Event #" VerticalAlignment="Center"/>
-                </ToggleButton>
                 <ToggleButton x:Name="OwShowWarps" MinWidth="34"
                               ToolTip.Tip="Label star, pipe and exit tiles with their index over the index they lead to. N/A is a one-way trip; a red number marks where one lands. K: where a Koopa Kid drops Mario">
                   <Path Data="{StaticResource IconGalaxy}"/>
@@ -1188,6 +1184,12 @@
                 <ToggleButton x:Name="OwShowAreas" MinWidth="34"
                               ToolTip.Tip="Outline and name what each part of the canvas is: the main map, the six submaps, and — on the Tiles tab — the event pieces and the layer 1 tiles beside them">
                   <Path Data="{StaticResource IconSquareDashed}"/>
+                </ToggleButton>
+                <!-- Events tab only. The zap is the Events tab's own icon, so the toggle reads as
+                     "the events' numbers" without a word. -->
+                <ToggleButton x:Name="OwShowEventNumbers" MinWidth="34" IsChecked="True"
+                              ToolTip.Tip="Label each level tile with the event its normal exit fires; a secret exit adds its number. Events tab only">
+                  <Path Data="{StaticResource IconZap}"/>
                 </ToggleButton>
                 <Rectangle Classes="sep"/>
               </StackPanel>
