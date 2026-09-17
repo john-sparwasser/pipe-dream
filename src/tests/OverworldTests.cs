@@ -363,6 +363,76 @@ public class OverworldTests(ITestOutputHelper log)
         Assert.Equal(spare, map.At(deskCol, deskRow));
     }
 
+    /// <summary>
+    /// The Events tab's drawer is the event pieces, and a pick there is one whole piece: six
+    /// cells square in the upper band, two in the lower, whichever the pointer is over — never a
+    /// corner of two, and never grown by dragging. The cells the short last band leaves belong to
+    /// no piece and arm nothing.
+    /// </summary>
+    [AvaloniaFact]
+    public void the_events_drawer_picks_whole_pieces_of_either_size()
+    {
+        if (PreppedRom.Path is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeOverworld").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        var session = (Services.EditorSession)typeof(MainWindow)
+            .GetField("session", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(w)!;
+        w.GetControl<TabStrip>("OwTabs").SelectedIndex = 2;
+        Dispatcher.UIThread.RunJobs();
+        var sheet = w.GetControl<TilemapView>("OwSheet");
+        var note = w.GetControl<TextBlock>("OwNote");
+
+        // The sheet is the pieces area as the Tiles canvas lays it out, drawn the same way.
+        Assert.Equal((Overworld.EventArea.Cols, Overworld.EventArea.Rows, 8), (sheet.Cols, sheet.Rows, sheet.CellPx));
+        Assert.Equal(1, sheet.CellAt!(1, 0));                          // piece 0, its second byte
+        Assert.Equal(36 + 1, sheet.CellAt!(7, 0));                     // piece 1 starts six cells over
+        Assert.Equal(session.OwEventPiecePixels(37), sheet.CellPixels!(37));
+        Assert.Equal(0u, sheet.Backdrop);
+        Assert.Contains("click one to arm it", note.Text);
+
+        Point At(int c, int r) => sheet.TranslatePoint(new Point(c * 8 * sheet.Zoom + 2, r * 8 * sheet.Zoom + 2), w)!.Value;
+
+        // A click anywhere in piece 1's six-by-six takes the whole piece.
+        w.MouseDown(At(7, 2), MouseButton.Left); w.MouseUp(At(7, 2), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal((6, 0, 6, 6), sheet.Selection);
+        Assert.Contains("6x6 piece at 0x024", note.Text);            // piece 1 = 36 bytes in
+
+        // Dragging from one piece into the next does not grow the pick across both.
+        w.MouseDown(At(1, 1), MouseButton.Left);
+        w.MouseMove(At(20, 8), RawInputModifiers.LeftMouseButton);
+        w.MouseUp(At(20, 8), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal((0, 0, 6, 6), sheet.Selection);
+        Assert.Contains("6x6 piece at 0x000", note.Text);
+
+        // In the lower band a click takes a two-by-two, named from 0x900 as an event step names it.
+        int r2 = Overworld.Event2Row;
+        w.MouseDown(At(3, r2 + 1), MouseButton.Left); w.MouseUp(At(3, r2 + 1), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal((2, r2, 2, 2), sheet.Selection);
+        Assert.Contains("2x2 piece at 0x904", note.Text);
+
+        // The short last band leaves cells on no piece: a click there arms nothing.
+        int deskX = 40, deskY = Overworld.EventArea.Rows - 1;
+        Assert.Null(Overworld.EventPieceAt(deskX, deskY));
+        w.MouseDown(At(deskX, deskY), MouseButton.Left); w.MouseUp(At(deskX, deskY), MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Null(sheet.Selection);
+        Assert.Contains("click one to arm it", note.Text);
+
+        // Back on the Tiles tab the sheet is a grid of single tiles again.
+        w.GetControl<TabStrip>("OwTabs").SelectedIndex = 0;
+        Dispatcher.UIThread.RunJobs();
+        Assert.Null(sheet.Snap);
+        Assert.False(sheet.PickWhole);
+        Assert.NotEqual(0u, sheet.Backdrop);
+    }
+
     /// <summary>The Paths &amp; Levels tab is Lunar Magic's Layer 1 16x16 Editor: the drawer's
     /// Map16 tile is placed by right-click on the 16x16 cell under the pointer, a lasso snaps to
     /// those cells — a cell right and down on the lower map, where LM draws them — and dragging

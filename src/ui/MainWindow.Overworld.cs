@@ -120,6 +120,8 @@ public partial class MainWindow
         owSheet.LassoPicks = true;          // a dragged rectangle is a block brush, as in the level's Tiles drawer
         owSheet.Picked += (_, c) =>
         {
+            // On the events sheet a one-cell pick is the desk between pieces: nothing to arm.
+            if (OwModeNow == OwMode.Events) { owEventPiece = null; RefreshOwNote(); return; }
             if (OwModeNow == OwMode.Layer1) { owL1Tile = c.Row * 16 + c.Col; owL1Block = null; owSheet.Selected = owL1Tile; }
             else { owBrushTile = c.Row * 16 + c.Col; owBrushBlock = null; owSheet.Selected = owBrushTile; }
             owView.ClearSelection();
@@ -127,7 +129,9 @@ public partial class MainWindow
         };
         owSheet.BlockPicked += (_, r) =>
         {
-            if (OwModeNow == OwMode.Layer1) owL1Block = r; else owBrushBlock = r;
+            if (OwModeNow == OwMode.Events) OwEventPicked(r);
+            else if (OwModeNow == OwMode.Layer1) owL1Block = r;
+            else owBrushBlock = r;
             owSheet.Selected = null;        // the lasso on the sheet is the ring now
             owView.ClearSelection();
             RefreshOwNote();
@@ -225,18 +229,27 @@ public partial class MainWindow
         if (tiles)
         {
             // The drawer is the 256 8x8 tiles the two FG files give layer 2, in the brush's palette row.
+            LeaveOwEventSheet();
             owSheet.CellAt = (c, r) => r * 16 + c;
             owSheet.CellPixels = t => session.OwSheetPixels(t, Math.Max(0, owPalRow.SelectedIndex));
             owSheet.Selected = owBrushBlock is null ? owBrushTile : null;
             RefreshOwColors();
             owSheet.Reshape(16, EditorSession.OwSheetTiles / 16, 8);
         }
+        else if (OwModeNow == OwMode.Events)
+        {
+            // The drawer is the event pieces, picked a whole piece at a time.
+            DropOwFloat();
+            owView.ClearSelection();
+            ShowOwEventSheet();
+        }
         else
         {
             // The drawer is layer 1's Map16 tiles, with the path pictures over them while Paths
-            // is on. The Paths & Levels tab stamps them; ponytail: Events and Transitions are
-            // read-only until their editors land.
+            // is on. The Paths & Levels tab stamps them; ponytail: Transitions is read-only until
+            // its editor lands.
             DropOwFloat();
+            LeaveOwEventSheet();
             owSheet.CellAt = (c, r) => r * 16 + c;
             owSheet.CellPixels = t => session.Overworld is { } ow && t < ow.Map16Count ? OwSheetTile(ow, t) : null;
             if (layer1Tab) owSheet.Selected = owL1Block is null ? owL1Tile : null;
@@ -268,7 +281,8 @@ public partial class MainWindow
             OwMode.Layer1 => "layer 1, the level tiles and paths in 16x16s: right-click places "
                              + (owL1Block is { } b ? $"a {b.W}x{b.H} block" : $"tile 0x{owL1Tile:X2}")
                              + ", a dragged lasso moves" + (session.OwLayer1Edited ? " — edited" : ""),
-            OwMode.Events => "what an event reveals, in order",
+            OwMode.Events => "what an event reveals, in order — the drawer's pieces: "
+                             + (owEventPiece is { } e ? $"a {e.Size}x{e.Size} piece at 0x{e.Src:X3} is armed" : "click one to arm it"),
             _ => owLinkFrom is not null
                  ? "pick the tile this one leads to — Esc, or a click anywhere else, calls it off"
                  : "pipes, star roads and the red exit tiles: hover one to link it, "

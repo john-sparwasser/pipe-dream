@@ -124,6 +124,22 @@ public sealed partial class Overworld
                 Event2Row + p2 / Event2Across * Event2Size + k2 / Event2Size);
     }
 
+    /// <summary>
+    /// The piece under a cell of the event area: its step source (the byte offset an event step
+    /// names it by — a 6x6 at 36 apart below 0x900, a 2x2 at 4 apart from there), the cell its
+    /// top-left is drawn at, and its side. Null off every piece. What lets a pick in the drawer
+    /// take a whole piece, whichever size sits under the pointer.
+    /// </summary>
+    public static (int Src, int X, int Y, int Size)? EventPieceAt(int x, int y)
+    {
+        int index = EventIndexOf(x, y);
+        if (index < 0) return null;
+        int src = index < Event6Bytes ? index - index % (Event6Size * Event6Size)
+                : index - (index - Event6Bytes) % (Event2Size * Event2Size);
+        var (px, py) = EventCellOf(src);
+        return (src, px, py, src < Event6Bytes ? Event6Size : Event2Size);
+    }
+
     /// <summary>The piece byte drawn at a cell of the event area, or -1 where nothing is.</summary>
     public static int EventIndexOf(int x, int y)
     {

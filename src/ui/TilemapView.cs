@@ -95,6 +95,10 @@ public sealed class TilemapView : Control
     /// labels and marks that must read at any zoom and are never part of a stroke.</summary>
     public Action<DrawingContext, double>? Decorate { get; set; }
 
+    /// <summary>With <see cref="Snap"/>: a lasso is exactly the block under the press, and dragging
+    /// does not grow it across others — for a sheet of pieces where one pick means one piece.</summary>
+    public bool PickWhole { get; set; }
+
     /// <summary>Drawer mode with a block brush: a left DRAG lassos a rectangle of the sheet and
     /// raises <see cref="BlockPicked"/> — the level's Tiles drawer gesture — while a click still
     /// picks one tile. The lasso stays drawn on the sheet as the armed block.</summary>
@@ -609,7 +613,8 @@ public sealed class TilemapView : Control
 
     private void SetLasso((int Col, int Row) to)
     {
-        if (lassoStart is { } from) SetSelection(Snapped(Lasso.Span(from, to)));
+        if (lassoStart is not { } from) return;
+        SetSelection(PickWhole && Snap is not null ? Snapped((from.Col, from.Row, 1, 1)) : Snapped(Lasso.Span(from, to)));
     }
 
     /// <summary>The rectangle on the snap grid: its corners' blocks, spanned — or, for a move,

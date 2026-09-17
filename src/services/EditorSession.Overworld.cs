@@ -197,6 +197,15 @@ public sealed partial class EditorSession
         };
     }
 
+    /// <summary>A cell of the event pieces as the Events drawer shows it — the same picture the
+    /// Tiles canvas gives the cell, blanks as the X — by piece byte index.</summary>
+    public uint[]? OwEventPiecePixels(int index)
+    {
+        if (Overworld is not { } ow || index < 0 || index >= Overworld.EventCells) return null;
+        int word = ow.EventPieces[index];
+        return word == Overworld.BlankEventWord ? ow.FillerPixels() : ow.TilePixels(word, 0);
+    }
+
     /// <summary>The submap whose colours a canvas cell wears: by where it is DRAWN, so the wrapped
     /// strips at the lower map's left and top take the palette of the submap they sit beside,
     /// as in Lunar Magic, not that of the far side their words came from.</summary>
