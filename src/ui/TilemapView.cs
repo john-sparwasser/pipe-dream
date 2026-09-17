@@ -171,6 +171,38 @@ public sealed class TilemapView : Control
     /// a cell shows — a stamp, an undo, a repointed GFX slot, a palette edit.</summary>
     public void Invalidate() { stale = true; InvalidateVisual(); }
 
+    /// <summary>Rebuild only these cells on the next render, into the surface as it stands. What
+    /// a block in flight asks for: the few hundred cells it left and landed on, not the seventeen
+    /// thousand around them. A full rebuild already pending covers it.</summary>
+    public void InvalidateRegion((int X, int Y, int W, int H) r)
+    {
+        if (stale) return;
+        int x0 = Math.Max(0, r.X), y0 = Math.Max(0, r.Y), x1 = Math.Min(Cols, r.X + r.W), y1 = Math.Min(Rows, r.Y + r.H);
+        if (x1 <= x0 || y1 <= y0) return;
+        dirty.Add((x0, y0, x1 - x0, y1 - y0));
+        InvalidateVisual();
+    }
+
+    /// <summary>Rebuild the cells <paramref name="changed"/> picks out — the animation tick's few
+    /// dozen moving tiles. Runs of a row are gathered into one rectangle so the list stays short.</summary>
+    public void InvalidateWhere(Func<int, int, bool> changed)
+    {
+        if (stale) return;
+        for (int row = 0; row < Rows; row++)
+        {
+            int run = -1;
+            for (int col = 0; col <= Cols; col++)
+            {
+                bool hit = col < Cols && changed(col, row);
+                if (hit && run < 0) run = col;
+                else if (!hit && run >= 0) { dirty.Add((run, row, col - run, 1)); run = -1; }
+            }
+        }
+        if (dirty.Count > 0) InvalidateVisual();
+    }
+
+    private readonly List<(int X, int Y, int W, int H)> dirty = [];
+
     /// <summary>Grid size changed too, so the control has to re-measure as well.</summary>
     public void Reshape(int cols, int rows, int cellPx)
     {
@@ -198,63 +230,121 @@ public sealed class TilemapView : Control
 
     public (int Col, int Row)? At(Point p) => Lasso.CellAt(p, Step, Cols, Rows);
 
+    /// <summary>The whole surface from scratch — a reshape, or anything that may have changed
+    /// every cell. The bitmaps are kept and written into when the size has not changed: a new
+    /// bitmap is a new texture for the compositor to upload, and this used to make two per tick.</summary>
     private void Compose()
     {
         stale = false;
+        dirty.Clear();
         surfW = Cols * CellPx; surfH = Rows * CellPx;
-        if (surfW <= 0 || surfH <= 0) { surface = null; bmp = null; return; }
+        if (surfW <= 0 || surfH <= 0) { surface = null; bmp = null; overlayBmp = null; return; }
         if (surface is null || surface.Length != surfW * surfH)
         {
             surface = new uint[surfW * surfH];
             bmp = null;                                  // size changed: the bitmap follows it
+            overlayBmp = null;
         }
         Array.Fill(surface, Backdrop);
-        if (CellAt is { } at && CellPixels is { } pixels)
+        if (CellAt is not null && CellPixels is not null)
             for (int row = 0; row < Rows; row++)
-                for (int col = 0; col < Cols; col++)
-                {
-                    int v = at(col, row);
-                    if (v < 0 || pixels(v) is not { } px) continue;
-                    int ox = col * CellPx, oy = row * CellPx;
-                    for (int y = 0; y < CellPx; y++)
-                        for (int x = 0; x < CellPx; x++)
-                        {
-                            uint c = px[y * CellPx + x];
-                            // Colour 0 is transparent in a BG or layer-3 tile: the backdrop
-                            // stays, which is what the console shows through it.
-                            if (c != 0) surface[(oy + y) * surfW + ox + x] = c;
-                        }
-                }
-        bmp = LevelBitmap.FromPixels(surface, surfW, surfH);
+                for (int col = 0; col < Cols; col++) PaintCell(col, row, clear: false);
+        bmp = Uploaded(bmp, surface, 0, surfH);
 
         // The overlay is its own bitmap, drawn AFTER the selection and the drag preview: it is
         // the layer above the one being edited, so a block dragged under it passes beneath, as
         // it will once dropped, instead of covering it and letting it snap back on release.
-        overlayBmp = null;
-        if (OverlayPixels is { } over)
-        {
-            overlaySurface = overlaySurface?.Length == surfW * surfH ? overlaySurface : new uint[surfW * surfH];
-            Array.Clear(overlaySurface);
-            bool any = false;
-            for (int row = 0; row < Rows; row++)
-                for (int col = 0; col < Cols; col++)
-                {
-                    if (over(col, row) is not { } px) continue;
-                    int ox = col * CellPx, oy = row * CellPx;
-                    for (int y = 0; y < CellPx; y++)
-                        for (int x = 0; x < CellPx; x++)
-                        {
-                            uint c = px[y * CellPx + x];
-                            if (c != 0) { overlaySurface[(oy + y) * surfW + ox + x] = c; any = true; }
-                        }
-                }
-            if (any) overlayBmp = LevelBitmap.FromPixels(overlaySurface, surfW, surfH);
-        }
+        if (OverlayPixels is null) { overlaySurface = null; overlayBmp = null; return; }
+        overlaySurface = overlaySurface?.Length == surfW * surfH ? overlaySurface : new uint[surfW * surfH];
+        Array.Clear(overlaySurface);
+        bool any = false;
+        for (int row = 0; row < Rows; row++)
+            for (int col = 0; col < Cols; col++) any |= PaintOverlay(col, row, clear: false);
+        // An overlay with nothing in it is not drawn at all, rather than blitting 4MB of clear.
+        overlayBmp = any ? Uploaded(overlayBmp, overlaySurface, 0, surfH) : null;
     }
+
+    /// <summary>Only the dirty rectangles, into the surface as it stands, and only their rows up
+    /// to the compositor. Falls back to the whole thing when there is nothing to update in
+    /// place — no surface yet, or an overlay that has to come into being.</summary>
+    private void ComposeDirty()
+    {
+        if (surface is null || bmp is null || (OverlayPixels is not null && overlayBmp is null)) { Compose(); return; }
+        int rowFrom = surfH, rowTo = 0;
+        foreach (var r in dirty)
+        {
+            for (int row = r.Y; row < r.Y + r.H; row++)
+                for (int col = r.X; col < r.X + r.W; col++)
+                {
+                    PaintCell(col, row, clear: true);
+                    if (OverlayPixels is not null) PaintOverlay(col, row, clear: true);
+                }
+            rowFrom = Math.Min(rowFrom, r.Y * CellPx);
+            rowTo = Math.Max(rowTo, (r.Y + r.H) * CellPx);
+        }
+        dirty.Clear();
+        if (rowTo <= rowFrom) return;
+        LevelBitmap.Upload(bmp, surface, surfW, rowFrom, rowTo);
+        if (overlayBmp is not null && overlaySurface is not null) LevelBitmap.Upload(overlayBmp, overlaySurface, surfW, rowFrom, rowTo);
+    }
+
+    /// <summary>One cell's pixels into the surface. <paramref name="clear"/> puts the backdrop
+    /// down first — a repaint of a cell that already holds something — where a full compose has
+    /// already filled the whole surface with it.</summary>
+    private void PaintCell(int col, int row, bool clear)
+    {
+        int ox = col * CellPx, oy = row * CellPx;
+        if (clear)
+            for (int y = 0; y < CellPx; y++) Array.Fill(surface!, Backdrop, (oy + y) * surfW + ox, CellPx);
+        int v = CellAt!(col, row);
+        if (v < 0 || CellPixels!(v) is not { } px) return;
+        for (int y = 0; y < CellPx; y++)
+            for (int x = 0; x < CellPx; x++)
+            {
+                uint c = px[y * CellPx + x];
+                // Colour 0 is transparent in a BG or layer-3 tile: the backdrop stays, which is
+                // what the console shows through it.
+                if (c != 0) surface![(oy + y) * surfW + ox + x] = c;
+            }
+    }
+
+    /// <summary>One cell's overlay pixels; true when it put any down.</summary>
+    private bool PaintOverlay(int col, int row, bool clear)
+    {
+        int ox = col * CellPx, oy = row * CellPx;
+        if (clear)
+            for (int y = 0; y < CellPx; y++) Array.Clear(overlaySurface!, (oy + y) * surfW + ox, CellPx);
+        if (OverlayPixels!(col, row) is not { } px) return false;
+        bool any = false;
+        for (int y = 0; y < CellPx; y++)
+            for (int x = 0; x < CellPx; x++)
+            {
+                uint c = px[y * CellPx + x];
+                if (c != 0) { overlaySurface![(oy + y) * surfW + ox + x] = c; any = true; }
+            }
+        return any;
+    }
+
+    /// <summary>The surface's rows into <paramref name="into"/> when it is the right size, else a
+    /// new bitmap of the right size.</summary>
+    private Avalonia.Media.Imaging.WriteableBitmap Uploaded(Avalonia.Media.Imaging.WriteableBitmap? into, uint[] px, int rowFrom, int rowTo)
+    {
+        if (into is null || into.PixelSize.Width != surfW || into.PixelSize.Height != surfH)
+            return LevelBitmap.FromPixels(px, surfW, surfH);
+        LevelBitmap.Upload(into, px, surfW, rowFrom, rowTo);
+        return into;
+    }
+
+    /// <summary>What Render does before drawing, for a test that has no frame to render: the
+    /// surface brought up to date by whichever path is pending.</summary>
+    internal void ComposeForTests() { if (stale) Compose(); else if (dirty.Count > 0) ComposeDirty(); }
+    internal uint[]? SurfaceForTests => surface;
+    internal uint[]? OverlaySurfaceForTests => overlaySurface;
 
     public override void Render(DrawingContext ctx)
     {
         if (stale) Compose();
+        else if (dirty.Count > 0) ComposeDirty();
         var full = new Rect(0, 0, Cols * Step, Rows * Step);
         if (bmp is null)
         {

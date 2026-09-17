@@ -21,8 +21,15 @@ public sealed partial class Overworld
     public void InvalidateGfx(int submap)
     {
         fg[submap] = null;
-        foreach (var key in map16Px.Keys.Where(k => k.Submap == submap).ToList()) map16Px.Remove(key);
-        foreach (var key in layer1Art.Keys.Where(k => k.Submap == submap).ToList()) layer1Art.Remove(key);
+        Drop(tile8Px, k => k.Submap == submap);
+        Drop(map16Px, k => k.Submap == submap);
+        Drop(layer1Art, k => k.Submap == submap);
+        Drop(quarters, k => k.Submap == submap);
+    }
+
+    private static void Drop<K, V>(Dictionary<K, V> cache, Func<K, bool> gone) where K : notnull
+    {
+        foreach (var key in cache.Keys.Where(gone).ToList()) cache.Remove(key);
     }
 
     /// <summary>The game's frame counter the animated tiles are drawn for; starts on Lunar
@@ -39,9 +46,36 @@ public sealed partial class Overworld
     {
         AnimationCounter = counter & 0x7F;
         foreach (var tiles in fg) if (tiles is not null) WithAnimatedTiles(tiles);
-        map16Px.Clear();    // ponytail: drops every composed layer 1 tile per tick; keep only the ones that use slots 0x75-0x7F if the map ever stutters
-        layer1Art.Clear();
+        // Only the pictures an animated 8x8 reaches are stale: the eleven slots themselves, the
+        // layer 1 tiles built from one, and a layer 1 picture whose GHOST is — the map is a few
+        // hundred distinct pictures, and a tick used to throw every one of them away.
+        Drop(tile8Px, k => AnimatedTile8(k.Word & 0x3FF));
+        Drop(map16Px, k => AnimatedMap16(k.Tile));
+        Drop(layer1Art, k => AnimatedLayer1(k.Tile));
+        Drop(quarters, k => AnimatedLayer1(k.Tile));
     }
+
+    /// <summary>VRAM tiles 0x75-0x7F: the ones <see cref="WithAnimatedTiles"/> rebuilds.</summary>
+    public static bool AnimatedTile8(int tile) => tile is >= 0x75 and <= 0x7F;
+
+    /// <summary>A layer 1 tile whose four 8x8s include an animated one.</summary>
+    public bool AnimatedMap16(int tile)
+    {
+        if (tile < 0 || tile >= Map16Count) return false;
+        animatedDef ??= [.. defs.Select(d => d.Any(w => AnimatedTile8(w.Tile)))];
+        return animatedDef[tile];
+    }
+    private bool[]? animatedDef;
+
+    /// <summary>A layer 1 tile whose picture moves each tick: its own art, or the ghost of the
+    /// tile an event reveals it as (Layer1Art draws both).</summary>
+    public bool AnimatedLayer1(int tile) => AnimatedMap16(tile) || AnimatedMap16(RevealedTile(tile));
+
+    /// <summary>Whether the 8x8 map cell's picture changes with the animation counter — the land
+    /// word under it, or the layer 1 tile over it. What lets a tick redraw those cells alone.</summary>
+    public bool CellAnimated(int cx, int cy, bool submapMap)
+        => AnimatedTile8(Layer2[Layer2Index(cx, cy, submapMap)] & 0x3FF)
+        || AnimatedLayer1(Layer1At(cx >> 1, cy >> 1, submapMap));
 
     /// <summary>The frame a cycling slot shows at a counter ($048123): slots 2-7 take counter
     /// bits 3-5, the two waterfall slots bits 4-6.</summary>
@@ -102,6 +136,9 @@ public sealed partial class Overworld
     /// layer, so its colour 0 shows the backdrop (CGRAM 0).</summary>
     public uint[] TilePixels(int word, int submap)
     {
+        // Cached by word: the canvas is seventeen thousand cells drawn from a few hundred
+        // distinct words, and it used to build every one of them from the tile again per compose.
+        if (tile8Px.TryGetValue((word, submap), out var done)) return done;
         var w = new Map16.Word((ushort)word);
         var src = TilesOf(submap).Fetch(w.Tile);
         var p = PaletteOf(submap);
@@ -112,8 +149,9 @@ public sealed partial class Overworld
                 int idx = src[(w.FlipY ? 7 - py : py) * 8 + (w.FlipX ? 7 - px : px)];
                 img[py * 8 + px] = idx == 0 ? p.Rgba[0] | 0xFF000000 : p.Rgba[w.Palette * 16 + idx];
             }
-        return img;
+        return tile8Px[(word, submap)] = img;
     }
+    private readonly Dictionary<(int Word, int Submap), uint[]> tile8Px = [];
 
     /// <summary>An 8x8 cell as it shows on the map: <paramref name="word"/> (the layer 2 word
     /// there — passed in so a stroke in progress draws before it is committed) under the
@@ -164,12 +202,45 @@ public sealed partial class Overworld
     /// <summary>The quarter of the layer 1 tile over an 8x8 cell, transparent where it has no
     /// art — the layer drawn OVER the land, kept apart so a layer 2 edit never carries it.</summary>
     public uint[] Layer1QuarterPixels(int cx, int cy, bool submapMap)
+        => OverlayQuarter(cx, cy, submapMap, layer1: true, paths: false)!;
+
+    /// <summary>
+    /// What the overlay shows over an 8x8 map cell: the quarter of the layer 1 tile's picture,
+    /// the quarter of Lunar Magic's path picture for it, or the second over the first — whichever
+    /// the view has on. Null when neither has anything there. Cached per (tile, quarter, submap,
+    /// what is on), because the same few pictures cover the whole map.
+    /// </summary>
+    public uint[]? OverlayQuarter(int cx, int cy, bool submapMap, bool layer1, bool paths)
     {
         int x = cx >> 1, y = cy >> 1;
-        var over = Layer1Art(Layer1At(x, y, submapMap), SubmapAt(x, y, submapMap));
+        return OverlayQuarterOf(Layer1At(x, y, submapMap), SubmapAt(x, y, submapMap), (cx & 1) | (cy & 1) << 1, layer1, paths);
+    }
+
+    /// <summary>The same, for a tile named rather than read off the map — a block in flight,
+    /// drawn where it is going.</summary>
+    public uint[]? OverlayQuarterOf(int tile, int submap, int q, bool layer1, bool paths)
+    {
+        var key = (tile, submap, q, layer1, paths);
+        if (quarters.TryGetValue(key, out var done)) return done;
+
+        uint[]? img = null;
+        if (layer1) img = Quarter(Layer1Art(tile, submap), q);
+        if (paths && PathGlyph(tile) is { } g)
+        {
+            var glyph = Quarter(g, q);
+            if (img is null) img = glyph;
+            else for (int i = 0; i < 64; i++) if (glyph[i] != 0) img[i] = glyph[i];
+        }
+        return quarters[key] = img;
+    }
+    private readonly Dictionary<(int Tile, int Submap, int Q, bool Layer1, bool Paths), uint[]?> quarters = [];
+
+    /// <summary>The 8x8 quarter <paramref name="q"/> (bit 0 right, bit 1 lower) of a 16x16 picture.</summary>
+    private static uint[] Quarter(uint[] tile16, int q)
+    {
         var img = new uint[64];
-        int ox = (cx & 1) * 8, oy = (cy & 1) * 8;
-        for (int py = 0; py < 8; py++) Array.Copy(over, (oy + py) * 16 + ox, img, py * 8, 8);
+        int ox = (q & 1) * 8, oy = (q >> 1) * 8;
+        for (int py = 0; py < 8; py++) Array.Copy(tile16, (oy + py) * 16 + ox, img, py * 8, 8);
         return img;
     }
 

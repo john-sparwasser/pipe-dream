@@ -65,8 +65,10 @@ public partial class MainWindow
     {
         var next = OwModeNow == OwMode.Layer1 && owView.Dragging && owView.LiveDrag is { Move: true } d ? d : (TilemapView.SelectionDrag?)null;
         if (next == owL1Drag) return;
+        // The overlay changes where the block was drawn and where it is drawn now — nowhere else.
+        if (owL1Drag is { } old) { owView.InvalidateRegion(old.To); owView.InvalidateRegion(old.From); }
         owL1Drag = next;
-        owView.Invalidate();
+        if (next is { } now) { owView.InvalidateRegion(now.To); owView.InvalidateRegion(now.From); }
     }
 
     /// <summary>Stamp the drawer's layer 1 tile, or block of tiles, at the 16x16 cell under a

@@ -826,7 +826,9 @@ public partial class MainWindow : Window
     {
         if (session.Overworld is not { } ow || (!reset && owPane?.IsVisible != true)) return;
         ow.Animate(reset ? Overworld.LunarMagicCounter : ow.AnimationCounter + 8);
-        owView.Invalidate();
+        // Only the cells whose picture moved: eleven tiles' worth of the map, not the map. The
+        // sheet is 512 cells and cheap either way.
+        owView.InvalidateWhere(session.OwCellAnimated);
         owSheet.Invalidate();
     }
 

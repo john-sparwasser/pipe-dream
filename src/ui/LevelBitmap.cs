@@ -97,6 +97,26 @@ public sealed class LevelBitmap : IDisposable
         for (int p = 0; p < 4; p++) { bmps[p]?.Dispose(); bmps[p] = null; imgs[p] = null; }
     }
 
+    /// <summary>
+    /// Rows <paramref name="rowFrom"/> up to <paramref name="rowTo"/> of <paramref name="px"/>
+    /// into an existing bitmap of the same size — what a surface that changes in one place pays,
+    /// instead of a new bitmap (and a new texture upload) for the whole thing.
+    /// </summary>
+    public static void Upload(WriteableBitmap bmp, uint[] px, int w, int rowFrom, int rowTo)
+    {
+        using var fb = bmp.Lock();
+        int rowBytes = w * 4;
+        unsafe
+        {
+            fixed (uint* src = px)
+            {
+                var dst = (byte*)fb.Address;
+                for (int y = rowFrom; y < rowTo; y++)
+                    Buffer.MemoryCopy(src + (long)y * w, dst + (long)y * fb.RowBytes, rowBytes, rowBytes);
+            }
+        }
+    }
+
     /// <summary>One-shot: composed RGBA pixels to a bitmap, for the static sheets (Map16
     /// picker, GFX sheets) that do not animate per phase.</summary>
     public static WriteableBitmap FromPixels(uint[] px, int w, int h)

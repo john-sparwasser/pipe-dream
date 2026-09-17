@@ -173,26 +173,8 @@ public sealed partial class EditorSession
     /// colours, the path picture's quarter over it while paths show — for a block dragged over
     /// the map before it lands. Null for no tile.</summary>
     public uint[]? Ow8TileOverlay(int tile, int col, int row, bool paths)
-    {
-        if (tile < 0 || Overworld is not { } ow || !OwMapCell(col, row, out int cx, out int cy, out _)) return null;
-        var img = Quarter(ow.Layer1Art(tile, OwSubmapShown(col, row)), cx, cy);
-        if (paths && Overworld.PathGlyph(tile) is { } g) Over(img, Quarter(g, cx, cy));
-        return img;
-    }
-
-    /// <summary>The 8x8 quarter of a 16x16 picture that an 8x8 map cell shows.</summary>
-    private static uint[] Quarter(uint[] tile16, int cx, int cy)
-    {
-        var img = new uint[64];
-        int ox = (cx & 1) * 8, oy = (cy & 1) * 8;
-        for (int y = 0; y < 8; y++) Array.Copy(tile16, (oy + y) * 16 + ox, img, y * 8, 8);
-        return img;
-    }
-
-    private static void Over(uint[] under, uint[] top)
-    {
-        for (int i = 0; i < under.Length; i++) if (top[i] != 0) under[i] = top[i];
-    }
+        => tile >= 0 && Overworld is { } ow && OwMapCell(col, row, out int cx, out int cy, out _)
+           ? ow.OverlayQuarterOf(tile, OwSubmapShown(col, row), (cx & 1) | (cy & 1) << 1, layer1: true, paths) : null;
 
     /// <summary>An 8x8 canvas cell (row-major over <see cref="Ow8Cols"/>): the layer 2 word the
     /// editor holds there, and nothing else — what the Tiles tab paints and moves.</summary>
@@ -234,24 +216,21 @@ public sealed partial class EditorSession
 
     /// <summary>Layer 1 over an 8x8 canvas cell — the level tiles and paths the land is seen
     /// through, drawn but never carried by a lasso.</summary>
-    public uint[]? Ow8OverlayPixels(int col, int row)
-        => Overworld is { } ow && OwHasLayer1(col, row) && OwMapCell(col, row, out int cx, out int cy, out bool sub) ? ow.Layer1QuarterPixels(cx, cy, sub) : null;
-
-    /// <summary>The quarter of Lunar Magic's picture for the path tile over an 8x8 canvas cell, or null.</summary>
-    public uint[]? Ow8GlyphPixels(int col, int row)
-        => Overworld is { } ow && OwHasLayer1(col, row) && OwMapCell(col, row, out int cx, out int cy, out bool sub)
-           && Overworld.PathGlyph(ow.Layer1At(cx >> 1, cy >> 1, sub)) is { } g ? Quarter(g, cx, cy) : null;
+    public uint[]? Ow8OverlayPixels(int col, int row) => Ow8Overlay(col, row, layer1: true, paths: false);
 
     /// <summary>The overlay over an 8x8 canvas cell: layer 1's quarter, the path picture's quarter
     /// over it, whichever the view has on.</summary>
     public uint[]? Ow8Overlay(int col, int row, bool layer1, bool paths)
+        => Overworld is { } ow && OwHasLayer1(col, row) && OwMapCell(col, row, out int cx, out int cy, out bool sub)
+           ? ow.OverlayQuarter(cx, cy, sub, layer1, paths) : null;
+
+    /// <summary>Whether a canvas cell's picture moves with the animation: the land word there,
+    /// or the layer 1 tile over it. What the animation tick redraws — those cells, not the map.</summary>
+    public bool OwCellAnimated(int col, int row)
     {
-        var under = layer1 ? Ow8OverlayPixels(col, row) : null;
-        if (!paths || Ow8GlyphPixels(col, row) is not { } g) return under;
-        if (under is null) return g;
-        var img = (uint[])under.Clone();
-        Over(img, g);
-        return img;
+        if (Overworld is not { } ow || OwMap is not { } map) return false;
+        if (Overworld.AnimatedTile8(map.At(col, row) & 0x3FF)) return true;
+        return OwHasLayer1(col, row) && OwMapCell(col, row, out int cx, out int cy, out bool sub) && ow.CellAnimated(cx, cy, sub);
     }
 
     /// <summary>The layer 1 tile under an 8x8 canvas cell, or -1 where there is none.</summary>

@@ -38,7 +38,7 @@ public partial class MainWindow
     private void OwFlipSelection(bool mirror)
     {
         if (OwModeNow != OwMode.Tiles || OwColorsOnly || session.OwMap is not { } map) return;
-        if (owFloat is { } f) { owFloat = (Turned(f.Cells, f.W, f.H, mirror), f.W, f.H); owView.Invalidate(); return; }
+        if (owFloat is { } f) { owFloat = (Turned(f.Cells, f.W, f.H, mirror), f.W, f.H); owView.InvalidateRegion(owFloatAt); return; }
         if (owView.Selection is not { } sel) return;
         var cells = Turned(ReadRect(map, sel), sel.W, sel.H, mirror);
         bool changed = false;
@@ -155,8 +155,13 @@ public partial class MainWindow
         if (d.Move)
         {
             if (owFloat is null) { owFloat = (ReadRect(map, from), from.W, from.H); owFloatFrom = from; }
+            // Where the float was, where it is now, and the hole it left: the only cells whose
+            // picture changed. This ran a full recompose per pointer move, which was the lag.
+            var was = owFloatAt;
             owFloatAt = to;
-            owView.Invalidate();
+            owView.InvalidateRegion(was);
+            owView.InvalidateRegion(to);
+            owView.InvalidateRegion(owFloatFrom);
             return;
         }
         DropOwFloat();
