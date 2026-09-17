@@ -27,6 +27,7 @@ internal static class Overlay
     private static readonly Pen CameraBandPen = new(UiColors.CameraBand, 1) { DashStyle = DashStyle.Dash };
     private static readonly Pen CameraBandFlatPen = new(UiColors.CameraBandFlat, 1) { DashStyle = DashStyle.Dash };
     private static readonly Pen CameraBandFaintPen = new(UiColors.CameraBandFaint, 1) { DashStyle = DashStyle.Dash };
+    private static readonly Pen CameraSpawnPen = new(UiColors.Sprite, 1) { DashStyle = DashStyle.Dash };
     private static readonly Pen BadgeEdge = new(Brushes.Black, 1);
     private static readonly Pen Rung = new(Brushes.Black, 1.5);
     private static readonly Pen Cross = new(Brushes.Black, 2);
@@ -53,6 +54,11 @@ internal static class Overlay
     /// <summary>The camera view's visible screen — the same dashed frame the overworld's areas
     /// wear, for the same reason: it annotates the level rather than selecting anything in it.</summary>
     public static void CameraScreen(DrawingContext ctx, Rect r) => ctx.DrawRectangle(null, CameraPen, r);
+
+    /// <summary>A sprite spawn column beside the camera screen — the one 16px strip the loader
+    /// tests as the screen moves that way. The sprites' own teal, so it reads with the sprite
+    /// overlay rather than as another piece of the camera.</summary>
+    public static void CameraSpawn(DrawingContext ctx, Rect r) => ctx.DrawRectangle(UiColors.SpriteFill, CameraSpawnPen, r);
 
     /// <summary>One band inside the camera screen: where the player is held while the screen
     /// scrolls. Filled as well as framed — three dashed rectangles inside a fourth read as a

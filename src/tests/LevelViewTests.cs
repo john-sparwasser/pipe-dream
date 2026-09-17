@@ -350,6 +350,28 @@ public class LevelViewTests
     }
 
     /// <summary>
+    /// The spawn columns are LoadSprFromLevel's: one 16px strip -0x30 from the screen's left edge
+    /// heading left, one +0x120 heading right (DATA_02A7F6/F9 by $55), each aligned to 16 the way
+    /// $02A81D aligns them — so an 8-snapped camera names the column the game tests, not the one
+    /// half a tile over. A vertical level runs the same offsets down the screen.
+    /// </summary>
+    [Fact]
+    public void the_spawn_columns_are_the_sprite_loaders_own_numbers()
+    {
+        Assert.Equal((0x0FD0, 0x1120), CameraView.SpawnColumns(0x1000));
+        Assert.Equal((0x0FD0, 0x1120), CameraView.SpawnColumns(0x1008));   // the 8 is masked away
+        // Three tiles past the left edge, two past the right (the screen is 0x100 wide).
+        var (l, r) = CameraView.SpawnColumns(0x1000);
+        Assert.Equal(-3 * 16, l - 0x1000);
+        Assert.Equal(2 * 16, r - (0x1000 + CameraView.ScreenWidth));
+        // Vertically the screen is only 0xE0 tall, so the lower row is four tiles under it.
+        var (a, b) = CameraView.SpawnRows(0x200);
+        Assert.Equal(-3 * 16, a - 0x200);
+        Assert.Equal(4 * 16, b - (0x200 + CameraView.ScreenHeight));
+        Assert.Equal(16, CameraView.SpawnColumn);
+    }
+
+    /// <summary>
     /// The bands are the scroll code's own constants: the two horizontal ones are the static
     /// camera region either way the player faces ($142A's 0x60/0x90 centres, minus 0x0C and plus
     /// 0x18 at $00F6E0), and the vertical one is between the up and down scroll lines

@@ -51,6 +51,27 @@ public static class CameraView
     // Unlike the horizontal centre this one never drifts — the two are immediates in the table.
     private const int UpLine = 0x64, DownLine = 0x7C;
 
+    // Where sprites come from. LoadSprFromLevel ($02A7FB, every even frame) checks ONE 16px
+    // column per frame and loads every listed sprite whose column matches: $1A plus
+    // DATA_02A7F6[$55] in the low byte, masked to 16 ($02A81D), and $1B plus DATA_02A7F9[$55] in
+    // the high. $55 is the scroll direction the camera code left behind — 0 heading left/up, 2
+    // heading right/down — so the two entries are (0xD0, 0xFF) = -0x30 and (0x20, 0x01) = +0x120.
+    // A vertical level runs the same two offsets down $1C/$1D instead ($02A809).
+    private const int SpawnBehind = -0x30;                    // three tiles past the leading edge...
+    private const int SpawnAhead = 0x120;                     // ...two past the trailing one: the screen is 0x100 wide
+    public const int SpawnColumn = 16;
+
+    /// <summary>The two spawn columns for a camera whose left edge is at <paramref name="cameraX"/>
+    /// level pixels, aligned to 16 the way the loader aligns them — so an 8-snapped camera lands
+    /// on the column the game would actually test, not a half-tile beside it.</summary>
+    public static (int Left, int Right) SpawnColumns(int cameraX)
+        => ((cameraX + SpawnBehind) & ~0xF, (cameraX + SpawnAhead) & ~0xF);
+
+    /// <summary>The same two offsets down the screen, for a vertical level. The screen is only
+    /// 0xE0 tall, so the lower row sits four tiles under it rather than two.</summary>
+    public static (int Above, int Below) SpawnRows(int cameraY)
+        => ((cameraY + SpawnBehind) & ~0xF, (cameraY + SpawnAhead) & ~0xF);
+
     /// <summary>The bands, in on-screen pixels from the top left of the visible screen. Each is
     /// the span the player can move through WITHOUT the screen following — its edges are what
     /// the scroll code compares against.</summary>

@@ -985,6 +985,21 @@ public class LevelView : Control
                 : PixelRect(cx, cy + b.From, CameraView.ScreenWidth, b.To - b.From, z),
                 b.Vertical, b.LookAhead);
         Overlay.CameraScreen(ctx, screen);
+
+        // The two columns sprites load from, outside the frame on the side the screen would be
+        // heading. A vertical level runs the same offsets up and down instead.
+        if (Vertical)
+        {
+            var (above, below) = CameraView.SpawnRows(cy);
+            Overlay.CameraSpawn(ctx, PixelRect(cx, above, CameraView.ScreenWidth, CameraView.SpawnColumn, z));
+            Overlay.CameraSpawn(ctx, PixelRect(cx, below, CameraView.ScreenWidth, CameraView.SpawnColumn, z));
+        }
+        else
+        {
+            var (left, right) = CameraView.SpawnColumns(cx);
+            Overlay.CameraSpawn(ctx, PixelRect(left, cy, CameraView.SpawnColumn, CameraView.ScreenHeight, z));
+            Overlay.CameraSpawn(ctx, PixelRect(right, cy, CameraView.SpawnColumn, CameraView.ScreenHeight, z));
+        }
     }
 
     /// <summary>
