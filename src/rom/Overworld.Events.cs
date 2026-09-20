@@ -34,6 +34,15 @@ public sealed partial class Overworld
     /// all 0x78 — it just lays nothing.</summary>
     public int ClearEvent(int ev) => ((List<EventStep>)EventSteps).RemoveAll(s => s.Event == ev);
 
+    /// <summary>Put a whole list back — what undo does — into the same list object the map and
+    /// the drawers read from, so nothing that holds it has to be told.</summary>
+    public void ReplaceEventSteps(IEnumerable<EventStep> steps)
+    {
+        var list = (List<EventStep>)EventSteps;
+        list.Clear();
+        list.AddRange(steps);
+    }
+
     /// <summary>Where the steps table is, in the file: Lunar Magic relocates it and repoints the
     /// long read at $04E49E; vanilla's sits at <see cref="EventStepTable"/>.</summary>
     private static int EventStepsPc(Rom rom)

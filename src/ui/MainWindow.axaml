@@ -1213,7 +1213,7 @@
                       <TextBlock Text="Add" VerticalAlignment="Center"/>
                     </ToggleButton>
                     <Button x:Name="OwEventClear" Click="OnOwEventClear"
-                            ToolTip.Tip="Take every step off this event, so it lays nothing">
+                            ToolTip.Tip="Take every step off this event, so it lays nothing. Undo brings them back">
                       <TextBlock Text="Clear" VerticalAlignment="Center"/>
                     </Button>
                   </StackPanel>

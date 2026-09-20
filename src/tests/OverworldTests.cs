@@ -629,6 +629,26 @@ public class OverworldTests(ITestOutputHelper log)
         Assert.NotEqual(true, add.IsChecked);
         // ...and the new piece now picks its event too.
         Assert.Equal(ev, session.OwEventAt(bare.c, bare.r));
+
+        // Clear asks nothing and takes every step; Ctrl+Z brings them back, Ctrl+Y takes them
+        // again, and one more Ctrl+Z pair walks back past the Add as well.
+        clear.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Empty(ow.EventSteps.Where(s => s.Event == ev));
+        Assert.Empty(w.GetControl<StackPanel>("OwEventSteps").Children);
+        Assert.False(clear.IsEnabled);
+        w.KeyPressQwerty(PhysicalKey.Z, RawInputModifiers.Control);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(had + 1, ow.EventSteps.Count(s => s.Event == ev));
+        Assert.Equal(had + 1, w.GetControl<StackPanel>("OwEventSteps").Children.Count);
+        w.KeyPressQwerty(PhysicalKey.Y, RawInputModifiers.Control);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Empty(ow.EventSteps.Where(s => s.Event == ev));
+        w.KeyPressQwerty(PhysicalKey.Z, RawInputModifiers.Control);
+        w.KeyPressQwerty(PhysicalKey.Z, RawInputModifiers.Control);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(had, ow.EventSteps.Count(s => s.Event == ev));
+        Assert.NotEqual(ev, session.OwEventAt(bare.c, bare.r));   // the added piece is gone from the map too
     }
 
     /// <summary>The Paths &amp; Levels tab is Lunar Magic's Layer 1 16x16 Editor: the drawer's

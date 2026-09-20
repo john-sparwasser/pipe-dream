@@ -59,17 +59,47 @@ public partial class EditorSession
         if (Overworld is not { } ow) return "no overworld";
         if (!OwMapCell(col, row, out int cx, out int cy, out bool sub)) return "a piece has to land on one of the maps";
         if (cx + size > 2 * Overworld.Cols || cy + size > 2 * Overworld.Rows) return $"a {size}x{size} piece does not fit there — it would hang off the map";
+        OwEventSnapshot();
         ow.AddEventStep(new Overworld.EventStep(ev, src, cx, cy, sub, size));
         OwEventStepsChanged();
         return null;
     }
 
-    /// <summary>Take every step off an event; how many went.</summary>
+    /// <summary>Take every step off an event; how many went. Undoable, like every other edit.</summary>
     public int OwClearEvent(int ev)
     {
-        int gone = Overworld?.ClearEvent(ev) ?? 0;
-        if (gone > 0) OwEventStepsChanged();
+        if (Overworld is not { } ow || !ow.EventSteps.Any(s => s.Event == ev)) return 0;
+        OwEventSnapshot();
+        int gone = ow.ClearEvent(ev);
+        OwEventStepsChanged();
         return gone;
+    }
+
+    // The step table's history: whole lists, because an edit is one step in a few hundred and a
+    // copy is cheaper than describing the difference. Its own stacks rather than a TilemapEdit's,
+    // since the steps are not a grid; the window sends Ctrl+Z here while the Events tab is up.
+    private readonly Stack<List<Overworld.EventStep>> owEventUndo = new(), owEventRedo = new();
+
+    public bool OwCanUndoEvent => owEventUndo.Count > 0;
+    public bool OwCanRedoEvent => owEventRedo.Count > 0;
+
+    private void OwEventSnapshot()
+    {
+        if (Overworld is not { } ow) return;
+        owEventUndo.Push([.. ow.EventSteps]);
+        owEventRedo.Clear();
+    }
+
+    public bool OwEventUndo() => OwEventMove(owEventUndo, owEventRedo);
+    public bool OwEventRedo() => OwEventMove(owEventRedo, owEventUndo);
+
+    private bool OwEventMove(Stack<List<Overworld.EventStep>> from, Stack<List<Overworld.EventStep>> to)
+    {
+        if (from.Count == 0 || Overworld is not { } ow) return false;
+        to.Push([.. ow.EventSteps]);
+        ow.ReplaceEventSteps(from.Pop());
+        OwEventStepsChanged();
+        return true;
     }
 
     private void OwEventStepsChanged()

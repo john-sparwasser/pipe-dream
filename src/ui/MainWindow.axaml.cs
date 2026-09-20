@@ -769,6 +769,8 @@ public partial class MainWindow : Window
             DropOwFloat();                  // a floating block lands first, so this undo takes it back
             if (redo ? owMap.Redo() : owMap.Undo()) { RefreshOverworld(); UpdateTitle(); }
         }
+        // The Events tab edits the step table, which keeps its own history in the session.
+        else if (modeOverworld.IsChecked == true && OwModeNow == OwMode.Events) OwEventUndoRedo(redo);
         // Sprite mode has its own history — without this branch Ctrl+Z in sprite mode fell
         // through and silently rewound the OBJECT stack instead.
         else if (canvas.Mode == LevelView.EditMode.Sprites && session.Sprites is { } sp)

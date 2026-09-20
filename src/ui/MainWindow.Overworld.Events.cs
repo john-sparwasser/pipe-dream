@@ -46,9 +46,7 @@ public partial class MainWindow
             string? why = session.OwAddEventStep(ev, piece.Src, piece.Size, cell.Col, cell.Row);
             SetOwEventPlacing(false);
             if (why is not null) { await ConfirmWindow.Notice("Add event step", why).ShowDialog(this); return; }
-            RefreshOwEventPanel();
-            owView.InvalidateVisual();
-            UpdateTitle();
+            AfterOwEventEdit();
             return;
         }
         OwSelectEvent(session.OwEventAt(cell.Col, cell.Row));
@@ -67,17 +65,24 @@ public partial class MainWindow
         RefreshOwNote();
     }
 
-    /// <summary>Clear asks first: there is no undo for the step table yet, and an event with no
-    /// steps reveals nothing when it fires.</summary>
-    private async void OnOwEventClear(object? sender, RoutedEventArgs e)
+    /// <summary>Clear takes every step off the event. No question first: Ctrl+Z brings them back,
+    /// which is what a question was standing in for.</summary>
+    private void OnOwEventClear(object? sender, RoutedEventArgs e)
     {
         if (owEvent is not { } ev) return;
-        int n = session.OwEventSteps(ev).Count();
-        var ask = new ConfirmWindow("Clear event", $"Take all {n} step{(n == 1 ? "" : "s")} off event {ev:X2}? It will reveal nothing when it fires. This cannot be undone.", "Clear");
-        await ask.ShowDialog(this);
-        if (!ask.Confirmed) return;
         session.OwClearEvent(ev);
         SetOwEventPlacing(false);
+        AfterOwEventEdit();
+    }
+
+    /// <summary>Ctrl+Z / Ctrl+Y while the Events tab is up rewinds the step table.</summary>
+    private void OwEventUndoRedo(bool redo)
+    {
+        if (redo ? session.OwEventRedo() : session.OwEventUndo()) AfterOwEventEdit();
+    }
+
+    private void AfterOwEventEdit()
+    {
         RefreshOwEventPanel();
         owView.InvalidateVisual();
         UpdateTitle();
