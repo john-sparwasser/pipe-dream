@@ -346,7 +346,9 @@ public partial class MainWindow
                     changed |= map.Stamp(col + i, row + j, copy[j * sel.W + i]);
         }
         else changed = map.Stamp(col, row, bgLayer3.IsChecked == true ? bgBrushL3 : session.BgPaintable(bgBrush));
-        if (changed) bgView.Invalidate();
+        // Only the cells the brush covered — a cell shows its own value and nothing else's. A full
+        // recompose here made every frame of a stroke cost the whole map.
+        if (changed) bgView.InvalidateRegion((col, row, bgView.Selection?.W ?? 1, bgView.Selection?.H ?? 1));
     }
 
     /// <summary>

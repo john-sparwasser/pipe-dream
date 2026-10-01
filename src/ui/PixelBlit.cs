@@ -60,6 +60,9 @@ public sealed class PixelBlit
     /// alternate — see <see cref="Fin"/>.</summary>
     internal int FinIndex => finIx;
 
+    /// <summary>An image stacked on a Draw's base: its pixels, and where they land in the owner.</summary>
+    public readonly record struct Layer(IImage Image, Rect Src, Rect Dst);
+
     /// <summary>True when one source pixel covers a whole number of device pixels at this scale.</summary>
     internal static bool Whole(double zoom, double scaling)
         => Math.Abs(zoom * scaling - Math.Round(zoom * scaling)) < 0.001;
@@ -69,8 +72,14 @@ public sealed class PixelBlit
     /// <paramref name="owner"/>, by the rule above. <paramref name="dst"/> may be far bigger than
     /// the window — a whole 8192px level, or a 512-row Map16 sheet — and only the visible part of
     /// it is drawn through the intermediate.
+    ///
+    /// <paramref name="over"/> are the images stacked on it — an overlay layer, a block in flight —
+    /// laid down unsampled into the same intermediate, in order, before the ONE filtered step. At a
+    /// fractional zoom each separate Draw is a filter pass over the viewport on the CPU, and a canvas
+    /// that drew its layers one call each dropped frames while it scrolled. A layer should sit on
+    /// whole source pixels of <paramref name="bmp"/>, as cells do, so nearest lands it exactly.
     /// </summary>
-    public void Draw(Visual owner, DrawingContext ctx, IImage bmp, Rect src, Rect dst, double scaling)
+    public void Draw(Visual owner, DrawingContext ctx, IImage bmp, Rect src, Rect dst, double scaling, params Layer[] over)
     {
         FreeRetired();                 // last frame's replaced intermediates are safe to drop now
         if (src.Width < 1 || src.Height < 1 || dst.Width < 1 || dst.Height < 1) { LastDraw = "blank"; return; }
@@ -81,6 +90,7 @@ public sealed class PixelBlit
             LastDraw = "exact";
             RenderOptions.SetBitmapInterpolationMode(owner, BitmapInterpolationMode.None);
             Image(ctx, bmp, src, dst);
+            foreach (var l in over) Image(ctx, l.Image, l.Src, l.Dst);
             return;
         }
 
@@ -109,6 +119,7 @@ public sealed class PixelBlit
             LastDraw = "unfiltered";
             RenderOptions.SetBitmapInterpolationMode(owner, BitmapInterpolationMode.None);
             Image(ctx, bmp, new Rect(sx, sy, sw, sh), into);
+            foreach (var l in over) Image(ctx, l.Image, l.Src, l.Dst);
             return;
         }
 
@@ -124,15 +135,23 @@ public sealed class PixelBlit
             LastDraw = "unfiltered";
             RenderOptions.SetBitmapInterpolationMode(owner, BitmapInterpolationMode.None);
             Image(ctx, bmp, new Rect(sx, sy, sw, sh), into);
+            foreach (var l in over) Image(ctx, l.Image, l.Src, l.Dst);
             return;
         }
 
         using (var dc = rt.CreateDrawingContext())
         using (dc.PushRenderOptions(Options(BitmapInterpolationMode.None)))
+        {
             Image(dc, bmp, new Rect(sx, sy, sw, sh), whole);
+            foreach (var l in over) Image(dc, l.Image, l.Src, InMid(l.Dst, dst, src, z, sx, sy, n));
+        }
 
         using (var dc = f2.CreateDrawingContext())
-        using (dc.PushRenderOptions(Options(BitmapInterpolationMode.HighQuality)))
+        // Bilinear, not HighQuality: n is rounded UP from the zoom, so this step never shrinks by
+        // more than half, where bilinear already samples every source pixel and mipmaps add
+        // nothing. HighQuality's cubic-with-mipmaps cost two thirds more per repaint, on the CPU —
+        // enough, at a fractional zoom, to drop frames while the map scrolled.
+        using (dc.PushRenderOptions(Options(BitmapInterpolationMode.LowQuality)))
             dc.DrawImage(rt, whole,
                 new Rect((into.X - vis.X) * scaling, (into.Y - vis.Y) * scaling,
                          into.Width * scaling, into.Height * scaling));
@@ -141,6 +160,12 @@ public sealed class PixelBlit
                       new Rect(vis.X, vis.Y, fw / scaling, fh / scaling));
         LastDraw = "sharp";
     }
+
+    /// <summary>Where a layer placed at <paramref name="at"/> in the owner lands in the intermediate:
+    /// its place as source pixels of the base (<paramref name="dst"/> shows <paramref name="src"/>
+    /// at <paramref name="z"/>), less the visible part's corner, at <paramref name="n"/> each.</summary>
+    internal static Rect InMid(Rect at, Rect dst, Rect src, double z, int sx, int sy, int n)
+        => new(((at.X - dst.X) / z + src.X - sx) * n, ((at.Y - dst.Y) / z + src.Y - sy) * n, at.Width / z * n, at.Height / z * n);
 
     /// <summary>
     /// <paramref name="src"/> may reach past <paramref name="bmp"/>, in which case the bitmap

@@ -29,7 +29,7 @@ namespace PipeDream.Ui;
 /// </summary>
 public sealed class TilemapView : Control
 {
-    private readonly PixelBlit blit = new(), overlayBlit = new();
+    private readonly PixelBlit blit = new();
     private uint[]? surface, overlaySurface;
     private Avalonia.Media.Imaging.WriteableBitmap? bmp, overlayBmp;
     private bool stale = true;
@@ -360,10 +360,12 @@ public sealed class TilemapView : Control
             if (Backdrop != 0) ctx.FillRectangle(new SolidColorBrush(Rgba(Backdrop)), full);
             return;
         }
-        blit.Draw(this, ctx, bmp, new Rect(0, 0, surfW, surfH), full, VisualRoot?.RenderScaling ?? 1);
-        // The block being dragged travels UNDER the overlay layer, where it will land.
-        if (LiveDrag is { } drag && !EditsOverlay) DrawDragPreview(ctx, drag);
-        if (overlayBmp is { } over) overlayBlit.Draw(this, ctx, over, new Rect(0, 0, surfW, surfH), full, VisualRoot?.RenderScaling ?? 1);
+        // Every layer in ONE blit, bottom to top (PixelBlit.Draw): the block being dragged travels
+        // UNDER the overlay layer, where it will land.
+        var layers = new List<PixelBlit.Layer>(3);
+        if (LiveDrag is { } drag && !EditsOverlay) AddDragPreview(layers, drag);
+        if (overlayBmp is { } over) layers.Add(new(over, new Rect(0, 0, surfW, surfH), full));
+        blit.Draw(this, ctx, bmp, new Rect(0, 0, surfW, surfH), full, VisualRoot?.RenderScaling ?? 1, [.. layers]);
         Decorate?.Invoke(ctx, Step);
 
         // The armed tile wears the same ring as the Map16 and 8x8 drawers' picks.
@@ -386,7 +388,6 @@ public sealed class TilemapView : Control
         => dragFrom is { } f && Selection is { } t && t != f
            ? new SelectionDrag(f, t, dragEdge == (0, 0)) : null;
 
-    private readonly PixelBlit dragBlit = new(), holeBlit = new();
     private Avalonia.Media.Imaging.WriteableBitmap? dragBmp, dragRetired, holeBmp, holeRetired;
     private (int X, int Y, int W, int H)? holeBmpFor;
     private SelectionDrag? dragBmpFor;
@@ -397,22 +398,22 @@ public sealed class TilemapView : Control
     /// it has already been written.
     ///
     /// A move also empties where it came from, because that is what it will do: seeing the gap
-    /// open is how you tell a move from a copy without letting go first.
+    /// open is how you tell a move from a copy without letting go first. Both go on the stack
+    /// the Render blit draws, rather than being blitted here: see <see cref="PixelBlit.Draw"/>.
     /// </summary>
-    private void DrawDragPreview(DrawingContext ctx, SelectionDrag d)
+    private void AddDragPreview(List<PixelBlit.Layer> layers, SelectionDrag d)
     {
         if (CellAt is not { } at || CellPixels is not { } pixels) return;
         if (d.Move)
         {
-            var hole = new Rect(d.From.X * Step, d.From.Y * Step, d.From.W * Step, d.From.H * Step);
-            if (HolePixels is { } under)
+            // Built once per drag: the hole's rectangle is fixed from the press to the release.
+            // The backdrop wherever HolePixels has nothing (or there is no HolePixels at all).
+            int hw = d.From.W * CellPx, hh = d.From.H * CellPx;
+            if (holeBmp is null || holeBmpFor != d.From)
             {
-                // Built once per drag: the hole's rectangle is fixed from the press to the release.
-                int hw = d.From.W * CellPx, hh = d.From.H * CellPx;
-                if (holeBmp is null || holeBmpFor != d.From)
-                {
-                    var px = new uint[hw * hh];
-                    Array.Fill(px, Backdrop);
+                var px = new uint[hw * hh];
+                Array.Fill(px, Backdrop);
+                if (HolePixels is { } under)
                     for (int r = 0; r < d.From.H; r++)
                         for (int c = 0; c < d.From.W; c++)
                         {
@@ -421,14 +422,12 @@ public sealed class TilemapView : Control
                                 for (int x = 0; x < CellPx; x++)
                                     px[(r * CellPx + y) * hw + c * CellPx + x] = cell[y * CellPx + x];
                         }
-                    holeRetired?.Dispose();
-                    holeRetired = holeBmp;
-                    holeBmp = LevelBitmap.FromPixels(px, hw, hh);
-                    holeBmpFor = d.From;
-                }
-                holeBlit.Draw(this, ctx, holeBmp, new Rect(0, 0, hw, hh), hole, VisualRoot?.RenderScaling ?? 1);
+                holeRetired?.Dispose();
+                holeRetired = holeBmp;
+                holeBmp = LevelBitmap.FromPixels(px, hw, hh);
+                holeBmpFor = d.From;
             }
-            else ctx.FillRectangle(new SolidColorBrush(Rgba(Backdrop)), hole);
+            layers.Add(new(holeBmp, new Rect(0, 0, hw, hh), new Rect(d.From.X * Step, d.From.Y * Step, d.From.W * Step, d.From.H * Step)));
         }
 
         int w = d.To.W * CellPx, h = d.To.H * CellPx;
@@ -457,9 +456,7 @@ public sealed class TilemapView : Control
             dragBmp = LevelBitmap.FromPixels(px, w, h);
             dragBmpFor = d;
         }
-        dragBlit.Draw(this, ctx, dragBmp, new Rect(0, 0, w, h),
-                      new Rect(d.To.X * Step, d.To.Y * Step, d.To.W * Step, d.To.H * Step),
-                      VisualRoot?.RenderScaling ?? 1);
+        layers.Add(new(dragBmp, new Rect(0, 0, w, h), new Rect(d.To.X * Step, d.To.Y * Step, d.To.W * Step, d.To.H * Step)));
     }
 
     /// <summary>Composition packs 0xAABBGGRR, which is not the order Color takes.</summary>
