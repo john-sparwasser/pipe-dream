@@ -4,8 +4,8 @@ using Avalonia.Markup.Xaml;
 
 namespace PipeDream.Ui;
 
-/// <summary>Reassign an ExAnimation slot's number: a dropdown of the list's free slot numbers.
-/// <see cref="Result"/> is null when cancelled.</summary>
+/// <summary>Pick a number from a short list, shown in hex: an ExAnimation slot's free numbers, or
+/// the events the Events tab can start. <see cref="Result"/> is null when cancelled.</summary>
 public partial class SlotNumberWindow : Window
 {
     public int? Result { get; private set; }
@@ -15,14 +15,16 @@ public partial class SlotNumberWindow : Window
 
     public SlotNumberWindow() => AvaloniaXamlLoader.Load(this);
 
-    public SlotNumberWindow(int current, IReadOnlyList<int> free) : this()
+    public SlotNumberWindow(int current, IReadOnlyList<int> free)
+        : this("Reassign slot", $"Move slot {current:X2} to which free slot number?", free) { }
+
+    public SlotNumberWindow(string title, string prompt, IReadOnlyList<int> choices) : this()
     {
-        Title = "Reassign slot";
-        this.GetControl<TextBlock>("Prompt").Text
-            = $"Move slot {current:X2} to which free slot number?";
-        choices = free;
+        Title = title;
+        this.GetControl<TextBlock>("Prompt").Text = prompt;
+        this.choices = choices;
         numbers = this.GetControl<ComboBox>("Numbers");
-        numbers.ItemsSource = free.Select(i => $"{i:X2}").ToList();
+        numbers.ItemsSource = choices.Select(i => $"{i:X2}").ToList();
         numbers.SelectedIndex = 0;
     }
 

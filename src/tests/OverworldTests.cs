@@ -287,11 +287,13 @@ public class OverworldTests(ITestOutputHelper log)
             Dispatcher.UIThread.RunJobs();
         }
         Assert.NotNull(view.Decorate);
-        // Event numbers are the Events tab's business: the toggle only shows there.
+        // Event numbers are the Events tab's business: the toggle only shows there, and so does New event.
         Assert.False(w.GetControl<ToggleButton>("OwShowEventNumbers").IsVisible);
+        Assert.False(w.GetControl<Button>("OwNewEvent").IsVisible);
         tabs.SelectedIndex = 2;
         Dispatcher.UIThread.RunJobs();
         Assert.True(w.GetControl<ToggleButton>("OwShowEventNumbers").IsVisible);
+        Assert.True(w.GetControl<Button>("OwNewEvent").IsVisible);
     }
 
     /// <summary>
@@ -364,13 +366,62 @@ public class OverworldTests(ITestOutputHelper log)
     }
 
     /// <summary>
-    /// The Events tab's drawer is the event pieces, and a pick there is one whole piece: six
-    /// cells square in the upper band, two in the lower, whichever the pointer is over — never a
-    /// corner of two, and never grown by dragging. The cells the short last band leaves belong to
-    /// no piece and arm nothing.
+    /// A stroke redraws only the cells it painted, not the whole map — and what it leaves on
+    /// screen once it is let go is exactly what a full recompose would draw: land on either map
+    /// (the lower one's wrapped strip too), and a layer 1 tile on the lower map, which only lands
+    /// in the arrays the canvas draws from when the stroke commits.
     /// </summary>
     [AvaloniaFact]
-    public void the_events_drawer_picks_whole_pieces_of_either_size()
+    public void a_painted_cell_redraws_only_itself_and_matches_a_full_redraw()
+    {
+        if (PreppedRom.Path is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeOverworld").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        var paint = typeof(MainWindow).GetMethod("OwPaint", flags)!;
+        var strokeEnded = typeof(MainWindow).GetMethod("OwStrokeEnded", flags)!;
+        var tabs = w.GetControl<TabStrip>("OwTabs");
+        var view = w.GetControl<TilemapView>("OwView");
+
+        void PaintMatchesFull(int tab, string brush, int value, params (int C, int R)[] cells)
+        {
+            tabs.SelectedIndex = tab;
+            Dispatcher.UIThread.RunJobs();
+            typeof(MainWindow).GetField(brush, flags)!.SetValue(w, value);
+            view.ComposeForTests();
+            var before = (uint[])view.SurfaceForTests!.Clone();
+            var beforeOver = (uint[])view.OverlaySurfaceForTests!.Clone();
+            foreach (var (c, r) in cells) paint.Invoke(w, [c, r]);
+            strokeEnded.Invoke(w, null);                    // the release: layer 1 lands in the map here
+            view.ComposeForTests();
+            var partial = (uint[])view.SurfaceForTests!.Clone();
+            var partialOver = (uint[])view.OverlaySurfaceForTests!.Clone();
+            Assert.True(!partial.SequenceEqual(before) || !partialOver.SequenceEqual(beforeOver));   // the paint showed
+            view.Invalidate();
+            view.ComposeForTests();
+            Assert.Equal(view.SurfaceForTests, partial);
+            Assert.Equal(view.OverlaySurfaceForTests, partialOver);
+        }
+
+        // Land: the main map, the lower map, and the lower map's wrapped left strip.
+        PaintMatchesFull(0, "owBrushTile", 0x25, (10, 10), (20, 90), (0, 70));
+        // Layer 1: a 16x16 tile on the lower map, two cells right and one down of its grid.
+        PaintMatchesFull(1, "owL1Tile", 0x66, (21, 91));
+    }
+
+    /// <summary>
+    /// Add and Replace pick their piece in EventPieceWindow: the pieces area, and a pick there is one
+    /// whole piece — six cells square in the upper band, two in the lower, whichever the pointer is
+    /// over — never a corner of two, and never grown by dragging. A pick on a piece is the choice:
+    /// the window closes with it. The cells the short last band leaves belong to no piece, and a
+    /// click there takes nothing and leaves the window up. Replace's current piece is lit.
+    /// </summary>
+    [AvaloniaFact]
+    public void the_event_piece_picker_takes_whole_pieces_of_either_size()
     {
         if (PreppedRom.Path is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
         Program.RomPath = p;
@@ -381,56 +432,141 @@ public class OverworldTests(ITestOutputHelper log)
         Dispatcher.UIThread.RunJobs();
         var session = (Services.EditorSession)typeof(MainWindow)
             .GetField("session", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(w)!;
-        w.GetControl<TabStrip>("OwTabs").SelectedIndex = 2;
-        Dispatcher.UIThread.RunJobs();
-        var sheet = w.GetControl<TilemapView>("OwSheet");
-        var note = w.GetControl<TextBlock>("OwNote");
 
-        // The sheet is the pieces area as the Tiles canvas lays it out, drawn the same way.
-        Assert.Equal((Overworld.EventArea.Cols, Overworld.EventArea.Rows, 8), (sheet.Cols, sheet.Rows, sheet.CellPx));
-        Assert.Equal(1, sheet.CellAt!(1, 0));                          // piece 0, its second byte
-        Assert.Equal(36 + 1, sheet.CellAt!(7, 0));                     // piece 1 starts six cells over
-        Assert.Equal(session.OwEventPiecePixels(37), sheet.CellPixels!(37));
-        Assert.Equal(0u, sheet.Backdrop);
-        Assert.Contains("click one to arm it", note.Text);
+        // Open a picker, press at one cell and let go at another, and say what it chose.
+        (int Src, int Size)? Choose((int C, int R) down, (int C, int R) up, out bool open)
+        {
+            var dlg = new EventPieceWindow(session, "Replace event step", "Pick a piece", 0x024);
+            dlg.Show();
+            Dispatcher.UIThread.RunJobs();
+            var sheet = dlg.GetControl<TilemapView>("Sheet");
+            sheet.FindAncestorOfType<ScrollViewer>()!.Offset = new Vector(0, Math.Max(0, Math.Min(down.R, up.R) * 8 * sheet.Zoom - 40));
+            Dispatcher.UIThread.RunJobs();
+            Point At((int C, int R) c) => sheet.TranslatePoint(new Point(c.C * 8 * sheet.Zoom + 2, c.R * 8 * sheet.Zoom + 2), dlg)!.Value;
+            dlg.MouseDown(At(down), MouseButton.Left);
+            if (up != down) dlg.MouseMove(At(up), RawInputModifiers.LeftMouseButton);
+            dlg.MouseUp(At(up), MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+            open = dlg.IsVisible;
+            if (open) dlg.Close();
+            return dlg.Result;
+        }
 
-        Point At(int c, int r) => sheet.TranslatePoint(new Point(c * 8 * sheet.Zoom + 2, r * 8 * sheet.Zoom + 2), w)!.Value;
+        // The sheet is the pieces area as the Tiles canvas lays it out, drawn the same way, with
+        // the step's own piece lit, and no OK to press: a pick is the choice.
+        var look = new EventPieceWindow(session, "Replace event step", "Pick a piece", 0x024);
+        var sheet0 = look.GetControl<TilemapView>("Sheet");
+        Assert.Equal((Overworld.EventArea.Cols, Overworld.EventArea.Rows, 8), (sheet0.Cols, sheet0.Rows, sheet0.CellPx));
+        Assert.Equal(1, sheet0.CellAt!(1, 0));                         // piece 0, its second byte
+        Assert.Equal(36 + 1, sheet0.CellAt!(7, 0));                    // piece 1 starts six cells over
+        Assert.Equal(session.OwEventPiecePixels(37), sheet0.CellPixels!(37));
+        Assert.Equal(0u, sheet0.Backdrop);
+        Assert.NotNull(sheet0.Decorate);
+        Assert.Null(look.FindControl<Button>("Ok"));
+        Assert.True(sheet0.RepaintOnHover);                            // the reticle follows the pointer
 
-        // A click anywhere in piece 1's six-by-six takes the whole piece.
-        w.MouseDown(At(7, 2), MouseButton.Left); w.MouseUp(At(7, 2), MouseButton.Left);
-        Dispatcher.UIThread.RunJobs();
-        Assert.Equal((6, 0, 6, 6), sheet.Selection);
-        Assert.Contains("6x6 piece at 0x024", note.Text);            // piece 1 = 36 bytes in
+        // A click anywhere in piece 1's six-by-six takes the whole piece, and closes.
+        Assert.Equal((0x024, 6), Choose((7, 2), (7, 2), out bool open));   // piece 1 = 36 bytes in
+        Assert.False(open);
 
-        // Dragging from one piece into the next does not grow the pick across both.
-        w.MouseDown(At(1, 1), MouseButton.Left);
-        w.MouseMove(At(20, 8), RawInputModifiers.LeftMouseButton);
-        w.MouseUp(At(20, 8), MouseButton.Left);
-        Dispatcher.UIThread.RunJobs();
-        Assert.Equal((0, 0, 6, 6), sheet.Selection);
-        Assert.Contains("6x6 piece at 0x000", note.Text);
+        // Dragging from one piece into the next takes the one it started on, not a span of both.
+        Assert.Equal((0x000, 6), Choose((1, 1), (20, 8), out _));
 
         // In the lower band a click takes a two-by-two, named from 0x900 as an event step names it.
         int r2 = Overworld.Event2Row;
-        w.MouseDown(At(3, r2 + 1), MouseButton.Left); w.MouseUp(At(3, r2 + 1), MouseButton.Left);
-        Dispatcher.UIThread.RunJobs();
-        Assert.Equal((2, r2, 2, 2), sheet.Selection);
-        Assert.Contains("2x2 piece at 0x904", note.Text);
+        Assert.Equal((0x904, 2), Choose((3, r2 + 1), (3, r2 + 1), out _));
 
-        // The short last band leaves cells on no piece: a click there arms nothing.
+        // The short last band leaves cells on no piece: a click there takes nothing and stays open.
         int deskX = 40, deskY = Overworld.EventArea.Rows - 1;
         Assert.Null(Overworld.EventPieceAt(deskX, deskY));
-        w.MouseDown(At(deskX, deskY), MouseButton.Left); w.MouseUp(At(deskX, deskY), MouseButton.Left);
-        Dispatcher.UIThread.RunJobs();
-        Assert.Null(sheet.Selection);
-        Assert.Contains("click one to arm it", note.Text);
+        Assert.Null(Choose((deskX, deskY), (deskX, deskY), out open));
+        Assert.True(open);
+    }
 
-        // Back on the Tiles tab the sheet is a grid of single tiles again.
-        w.GetControl<TabStrip>("OwTabs").SelectedIndex = 0;
+    /// <summary>
+    /// The Events tab's left drawer lists every event that lays something, by number, each with
+    /// the first pieces it lays — an event with none is not shown. A click on a row opens that event in the right drawer and
+    /// frames the row; a pick on the map frames its row too. An edit rebuilds only the rows whose
+    /// steps it changed.
+    /// </summary>
+    [AvaloniaFact]
+    public void the_events_drawer_lists_every_event_and_opens_the_one_clicked()
+    {
+        if (PreppedRom.Path is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
         Dispatcher.UIThread.RunJobs();
-        Assert.Null(sheet.Snap);
-        Assert.False(sheet.PickWhole);
-        Assert.NotEqual(0u, sheet.Backdrop);
+        w.GetControl<ToggleButton>("ModeOverworld").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        var session = (Services.EditorSession)typeof(MainWindow)
+            .GetField("session", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(w)!;
+        var list = w.GetControl<StackPanel>("OwEventList");
+        Assert.False(w.GetControl<ScrollViewer>("OwEventListScroll").IsVisible);
+        w.GetControl<TabStrip>("OwTabs").SelectedIndex = 2;
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(w.GetControl<ScrollViewer>("OwEventListScroll").IsVisible);
+        Assert.False(w.GetControl<ScrollViewer>("OwSheetScroll").IsVisible);
+        var ow = session.Overworld!;
+        string Text(Control row) => string.Join(" ", row.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text));
+
+        // The events that lay something, in number order, each with its preview strip; the
+        // ones that lay nothing are not shown.
+        Assert.Equal(Overworld.EventCount, list.Children.Count);
+        for (int ev = 0; ev < Overworld.EventCount; ev++)
+        {
+            var row = (Control)list.Children[ev];
+            bool lays = ow.EventSteps.Any(s => s.Event == ev);
+            Assert.Equal(lays, row.IsVisible);
+            if (!lays) continue;
+            Assert.Contains($"Event {ev:X2}", Text(row));
+            Assert.Single(row.GetVisualDescendants().OfType<PixelImage>());
+        }
+        Assert.Contains(Enumerable.Range(0, Overworld.EventCount), ev => !((Control)list.Children[ev]).IsVisible);
+        var strip = session.OwEventPreview(1, 6)!.Value;
+        Assert.Equal(Math.Min(6, ow.EventSteps.Count(s => s.Event == 1)) * 52 - 4, strip.W);
+
+        // A click on a row opens its event on the right and frames the row.
+        int first = ow.EventSteps[0].Event;
+        var target = (Border)list.Children[first];
+        target.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+        var at = target.TranslatePoint(new Point(4, 4), w)!.Value;
+        w.MouseDown(at, MouseButton.Left); w.MouseUp(at, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(w.GetControl<Border>("OwEventPanel").IsVisible);
+        Assert.Contains($"Event {first:X2}", w.GetControl<TextBlock>("OwEventTitle").Text);
+        Assert.NotEqual(Avalonia.Media.Brushes.Transparent, target.BorderBrush);
+
+        // Replace on a step opens the picker with the step's own piece lit, and a pick swaps it in,
+        // same spot — and the list's row follows, since its first piece changed.
+        var step0 = ow.EventSteps.First(s => s.Event == first);
+        int swap = step0.Piece == 0x904 ? 0x908 : 0x904;
+        var replace = w.GetControl<StackPanel>("OwEventSteps").Children[0].GetVisualDescendants().OfType<Button>().First(b => (string?)b.Content == "Replace");
+        replace.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        var dlg = w.OwnedWindows.OfType<EventPieceWindow>().Single();
+        Assert.NotNull(dlg.GetControl<TilemapView>("Sheet").Decorate);
+        var sheet = dlg.GetControl<TilemapView>("Sheet");
+        var (sx, sy) = Overworld.EventCellOf(swap);
+        sheet.FindAncestorOfType<ScrollViewer>()!.Offset = new Vector(0, sy * 8 * sheet.Zoom - 40);
+        Dispatcher.UIThread.RunJobs();
+        var sp = sheet.TranslatePoint(new Point(sx * 8 * sheet.Zoom + 2, sy * 8 * sheet.Zoom + 2), dlg)!.Value;
+        var rowBefore = list.Children[first];
+        dlg.MouseDown(sp, MouseButton.Left); dlg.MouseUp(sp, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        var now = ow.EventSteps.First(s => s.Event == first);
+        Assert.Equal(step0 with { Piece = swap, Size = 2 }, now);
+        Assert.NotSame(rowBefore, list.Children[first]);
+
+        // Clearing it rebuilds its row alone, and it goes from the list: it lays nothing now. Every
+        // other row is the same control.
+        var before = list.Children.ToList();
+        w.GetControl<Button>("OwEventClear").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(((Control)list.Children[first]).IsVisible);
+        Assert.NotSame(before[first], list.Children[first]);
+        Assert.All(Enumerable.Range(0, Overworld.EventCount).Where(ev => ev != first), ev => Assert.Same(before[ev], list.Children[ev]));
     }
 
     /// <summary>
@@ -479,12 +615,28 @@ public class OverworldTests(ITestOutputHelper log)
         Assert.Equal(count, w.GetControl<StackPanel>("OwEventSteps").Children.Count);
         Assert.Contains($"event {first.Event:X2}", w.GetControl<TextBlock>("OwNote").Text);
 
+        // New event offers only events that lay nothing — never one with pieces on the map.
+        var empty = session.OwEmptyEvents().ToList();
+        Assert.NotEmpty(empty);
+        Assert.DoesNotContain(first.Event, empty);
+        Assert.All(empty, ev => Assert.Empty(session.OwEventSteps(ev)));
+
         // Each row carries the piece's picture at the size it lands, and names the step's piece.
         var img = session.OwEventStepImage(first);
         Assert.Equal(first.Size * 8 * first.Size * 8, img.Length);
         Assert.Contains(img, px => px != 0);
         Assert.Contains($"0x{first.Piece:X3}", w.GetControl<StackPanel>("OwEventSteps").Children[0]
             .GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text).First(t => t?.Contains("piece") == true));
+
+        // A press on a row picks that step: the row is framed, and a second press lets go.
+        Border Row0() => (Border)w.GetControl<StackPanel>("OwEventSteps").Children[0];
+        var pickStep = Row0().TranslatePoint(new Point(4, 4), w)!.Value;
+        w.MouseDown(pickStep, MouseButton.Left); w.MouseUp(pickStep, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.NotEqual(Avalonia.Media.Brushes.Transparent, Row0().BorderBrush);
+        w.MouseDown(pickStep, MouseButton.Left); w.MouseUp(pickStep, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(Avalonia.Media.Brushes.Transparent, Row0().BorderBrush);
 
         // Bare land: no event there, so the pick lets go and the drawer closes.
         var bare = Enumerable.Range(0, Services.EditorSession.Ow8MapRows)
@@ -553,6 +705,26 @@ public class OverworldTests(ITestOutputHelper log)
         try { Assert.Equal(ow.EventSteps, new Overworld(Rom.Load(p)).EventSteps); }
         finally { File.Delete(p); }
 
+        // Every step's piece is found on the drawer's sheet where the drawer would pick it, which is
+        // where a picked step lights it.
+        foreach (var s in before)
+        {
+            var (x, y) = Overworld.EventCellOf(s.Piece);
+            Assert.Equal((s.Piece, x, y, s.Size), Overworld.EventPieceAt(x, y));
+        }
+
+        // One step moves, is replaced, and goes, and only within its event.
+        var others = ow.EventSteps.Where(s => s.Event != ev).ToList();
+        var two = ow.EventSteps.Where(s => s.Event == ev).Take(2).ToList();
+        ow.SwapEventSteps(ev, 0, 1);
+        Assert.Equal([two[1], two[0]], ow.EventSteps.Where(s => s.Event == ev).Take(2));
+        ow.SetEventStep(ev, 0, two[1] with { Piece = 0x904 });
+        Assert.Equal(0x904, ow.EventSteps.First(s => s.Event == ev).Piece);
+        ow.RemoveEventStep(ev, 0);
+        Assert.Equal(two[0], ow.EventSteps.First(s => s.Event == ev));
+        Assert.Equal(others, ow.EventSteps.Where(s => s.Event != ev));
+        had--;
+
         // Clearing an event takes only its steps.
         int total = ow.EventSteps.Count;
         Assert.Equal(had + 1, ow.ClearEvent(ev));
@@ -561,9 +733,9 @@ public class OverworldTests(ITestOutputHelper log)
     }
 
     /// <summary>
-    /// The right drawer's header edits the event: Add arms a placement — it needs a piece from
-    /// the left drawer — and the next click on the map lays that piece as the event's last step,
-    /// where it was clicked; Clear is offered only when there is something to clear.
+    /// The right drawer's header edits the event: Add picks a piece in EventPieceWindow and arms a
+    /// placement, and the next click on the map lays that piece as the event's last step, where it
+    /// was clicked; Clear is offered only when there is something to clear.
     /// </summary>
     [AvaloniaFact]
     public void the_events_drawer_adds_a_step_where_the_map_is_clicked()
@@ -580,7 +752,6 @@ public class OverworldTests(ITestOutputHelper log)
         w.GetControl<TabStrip>("OwTabs").SelectedIndex = 2;
         Dispatcher.UIThread.RunJobs();
         var view = w.GetControl<TilemapView>("OwView");
-        var sheet = w.GetControl<TilemapView>("OwSheet");
         var add = w.GetControl<ToggleButton>("OwEventAdd");
         var clear = w.GetControl<Button>("OwEventClear");
         var ow = session.Overworld!;
@@ -602,19 +773,26 @@ public class OverworldTests(ITestOutputHelper log)
         Dispatcher.UIThread.RunJobs();
         int ev = first.Event, had = ow.EventSteps.Count(s => s.Event == ev);
         Assert.True(clear.IsEnabled);
-        Assert.False(add.IsEnabled);                              // no piece armed yet
-
-        // Arm a 2x2 piece in the left drawer: Add comes alive.
-        var pick = sheet.TranslatePoint(new Point(3 * 8 * sheet.Zoom + 2, (Overworld.Event2Row + 1) * 8 * sheet.Zoom + 2), w)!.Value;
-        w.MouseDown(pick, MouseButton.Left); w.MouseUp(pick, MouseButton.Left);
-        Dispatcher.UIThread.RunJobs();
         Assert.True(add.IsEnabled);
 
-        // Add, then click bare land well inside the main map: the step lands there, last.
+        // Add opens the piece picker, and nothing is armed until a piece is chosen there: a 2x2.
         add.IsChecked = true;                                     // what a real click does before Click fires
         add.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
-        Assert.Contains("click where the piece should land", w.GetControl<TextBlock>("OwNote").Text);
+        Assert.NotEqual(true, add.IsChecked);
+        var dlg = w.OwnedWindows.OfType<EventPieceWindow>().Single();
+        var sheet = dlg.GetControl<TilemapView>("Sheet");
+        var sheetScroll = sheet.FindAncestorOfType<ScrollViewer>()!;
+        sheetScroll.Offset = new Vector(0, Overworld.Event2Row * 8 * sheet.Zoom - 40);
+        Dispatcher.UIThread.RunJobs();
+        var pick = sheet.TranslatePoint(new Point(3 * 8 * sheet.Zoom + 2, (Overworld.Event2Row + 1) * 8 * sheet.Zoom + 2), dlg)!.Value;
+        dlg.MouseDown(pick, MouseButton.Left); dlg.MouseUp(pick, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(dlg.IsVisible);                              // the pick closed it
+
+        // Armed, then click bare land well inside the main map: the step lands there, last.
+        Assert.Equal(true, add.IsChecked);
+        Assert.Contains("piece at 0x904 should land", w.GetControl<TextBlock>("OwNote").Text);
         Assert.True(view.RepaintOnHover);
         var bare = Enumerable.Range(4, 40).SelectMany(r => Enumerable.Range(4, 40).Select(c => (c, r)))
             .First(cr => session.OwEventAt(cr.c, cr.r) < 0);
@@ -1144,6 +1322,43 @@ public class OverworldTests(ITestOutputHelper log)
         // "No event" round-trips as $FF, and the settings read back through the tile.
         Assert.True(s.SetOwLevelTile(tile, level: tile.Level, baseEvent: -1, exitDirs: tile.ExitDirs), s.Status);
         Assert.Equal(-1, s.OwLevelTileAt(tile.X, tile.Y + (tile.SubmapMap ? Overworld.Rows : 0))!.Value.BaseEvent);
+    }
+
+    /// <summary>
+    /// The dialog's initial flags are the ROM's: vanilla's new-game list of eight (translevel,
+    /// flags) pairs at $009EE0 — Yoshi's House (translevel 0x28, level 104) starts with left and
+    /// right open — and nothing for a level the list leaves out. A ROM whose new-game loop is not
+    /// vanilla's, with no Lunar Magic table to fall back on, has no flags to show rather than wrong ones.
+    /// </summary>
+    [AvaloniaFact]
+    public void a_level_tiles_initial_flags_come_from_the_rom()
+    {
+        if (PreppedRom.Fork() is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new Services.EditorSession();
+        Assert.True(s.OpenRom(p));
+        var ow = s.Overworld!;
+        Assert.Equal(0x03, ow.InitialFlagsOf(0x28));                    // left, right
+        Assert.Equal(0x08, ow.InitialFlagsOf(0x5B));                    // up
+        Assert.Equal(0x04, ow.InitialFlagsOf(0x57));                    // down
+        Assert.Equal(0x02, ow.InitialFlagsOf(0x5C));                    // left
+        Assert.Equal(0, ow.InitialFlagsOf(0x01));                       // not in the list
+
+        // Through the tile and into the dialog's boxes.
+        var yoshi = Enumerable.Range(0, 2 * Overworld.Rows)
+            .SelectMany(y => Enumerable.Range(0, Overworld.Cols).Select(x => (x, y)))
+            .Select(c => s.OwLevelTileAt(c.x, c.y))
+            .First(t => t is { Translevel: 0x28 })!.Value;
+        Assert.Equal(0x104, yoshi.Level);
+        Assert.Equal(0x03, yoshi.InitialFlags);
+        var dlg = new OwLevelTileWindow(yoshi);
+        var boxes = dlg.GetControl<StackPanel>("Flags").Children.OfType<CheckBox>().ToDictionary(b => (string)b.Content!, b => b.IsChecked == true);
+        Assert.True(boxes["Enable left"] && boxes["Enable right"]);
+        Assert.False(boxes["Enable up"] || boxes["Enable down"] || boxes["Level has been passed"] || boxes["Save prompt"]);
+
+        // A loop that is not vanilla's, and no table of Lunar Magic's: nothing to read.
+        var rom = s.Rom!;
+        rom.Data[rom.FileOffset(0x009F0E)] = 0x22;
+        Assert.Null(ow.InitialFlagsOf(0x28));
     }
 
     /// <summary>Layer 1 writes back where the game reads it: the low bytes in place, and the

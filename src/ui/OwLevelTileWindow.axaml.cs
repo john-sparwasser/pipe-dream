@@ -84,13 +84,18 @@ public partial class OwLevelTileWindow : Window
         this.GetControl<TextBlock>("RevealNote").Text =
             "Revealing this tile on an event is a layer 1 event, which the Events tab will hold; Lunar Magic keeps it with its own event data.";
 
+        // The states a new game starts the level with, as the ROM has them: each box its bit of
+        // the save file's $1EA2 byte (Overworld.InitialFlagsOf).
         var flags = this.GetControl<StackPanel>("Flags");
-        foreach (string f in new[] { "Enable up", "Enable down", "Enable left", "Enable right",
-                                     "Level has been passed", "Midway point obtained",
-                                     "No entry if level passed", "Save prompt" })
-            flags.Children.Add(new CheckBox { Content = f, IsEnabled = false });
-        this.GetControl<TextBlock>("FlagsNote").Text =
-            "These are the states a new game starts with. Lunar Magic keeps them in a table it adds when it saves an overworld; this base still uses the game's own short list, so they are shown and not offered.";
+        foreach (var (f, bit) in new[] { ("Enable up", 3), ("Enable down", 2), ("Enable left", 1), ("Enable right", 0),
+                                         ("Level has been passed", 7), ("Midway point obtained", 6),
+                                         ("No entry if level passed", 5), ("Save prompt", 4) })
+            flags.Children.Add(new CheckBox { Content = f, IsEnabled = false, IsChecked = tile.InitialFlags is { } b && (b >> bit & 1) != 0 });
+        this.GetControl<TextBlock>("FlagsNote").Text = tile.InitialFlags is null
+            ? "These are the states a new game starts with. This ROM keeps them somewhere we cannot read, so they are left blank."
+            : tile.LevelEditable
+            ? "These are the states a new game starts with, from the table Lunar Magic added when it saved this overworld. They are shown and not offered."
+            : "These are the states a new game starts with, from the game's own short list of eight levels; every other level starts with none. Lunar Magic replaces the list with a table when it saves an overworld, so they are shown and not offered.";
     }
 
     private static Control Cell(Control c, int col, int row)

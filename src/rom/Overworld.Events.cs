@@ -34,6 +34,24 @@ public sealed partial class Overworld
     /// all 0x78 — it just lays nothing.</summary>
     public int ClearEvent(int ev) => ((List<EventStep>)EventSteps).RemoveAll(s => s.Event == ev);
 
+    // An event's steps sit together in the list (the table's shape), so its i-th step is i past
+    // its first. The callers check i is one of its steps.
+    private int EventStepIndex(int ev, int i) => ((List<EventStep>)EventSteps).FindIndex(s => s.Event == ev) + i;
+
+    /// <summary>Swap two of an event's steps — how a step moves up or down its event's order.</summary>
+    public void SwapEventSteps(int ev, int i, int j)
+    {
+        var list = (List<EventStep>)EventSteps;
+        int a = EventStepIndex(ev, i), b = EventStepIndex(ev, j);
+        (list[a], list[b]) = (list[b], list[a]);
+    }
+
+    /// <summary>Take one step off an event.</summary>
+    public void RemoveEventStep(int ev, int i) => ((List<EventStep>)EventSteps).RemoveAt(EventStepIndex(ev, i));
+
+    /// <summary>Put a different step in an event's i-th place.</summary>
+    public void SetEventStep(int ev, int i, EventStep step) => ((List<EventStep>)EventSteps)[EventStepIndex(ev, i)] = step;
+
     /// <summary>Put a whole list back — what undo does — into the same list object the map and
     /// the drawers read from, so nothing that holds it has to be told.</summary>
     public void ReplaceEventSteps(IEnumerable<EventStep> steps)

@@ -11,10 +11,12 @@ public sealed partial class EditorSession
     /// a flag per group saying whether this base can hold an edit to it — a ROM Lunar Magic has
     /// saved keeps the directions in a packed block of its own, and a base of ours numbers its
     /// levels by scan order rather than per tile, so the two are never both editable.
+    /// <see cref="InitialFlags"/> is what a new game starts the level with, read and not offered
+    /// (Overworld.InitialFlagsOf); null where the ROM keeps them somewhere we cannot read.
     /// </summary>
     public readonly record struct OwLevelTile(
         int X, int Y, bool SubmapMap, int Translevel, int Level, int BaseEvent, int[] ExitDirs,
-        bool LevelEditable, bool DirsEditable);
+        bool LevelEditable, bool DirsEditable, int? InitialFlags = null);
 
     /// <summary>The settings of the level tile at a 16x16 layer 1 cell, or null when that cell
     /// holds no level tile.</summary>
@@ -27,7 +29,7 @@ public sealed partial class EditorSession
         int tl = ow.TranslevelAt(x, my, sub);
         return new OwLevelTile(x, my, sub, tl, Overworld.LevelOf(tl), ow.BaseEventOf(tl),
                                [.. Enumerable.Range(0, 4).Select(e => ow.ExitDirOf(tl, e))],
-                               ow.HasLevelTable, ow.HasVanillaExitDirs);
+                               ow.HasLevelTable, ow.HasVanillaExitDirs, ow.InitialFlagsOf(tl));
     }
 
     /// <summary>

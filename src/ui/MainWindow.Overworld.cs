@@ -121,8 +121,6 @@ public partial class MainWindow
         owSheet.LassoPicks = true;          // a dragged rectangle is a block brush, as in the level's Tiles drawer
         owSheet.Picked += (_, c) =>
         {
-            // On the events sheet a one-cell pick is the desk between pieces: nothing to arm.
-            if (OwModeNow == OwMode.Events) { owEventPiece = null; SetOwEventPlacing(false); if (owEventPanel.IsVisible) owEventAdd.IsEnabled = false; RefreshOwNote(); return; }
             if (OwModeNow == OwMode.Layer1) { owL1Tile = c.Row * 16 + c.Col; owL1Block = null; owSheet.Selected = owL1Tile; }
             else { owBrushTile = c.Row * 16 + c.Col; owBrushBlock = null; owSheet.Selected = owBrushTile; }
             owView.ClearSelection();
@@ -130,8 +128,7 @@ public partial class MainWindow
         };
         owSheet.BlockPicked += (_, r) =>
         {
-            if (OwModeNow == OwMode.Events) OwEventPicked(r);
-            else if (OwModeNow == OwMode.Layer1) owL1Block = r;
+            if (OwModeNow == OwMode.Layer1) owL1Block = r;
             else owBrushBlock = r;
             owSheet.Selected = null;        // the lasso on the sheet is the ring now
             owView.ClearSelection();
@@ -198,6 +195,7 @@ public partial class MainWindow
         owShowLayer1.IsVisible = tiles;         // the other tabs always show layer 1: it is what they edit
         owViewBar.IsVisible = !colours;
         owShowEventNumbers.IsVisible = OwModeNow == OwMode.Events;      // event numbers belong to the Events tab
+        owNewEvent.IsVisible = OwModeNow == OwMode.Events;
 
         // One canvas for every tab: the land in 8x8 cells, laid out as Lunar Magic lays it out
         // (EditorSession.OwMapCell: the lower map rotated two cells right and one down, wrapping),
@@ -232,7 +230,6 @@ public partial class MainWindow
         if (tiles)
         {
             // The drawer is the 256 8x8 tiles the two FG files give layer 2, in the brush's palette row.
-            LeaveOwEventSheet();
             owSheet.CellAt = (c, r) => r * 16 + c;
             owSheet.CellPixels = t => session.OwSheetPixels(t, Math.Max(0, owPalRow.SelectedIndex));
             owSheet.Selected = owBrushBlock is null ? owBrushTile : null;
@@ -241,10 +238,9 @@ public partial class MainWindow
         }
         else if (OwModeNow == OwMode.Events)
         {
-            // The drawer is the event pieces, picked a whole piece at a time.
+            // The drawer is the list of events; their pieces are picked in EventPieceWindow.
             DropOwFloat();
             owView.ClearSelection();
-            ShowOwEventSheet();
         }
         else
         {
@@ -252,13 +248,13 @@ public partial class MainWindow
             // is on. The Paths & Levels tab stamps them; ponytail: Transitions is read-only until
             // its editor lands.
             DropOwFloat();
-            LeaveOwEventSheet();
             owSheet.CellAt = (c, r) => r * 16 + c;
             owSheet.CellPixels = t => session.Overworld is { } ow && t < ow.Map16Count ? OwSheetTile(ow, t) : null;
             if (layer1Tab) owSheet.Selected = owL1Block is null ? owL1Tile : null;
             else { owView.ClearSelection(); owSheet.Selected = null; owSheet.ClearSelection(); }
             owSheet.Reshape(16, ((session.Overworld?.Map16Count ?? 0) + 15) / 16, 16);
         }
+        ShowOwEventList(OwModeNow == OwMode.Events);
         RefreshOwEventPanel();                      // shows on the Events tab with an event picked, else not
         RefreshOwNote();
     }
@@ -285,11 +281,10 @@ public partial class MainWindow
             OwMode.Layer1 => "layer 1, the level tiles and paths in 16x16s: right-click places "
                              + (owL1Block is { } b ? $"a {b.W}x{b.H} block" : $"tile 0x{owL1Tile:X2}")
                              + ", a dragged lasso moves" + (session.OwLayer1Edited ? " — edited" : ""),
-            OwMode.Events => (owEventPlacing ? $"event {owEvent:X2}: click where the piece should land — Esc calls it off"
-                              : owEvent is { } ev ? $"event {ev:X2}: its steps are in the drawer on the right, its pieces ringed — click bare land to let go"
-                              : "click a piece on the map to pick its event")
-                             + " — the drawer's pieces: "
-                             + (owEventPiece is { } e ? $"a {e.Size}x{e.Size} piece at 0x{e.Src:X3} is armed" : "click one to arm it"),
+            OwMode.Events => owEventPlacing && owEventPiece is { } e
+                                 ? $"event {owEvent:X2}: click where the {e.Size}x{e.Size} piece at 0x{e.Src:X3} should land — Esc calls it off"
+                             : owEvent is { } ev ? $"event {ev:X2}: its steps are in the drawer on the right, its pieces ringed — click bare land to let go"
+                             : "pick an event in the drawer, or click one of its pieces on the map",
             _ => owLinkFrom is not null
                  ? "pick the tile this one leads to — Esc, or a click anywhere else, calls it off"
                  : "pipes, star roads and the red exit tiles: hover one to link it, "
@@ -313,8 +308,36 @@ public partial class MainWindow
             OwMode.Tiles when session.OwMap is { } map => OwPaintLayer2(map, col, row),
             _ => false,
         };
-        if (changed) owView.Invalidate();
+        if (changed) OwInvalidateBrush(col, row);
     }
+
+    /// <summary>
+    /// Redraw only what the brush just changed: a full recompose per painted cell made every frame
+    /// of a stroke cost a whole map. Land shows as it is painted, so its cells redraw now. Layer 1
+    /// only reaches the arrays the canvas draws from when the stroke commits, so its tiles are
+    /// remembered for <see cref="OwStrokeEnded"/>. A Map16 definition shows wherever layer 1 uses
+    /// it, so painting one still redraws everything, now and on release.
+    /// </summary>
+    private void OwInvalidateBrush(int col, int row)
+    {
+        if (OwModeNow == OwMode.Layer1)
+        {
+            if (!EditorSession.OwLayer1Cell(col, row, out int x0, out int y0)) return;
+            for (int j = 0; j < (owL1Block?.H ?? 1); j++)
+                for (int i = 0; i < (owL1Block?.W ?? 1); i++) owStrokeL1.Add((x0 + i, y0 + j));
+            return;
+        }
+        int bw = owBrushBlock?.W ?? 1, bh = owBrushBlock?.H ?? 1;
+        for (int j = 0; j < bh; j++)
+            for (int i = 0; i < bw; i++)
+                if (session.OwAreaAt(col + i, row + j, out _) is EditorSession.OwArea.Layer1Defs) owStrokeAll = true;
+        if (owStrokeAll) owView.Invalidate();
+        else owView.InvalidateRegion((col, row, bw, bh));
+    }
+
+    // What the open stroke has to redraw once it commits (OwInvalidateBrush).
+    private readonly HashSet<(int X, int Y)> owStrokeL1 = [];
+    private bool owStrokeAll;
 
     /// <summary>A lasso dragged or grown, in canvas cells: the Tiles tab lifts a float or repeats
     /// the land; the Paths &amp; Levels tab moves or repeats layer 1 tiles, as one stroke.</summary>
@@ -345,11 +368,19 @@ public partial class MainWindow
         UpdateTitle();
     }
 
-
+    /// <summary>A stroke let go: it becomes one undo entry, and what it changed is redrawn.</summary>
     private void OwStrokeEnded()
     {
-        if (OwEditNow?.EndStroke() != true) return;
-        RefreshOverworld();
+        bool committed = OwEditNow?.EndStroke() == true;
+        // Only what the stroke changed, now that it has landed (OwInvalidateBrush). A
+        // RefreshOverworld here recomposed the whole map, and the drawer, on every release.
+        if (committed && owStrokeAll) owView.Invalidate();
+        else if (committed && owStrokeL1.Count > 0)
+            owView.InvalidateWhere((c, r) => EditorSession.OwLayer1Cell(c, r, out int x, out int y) && owStrokeL1.Contains((x, y)));
+        owStrokeL1.Clear();
+        owStrokeAll = false;
+        if (!committed) return;
+        RefreshOwNote();
         UpdateTitle();
     }
 

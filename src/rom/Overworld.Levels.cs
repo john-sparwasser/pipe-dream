@@ -57,6 +57,35 @@ public sealed partial class Overworld
     public int ExitDirOf(int translevel, int exit)
         => (uint)translevel < ExitDirCount && (uint)exit < 4 ? (ExitDirTable[translevel] >> (6 - exit * 2)) & 3 : 0;
 
+    /// <summary>
+    /// The flags a new game starts a translevel with — the save file's copy of $1EA2: bit 7 passed,
+    /// 6 midway, 5 no entry if passed and 4 save prompt (the two Lunar Magic adds), 3-0 up, down,
+    /// left and right enabled. Null when this ROM keeps them somewhere we cannot read.
+    ///
+    /// Vanilla's new-game routine ($009F0E) writes them as a short list: (translevel, flags)
+    /// pairs interleaved at $009EE0, X counting down by two from the LDX — eight pairs, Yoshi's
+    /// House starting with left and right open. Every translevel not listed starts at 0. The loop
+    /// is read for its operands rather than trusted to be where vanilla left it. A ROM Lunar Magic
+    /// has saved replaces the loop with a table of one byte per translevel at $05DDA0.
+    /// </summary>
+    public int? InitialFlagsOf(int translevel)
+    {
+        var d = Rom.Data;
+        int p = Rom.FileOffset(NewGameFlags);
+        // LDX #n / LDY.w pairs,X / LDA.w pairs+1,X / STA.w $1F49,Y / DEX / DEX / BPL
+        if (d[p] == 0xA2 && d[p + 2] == 0xBC && d[p + 5] == 0xBD && d[p + 8] == 0x99 && d[p + 9] == 0x49 && d[p + 10] == 0x1F
+            && d[p + 11] == 0xCA && d[p + 12] == 0xCA && d[p + 13] == 0x10)
+        {
+            int keys = Rom.FileOffset(d[p + 3] | d[p + 4] << 8), vals = Rom.FileOffset(d[p + 6] | d[p + 7] << 8);
+            for (int x = d[p + 1]; x >= 0; x -= 2)
+                if (d[keys + x] == translevel) return d[vals + x];
+            return 0;
+        }
+        return HasLevelTable && (uint)translevel < ExitDirCount ? d[Rom.FileOffset(LmInitialFlags) + translevel] : null;
+    }
+
+    private const int NewGameFlags = 0x009F0E, LmInitialFlags = 0x05DDA0;
+
     public void SetExitDir(int translevel, int exit, int dir)
     {
         if ((uint)translevel >= ExitDirCount || (uint)exit >= 4) return;

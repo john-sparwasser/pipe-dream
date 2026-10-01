@@ -51,6 +51,9 @@ public partial class MainWindow
         // event reads as one thing however its pieces are scattered.
         if (owEvent is { } picked)
             foreach (var s in ow.EventSteps) if (s.Event == picked) Overlay.Selection(ctx, Foot(s));
+        // The step picked in the right drawer: lit over its event's ring, so the row has a place.
+        if (owEvent is { } ev && owEventStep is { } i && session.OwEventSteps(ev).ElementAtOrDefault(i) is { Size: > 0 } st)
+            Overlay.Armed(ctx, Foot(st));
         // Add armed: where the piece would land, under the pointer, at its size.
         if (owEventPlacing && owEventPiece is { } piece && owView.Hover is { } h)
             Overlay.Brush(ctx, new Rect(h.Col * step, h.Row * step, piece.Size * step, piece.Size * step));

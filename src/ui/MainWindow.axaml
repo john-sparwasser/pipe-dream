@@ -714,8 +714,13 @@
                   <ui:PaletteGridView x:Name="OwColors" VerticalAlignment="Center"/>
                 </StackPanel>
               </Border>
-              <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+              <ScrollViewer x:Name="OwSheetScroll" HorizontalScrollBarVisibility="Disabled">
                 <ui:TilemapView x:Name="OwSheet" Margin="8"/>
+              </ScrollViewer>
+              <!-- The Events tab's drawer instead of the sheet: every event that lays something, by
+                   number, each with the first few pieces it lays. A click opens it on the right. -->
+              <ScrollViewer x:Name="OwEventListScroll" HorizontalScrollBarVisibility="Disabled" IsVisible="False">
+                <StackPanel x:Name="OwEventList" Margin="8" Spacing="4"/>
               </ScrollViewer>
             </DockPanel>
 
@@ -1191,6 +1196,12 @@
                               ToolTip.Tip="Label each level tile with the event its normal exit fires; a secret exit adds its number. Events tab only">
                   <Path Data="{StaticResource IconZap}"/>
                 </ToggleButton>
+                <!-- Events tab only: pick an event that lays nothing yet and open it in the right
+                     drawer, since an event with no pieces has nothing on the map to click. -->
+                <Button x:Name="OwNewEvent" Click="OnOwNewEvent"
+                        ToolTip.Tip="Start an event that lays nothing yet: pick its number, then Add its steps">
+                  <TextBlock Text="New event" VerticalAlignment="Center"/>
+                </Button>
                 <Rectangle Classes="sep"/>
               </StackPanel>
               <TextBlock x:Name="OwNote" Classes="dim" VerticalAlignment="Center"

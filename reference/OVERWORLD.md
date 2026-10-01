@@ -324,7 +324,7 @@ are Lunar Magic's — measured 2026-09-08 by changing each in LM's own dialog an
 | base event | `$05D608` + translevel, in place on every ROM | **editable** |
 | direction per exit (normal + 3 secret) | `$04D678` + translevel, 2 bits each | **editable** — but LM's overworld save jumps its copy loop and reads a packed block of its own instead, so this is live exactly while `HasLevelTable` is false |
 | level number | LM's per-tile table (the LZ2 blob behind the scan's operands) | **editable exactly while `HasLevelTable` is true** — a base of ours numbers by the game's scan order, so there is nothing to write and the number follows the tile instead. Set through the layer 1 map, which carries the number above the tile, so undo and the next brush stroke agree with it; the event and directions then land on the level now in the box, as they do in LM |
-| eight initial flags | `$05DDA0` + level, a table LM ADDS when it saves | shown, not offered |
+| eight initial flags | vanilla: eight (translevel, flags) pairs at `$009EE0`, written by the new-game loop at `$009F0E`; LM replaces the loop with a table at `$05DDA0` + translevel when it saves | **read**, not offered (`Overworld.InitialFlagsOf`; the LM table is read only where the loop is not vanilla's — unverified against an LM-saved ROM) |
 | reveal on event | LM's layer 1 event data | shown, not offered — the Events tab's job |
 
 `EditorSession.OwLevelTileAt` / `SetOwLevelTile`; both tables are the ROM's edited copies, kept

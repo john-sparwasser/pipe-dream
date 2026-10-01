@@ -1,0 +1,18 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="clr-namespace:PipeDream.Ui"
+        x:Class="PipeDream.Ui.EventPieceWindow"
+        Width="840" Height="640" CanResize="True"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+  <DockPanel Margin="12">
+    <TextBlock x:Name="Prompt" DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,8"
+               Foreground="{DynamicResource TextBrush}"/>
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+      <Button Content="Cancel" Click="OnCancel" IsCancel="True"/>
+    </StackPanel>
+    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+      <ui:TilemapView x:Name="Sheet" Margin="8"/>
+    </ScrollViewer>
+  </DockPanel>
+</Window>
