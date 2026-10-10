@@ -72,7 +72,8 @@ public class SpecTests
     public void SpriteDisplay_SerializeRoundTripsTheShippedTable()
     {
         using var s = typeof(SpriteDisplay).Assembly.GetManifestResourceStream("SpriteDisplay.json")!;
-        string json = new StreamReader(s).ReadToEnd();
+        // A Windows checkout embeds CRLF; Serialize writes LF and git normalizes either way.
+        string json = new StreamReader(s).ReadToEnd().ReplaceLineEndings("\n");
         Assert.Equal(json, SpriteDisplay.Serialize(SpriteDisplay.Parse(json)));
     }
 }
