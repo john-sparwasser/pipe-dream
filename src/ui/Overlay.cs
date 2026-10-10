@@ -80,6 +80,17 @@ internal static class Overlay
     /// the two gestures look identical otherwise and do very different things.</summary>
     public static void Grab(DrawingContext ctx, Rect r) => ctx.DrawRectangle(null, GrabPen, r);
 
+    /// <summary>From a transition to where it leads: a dashed line in the armed colour, black under
+    /// it so it reads over any land.</summary>
+    public static void LinkLine(DrawingContext ctx, Point a, Point b)
+    {
+        ctx.DrawLine(LinkLineUnder, a, b);
+        ctx.DrawLine(LinkLinePen, a, b);
+    }
+
+    private static readonly Pen LinkLineUnder = new(Brushes.Black, 4);
+    private static readonly Pen LinkLinePen = new(UiColors.Accent, 2) { DashStyle = DashStyle.Dash };
+
     /// <summary>Where a stamp would land.</summary>
     public static void Brush(DrawingContext ctx, Rect r) => ctx.DrawRectangle(null, BrushPen, r);
 

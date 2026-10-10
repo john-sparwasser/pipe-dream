@@ -9,9 +9,15 @@ public sealed partial class EditorSession
 {
     /// <summary>One end of a transition, at a 16x16 layer 1 cell: which table it lives in, the
     /// slot it uses, where it comes out, and the slot that comes back — -1 for a one-way trip,
-    /// Lunar Magic's "N/A".</summary>
+    /// Lunar Magic's "N/A". <see cref="Dir"/> is the way the player walks through an exit tile,
+    /// -1 for a warp.</summary>
     public readonly record struct OwTransition(
-        bool Exit, int X, int Y, bool SubmapMap, int Slot, int DestX, int DestY, bool DestSubmapMap, int Partner);
+        bool Exit, int X, int Y, bool SubmapMap, int Slot, int DestX, int DestY, bool DestSubmapMap, int Partner, int Dir = -1)
+    {
+        /// <summary>A warp that lands on its own tile: a location teleport, the overworld spot a
+        /// level's secondary exit can name by index. Not a trip anywhere.</summary>
+        public bool Location => !Exit && (DestX, DestY, DestSubmapMap) == (X, Y, SubmapMap);
+    }
 
     /// <summary>Whether a cell can hold a transition, and which kind: a star or pipe tile warps,
     /// an exit tile walks. Null for anything else. A tile that already holds an entry keeps its
@@ -37,7 +43,7 @@ public sealed partial class EditorSession
                 return new OwTransition(false, x, my, sub, w.Index, w.DestX >> 4, w.DestY >> 4, w.DestSubmap != 0, w.DestIndex);
         foreach (var e in ow.ExitPaths)
             if (e.Submap == submap && e.X == x && e.Y == my)
-                return new OwTransition(true, x, my, sub, e.Index, e.DestX, e.DestY, e.DestSubmap != 0, e.DestIndex);
+                return new OwTransition(true, x, my, sub, e.Index, e.DestX, e.DestY, e.DestSubmap != 0, e.DestIndex, e.Dir);
         return null;
     }
 
@@ -47,18 +53,71 @@ public sealed partial class EditorSession
     /// holds an entry has that one re-pointed; a tile that does not takes a free slot. Null when
     /// it worked, else the reason.
     ///
+    /// <paramref name="twoWay"/> false is Lunar Magic's "Create a one-way link to this tile": the
+    /// first tile goes to the second, and the second keeps whatever it had — several pipes into
+    /// one, or a ring of three. <paramref name="dirA"/> sets the way the player walks through the
+    /// first exit tile, where the map's own reading of it would be wrong or has none.
+    ///
     /// Both tiles must be the same kind: the two tables are different shapes and the game reaches
     /// them by different means, so a pipe cannot come out of an exit tile.
     /// </summary>
-    public string? LinkOwTransitions(int ax, int ay, int bx, int by)
+    public string? LinkOwTransitions(int ax, int ay, int bx, int by, bool twoWay = true, int dirA = -1)
     {
         if (Rom is not { } rom || Overworld is not { } ow) return "no overworld";
         if (ax == bx && ay == by) return "a transition needs two tiles";
         if (OwLinkableAt(ax, ay) is not { } aExit || OwLinkableAt(bx, by) is not { } bExit)
             return "a transition sits on a star, a pipe or an exit tile";
         if (aExit != bExit) return "a star or pipe links to a star or pipe, and an exit tile to an exit tile";
-        return aExit ? LinkOwExits(rom, ow, ax, ay, bx, by) : LinkOwWarps(rom, ow, ax, ay, bx, by);
+        return aExit ? LinkOwExits(rom, ow, ax, ay, bx, by, twoWay, dirA) : LinkOwWarps(rom, ow, ax, ay, bx, by, twoWay);
     }
+
+    /// <summary>The transitions that land on a tile — the way back of a two-way link, and every
+    /// one-way trip that ends here. In the editor's grid, as <see cref="OwTransitionAt"/> takes them.</summary>
+    public IReadOnlyList<OwTransition> OwTransitionsInto(int x, int y)
+    {
+        if (Overworld is not { } ow) return [];
+        var list = new List<OwTransition>();
+        for (int ty = 0; ty < 2 * Overworld.Rows; ty++)
+            for (int tx = 0; tx < Overworld.Cols; tx++)
+                if ((tx, ty) != (x, y) && OwTransitionAt(tx, ty) is { } t
+                    && (t.DestX, t.DestY + (t.DestSubmapMap ? Overworld.Rows : 0)) == (x, y))
+                    list.Add(t);
+        return list;
+    }
+
+    /// <summary>Take one tile's transition away and leave the tile it led to alone — Lunar Magic's
+    /// "No Setting". <see cref="UnlinkOwTransition"/> takes the way back too. Null when it worked.</summary>
+    public string? ClearOwTransition(int x, int y)
+    {
+        if (Rom is not { } rom || Overworld is not { } ow) return "no overworld";
+        if (OwTransitionAt(x, y) is not { } t) return "no transition on this tile";
+        if (t.Exit) ow.ClearExitPath(t.Slot); else ow.ClearWarp(t.Slot);
+        SaveOwTransitions(rom, ow, t.Exit);
+        Rebuild("transition cleared");
+        return null;
+    }
+
+    /// <summary>
+    /// The way the player walks through an exit tile — the side he enters it from, in Lunar
+    /// Magic's words. The stored position carries it, so a wrong one drops him through the wrong
+    /// edge and straight back; the map's own reading (<see cref="Overworld.TravelDirOf"/>) is what
+    /// a link starts with. The destination stays; he arrives still walking the new way.
+    /// </summary>
+    public string? SetOwExitDir(int x, int y, int dir)
+    {
+        if (Rom is not { } rom || Overworld is not { } ow) return "no overworld";
+        if (OwTransitionAt(x, y) is not { Exit: true } t) return "no exit path on this tile";
+        if ((uint)dir >= 4) return "no such direction";
+        if (dir == t.Dir) return null;
+        ow.SetExitPath(t.Slot, Submap(x, y), t.X, t.Y, dir, Submap(t.DestX, t.DestY + (t.DestSubmapMap ? Overworld.Rows : 0)), t.DestX, t.DestY);
+        SaveOwTransitions(rom, ow, exit: true);
+        Rebuild("exit path direction set");
+        return null;
+    }
+
+    /// <summary>Lunar Magic's warning: a star or pipe in the submap half's first column does not
+    /// work, because the game's table of submap tiles cannot say X=0 there.</summary>
+    public static bool OwWarpCellBroken(int x, int y) => x == 0 && y >= Overworld.Rows;
 
     /// <summary>Take a tile's transition away, and the one coming back with it: a pipe with one
     /// end left is a trip the player cannot return from. Null when it worked.</summary>
@@ -79,14 +138,14 @@ public sealed partial class EditorSession
     /// <summary>Two stars or pipes, pointing at each other. Both slots are claimed before either
     /// is written: half a link is worse than none, and the last free slot could otherwise go to
     /// the first direction and strand the second.</summary>
-    private string? LinkOwWarps(Rom rom, Overworld ow, int ax, int ay, int bx, int by)
+    private string? LinkOwWarps(Rom rom, Overworld ow, int ax, int ay, int bx, int by, bool twoWay)
     {
         int slotA = OwTransitionAt(ax, ay)?.Slot ?? ow.FreeWarpSlot();
         if (slotA < 0) return "every warp slot is taken — unlink one first";
-        int slotB = OwTransitionAt(bx, by)?.Slot ?? ow.FreeWarpSlot(besides: slotA);
-        if (slotB < 0) return "every warp slot is taken — unlink one first";
+        int slotB = !twoWay ? -1 : OwTransitionAt(bx, by)?.Slot ?? ow.FreeWarpSlot(besides: slotA);
+        if (twoWay && slotB < 0) return "every warp slot is taken — unlink one first";
         ow.SetWarp(slotA, Submap(ax, ay), ax, ay % Overworld.Rows, Submap(bx, by), bx, by % Overworld.Rows);
-        ow.SetWarp(slotB, Submap(bx, by), bx, by % Overworld.Rows, Submap(ax, ay), ax, ay % Overworld.Rows);
+        if (twoWay) ow.SetWarp(slotB, Submap(bx, by), bx, by % Overworld.Rows, Submap(ax, ay), ax, ay % Overworld.Rows);
         SaveOwTransitions(rom, ow, exit: false);
         Rebuild("warp linked");
         return null;
@@ -100,18 +159,18 @@ public sealed partial class EditorSession
     /// nothing to read, and this refuses rather than guessing a direction that would drop him
     /// through the wrong edge.
     /// </summary>
-    private string? LinkOwExits(Rom rom, Overworld ow, int ax, int ay, int bx, int by)
+    private string? LinkOwExits(Rom rom, Overworld ow, int ax, int ay, int bx, int by, bool twoWay, int dirA)
     {
-        int dirA = ow.TravelDirOf(ax, ay % Overworld.Rows, ay >= Overworld.Rows);
-        int dirB = ow.TravelDirOf(bx, by % Overworld.Rows, by >= Overworld.Rows);
+        if (dirA < 0) dirA = ow.TravelDirOf(ax, ay % Overworld.Rows, ay >= Overworld.Rows);
+        int dirB = twoWay ? ow.TravelDirOf(bx, by % Overworld.Rows, by >= Overworld.Rows) : 0;
         if (dirA < 0 || dirB < 0)
-            return "an exit tile needs a path on exactly one side, so the editor can tell which way the player walks through it";
+            return "an exit tile needs a path on exactly one side, so the editor can tell which way the player walks through it — or set the way by hand";
         int slotA = OwTransitionAt(ax, ay)?.Slot ?? ow.FreeExitSlot();
         if (slotA < 0) return "every exit slot is taken — unlink one first";
-        int slotB = OwTransitionAt(bx, by)?.Slot ?? ow.FreeExitSlot(besides: slotA);
-        if (slotB < 0) return "every exit slot is taken — unlink one first";
+        int slotB = !twoWay ? -1 : OwTransitionAt(bx, by)?.Slot ?? ow.FreeExitSlot(besides: slotA);
+        if (twoWay && slotB < 0) return "every exit slot is taken — unlink one first";
         ow.SetExitPath(slotA, Submap(ax, ay), ax, ay % Overworld.Rows, dirA, Submap(bx, by), bx, by % Overworld.Rows);
-        ow.SetExitPath(slotB, Submap(bx, by), bx, by % Overworld.Rows, dirB, Submap(ax, ay), ax, ay % Overworld.Rows);
+        if (twoWay) ow.SetExitPath(slotB, Submap(bx, by), bx, by % Overworld.Rows, dirB, Submap(ax, ay), ax, ay % Overworld.Rows);
         SaveOwTransitions(rom, ow, exit: true);
         Rebuild("exit path linked");
         return null;

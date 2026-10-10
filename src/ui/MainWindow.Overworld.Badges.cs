@@ -26,6 +26,7 @@ public partial class MainWindow
         if (owShowAreas.IsChecked == true) DrawOwAreas(ctx, step, size);
         DrawOwExitTiles(ctx, ow, step);
         DrawOwLinkTargets(ctx, step);
+        DrawOwTransitionPick(ctx, step);
         DrawOwTileBadges(ctx, ow, step, size);
         if (owShowWarps.IsChecked == true) DrawOwWarpBadges(ctx, ow, step, size);
     }

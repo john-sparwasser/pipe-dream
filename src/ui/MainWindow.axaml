@@ -1208,6 +1208,70 @@
                          TextTrimming="CharacterEllipsis" Margin="6,0,10,0"/>
             </DockPanel>
           </Border>
+          <!-- Transitions tab, with a star, pipe or exit tile picked: where it leads, what leads
+               to it, and Lunar Magic's link settings for it. Hidden otherwise, as the events
+               drawer is, so the map keeps its width. -->
+          <Border x:Name="OwTransitionPanel" DockPanel.Dock="Right" Classes="panel" BorderThickness="1,0,0,0"
+                  Width="340" IsVisible="False">
+            <DockPanel>
+              <Border DockPanel.Dock="Top" Classes="panel bar" BorderThickness="0,0,0,1" Padding="10,6">
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                  <Path Classes="kind" Data="{StaticResource IconArrowRightLeft}"/>
+                  <TextBlock x:Name="OwTransitionTitle" Classes="subject"/>
+                </StackPanel>
+              </Border>
+              <ScrollViewer>
+                <StackPanel Margin="12,10" Spacing="10">
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="Leads to" Classes="dim"/>
+                    <TextBlock x:Name="OwTransitionDest" TextWrapping="Wrap"/>
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <!-- Pick arms the map: every tile this one can link to lights, and the next
+                           click on one links them, as the settings below say. -->
+                      <ToggleButton x:Name="OwTransitionPick" Classes="mode" Click="OnOwTransitionPick"
+                                    ToolTip.Tip="Pick the tile this one leads to: click here, then click it on the map. Esc calls it off">
+                        <TextBlock Text="Pick destination…" VerticalAlignment="Center"/>
+                      </ToggleButton>
+                      <Button x:Name="OwTransitionGo" Click="OnOwTransitionGo"
+                              ToolTip.Tip="Scroll the map to where this tile leads, and pick that tile">
+                        <TextBlock Text="Go there" VerticalAlignment="Center"/>
+                      </Button>
+                    </StackPanel>
+                  </StackPanel>
+                  <StackPanel Spacing="4">
+                    <TextBlock Text="Comes from" Classes="dim"/>
+                    <TextBlock x:Name="OwTransitionFrom" TextWrapping="Wrap"/>
+                  </StackPanel>
+                  <!-- Lunar Magic's Link Star/Pipe/Exit Tiles dialog, as settings on the tile. -->
+                  <StackPanel Spacing="6">
+                    <TextBlock Text="Settings" Classes="dim"/>
+                    <CheckBox x:Name="OwTransitionTwoWay" IsChecked="True"
+                              Content="Two-way: the tile it leads to leads back here"
+                              ToolTip.Tip="Off is Lunar Magic's one-way link: this tile goes to the one you pick, and that tile keeps where it goes — several pipes into one, or a ring of three"/>
+                    <!-- The slot the entry sits in. Read, not chosen: the game finds an entry by its
+                         tile, not its number — only a level's secondary exit names a warp by it. -->
+                    <TextBlock x:Name="OwTransitionIndex" Classes="dim" TextWrapping="Wrap"/>
+                    <DockPanel x:Name="OwTransitionDirRow">
+                      <TextBlock DockPanel.Dock="Left" Text="Player walks" Width="120" VerticalAlignment="Center"/>
+                      <ComboBox x:Name="OwTransitionDir" HorizontalAlignment="Stretch" SelectionChanged="OnOwTransitionDir"
+                                ToolTip.Tip="The way the player travels through this exit tile — the side he enters it from. Off by one and he lands back where he started. Read from the path when the tile is linked"/>
+                    </DockPanel>
+                  </StackPanel>
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Button x:Name="OwTransitionClear" Click="OnOwTransitionClear"
+                            ToolTip.Tip="Take this tile's transition away and leave the tile it leads to alone — Lunar Magic's No Setting">
+                      <TextBlock Text="Clear this end" VerticalAlignment="Center"/>
+                    </Button>
+                    <Button x:Name="OwTransitionUnlink" Click="OnOwTransitionUnlink"
+                            ToolTip.Tip="Take this tile's transition away, and the one coming back with it">
+                      <TextBlock Text="Unlink both" VerticalAlignment="Center"/>
+                    </Button>
+                  </StackPanel>
+                  <TextBlock x:Name="OwTransitionNote" Classes="dim" TextWrapping="Wrap"/>
+                </StackPanel>
+              </ScrollViewer>
+            </DockPanel>
+          </Border>
           <!-- Events tab, with an event picked: its steps, in the order the game lays them. A
                drawer on the right rather than a list under the map, so the map keeps its height;
                hidden the rest of the time, so the map keeps its width. -->

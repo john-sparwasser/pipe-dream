@@ -70,6 +70,7 @@ public partial class MainWindow
         WireOwBar();
         WireOwSheet();
         WireOwEvents();
+        WireOwTransitionPanel();
         WireOwView();
     }
 
@@ -151,7 +152,12 @@ public partial class MainWindow
         owView.Painted += (_, c) => OwPaint(c.Col, c.Row);
         // The map only picks while a link is armed (MainWindow.Overworld.Transitions.cs), so this
         // is that answer and nothing else.
-        owView.Picked += (_, c) => { if (OwModeNow == OwMode.Events) OwEventClicked(c); else OwLinkPicked(c); };
+        owView.Picked += (_, c) =>
+        {
+            if (OwModeNow == OwMode.Events) OwEventClicked(c);
+            else if (owLinkFrom is not null) OwLinkPicked(c);
+            else if (OwModeNow == OwMode.Transitions) OwTransitionClicked(c);
+        };
         owView.StrokeEnded += (_, _) => OwStrokeEnded();
         owView.SelectionDragged += (_, d) => OwSelectionDragged(d);
         // A selection that leaves the float's rectangle drops the float. Mid-drag the lasso
@@ -256,6 +262,7 @@ public partial class MainWindow
         }
         ShowOwEventList(OwModeNow == OwMode.Events);
         RefreshOwEventPanel();                      // shows on the Events tab with an event picked, else not
+        RefreshOwTransitionPanel();                 // and this one on the Transitions tab with a tile picked
         RefreshOwNote();
     }
 

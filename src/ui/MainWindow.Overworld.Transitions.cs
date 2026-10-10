@@ -8,8 +8,9 @@ namespace PipeDream.Ui;
 // MainWindow — the Overworld's Transitions tab: the star and pipe warps, linked and unlinked from
 // the map itself. Lunar Magic hides this behind Alt+Left on two tiles in its layer 1 editor; here
 // the tile under the pointer grows a Link button, pressing it lights every tile the link can land
-// on, and a tile that already has one offers Unlink instead. Dispatched from MainWindow.Overworld.cs;
-// the tables are EditorSession.Overworld.Transitions.cs.
+// on, and a tile that already has one offers Unlink instead. A click on one opens the right drawer
+// on it (MainWindow.Overworld.TransitionPanel.cs). Dispatched from MainWindow.Overworld.cs; the
+// tables are EditorSession.Overworld.Transitions.cs.
 
 public partial class MainWindow
 {
@@ -50,21 +51,25 @@ public partial class MainWindow
 
     /// <summary>The tile's button, pressed on the Transitions tab: Unlink asks first, Link arms
     /// the pick. Both are the same button the Paths &amp; Levels tab uses for Edit.</summary>
-    private async void OwTransitionButton(int x, int y)
+    private void OwTransitionButton(int x, int y)
     {
-        if (session.OwTransitionAt(x, y) is { } t)
-        {
-            string it = t.Exit ? "exit path" : "warp";
-            string what = t.Partner >= 0 ? $"This tile and the one it leads to will both stop working."
-                                         : "This one-way trip will stop working.";
-            var ask = new ConfirmWindow($"Unlink {it}", $"Unlink the {it} on ({t.X:X2},{t.Y:X2})? {what}", "Unlink");
-            await ask.ShowDialog(this);
-            if (!ask.Confirmed) return;
-            if (session.UnlinkOwTransition(x, y) is { } why) await ConfirmWindow.Notice($"Unlink {it}", why).ShowDialog(this);
-            AfterOwTransition();
-            return;
-        }
-        ArmOwLink(x, y);
+        if (session.OwTransitionAt(x, y) is not null) OwUnlinkTransition(x, y);
+        else ArmOwLink(x, y);
+    }
+
+    /// <summary>Unlink, from the hover button or the drawer: asks first, since it takes the way
+    /// back with it and there is no undo for the tables.</summary>
+    private async void OwUnlinkTransition(int x, int y)
+    {
+        if (session.OwTransitionAt(x, y) is not { } t) return;
+        string it = t.Exit ? "exit path" : "warp";
+        string what = t.Partner >= 0 ? $"This tile and the one it leads to will both stop working."
+                                     : "This one-way trip will stop working.";
+        var ask = new ConfirmWindow($"Unlink {it}", $"Unlink the {it} on ({t.X:X2},{t.Y:X2})? {what}", "Unlink");
+        await ask.ShowDialog(this);
+        if (!ask.Confirmed) return;
+        if (session.UnlinkOwTransition(x, y) is { } why) await ConfirmWindow.Notice($"Unlink {it}", why).ShowDialog(this);
+        AfterOwTransition();
     }
 
     /// <summary>Arm the pick: the map lights every tile the link can land on and takes the next
@@ -98,18 +103,21 @@ public partial class MainWindow
         owView.PickOnLeft = OwModeNow == OwMode.Transitions && !OwColorsOnly;
         owView.InvalidateVisual();
         RefreshOwNote();
+        RefreshOwTransitionPanel();                 // Pick destination lets go too
     }
 
     /// <summary>A click on the map while a link is armed. A tile that cannot take it — the sea,
     /// a level tile, the tile it came from — calls the whole thing off rather than doing something
-    /// the click did not ask for.</summary>
+    /// the click did not ask for. A link made picks the tile it came from, so the drawer shows it.</summary>
     private async void OwLinkPicked((int Col, int Row) cell)
     {
         if (owLinkFrom is not { } from) return;
         bool ok = EditorSession.OwLayer1Cell(cell.Col, cell.Row, out int x, out int y) && owLinkTargets.Contains((x, y));
+        var (twoWay, dir) = OwLinkSettings(from);
         CancelOwLink();
         if (!ok) return;
-        string? why = session.LinkOwTransitions(from.X, from.Y, x, y);
+        string? why = session.LinkOwTransitions(from.X, from.Y, x, y, twoWay, dir);
+        owTransition = from;
         AfterOwTransition();
         if (why is not null) await ConfirmWindow.Notice("Link transition", why).ShowDialog(this);
     }
@@ -117,6 +125,7 @@ public partial class MainWindow
     /// <summary>The tables changed: the badges, the title's dirty mark and the note all follow.</summary>
     private void AfterOwTransition()
     {
+        RefreshOwTransitionPanel();
         owView.InvalidateVisual();
         RefreshOwNote();
         UpdateTitle();

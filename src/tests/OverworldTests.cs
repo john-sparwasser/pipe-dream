@@ -1117,6 +1117,162 @@ public class OverworldTests(ITestOutputHelper log)
     }
 
     /// <summary>
+    /// Lunar Magic's link settings, on the session: a one-way link sends the first tile to the
+    /// second and leaves the second alone; one end can be cleared ("No Setting") without touching
+    /// the tile it led to; and a tile knows what leads to it. A warp that lands on itself is a
+    /// location teleport, and a star or pipe in the submaps' first column is one the game cannot read.
+    /// </summary>
+    [Fact]
+    public void warp_settings_one_way_links_clearing_one_end_and_what_leads_in()
+    {
+        if (PreppedRom.Fork() is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new Services.EditorSession();
+        Assert.True(s.OpenRom(p));
+        var ow = s.Overworld!;
+        var a = ow.Warps[0];
+        var b = ow.Warps.First(w => w.Index == a.DestIndex);
+        int ay = a.Y + (a.Submap != 0 ? Overworld.Rows : 0), by = b.Y + (b.Submap != 0 ? Overworld.Rows : 0);
+
+        // A vanilla pair: each is what leads into the other.
+        Assert.Contains(s.OwTransitionsInto(b.X, by), t => (t.X, t.Y) == (a.X, a.Y));
+        Assert.Contains(s.OwTransitionsInto(a.X, ay), t => (t.X, t.Y) == (b.X, b.Y));
+        Assert.Equal(-1, ow.FreeWarpSlot());                                // vanilla fills all 27
+
+        // One-way: the pair unlinked, a one-way link takes one slot and leaves the far end bare.
+        Assert.Null(s.UnlinkOwTransition(a.X, ay));
+        Assert.Null(s.LinkOwTransitions(a.X, ay, b.X, by, twoWay: false));
+        var one = s.OwTransitionAt(a.X, ay)!.Value;
+        Assert.Equal((b.X, b.Y), (one.DestX, one.DestY));
+        Assert.Null(s.OwTransitionAt(b.X, by));                             // the far end keeps what it had: nothing
+        Assert.True(ow.FreeWarpSlot() >= 0);
+
+        // "No Setting" clears this tile's entry only: link two-way first, then clear one end.
+        Assert.Null(s.LinkOwTransitions(a.X, ay, b.X, by));
+        Assert.Null(s.ClearOwTransition(a.X, ay));
+        Assert.Null(s.OwTransitionAt(a.X, ay));
+        Assert.Equal((a.X, a.Y), (s.OwTransitionAt(b.X, by)!.Value.DestX, s.OwTransitionAt(b.X, by)!.Value.DestY));
+        Assert.Contains("no transition", s.ClearOwTransition(a.X, ay)!);
+
+        // A warp onto its own tile is a location teleport.
+        int slot = ow.FreeWarpSlot();
+        ow.SetWarp(slot, Overworld.SubmapAt(a.X, a.Y, a.Submap != 0), a.X, a.Y, Overworld.SubmapAt(a.X, a.Y, a.Submap != 0), a.X, a.Y);
+        Assert.True(s.OwTransitionAt(a.X, ay)!.Value.Location);
+
+        Assert.True(Services.EditorSession.OwWarpCellBroken(0, Overworld.Rows));
+        Assert.False(Services.EditorSession.OwWarpCellBroken(1, Overworld.Rows));
+        Assert.False(Services.EditorSession.OwWarpCellBroken(0, 0));
+    }
+
+    /// <summary>The way through an exit tile is a setting: set by hand it rewrites the entry with
+    /// the same destination, and a link can be told it where the map's reading would not do. One
+    /// way, the far tile keeps what it had.</summary>
+    [Fact]
+    public void an_exit_tiles_way_through_can_be_set_and_a_link_can_be_one_way()
+    {
+        if (PreppedRom.Fork() is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new Services.EditorSession();
+        Assert.True(s.OpenRom(p));
+        var ow = s.Overworld!;
+        var a = ow.ExitPaths.First(e => e.Index == 0);
+        var b = ow.ExitPaths.First(e => e.Index == a.DestIndex);
+        int ay = a.Y + (a.Submap != 0 ? Overworld.Rows : 0), by = b.Y + (b.Submap != 0 ? Overworld.Rows : 0);
+
+        int turned = a.Dir ^ 1;
+        Assert.Null(s.SetOwExitDir(a.X, ay, turned));
+        var now = s.OwTransitionAt(a.X, ay)!.Value;
+        Assert.Equal(turned, now.Dir);
+        Assert.Equal((b.X, b.Y), (now.DestX, now.DestY));
+        Assert.Contains("direction", s.SetOwExitDir(a.X, ay, 7)!);
+
+        // Unlinked, then linked one way with the way given: a goes to b; b has nothing.
+        Assert.Null(s.UnlinkOwTransition(a.X, ay));
+        Assert.Null(s.LinkOwTransitions(a.X, ay, b.X, by, twoWay: false, dirA: a.Dir));
+        Assert.Equal(a.Dir, s.OwTransitionAt(a.X, ay)!.Value.Dir);
+        Assert.Null(s.OwTransitionAt(b.X, by));
+    }
+
+    /// <summary>
+    /// The Transitions tab's right drawer: a click on a star or pipe opens it on that tile — where
+    /// it leads and whether it comes back, what leads to it, its index read off — and the map rings
+    /// it and haloes where it goes. Pick destination arms the link with the drawer's settings, so
+    /// one-way off the checkbox lands as one-way; Clear this end leaves the far tile alone; Go there
+    /// picks the far tile; bare land lets go.
+    /// </summary>
+    [AvaloniaFact]
+    public void the_transitions_drawer_shows_where_a_tile_leads_and_relinks_it()
+    {
+        if (PreppedRom.Fork() is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModeOverworld").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<TabStrip>("OwTabs").SelectedIndex = 3;                  // Transitions
+        Dispatcher.UIThread.RunJobs();
+        var session = (Services.EditorSession)Field(w, "session")!;
+        var ow = session.Overworld!;
+        var panel = w.GetControl<Border>("OwTransitionPanel");
+        Assert.False(panel.IsVisible);
+
+        var a = ow.Warps[0];
+        var b = ow.Warps.First(x => x.Index == a.DestIndex);
+        var c = ow.Warps.First(x => x.Index != a.Index && x.Index != b.Index && x.DestIndex >= 0);
+        int ay = a.Y + (a.Submap != 0 ? Overworld.Rows : 0), by = b.Y + (b.Submap != 0 ? Overworld.Rows : 0), cy = c.Y + (c.Submap != 0 ? Overworld.Rows : 0);
+        void Click(int x, int y) { Invoke(w, "OwTransitionClicked", Services.EditorSession.OwLayer1Origin(x, y)); Dispatcher.UIThread.RunJobs(); }
+
+        // Picked: the drawer names it, says where it goes and that it comes back, and who comes in.
+        Click(a.X, ay);
+        Assert.True(panel.IsVisible);
+        Assert.Contains($"({a.X:X2},{a.Y:X2})", w.GetControl<TextBlock>("OwTransitionTitle").Text);
+        var dest = w.GetControl<TextBlock>("OwTransitionDest").Text!;
+        Assert.Contains($"({b.X:X2},{b.Y:X2})", dest);
+        Assert.Contains("and back", dest);
+        Assert.Contains($"({b.X:X2},{b.Y:X2})", w.GetControl<TextBlock>("OwTransitionFrom").Text);
+        Assert.Contains($"index {a.Index:X2}", w.GetControl<TextBlock>("OwTransitionIndex").Text);
+        Assert.False(w.GetControl<DockPanel>("OwTransitionDirRow").IsVisible);   // a pipe has no way through
+        Assert.Equal((a.X, ay), Field(w, "owTransition"));
+
+        // One-way to c, through the drawer: c keeps leading where it did.
+        var cWas = session.OwTransitionAt(c.X, cy)!.Value;
+        w.GetControl<CheckBox>("OwTransitionTwoWay").IsChecked = false;
+        var pick = w.GetControl<ToggleButton>("OwTransitionPick");
+        pick.IsChecked = true;
+        pick.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal((a.X, ay), Field(w, "owLinkFrom"));
+        Invoke(w, "OwLinkPicked", Services.EditorSession.OwLayer1Origin(c.X, cy));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal((c.X, c.Y), (session.OwTransitionAt(a.X, ay)!.Value.DestX, session.OwTransitionAt(a.X, ay)!.Value.DestY));
+        Assert.Equal(cWas, session.OwTransitionAt(c.X, cy));
+        Assert.Contains("one-way", w.GetControl<TextBlock>("OwTransitionDest").Text);
+        Assert.NotEqual(true, pick.IsChecked);
+
+        // Clear this end on c leaves the tile c led to alone, and the drawer says c leads nowhere.
+        Click(c.X, cy);
+        var cDest = session.OwTransitionAt(c.X, cy)!.Value;
+        int cdy = cDest.DestY + (cDest.DestSubmapMap ? Overworld.Rows : 0);
+        var farWas = session.OwTransitionAt(cDest.DestX, cdy);
+        w.GetControl<Button>("OwTransitionClear").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Null(session.OwTransitionAt(c.X, cy));
+        // Where the far tile leads is untouched; only its Partner, worked out from the table, sees c gone.
+        Assert.Equal(farWas!.Value with { Partner = -1 }, session.OwTransitionAt(cDest.DestX, cdy));
+        Assert.Contains("Nowhere yet", w.GetControl<TextBlock>("OwTransitionDest").Text);
+        Assert.False(w.GetControl<Button>("OwTransitionClear").IsEnabled);
+
+        // Go there picks the far tile.
+        Click(a.X, ay);
+        w.GetControl<Button>("OwTransitionGo").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal((c.X, cy), Field(w, "owTransition"));
+
+        // The sea lets go, and the drawer goes with it.
+        Click(0, 0);
+        Assert.False(panel.IsVisible);
+    }
+
+    /// <summary>
     /// The Tiles tab's canvas carries the two areas Lunar Magic keeps beside the maps in its
     /// Layer 2 8x8 mode: the event pieces to the right, layer 1's Map16 definitions below. Both
     /// are 8x8 words like the land, edited by the same brush and written back to their own tables.
