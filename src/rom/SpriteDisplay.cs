@@ -18,6 +18,12 @@ public static class SpriteDisplay
     private static Dictionary<int, Entry>? table;
     private static Dictionary<int, Entry> Table => table ??= LoadEmbedded();
 
+    /// <summary>The whole table, for Debug ▸ Sprite tiles to edit and write back.</summary>
+    public static IReadOnlyDictionary<int, Entry> All => Table;
+
+    /// <summary>Swap in an edited table without a restart (the embedded copy only changes on build).</summary>
+    public static void Replace(Dictionary<int, Entry> edited) => table = edited;
+
     /// <summary>All sprite numbers in the table, ascending (the insert catalog).</summary>
     public static IEnumerable<int> Numbers => Table.Keys.OrderBy(n => n);
 
@@ -59,6 +65,11 @@ public static class SpriteDisplay
         catch { return new(); }
     }
 
+    /// <summary>One display tile from the JSON's decomposed fields: attr is YXPPCCCT, the
+    /// tile's ninth bit riding in T.</summary>
+    public static SpriteRender.Oam MakeOam(int x, int y, int tile, int pal, bool big, bool xflip, bool yflip)
+        => new(x, y, tile & 0x1FF, (yflip ? 0x80 : 0) | (xflip ? 0x40 : 0) | ((pal & 7) << 1) | ((tile >> 8) & 1), big);
+
     private static int Hex(JsonElement e) =>
         e.ValueKind == JsonValueKind.String ? Convert.ToInt32(e.GetString(), 16) : e.GetInt32();
 
@@ -77,9 +88,8 @@ public static class SpriteDisplay
                 bool xf = t.TryGetProperty("xflip", out var x) && x.GetBoolean();
                 bool yf = t.TryGetProperty("yflip", out var y) && y.GetBoolean();
                 int size = t.TryGetProperty("size", out var sz) ? sz.GetInt32() : 16;
-                int attr = (yf ? 0x80 : 0) | (xf ? 0x40 : 0) | ((pal & 7) << 1) | ((tile >> 8) & 1);
-                return new SpriteRender.Oam(t.GetProperty("x").GetInt32(), t.GetProperty("y").GetInt32(),
-                                            tile & 0x1FF, attr, size == 16);
+                return MakeOam(t.GetProperty("x").GetInt32(), t.GetProperty("y").GetInt32(),
+                               tile, pal, size == 16, xf, yf);
             }).ToArray();
             var req = new int[4][];
             for (int slot = 0; slot < 4; slot++) req[slot] = Array.Empty<int>();
@@ -120,50 +130,61 @@ public static class SpriteDisplay
             }
         }
 
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine("{");
-        sb.AppendLine("  \"_spec\": \"hand-editable sprite display table - see reference/SPRITE_DISPLAY.md; regenerate with --gen-spritedisplay (overwrites edits)\",");
-        sb.AppendLine("  \"sprites\": {");
+        var entries = new Dictionary<int, Entry>();
         var nums = Enumerable.Range(0x00, 0xC9).Concat(new[] { 0xDA, 0xDB, 0xDC, 0xDD, 0xDF });
-        bool first = true;
         foreach (int n in nums)
         {
             var oam = SpriteRender.CaptureRelative(rom, n);
             if (oam is null) continue;
             int clip = SpriteRender.LastClip1662 & 0x3F;
-            if (!first) sb.AppendLine(",");
-            first = false;
-            sb.AppendLine($"    \"{n:X2}\": {{");
-            sb.AppendLine($"      \"name\": \"{Names.GetValueOrDefault(n, "")}\",");
-            var tiles = oam.Select(o =>
-            {
-                string flips = ((o.Attr & 0x40) != 0 ? ", \"xflip\": true" : "") +
-                               ((o.Attr & 0x80) != 0 ? ", \"yflip\": true" : "");
-                return $"        {{ \"x\": {o.X}, \"y\": {o.Y}, \"tile\": \"0x{o.Tile:X3}\", " +
-                       $"\"pal\": {(o.Attr >> 1) & 7}, \"size\": {(o.Big ? 16 : 8)}{flips} }}";
-            });
-            sb.AppendLine($"      \"tiles\": [");
-            sb.AppendLine(string.Join(",\n", tiles));
-            sb.Append("      ]");
             // Sprite<->sprite clipping (GetSpriteClippingA $03B69F): disp/size tables
             // $03B56C/$03B5A8/$03B5E4/$03B620 indexed by tweaker $1662 & 0x3F.
             int hx = (sbyte)rom.ReadByte(0x03B56C + clip), hw = rom.ReadByte(0x03B5A8 + clip);
             int hy = (sbyte)rom.ReadByte(0x03B5E4 + clip), hh = rom.ReadByte(0x03B620 + clip);
-            sb.AppendLine(",");
-            sb.Append($"      \"hitbox\": {{ \"x\": {hx}, \"y\": {hy}, \"w\": {hw}, \"h\": {hh} }}");
-            var usedSlots = oam.Select(o => (o.Tile & 0x1FF) >> 7).Distinct().ToHashSet();
-            if (seen.TryGetValue(n, out var sets))
-            {
-                var parts = usedSlots.Where(sl => sets[sl].Count > 0).OrderBy(sl => sl)
-                    .Select(sl => $"\"{sl}\": [{string.Join(", ", sets[sl].OrderBy(f => f).Select(f => $"\"0x{f:X2}\""))}]").ToList();
-                if (parts.Count > 0) { sb.AppendLine(","); sb.Append($"      \"gfx\": {{ {string.Join(", ", parts)} }}"); }
-            }
-            sb.AppendLine();
-            sb.Append("    }");
+            var usedSlots = oam.Select(o => (o.Tile & 0x1FF) >> 7).ToHashSet();
+            var req = new int[4][];
+            for (int slot = 0; slot < 4; slot++)
+                req[slot] = usedSlots.Contains(slot) && seen.TryGetValue(n, out var sets)
+                    ? sets[slot].OrderBy(f => f).ToArray() : Array.Empty<int>();
+            entries[n] = new Entry(Names.GetValueOrDefault(n, ""), oam.ToArray(), req, (hx, hy, hw, hh));
         }
-        sb.AppendLine();
-        sb.AppendLine("  }");
-        sb.AppendLine("}");
+        return Serialize(entries);
+    }
+
+    /// <summary>The table as JSON in the one layout it has always had — a tile per line — so a
+    /// save from Debug ▸ Sprite tiles diffs as exactly the tiles that changed.</summary>
+    public static string Serialize(IReadOnlyDictionary<int, Entry> entries)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append("{\n");
+        sb.Append("  \"_spec\": \"hand-editable sprite display table - see reference/SPRITE_DISPLAY.md; regenerate with --gen-spritedisplay (overwrites edits)\",\n");
+        sb.Append("  \"sprites\": {\n");
+        sb.Append(string.Join(",\n", entries.OrderBy(p => p.Key).Select(p => EntryJson(p.Key, p.Value))));
+        sb.Append("\n  }\n}\n");
+        return sb.ToString();
+    }
+
+    private static string EntryJson(int n, Entry e)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"    \"{n:X2}\": {{\n");
+        sb.Append($"      \"name\": \"{e.Name.Replace("\\", "\\\\").Replace("\"", "\\\"")}\",\n");
+        var tiles = e.Oam.Select(o =>
+        {
+            string flips = ((o.Attr & 0x40) != 0 ? ", \"xflip\": true" : "") +
+                           ((o.Attr & 0x80) != 0 ? ", \"yflip\": true" : "");
+            return $"        {{ \"x\": {o.X}, \"y\": {o.Y}, \"tile\": \"0x{o.Tile:X3}\", " +
+                   $"\"pal\": {(o.Attr >> 1) & 7}, \"size\": {(o.Big ? 16 : 8)}{flips} }}";
+        });
+        sb.Append("      \"tiles\": [\n");
+        sb.Append(string.Join(",\n", tiles));
+        sb.Append("\n      ]");
+        if (e.Hitbox is { } h)
+            sb.Append($",\n      \"hitbox\": {{ \"x\": {h.X}, \"y\": {h.Y}, \"w\": {h.W}, \"h\": {h.H} }}");
+        var parts = Enumerable.Range(0, 4).Where(sl => e.Req[sl].Length > 0)
+            .Select(sl => $"\"{sl}\": [{string.Join(", ", e.Req[sl].Select(f => $"\"0x{f:X2}\""))}]").ToList();
+        if (parts.Count > 0) sb.Append($",\n      \"gfx\": {{ {string.Join(", ", parts)} }}");
+        sb.Append("\n    }");
         return sb.ToString();
     }
 

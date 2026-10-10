@@ -1,0 +1,146 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="clr-namespace:PipeDream.Ui"
+        x:Class="PipeDream.Ui.SpriteTilesWindow"
+        Title="Sprite tiles" Width="1100" Height="760" CanResize="True"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+
+  <Window.Styles>
+    <Style Selector="TextBlock.dim">
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Border.slot">
+      <Setter Property="Height" Value="128"/>
+      <Setter Property="Padding" Value="8,4"/>
+      <Setter Property="BorderThickness" Value="2"/>
+      <Setter Property="CornerRadius" Value="3"/>
+      <Setter Property="ClipToBounds" Value="True"/>
+    </Style>
+    <Style Selector="TextBlock.note">
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+    <Style Selector="ListBox.mono">
+      <Setter Property="FontFamily" Value="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"/>
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+  </Window.Styles>
+
+  <DockPanel Margin="12">
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+      <TextBlock x:Name="Status" Classes="dim" Margin="0,0,12,0"/>
+      <Button Content="Revert sprite" Click="OnRevert" ToolTip.Tip="Drop this sprite's unsaved edits"/>
+      <Button x:Name="SaveButton" Content="Save" Click="OnSave" IsEnabled="False"
+              ToolTip.Tip="Write every edited sprite to src/data/SpriteDisplay.json and redraw the level"/>
+      <Button Content="Close" Click="OnClose" IsCancel="True"/>
+    </StackPanel>
+
+    <Grid ColumnDefinitions="240,12,Auto,12,*">
+      <ListBox x:Name="Sprites" Classes="mono"/>
+
+      <StackPanel Grid.Column="2" Spacing="8" Width="384">
+        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" HorizontalAlignment="Left">
+          <Panel x:Name="PreviewHost" Width="384" Height="384" Focusable="True"
+                 Background="{x:Static ui:UiColors.DeskPattern}">
+            <ui:PixelImage x:Name="Preview" Stretch="True"/>
+            <Canvas x:Name="PreviewOverlay" IsHitTestVisible="False"/>
+          </Panel>
+        </Border>
+        <TextBlock Classes="dim" TextWrapping="Wrap"
+                   Text="Click a tile to pick it, drag to move. Drag on empty space to lasso; Shift or Ctrl/Cmd-click adds. Arrows nudge (Shift: 8px), Ctrl/Cmd+A picks all. Dashed box = placement cell; earlier tiles draw in front."/>
+        <StackPanel Orientation="Horizontal" Spacing="6">
+          <Button Content="Add" Click="OnAdd" ToolTip.Tip="A new tile — a copy of the selected one, else 16×16 at the cell"/>
+          <Button Content="Delete" Click="OnDelete"/>
+          <Button Content="▲" Click="OnUp" ToolTip.Tip="Earlier: draws in front"/>
+          <Button Content="▼" Click="OnDown" ToolTip.Tip="Later: draws behind"/>
+        </StackPanel>
+        <ListBox x:Name="Tiles" Classes="mono" Height="130" SelectionMode="Multiple"/>
+        <Grid ColumnDefinitions="Auto,120,12,Auto,120" RowDefinitions="Auto,Auto,Auto" RowSpacing="6" ColumnSpacing="6">
+          <TextBlock Classes="dim" Text="x"/>
+          <NumericUpDown x:Name="TileX" Grid.Column="1" Minimum="-128" Maximum="127" Increment="1" FormatString="0"/>
+          <TextBlock Classes="dim" Grid.Column="3" Text="y"/>
+          <NumericUpDown x:Name="TileY" Grid.Column="4" Minimum="-128" Maximum="127" Increment="1" FormatString="0"/>
+          <TextBlock Classes="dim" Grid.Row="1" Text="palette"/>
+          <NumericUpDown x:Name="TilePal" Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="7" Increment="1" FormatString="0"/>
+          <CheckBox x:Name="TileBig" Grid.Row="1" Grid.Column="3" Grid.ColumnSpan="2" Content="16×16"/>
+          <CheckBox x:Name="TileXFlip" Grid.Row="2" Grid.ColumnSpan="2" Content="x flip"/>
+          <CheckBox x:Name="TileYFlip" Grid.Row="2" Grid.Column="3" Grid.ColumnSpan="2" Content="y flip"/>
+        </Grid>
+      </StackPanel>
+
+      <DockPanel Grid.Column="4">
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="0,0,0,8">
+          <TextBlock Classes="dim" Text="show"/>
+          <ComboBox x:Name="SetBox" Width="300"/>
+          <TextBlock x:Name="Readout" Classes="dim" Margin="8,0,0,0"/>
+        </StackPanel>
+        <TextBlock DockPanel.Dock="Top" Classes="dim" Margin="0,0,0,6" TextWrapping="Wrap"
+                   Text="Click a sheet tile to give it to the selected sprite tile, or to add one. Each band is one SP slot; pin the slots whose files this sprite needs."/>
+        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+          <!-- Each slot panel is exactly one sheet band tall (8 rows × 8px × SheetScale), so it
+               sits beside the tiles it describes and scrolls with them. -->
+          <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
+            <StackPanel Width="170">
+              <Border x:Name="Slot0" Classes="slot">
+                <StackPanel Spacing="2">
+                  <TextBlock Text="SP1" FontWeight="Bold"/>
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Classes="dim" Text="file"/>
+                    <TextBox x:Name="File0" Width="44" ToolTip.Tip="The GFX file on show in this slot (hex)"/>
+                  </StackPanel>
+                  <CheckBox x:Name="Need0" Content="pin to sprite"
+                            ToolTip.Tip="This sprite needs this slot's file: saved as its gfx, which Loaded only filters on"/>
+                  <TextBlock x:Name="Note0" Classes="note"/>
+                </StackPanel>
+              </Border>
+              <Border x:Name="Slot1" Classes="slot">
+                <StackPanel Spacing="2">
+                  <TextBlock Text="SP2" FontWeight="Bold"/>
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Classes="dim" Text="file"/>
+                    <TextBox x:Name="File1" Width="44" ToolTip.Tip="The GFX file on show in this slot (hex)"/>
+                  </StackPanel>
+                  <CheckBox x:Name="Need1" Content="pin to sprite"
+                            ToolTip.Tip="This sprite needs this slot's file: saved as its gfx, which Loaded only filters on"/>
+                  <TextBlock x:Name="Note1" Classes="note"/>
+                </StackPanel>
+              </Border>
+              <Border x:Name="Slot2" Classes="slot">
+                <StackPanel Spacing="2">
+                  <TextBlock Text="SP3" FontWeight="Bold"/>
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Classes="dim" Text="file"/>
+                    <TextBox x:Name="File2" Width="44" ToolTip.Tip="The GFX file on show in this slot (hex)"/>
+                  </StackPanel>
+                  <CheckBox x:Name="Need2" Content="pin to sprite"
+                            ToolTip.Tip="This sprite needs this slot's file: saved as its gfx, which Loaded only filters on"/>
+                  <TextBlock x:Name="Note2" Classes="note"/>
+                </StackPanel>
+              </Border>
+              <Border x:Name="Slot3" Classes="slot">
+                <StackPanel Spacing="2">
+                  <TextBlock Text="SP4" FontWeight="Bold"/>
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Classes="dim" Text="file"/>
+                    <TextBox x:Name="File3" Width="44" ToolTip.Tip="The GFX file on show in this slot (hex)"/>
+                  </StackPanel>
+                  <CheckBox x:Name="Need3" Content="pin to sprite"
+                            ToolTip.Tip="This sprite needs this slot's file: saved as its gfx, which Loaded only filters on"/>
+                  <TextBlock x:Name="Note3" Classes="note"/>
+                </StackPanel>
+              </Border>
+            </StackPanel>
+            <Panel x:Name="SheetHost" HorizontalAlignment="Left" VerticalAlignment="Top" Background="Transparent">
+              <ui:PixelImage x:Name="Sheet" Stretch="True"/>
+              <Canvas x:Name="BandOverlay" IsHitTestVisible="False"/>
+              <Canvas x:Name="SheetOverlay" IsHitTestVisible="False"/>
+            </Panel>
+          </StackPanel>
+        </ScrollViewer>
+      </DockPanel>
+    </Grid>
+  </DockPanel>
+</Window>

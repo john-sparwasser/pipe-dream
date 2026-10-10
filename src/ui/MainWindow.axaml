@@ -354,6 +354,7 @@
       <MenuItem x:Name="DebugMenu" Header="De_bug" IsVisible="False">
         <MenuItem Header="_Clear project edits…" Click="OnClearProject"/>
         <MenuItem Header="Build and open in _Lunar Magic" Click="OnOpenLunarMagic"/>
+        <MenuItem Header="_Sprite tiles…" Click="OnSpriteTiles"/>
       </MenuItem>
       <MenuItem Header="_Help">
         <MenuItem Header="Check for _updates…" Click="OnCheckUpdates"/>

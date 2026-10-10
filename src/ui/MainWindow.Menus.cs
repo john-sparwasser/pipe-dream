@@ -213,6 +213,16 @@ public partial class MainWindow
         await new ConfirmWindow("Lunar Magic", problem, "OK").ShowDialog(this);
     }
 
+    /// <summary>Dev only: fix how vanilla sprites draw by picking their tiles off the SP sheets.
+    /// A save swaps the table in live and rebuilds the level; the drawer re-reads the catalog.</summary>
+    private async void OnSpriteTiles(object? sender, RoutedEventArgs e)
+    {
+        if (session.Scene is null) return;
+        await new SpriteTilesWindow(session).ShowDialog(this);
+        PushSpritePixels();
+        RefreshDrawer();
+    }
+
     private void OnUpgradePrep(object? sender, RoutedEventArgs e)
     {
         session.UpgradeBasePrep();

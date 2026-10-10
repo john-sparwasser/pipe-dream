@@ -72,9 +72,9 @@
     "08": {
       "name": "Green Koopa, flying left",
       "tiles": [
-        { "x": 9, "y": -12, "tile": "0x0C6", "pal": 3, "size": 16 },
-        { "x": 0, "y": -15, "tile": "0x082", "pal": 5, "size": 16 },
-        { "x": 0, "y": 1, "tile": "0x0A2", "pal": 5, "size": 16 }
+        { "x": 0, "y": 0, "tile": "0x0A2", "pal": 5, "size": 16 },
+        { "x": 9, "y": -13, "tile": "0x0C6", "pal": 3, "size": 16 },
+        { "x": 0, "y": -16, "tile": "0x082", "pal": 5, "size": 16 }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
       "gfx": { "1": ["0x01"] }
@@ -82,9 +82,9 @@
     "09": {
       "name": "Green bouncing Koopa",
       "tiles": [
-        { "x": 9, "y": -16, "tile": "0x0C6", "pal": 3, "size": 16 },
-        { "x": 0, "y": -19, "tile": "0x082", "pal": 5, "size": 16 },
-        { "x": 0, "y": -3, "tile": "0x0A2", "pal": 5, "size": 16 }
+        { "x": 9, "y": -13, "tile": "0x0C6", "pal": 3, "size": 16 },
+        { "x": 0, "y": -16, "tile": "0x082", "pal": 5, "size": 16 },
+        { "x": 0, "y": 0, "tile": "0x0A2", "pal": 5, "size": 16 }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
       "gfx": { "1": ["0x01"] }
@@ -92,9 +92,9 @@
     "0A": {
       "name": "Red vertical flying Koopa",
       "tiles": [
-        { "x": 9, "y": -12, "tile": "0x0C6", "pal": 3, "size": 16 },
-        { "x": 0, "y": -15, "tile": "0x082", "pal": 4, "size": 16 },
-        { "x": 0, "y": 1, "tile": "0x0A2", "pal": 4, "size": 16 }
+        { "x": 9, "y": -13, "tile": "0x0C6", "pal": 3, "size": 16 },
+        { "x": 0, "y": -16, "tile": "0x082", "pal": 4, "size": 16 },
+        { "x": 0, "y": 0, "tile": "0x0A2", "pal": 4, "size": 16 }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
       "gfx": { "1": ["0x01"] }
@@ -102,9 +102,9 @@
     "0B": {
       "name": "Red horizontal flying Koopa",
       "tiles": [
-        { "x": 9, "y": -12, "tile": "0x0C6", "pal": 3, "size": 16 },
-        { "x": 0, "y": -15, "tile": "0x082", "pal": 4, "size": 16 },
-        { "x": 0, "y": 1, "tile": "0x0A2", "pal": 4, "size": 16 }
+        { "x": 9, "y": -13, "tile": "0x0C6", "pal": 3, "size": 16 },
+        { "x": 0, "y": -16, "tile": "0x082", "pal": 4, "size": 16 },
+        { "x": 0, "y": 0, "tile": "0x0A2", "pal": 4, "size": 16 }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
       "gfx": { "1": ["0x01"] }
@@ -112,7 +112,7 @@
     "0C": {
       "name": "Yellow Koopa with wings",
       "tiles": [
-        { "x": 8, "y": -4, "tile": "0x05D", "pal": 3, "size": 8 },
+        { "x": 8, "y": -12, "tile": "0x0C6", "pal": 3, "size": 16 },
         { "x": -1, "y": -15, "tile": "0x082", "pal": 2, "size": 16 },
         { "x": -1, "y": 1, "tile": "0x0A2", "pal": 2, "size": 16 }
       ],
@@ -122,9 +122,10 @@
     "0D": {
       "name": "Bob-omb",
       "tiles": [
-        { "x": -1, "y": 0, "tile": "0x1CC", "pal": 3, "size": 16 }
+        { "x": 0, "y": 0, "tile": "0x1CA", "pal": 3, "size": 16 }
       ],
-      "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 }
+      "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
+      "gfx": { "3": ["0x02"] }
     },
     "0E": {
       "name": "Keyhole",
@@ -172,25 +173,29 @@
     "14": {
       "name": "Spiny falling",
       "tiles": [
-        { "x": 0, "y": 0, "tile": "0x182", "pal": 4, "size": 16 }
+        { "x": 0, "y": 0, "tile": "0x184", "pal": 4, "size": 8 },
+        { "x": 8, "y": 0, "tile": "0x184", "pal": 2, "size": 8, "xflip": true },
+        { "x": 0, "y": 8, "tile": "0x184", "pal": 4, "size": 8, "yflip": true },
+        { "x": 8, "y": 8, "tile": "0x184", "pal": 2, "size": 8, "xflip": true, "yflip": true }
       ],
-      "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 }
+      "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
+      "gfx": { "3": ["0x02"] }
     },
     "15": {
       "name": "Fish, horizontal",
       "tiles": [
-        { "x": -2, "y": -1, "tile": "0x0CE", "pal": 2, "size": 16, "yflip": true }
+        { "x": 0, "y": 0, "tile": "0x169", "pal": 2, "size": 16 }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
-      "gfx": { "1": ["0x01"] }
+      "gfx": { "2": ["0x13"] }
     },
     "16": {
       "name": "Fish, vertical",
       "tiles": [
-        { "x": -2, "y": -1, "tile": "0x0CE", "pal": 2, "size": 16, "yflip": true }
+        { "x": 0, "y": 0, "tile": "0x169", "pal": 2, "size": 16 }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
-      "gfx": { "1": ["0x01"] }
+      "gfx": { "2": ["0x13"] }
     },
     "17": {
       "name": "Fish, created from generator",
@@ -202,7 +207,7 @@
     "18": {
       "name": "Surface jumping fish",
       "tiles": [
-        { "x": -1, "y": 2, "tile": "0x169", "pal": 2, "size": 16 }
+        { "x": 0, "y": 0, "tile": "0x169", "pal": 2, "size": 16 }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
       "gfx": { "2": ["0x13"] }
@@ -218,14 +223,14 @@
     "1B": {
       "name": "Bouncing football in place",
       "tiles": [
-        { "x": 0, "y": 0, "tile": "0x18A", "pal": 0, "size": 16, "xflip": true }
+        { "x": 0, "y": 0, "tile": "0x10A", "pal": 0, "size": 16, "xflip": true }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 }
     },
     "1C": {
       "name": "Bullet Bill",
       "tiles": [
-        { "x": -2, "y": 0, "tile": "0x0A6", "pal": 1, "size": 16 }
+        { "x": 0, "y": 0, "tile": "0x0A6", "pal": 1, "size": 16 }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 }
     },
@@ -262,7 +267,8 @@
         { "x": 10, "y": 10, "tile": "0x189", "pal": 4, "size": 8 },
         { "x": -3, "y": 7, "tile": "0x198", "pal": 4, "size": 8 }
       ],
-      "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 }
+      "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
+      "gfx": { "3": ["0x03"] }
     },
     "21": {
       "name": "Moving coin",
@@ -270,7 +276,8 @@
         { "x": 4, "y": 0, "tile": "0x0FA", "pal": 2, "size": 8 },
         { "x": 4, "y": 8, "tile": "0x0FA", "pal": 2, "size": 8, "yflip": true }
       ],
-      "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 }
+      "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
+      "gfx": { "1": ["0x01"] }
     },
     "22": {
       "name": "Green vertical net Koopa",
@@ -382,11 +389,12 @@
       "name": "Sumo Brother's fire lightning",
       "tiles": [
         { "x": 8, "y": 8, "tile": "0x1CE", "pal": 2, "size": 8 },
-        { "x": 0, "y": 8, "tile": "0x1F3", "pal": 2, "size": 8, "xflip": true, "yflip": true },
+        { "x": 4, "y": 8, "tile": "0x1F3", "pal": 2, "size": 8, "xflip": true, "yflip": true },
         { "x": 8, "y": 0, "tile": "0x1CE", "pal": 2, "size": 8 },
-        { "x": 0, "y": 0, "tile": "0x1F3", "pal": 2, "size": 8 }
+        { "x": 5, "y": 0, "tile": "0x1F3", "pal": 2, "size": 8 }
       ],
-      "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 }
+      "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
+      "gfx": { "3": ["0x09"] }
     },
     "2C": {
       "name": "Yoshi egg",
@@ -602,7 +610,8 @@
         { "x": 0, "y": 0, "tile": "0x180", "pal": 1, "size": 16 },
         { "x": 16, "y": 0, "tile": "0x182", "pal": 1, "size": 16 }
       ],
-      "hitbox": { "x": 4, "y": 2, "w": 24, "h": 12 }
+      "hitbox": { "x": 4, "y": 2, "w": 24, "h": 12 },
+      "gfx": { "3": ["0x06"] }
     },
     "45": {
       "name": "Directional coins",
@@ -650,7 +659,7 @@
     "4A": {
       "name": "Goal Point Question Sphere",
       "tiles": [
-        { "x": 0, "y": 0, "tile": "0x18C", "pal": 5, "size": 16 }
+        { "x": 0, "y": 0, "tile": "0x18C", "pal": 5, "size": 16, "xflip": true }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
       "gfx": { "3": ["0x05"] }
@@ -667,10 +676,10 @@
     "4C": {
       "name": "Exploding Block",
       "tiles": [
-        { "x": 0, "y": -2, "tile": "0x0CE", "pal": 2, "size": 16 }
+        { "x": 0, "y": 0, "tile": "0x040", "pal": 2, "size": 16 }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
-      "gfx": { "1": ["0x01"] }
+      "gfx": { "0": ["0x00"], "1": ["0x01"] }
     },
     "4D": {
       "name": "Ground dwelling Monty Mole",
@@ -694,7 +703,7 @@
     "4F": {
       "name": "Jumping Piranha Plant",
       "tiles": [
-        { "x": 0, "y": 0, "tile": "0x0AC", "pal": 4, "size": 16 },
+        { "x": 0, "y": 0, "tile": "0x0AE", "pal": 4, "size": 16 },
         { "x": 8, "y": 16, "tile": "0x0C4", "pal": 5, "size": 8, "xflip": true },
         { "x": 0, "y": 16, "tile": "0x0C4", "pal": 5, "size": 8 },
         { "x": 8, "y": 8, "tile": "0x083", "pal": 5, "size": 8, "xflip": true },
@@ -706,14 +715,16 @@
     "50": {
       "name": "Jumping Piranha Plant, spit fire",
       "tiles": [
-        { "x": 0, "y": 0, "tile": "0x0AC", "pal": 4, "size": 16 },
+        { "x": 0, "y": 0, "tile": "0x0AE", "pal": 4, "size": 16 },
         { "x": 8, "y": 16, "tile": "0x0C4", "pal": 5, "size": 8, "xflip": true },
         { "x": 0, "y": 16, "tile": "0x0C4", "pal": 5, "size": 8 },
         { "x": 8, "y": 8, "tile": "0x083", "pal": 5, "size": 8, "xflip": true },
-        { "x": 0, "y": 8, "tile": "0x083", "pal": 5, "size": 8 }
+        { "x": 0, "y": 8, "tile": "0x083", "pal": 5, "size": 8 },
+        { "x": -13, "y": -13, "tile": "0x02C", "pal": 4, "size": 8, "xflip": true },
+        { "x": 21, "y": -13, "tile": "0x02C", "pal": 4, "size": 8 }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
-      "gfx": { "1": ["0x01"] }
+      "gfx": { "0": ["0x00"], "1": ["0x01"] }
     },
     "51": {
       "name": "Ninji",
@@ -755,7 +766,8 @@
         { "x": 24, "y": 16, "tile": "0x188", "pal": 1, "size": 16, "xflip": true },
         { "x": 32, "y": 0, "tile": "0x185", "pal": 1, "size": 16, "xflip": true }
       ],
-      "hitbox": { "x": 0, "y": -2, "w": 48, "h": 14 }
+      "hitbox": { "x": 0, "y": -2, "w": 48, "h": 14 },
+      "gfx": { "2": ["0x13"] }
     },
     "57": {
       "name": "Checkerboard platform, vertical",
@@ -778,7 +790,8 @@
         { "x": 24, "y": 16, "tile": "0x188", "pal": 1, "size": 16, "xflip": true },
         { "x": 32, "y": 0, "tile": "0x185", "pal": 1, "size": 16, "xflip": true }
       ],
-      "hitbox": { "x": 0, "y": -2, "w": 48, "h": 14 }
+      "hitbox": { "x": 0, "y": -2, "w": 48, "h": 14 },
+      "gfx": { "2": ["0x13"] }
     },
     "59": {
       "name": "Turn block bridge, horizontal and vertical",
@@ -813,7 +826,8 @@
         { "x": 48, "y": 0, "tile": "0x1EB", "pal": 0, "size": 16 },
         { "x": 64, "y": 0, "tile": "0x1EC", "pal": 0, "size": 16 }
       ],
-      "hitbox": { "x": 0, "y": -2, "w": 80, "h": 14 }
+      "hitbox": { "x": 0, "y": -2, "w": 80, "h": 14 },
+      "gfx": { "2": ["0x13"] }
     },
     "5E": {
       "name": "Orange platform, goes on forever",
@@ -828,7 +842,8 @@
         { "x": 56, "y": 16, "tile": "0x1E4", "pal": 5, "size": 16, "xflip": true },
         { "x": 64, "y": 0, "tile": "0x1CB", "pal": 5, "size": 16, "xflip": true }
       ],
-      "hitbox": { "x": 0, "y": -2, "w": 80, "h": 14 }
+      "hitbox": { "x": 0, "y": -2, "w": 80, "h": 14 },
+      "gfx": { "2": ["0x13"] }
     },
     "5F": {
       "name": "Brown platform on a chain",
@@ -858,7 +873,8 @@
         { "x": 8, "y": 0, "tile": "0x101", "pal": 5, "size": 8 },
         { "x": 0, "y": 0, "tile": "0x100", "pal": 5, "size": 8 }
       ],
-      "hitbox": { "x": 2, "y": -3, "w": 28, "h": 27 }
+      "hitbox": { "x": 2, "y": -3, "w": 28, "h": 27 },
+      "gfx": { "1": ["0x01"] }
     },
     "61": {
       "name": "Floating skulls",
@@ -1010,7 +1026,8 @@
         { "x": 16, "y": 8, "tile": "0x1F2", "pal": 5, "size": 8 },
         { "x": 0, "y": 0, "tile": "0x1E0", "pal": 5, "size": 16 }
       ],
-      "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 }
+      "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
+      "gfx": { "2": ["0x13"] }
     },
     "72": {
       "name": "Super Koopa, yellow cape",
@@ -1032,7 +1049,7 @@
         { "x": 0, "y": 0, "tile": "0x0E0", "pal": 3, "size": 16 }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
-      "gfx": { "1": ["0x01"], "3": ["0x09"] }
+      "gfx": { "1": ["0x01"], "2": ["0x13"], "3": ["0x09"] }
     },
     "74": {
       "name": "Mushroom",
@@ -1045,7 +1062,7 @@
     "75": {
       "name": "Flower",
       "tiles": [
-        { "x": 0, "y": -1, "tile": "0x026", "pal": 5, "size": 16 }
+        { "x": 0, "y": 0, "tile": "0x026", "pal": 5, "size": 16 }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
       "gfx": { "0": ["0x00"] }
@@ -1053,7 +1070,7 @@
     "76": {
       "name": "Star",
       "tiles": [
-        { "x": 0, "y": -3, "tile": "0x048", "pal": 2, "size": 16 }
+        { "x": 0, "y": 0, "tile": "0x048", "pal": 2, "size": 16 }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
       "gfx": { "0": ["0x00"] }
@@ -1061,7 +1078,7 @@
     "77": {
       "name": "Feather",
       "tiles": [
-        { "x": 0, "y": -1, "tile": "0x00E", "pal": 2, "size": 16 }
+        { "x": 0, "y": 0, "tile": "0x00E", "pal": 2, "size": 16 }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
       "gfx": { "0": ["0x00"] }
@@ -1069,7 +1086,7 @@
     "78": {
       "name": "1-Up",
       "tiles": [
-        { "x": 0, "y": -1, "tile": "0x024", "pal": 5, "size": 16 }
+        { "x": 0, "y": 0, "tile": "0x024", "pal": 5, "size": 16 }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
       "gfx": { "0": ["0x00"] }
@@ -1111,7 +1128,7 @@
     "7D": {
       "name": "Balloon",
       "tiles": [
-        { "x": 1, "y": -2, "tile": "0x1E4", "pal": 0, "size": 16 }
+        { "x": 0, "y": 0, "tile": "0x1E4", "pal": 2, "size": 16 }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 }
     },
@@ -1144,7 +1161,7 @@
     "81": {
       "name": "Changing item from translucent block",
       "tiles": [
-        { "x": 0, "y": -3, "tile": "0x024", "pal": 4, "size": 16 }
+        { "x": 0, "y": 0, "tile": "0x024", "pal": 4, "size": 16 }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
       "gfx": { "0": ["0x00"] }
@@ -1233,7 +1250,8 @@
         { "x": -3, "y": 0, "tile": "0x1C5", "pal": 2, "size": 16 },
         { "x": 3, "y": 0, "tile": "0x1C5", "pal": 2, "size": 16, "xflip": true }
       ],
-      "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 }
+      "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
+      "gfx": { "3": ["0x0F"] }
     },
     "8C": {
       "name": "Fireplace smoke/exit from side screen",
@@ -1874,7 +1892,7 @@
     "C6": {
       "name": "Dark room with spot light",
       "tiles": [
-        { "x": 56, "y": -24, "tile": "0x1C2", "pal": 4, "size": 16 }
+        { "x": 0, "y": 0, "tile": "0x1C2", "pal": 4, "size": 16 }
       ],
       "hitbox": { "x": 8, "y": 8, "w": 8, "h": 24 },
       "gfx": { "3": ["0x0E"] }

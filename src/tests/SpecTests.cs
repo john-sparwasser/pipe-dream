@@ -65,4 +65,14 @@ public class SpecTests
         Assert.Empty(e.Req[0]);
         Assert.Equal((2, 3, 12, 10), e.Hitbox);
     }
+
+    /// <summary>Debug ▸ Sprite tiles writes the table back through Serialize: the shipped file must
+    /// come out byte for byte, or every save would rewrite all 200 entries.</summary>
+    [Fact]
+    public void SpriteDisplay_SerializeRoundTripsTheShippedTable()
+    {
+        using var s = typeof(SpriteDisplay).Assembly.GetManifestResourceStream("SpriteDisplay.json")!;
+        string json = new StreamReader(s).ReadToEnd();
+        Assert.Equal(json, SpriteDisplay.Serialize(SpriteDisplay.Parse(json)));
+    }
 }

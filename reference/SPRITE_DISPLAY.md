@@ -6,6 +6,10 @@ Sprites-tab catalog thumbnails, and the "Loaded only" GFX filter. It is designed
 **hand-edited** — fix a sprite's tiles by eye, add a hitbox, rename — and is loaded by
 `SpriteDisplay` (src/rom/SpriteDisplay.cs).
 
+To fix a sprite by eye, launch with `--dev` and use **Debug ▸ Sprite tiles…**: pick tiles
+off the SP sheets, drag them into place, Save. It rewrites this file in the source tree (same
+layout, so the diff is only the changed tiles) and swaps the table in live.
+
 Regenerate from a clean ROM with:
 
     PipeDream --gen-spritedisplay <cleanRom> src\Data\SpriteDisplay.json
@@ -62,6 +66,10 @@ strings) that satisfy the slot. A sprite is "loaded" in a level when, for every 
 slot, the level's resolved file (SPRITEGFXLIST + Super GFX Bypass) is in the list.
 Slots the sprite's tiles don't touch are omitted. Derived by scanning all 512 vanilla
 levels: wherever a sprite appears, the files loaded in its used slots are compatible.
+The generator seeds it that way; after that it is a hand-kept setting. In Debug ▸ Sprite tiles
+a ticked SP slot is a needed one, and Save writes the file on show for it (keeping a vanilla
+list whole when that file is already in it). The "show" dropdown views a sprite against its
+own files, the level's, or any of the 16 sprite GFX sets without changing what is saved.
 
 ## What is NOT here
 Pixels and colors: tiles resolve against the CURRENT level's SP GFX files and palette

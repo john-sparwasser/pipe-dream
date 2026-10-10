@@ -236,9 +236,12 @@ public static class SpriteRender
 
     /// <summary>Decoded SP-slot 8x8 tiles (512) for a sprite GFX set, honoring the bypass.</summary>
     public static byte[][] LoadSpTiles(Rom rom, LevelHeader h, int level)
+        => LoadSpTiles(rom, ResolveSpFiles(rom, h, level));
+
+    /// <summary>Decoded SP-slot 8x8 tiles (512) for any four files, SP1-SP4 in order.</summary>
+    public static byte[][] LoadSpTiles(Rom rom, int[] files)
     {
         var tiles = new byte[0x200][];
-        var files = ResolveSpFiles(rom, h, level);
         int bpp = Gfx.RomBpp(rom), tb = Gfx.TileBytes(bpp);   // ROM-wide depth (vanilla 3 / LM 4)
         for (int slot = 0; slot < 4; slot++)
         {
