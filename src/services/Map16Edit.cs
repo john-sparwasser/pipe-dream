@@ -267,8 +267,8 @@ public sealed class Map16Edit
     /// <summary>Whether GPS has custom blocks on this ROM.</summary>
     public bool HasCustomBlocks => gps.Value?.Blocks.Count > 0;
 
-    /// <summary>The GPS block on a tile, or null. Our 0x4000+ are BG tiles, not LM's pages 40+,
-    /// so a block GPS put there has no tile here to show on.</summary>
+    /// <summary>The GPS block on a tile, or null. GPS numbers tiles as LM does, and so does the
+    /// editor: its 0x4000-0x7FFF are LM's pages 40-7F, and BG (0x8000+) never has a block.</summary>
     public GpsBlock? CustomBlock(int tile)
         => tile < Map16.BgTileBase && gps.Value?.Blocks.GetValueOrDefault(tile) is { } b ? b : null;
 

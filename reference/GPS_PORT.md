@@ -57,11 +57,12 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
   "GPS $addr" in the gutter, the block in the hover card and on the selected tile's label.
   `GpsBlocksTests` covers it on a synthetic ROM.
 - **First real hack (What The Shell 2!!, BPS on vanilla):** asm version 3, pages-40+ layout,
-  965 blocks over 229 code addresses, headers and JMP tables disassemble as read. But 606 of
-  the 965 sit on LM's FG pages 40+ (0x4000-0x7FFF), which this editor numbers as BG tiles, and
-  35 more are past `Map16TileCount` (0xFB0) — so the editor shows 324. Reaching pages 40+ is a
-  Map16 numbering change (CONTRACT §10), not a GPS one; it decides how much of a real GPS hack
-  phase 5 can show. Still open: an oracle check against a `list.txt` we inserted ourselves.
+  965 blocks over 229 code addresses, headers and JMP tables disassemble as read. 606 of them
+  sit on LM's FG pages 40-7F and 35 more past the old flat tile count (0xFB0), so at first the
+  editor showed 324. Fixed by the Map16 work of 2026-10-12 (CONTRACT §7a-rev, §9d): tiles are
+  numbered as LM numbers them (BG 0x8000+), exist per range, object 0x29 places pages 40-7F
+  on layer 1, and their acts-like is LM's second table. All 965 now show, with their acts-like.
+  Still open: an oracle check against a `list.txt` we inserted ourselves.
 
 ### 2. Asar in the build
 - Build Asar's shared library from the pinned source (`~/asar`, `5fd539c`, API 3.3.0) for
