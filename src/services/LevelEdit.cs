@@ -86,9 +86,9 @@ public sealed class LevelEdit(Rom rom, LevelScene scene, IReadOnlyList<LevelObje
         if (Target is not { } grid) return false;
         if (x < 0 || y < 0 || x >= grid.Width || y >= grid.Height) return false;
         if (y >= Scene.VisibleRows) return false;                 // rows the game never draws
-        // DM16 objects address the FG lookup range only; BG-space picks (0x4000+) belong to
-        // layer 2, and stamping one here would silently do nothing on save.
-        if (tile is < 0 or >= 0x4000) return false;
+        // DM16 objects place FG tiles only (0x29 reaches LM's pages 40-7F); a BG pick (0x8000+)
+        // belongs to layer 2, and stamping one here would silently do nothing on save.
+        if (tile is < 0 or >= Map16.BgTileBase) return false;
         if (grid.Get(x, y) == tile && !stroke.ContainsKey((x, y))) return false;
 
         stroke[(x, y)] = tile;

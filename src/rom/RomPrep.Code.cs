@@ -400,7 +400,7 @@ public static partial class RomPrep
     }
 
     /// <summary>
-    /// Obj 0x29 ($0DFF50): the BG-page DM16 form — same stream shape and fill as 0x27
+    /// Obj 0x29 ($0DFF50): the DM16 form for LM's FG pages 40-7F — same stream shape and fill as 0x27
     /// with the tile page ORed with 0x40 (CONTRACT §9d; behavior confirmed against the LM
     /// reference: the fill goes through the current pass's planes, page 0x40+).
     /// </summary>

@@ -168,16 +168,18 @@ public class EditingTests(ITestOutputHelper log)
         Assert.False(edit.Dirty);
     }
 
-    /// <summary>BG-space tiles (0x4000+) live on layer 2; a DM16 object cannot address them,
-    /// so stamping one must be refused rather than silently doing nothing on save.</summary>
+    /// <summary>BG tiles (0x8000+) live on layer 2; a DM16 object cannot address them, so
+    /// stamping one must be refused rather than silently doing nothing on save. LM's FG pages
+    /// 40-7F (0x4000-0x7FFF) are object 0x29, and paint.</summary>
     [Fact]
     public void bg_tiles_are_refused_rather_than_silently_dropped()
     {
         if (RealEdit() is not { } r) { log.WriteLine("SKIP: no ROM"); return; }
         var (_, _, edit) = r;
-        Assert.False(edit.Paint(4, 6, 0x4000));
-        Assert.False(edit.Paint(4, 6, 0x4123));
+        Assert.False(edit.Paint(4, 6, Map16.BgTileBase));
+        Assert.False(edit.Paint(4, 6, Map16.BgTileBase + 0x123));
         Assert.Equal(0, edit.UndoDepth);
+        Assert.True(edit.Paint(4, 6, 0x4123));
     }
 
     /// <summary>A diagonal drag paints only the cells it crossed, not the rectangle they

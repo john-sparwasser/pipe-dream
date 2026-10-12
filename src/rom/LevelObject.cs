@@ -114,14 +114,16 @@ public readonly struct LevelObject
 
     /// <summary>Create a Direct Map16 object placing <paramref name="tile"/> at a cell.
     /// Sizes past 16 use LM's extended Form B (page bits 6+7: 7-bit width in byte3,
-    /// height byte) — verified against the handler: max 128 wide x 256 tall.</summary>
+    /// height byte) — verified against the handler: max 128 wide x 256 tall. Tiles 0x4000+
+    /// (LM's pages 40-7F) are object 0x29, whose handler adds the 0x40 to a 6-bit page.</summary>
     public static LevelObject MakeDm16(int tile, int screen, int xNib, int y, int w = 1, int h = 1, bool newScreen = false, int band = 0)
     {
+        int formB = tile >= 0x4000 ? 0x29 : 0x27;
         if (w > 16 || h > 16)
-            return new LevelObject(newScreen, 0x27, screen, xNib, y, Math.Clamp(w, 1, 128) - 1, -1, tile,
+            return new LevelObject(newScreen, formB, screen, xNib, y, Math.Clamp(w, 1, 128) - 1, -1, tile,
                                    ((tile >> 8) & 0x3F) | 0xC0, 0, Math.Clamp(h, 1, 256) - 1, band);
-        // Page-0 Form (obj 0x22), page-1 Form A (0x23), or general Form B (0x27).
-        int num = tile <= 0xFF ? 0x22 : tile <= 0x1FF ? 0x23 : 0x27;
+        // Page-0 Form (obj 0x22), page-1 Form A (0x23), or general Form B (0x27 / 0x29).
+        int num = tile <= 0xFF ? 0x22 : tile <= 0x1FF ? 0x23 : formB;
         int size = ((h - 1) << 4) | (w - 1);
         return new LevelObject(newScreen, num, screen, xNib, y, size, -1, tile, band: band);
     }

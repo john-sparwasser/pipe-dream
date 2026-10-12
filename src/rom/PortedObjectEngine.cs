@@ -282,7 +282,7 @@ public static class PortedObjectEngine
     /// <summary>LM Direct Map16: a w×h fill of one tile (the BG-page form 0x29 draws nothing on layer 1).</summary>
     private static void PlaceDm16(Map16Grid g, LevelObject o, int ax, int ay)
     {
-        if (o.Number == 0x29) return;                   // BG-page form: layer 2, no L1 tiles
+        // 0x29 is 0x27 for LM's pages 40-7F: its tile already carries the +0x4000 (LevelParser).
         // Extended form (page bit7): 7-bit width from the size byte; bits 7+6 add a
         // height-override byte. ponytail: ExtX run semantics approximated as plain w×h.
         int dw = o.Dm16ExtX >= 0 ? (o.Byte3 & 0x7F) + 1 : o.Width;

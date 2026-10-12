@@ -65,13 +65,35 @@ public class Dm16SaverTests
     }
 
     [Fact]
-    public void marker_and_bg_space_tiles_are_skipped()
+    public void marker_cells_are_skipped()
     {
-        ushort[] brush = { (ushort)(0x8000 | 0x25), 0x4001, 0x130 };   // marker, BG-space, real
-        var objs = Dm16Saver.FromBrush(brush, 3, 1, cx: 0, cy: 0, vert: false);
+        ushort[] brush = { (ushort)(0x8000 | 0x25), 0x130 };            // marker, real
+        var objs = Dm16Saver.FromBrush(brush, 2, 1, cx: 0, cy: 0, vert: false);
         var o = Assert.Single(objs);
         Assert.Equal(0x130, o.Dm16Tile);
-        Assert.Equal(2, o.AbsoluteX);
+        Assert.Equal(1, o.AbsoluteX);
+    }
+
+    /// <summary>Every FG tile survives the trip, not only page 0x0F and below: 0x1234 is a Form B
+    /// 0x27 and LM's page 40+ tile 0x4A01 is a 0x29, whose 6-bit page byte the handler ORs with
+    /// 0x40. Painted through the object engine, the 0x29 lands on layer 1 like any other.</summary>
+    [Fact]
+    public void high_tiles_round_trip_as_0x27_and_0x29()
+    {
+        ushort[] brush = { 0x1234, 0x4A01, 0x4A01 };
+        var objs = Dm16Saver.FromBrush(brush, 3, 1, cx: 4, cy: 6, vert: false);
+        Assert.Equal([0x27, 0x29], objs.Select(o => o.Number).Order());
+
+        var (rom, level) = TestRom.CreateWithLevel(dm16: true);
+        var parsed = LevelParser.ParseEncoded(rom, LevelEncoder.Encode(level, LevelEncoder.NormalizeStream(objs)));
+        var cells = Paint(parsed);
+        Assert.Equal(0x1234, cells[(4, 6)]);
+        Assert.Equal(0x4A01, cells[(5, 6)]);
+        Assert.Equal(0x4A01, cells[(6, 6)]);
+
+        var grid = PortedObjectEngine.Render(rom, level.Header, parsed);
+        Assert.Equal(0x4A01, grid.Get(5, 6));
+        Assert.Equal(0x4A01, grid.Get(6, 6));
     }
 
     [Fact]

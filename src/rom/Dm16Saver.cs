@@ -17,8 +17,9 @@ public static class Dm16Saver
     public static List<LevelObject> FromBrush(ushort[] tiles, int w, int h, int cx, int cy, bool vert)
     {
         var outl = new List<LevelObject>();
-        // FG lookup range only — Empty/marker cells and BG-space tiles (0x4000+) skipped.
-        bool Ok(ushort t) => t != Map16Grid.Empty && (t & ObjectEngine.Marker) == 0 && t < 0x1000;
+        // FG tiles only — Empty and marker cells skipped. BG tiles (0x8000+) never get here as
+        // tiles: in a ushort brush they are marker-bit cells.
+        bool Ok(ushort t) => t != Map16Grid.Empty && (t & ObjectEngine.Marker) == 0;
 
         // Open rectangles from the previous row, keyed by (x0, len, tile), grown downward.
         var open = new List<(int x0, int len, ushort tile, int y0, int hh)>();
