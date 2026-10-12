@@ -39,7 +39,7 @@ public sealed partial class EditorSession
     }
 
     /// <summary>The BG Map16 defs as a picker sheet, one per phase. These are the fixed 0x200
-    /// defs at $0D9100 — LM's BG pages 80-81, our virtual tiles 0x4000-0x41FF.</summary>
+    /// defs at $0D9100 — LM's BG pages 80-81, tiles 0x8000-0x81FF.</summary>
     public (uint[]?[] Px, int W, int H) BgSheetPhases()
     {
         var px = new uint[4][];

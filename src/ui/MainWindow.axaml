@@ -505,7 +505,9 @@
                   <ComboBox x:Name="BankBox" Width="82" SelectedIndex="0">
                     <ComboBoxItem Content="0 FG"/>
                     <ComboBoxItem Content="1 FG"/>
-                    <ComboBoxItem Content="2 BG"/>
+                    <ComboBoxItem Content="2 FG"/>
+                    <ComboBoxItem Content="3 FG"/>
+                    <ComboBoxItem Content="4 BG"/>
                   </ComboBox>
                   <CheckBox x:Name="PagesBox" VerticalAlignment="Center"
                             ToolTip.Tip="Pages — outline and number each Map16 page">

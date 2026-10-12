@@ -68,7 +68,7 @@ public sealed class Map16Edit
 
     /// <summary>
     /// The palette row a BG Map16 tile draws with, by its number within the BG table (0-0x1FF)
-    /// rather than the virtual 0x4000+ one — the Background canvas thinks in the former, and
+    /// rather than the 0x8000+ one — the Background canvas thinks in the former, and
     /// having it add the base itself would put the ROM layer's numbering in the UI.
     ///
     /// The TOP-LEFT quadrant's row: a Map16 tile's four 8x8s can each name a different one, and

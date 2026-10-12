@@ -51,8 +51,8 @@ public static class LunarMagic
         ///
         /// Ranges 4-7 (0x4000+) live in a second chain at $06F593/$06F59C/$06F5A7/$06F5B0.
         /// sgdq2024 populates 4 and 5, which is what the eight-slot reader is for; nothing of
-        /// ours ever WRITES them, because 0x4000+ is where this editor renumbers LM's BG pages
-        /// (see <see cref="LmMap16DefAddr"/> and <see cref="Map16TileCount"/>).
+        /// ours ever WRITES them: our own prep's lookup sends 0x4000+ to the blank fallback, so
+        /// a page allocated there would show here and not in game (<see cref="Map16Layout.CanAllocate"/>).
         /// </summary>
         private static int SlotAddr(int range) => range switch
         {
@@ -83,12 +83,8 @@ public static class LunarMagic
         /// so range 2+ arrive with tile*8 already wrapped mod 0x10000, and the stored imm is
         /// chosen against that wrapped value.
         ///
-        /// Reaches all eight ranges, sgdq2024's 4 and 5 included — but note that above 0x3FFF
-        /// the two numbering systems COLLIDE: these are LM's own FG tiles, while this editor
-        /// renumbers LM's BG pages (which LM calls 0x8000+) to 0x4000+ (CONTRACT §10). Nothing
-        /// of ours walks into that overlap because <see cref="Map16TileCount"/> stops at
-        /// <see cref="Map16.BgTileBase"/>; a caller asking for a high tile explicitly, as the
-        /// high-range test does, still gets LM's answer.
+        /// Reaches all eight ranges, sgdq2024's 4 and 5 included: tiles 0x4000-0x7FFF are LM's
+        /// FG pages 40-7F, numbered as LM numbers them (BG is 0x8000+, CONTRACT §10).
         /// </summary>
         public int LmMap16DefAddr(int tile)
         {
@@ -170,12 +166,10 @@ public static class LunarMagic
             {
                 if (rom.map16TileCount >= 0) return rom.map16TileCount;
                 int count = 0x200;
-                // Stop at the BG boundary. Ranges 4-7 address LM's own FG tiles 0x4000-0x7FFF,
-                // which is exactly where this editor renumbers LM's BG pages (CONTRACT §10), so
-                // counting into them would let DefFileOffset hand our BG tiles to the ladder and
-                // shadow the fixed $0D9100 table. A hack that uses those ranges keeps them —
-                // LmMap16DefAddr still reads them — but our numbering has nowhere to put them.
-                for (int r = 0; r < Map16RangeCount && RangeStart(r) < Map16.BgTileBase; r++)
+                // Ranges 0-3 only. Ranges 4-7 are LM's FG pages 40-7F; LmMap16DefAddr reads
+                // them, but a flat count past 0x4000 would make the one-image FG sheet taller
+                // than a GPU texture, so the count stops here.
+                for (int r = 0; r < Map16RangeCount && RangeStart(r) < 0x4000; r++)
                 {
                     if (RangeStart(r) > count) break;            // hole: stop before it
                     int end = rom.RangeCeiling(r);

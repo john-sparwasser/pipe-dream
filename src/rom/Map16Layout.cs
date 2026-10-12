@@ -14,10 +14,14 @@ public static class Map16Layout
     /// <summary>A bank is 0x2000 tiles shown 16 per row.</summary>
     public const int BankTiles = 0x2000, Cols = 16, BankRows = BankTiles / Cols;
 
+    /// <summary>Banks 0-3 are FG (LM pages 00-7F); bank 4 is the BG table, LM's pages 80+.</summary>
+    public const int BgBank = Map16.BgTileBase / BankTiles;
+
     /// <summary>
     /// Whether a tile's page can be brought into existence. Banks 0-1 (tiles 0x200-0x3FFF)
     /// are the four lookup-ladder ranges EnsureMap16Tiles can allocate and prep v3 dispatches
-    /// to; bank 2 is the BG table, a fixed 0x200 defs at $0D9100 that cannot grow at all.
+    /// to; banks 2-3 (LM's pages 40-7F) are only ever read, and the BG bank is a fixed 0x200
+    /// defs at $0D9100 that cannot grow at all.
     /// Whether a specific BASE honours a range is EnsureMap16Tiles' answer, not this one.
     /// </summary>
     public static bool CanAllocate(int tile) => tile is >= 0x200 and < 0x4000;
@@ -49,7 +53,7 @@ public static class Map16Layout
     /// — an empty page there is drawn as ordinary empty tiles and comes into existence when
     /// painted — so this only explains the two genuinely fixed cases.</summary>
     public static string UnusedPageNote(int bank, int page) =>
-        bank == 2 ? "BG definitions are a fixed table"
+        bank == BgBank ? "BG definitions are a fixed table"
         : bank < 2 ? "empty — paint to fill it"
-        : "past the supported 0x3FFF tiles";
+        : "pages 40-7F can only be read, not created";
 }

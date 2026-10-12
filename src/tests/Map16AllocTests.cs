@@ -49,9 +49,9 @@ public class Map16AllocTests : IDisposable
         Assert.Equal(sizeBefore, rom.ActualRomSize);           // no bank wasted
     }
 
-    /// <summary>Both FG banks (tiles 0x200-0x3FFF) can be created — four lookup-ladder ranges,
-    /// which is also exactly what LM's Direct-Map16 objects can address (6-bit page byte).
-    /// Bank 2 is the fixed BG table and can never grow.</summary>
+    /// <summary>FG banks 0-1 (tiles 0x200-0x3FFF) can be created — the four lookup-ladder ranges
+    /// our prep dispatches. LM's pages 40-7F are read but not created, and the BG bank is the
+    /// fixed BG table and can never grow.</summary>
     [Fact]
     public void both_fg_banks_can_be_created_but_the_bg_table_cannot()
     {
@@ -61,7 +61,7 @@ public class Map16AllocTests : IDisposable
         Assert.True(Map16Layout.CanAllocate(0x2000));     // bank 1 / range 2
         Assert.True(Map16Layout.CanAllocate(0x3FFF));     // last level-placeable tile
         Assert.False(Map16Layout.CanAllocate(0x1FF));     // vanilla defs already exist
-        Assert.False(Map16Layout.CanAllocate(0x4000));    // bank 2 = the fixed BG table
+        Assert.False(Map16Layout.CanAllocate(0x4000));    // LM's pages 40+: our prep's lookup blanks them
     }
 
     [Fact]
@@ -74,9 +74,10 @@ public class Map16AllocTests : IDisposable
         Assert.Contains("paint", Map16Layout.UnusedPageNote(1, 0x20));
         Assert.All([Map16Layout.UnusedPageNote(0, 0x05), Map16Layout.UnusedPageNote(1, 0x20)],
                    s => Assert.DoesNotContain("creat", s));   // nothing to create, nothing to click
-        // Bank 2 is the BG table — fixed size, so it is a different explanation entirely.
-        Assert.Contains("BG", Map16Layout.UnusedPageNote(2, 0x42));
-        Assert.DoesNotContain("paint", Map16Layout.UnusedPageNote(2, 0x42));
+        // The BG bank is a fixed-size table, so it is a different explanation entirely.
+        Assert.Contains("BG", Map16Layout.UnusedPageNote(Map16Layout.BgBank, 0x82));
+        Assert.DoesNotContain("paint", Map16Layout.UnusedPageNote(Map16Layout.BgBank, 0x82));
+        Assert.DoesNotContain("paint", Map16Layout.UnusedPageNote(2, 0x42));   // LM's pages 40-7F: read only
     }
 
     [RealRomFact]
@@ -178,13 +179,11 @@ public class Map16AllocTests : IDisposable
     }
 
     /// <summary>
-    /// The ladder stops at the BG boundary. LM numbers its BG pages 0x8000+ and this editor
-    /// renumbers them 0x4000+, while LM's own 0x4000-0x7FFF are more FG tiles reached through the
-    /// ladder's SECOND chain (ranges 4-7 at `$06F593`…). A base with ranges 0-3 full and range 4
-    /// populated must therefore still resolve our BG tiles to the fixed `$0D9100` table, and must
-    /// not let the count run past 0x4000 — otherwise DefFileOffset hands the BG numbers to the
-    /// ladder. Latent, not observed: no sampled LM ROM populates ranges 4-7 (the one that does,
-    /// sgdq2024, is SA-1, whose Map16 hijack does not even point at `$06F5D0`).
+    /// The flat count stops at range 3. LM's 0x4000-0x7FFF are FG tiles reached through the
+    /// ladder's SECOND chain (ranges 4-7 at `$06F593`…), and BG tiles are 0x8000+ as LM numbers
+    /// them. A base with ranges 0-3 full and range 4 populated must read range 4 when asked, keep
+    /// the count at 0x4000 (the one-image FG sheet), and still resolve BG tiles to the fixed
+    /// `$0D9100` table.
     /// </summary>
     [RealRomFact]
     public void the_ladder_stops_at_the_bg_boundary_even_with_a_populated_range_4()
@@ -208,7 +207,7 @@ public class Map16AllocTests : IDisposable
 
         Assert.Equal(0x16, rom.LmMap16Slot(4).Bank);            // the slot is read...
         Assert.False(rom.HasMap16Range(4));                     // ...but it is not a range of ours
-        Assert.True(rom.LmMap16DefAddr(Map16.BgTileBase) > 0);  // ...and still addressable on purpose
+        Assert.True(rom.LmMap16DefAddr(0x4000) > 0);            // ...and LM's page 40 is addressable
         Assert.True(rom.Map16TileCount <= Map16.BgTileBase,     // what stops is the COUNT
                     $"count is 0x{rom.Map16TileCount:X}");
         // So a BG tile still resolves to the fixed table, which is what the game reads.

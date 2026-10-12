@@ -32,7 +32,7 @@ internal sealed class Map16Sheet
         sheet.SetImages(px, w, h, phase);
     }
 
-    /// <summary>The BG definitions' sheet — bank 2, LM's pages 80-81, our 0x4000-0x41FF. Its own
+    /// <summary>The BG definitions' sheet — the BG bank, LM's pages 80-81, tiles 0x8000-0x81FF. Its own
     /// image because those defs are a fixed table beside the FG sheet, not a window into it.</summary>
     public void SetBgSheet(uint[]?[] px, int w, int h, int phase)
     {
@@ -89,7 +89,7 @@ internal sealed class Map16Sheet
     public void DrawQuads(Control owner, DrawingContext ctx, int bank, int phase,
                           int qx, int qy, int qw, int qh, Rect dst)
     {
-        var (bmp, sw, sh, top) = bank == 2 ? (bgSheet.For(phase), bgW, bgH, 0)
+        var (bmp, sw, sh, top) = bank == Map16Layout.BgBank ? (bgSheet.For(phase), bgW, bgH, 0)
                                            : (sheet.For(phase), w, h, bank * Map16Layout.BankRows * 16);
         if (bmp is null || sh <= 0) return;
         var src = new Rect(qx * 8, top + qy * 8, qw * 8, qh * 8).Intersect(new Rect(0, 0, sw, sh));
@@ -104,7 +104,7 @@ internal sealed class Map16Sheet
     /// origin. Black in the BG bank, whose empty tiles have no placeholder.</summary>
     public void DrawEmpty(Control owner, DrawingContext ctx, int bank, int phase, int qw, int qh, Rect dst)
     {
-        if (bank == 2 || placeholder[phase & 3] is not { } ph) { ctx.FillRectangle(Brushes.Black, dst); return; }
+        if (bank == Map16Layout.BgBank || placeholder[phase & 3] is not { } ph) { ctx.FillRectangle(Brushes.Black, dst); return; }
         holeBlit.Draw(owner, ctx, ph, new Rect(0, 0, qw * 8, qh * 8), dst, TopLevel.GetTopLevel(owner)?.RenderScaling ?? 1);
     }
 
@@ -125,7 +125,7 @@ internal sealed class Map16Sheet
                               TopLevel.GetTopLevel(owner)?.RenderScaling ?? 1);
         }
 
-        if (bank == 2)
+        if (bank == Map16Layout.BgBank)
         {
             // The BG table fills the first two pages of the bank; the rest is genuinely empty.
             if (bgSheet.For(phase) is { } bg && bgH > 0)

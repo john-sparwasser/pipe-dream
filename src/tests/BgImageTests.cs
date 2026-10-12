@@ -144,9 +144,9 @@ public class BgImageTests
         // Map16.DefFileOffset routes the BG range ($4000-$41FF) at the fixed table, which is
         // what the Map16 editor writes through — the same 0x200 defs the renderer composes.
         for (int idx = 0; idx < 0x200; idx += 0x7F)
-            Assert.Equal(rom.FileOffset(0x0D9100 + idx * 8), Map16.DefFileOffset(rom, 0, 0x4000 + idx));
+            Assert.Equal(rom.FileOffset(0x0D9100 + idx * 8), Map16.DefFileOffset(rom, 0, Map16.BgTileBase + idx));
         // A different TILESET must not move them: BG defs are tileset-independent.
-        Assert.Equal(Map16.DefFileOffset(rom, 0, 0x4100), Map16.DefFileOffset(rom, 7, 0x4100));
+        Assert.Equal(Map16.DefFileOffset(rom, 0, Map16.BgTileBase + 0x100), Map16.DefFileOffset(rom, 7, Map16.BgTileBase + 0x100));
     }
 
     // Decode straight from a byte[] so the codec can be exercised without a ROM.

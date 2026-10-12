@@ -556,18 +556,16 @@ than aliasing across it; the high pages appear once ordinary allocation fills th
 - Writer: `Rom.EnsureMap16Tiles(minCount)` allocates one fresh bank per range and repatches
   that range's slot. A FULL range needs all 0x8000 window bytes, which leaves no room for a
   RATS tag at the bank start — so a full range takes two banks and parks its tag in the
-  first one's tail. Our own prep emits ranges 0-3 (the editor's ceiling is 0x3FFF, which is
-  also all LM's Direct-Map16 objects can address: the page byte is masked `& 0x3F`).
-- **The two numberings collide above 0x3FFF, and the COUNT is what stops.** Ranges 4-7 address
-  LM's own FG tiles 0x4000-0x7FFF, which is exactly where this editor renumbers LM's BG pages
-  (LM calls them 0x8000+, §10). `Rom.Map16TileCount` therefore stops at `Map16.BgTileBase`:
-  without that, a base with ranges 0-3 full and range 4 populated would run the count into the BG
-  numbers and `Map16.DefFileOffset` would hand them to the ladder, shadowing the fixed `$0D9100`
-  BG table. `LmMap16DefAddr` still answers for a high tile asked for explicitly — that is how
-  sgdq2024's ranges 4/5 are read — so nothing is lost except the ability to ADDRESS LM's high FG
-  tiles, which our numbering has nowhere to put. Latent, not observed: sgdq2024's own range 0 is
-  partial, so its count caps far below the boundary. Pinned by
-  `the_ladder_stops_at_the_bg_boundary_even_with_a_populated_range_4`.
+  first one's tail. Our own prep emits ranges 0-3; its lookup sends 0x4000+ to the blank
+  fallback, so the editor never allocates past 0x3FFF. LM's Direct-Map16 objects DO reach
+  0x4000-0x7FFF: obj 0x29 is obj 0x27 with page|0x40 (§9d).
+- **Numbering is LM's own (2026-10-12).** FG 0x0000-0x7FFF (ranges 4-7 = LM's pages 40-7F),
+  BG 0x8000+ (`Map16.BgTileBase`, §10). Until then the editor numbered BG 0x4000+, which
+  collided with ranges 4-7 and is why pages 40-7F could not be shown. `Rom.Map16TileCount` still
+  counts ranges 0-3 only: a flat count past 0x4000 would make the one-image FG sheet taller than
+  a GPU texture. Real hacks are not contiguous anyway — What The Shell 2!! populates ranges
+  0 (partly), 1, 2, 5, 6 and 7 — so reaching 4-7 is per-range existence, not a bigger count.
+  Pinned by `the_ladder_stops_at_the_bg_boundary_even_with_a_populated_range_4`.
 
 ### 7a. LM extended Map16 table  [SUPERSEDED by 7a-rev — kept for the diff history]
 
@@ -749,11 +747,14 @@ identically; vanilla had placeholder $0DB3E3)
 - 0x22 → $0DF08A: Direct Map16 page-0 form — 4 bytes (b1,b2,size,tileLow), tile = 0x000|low.
 - 0x23 → $0DF08E: DM16 page-1 Form A (4 bytes) — as §8.
 - 0x26 → $0DF130: no-tile directive (pokes $0DDA; music-related).
-- 0x27 → $0DF150 / 0x29 → $0DFF50 (BG pages, +0x40): VARIABLE LENGTH —
+- 0x27 → $0DF150 / 0x29 → $0DFF50 (FG pages 40-7F: page|0x40): VARIABLE LENGTH —
   b1,b2,size,pageByte,tileLow (5 bytes) + 1 run byte if pageByte bit7 + 1 height-override
   byte if bits7+6. Width switches to (size & 0x7F) only when bits7+6 are BOTH set
   (bit7 alone keeps the nibble sizes — corrected via RomPrep parity probing). Obj 0x29
-  writes the page|0x40 words through the same plane writes as 0x27.
+  writes the page|0x40 words through the same plane writes as 0x27: `$0DFF58 ORA #$40 : STA $01
+  : JMP $F094`, the same layer tile path 0x27 takes — so these are LM's FG pages 40-7F, NOT BG
+  (an earlier reading here called them BG pages). What The Shell 2!! places 738 of them, on
+  pages up to 0x7F, where its GPS blocks are.
 - The bit7 "run byte" is NOT inert: it is a **stamp descriptor** — low nibble =
   stamp width-1, high nibble = stamp height-1; the fill cycles
   `tileLow + (col % W) + 0x10*(row % H)` (decoded by footprint probes vs after.smc,
@@ -1011,7 +1012,7 @@ relocatable block. Decoded from `bg_0.smc` → `bg_a.smc` (LM 3.33: same ROM sav
                  So a background CAN reach all 0x10 pages of its bank; the plane byte selects
                  the page. Whether the loader masks it to 4 bits is untested (a bank is only
                  0x10 pages, so only the low nibble can matter).
-                 LM numbers BG tiles 0x8000+i (pages 0x80-0xFF) = our virtual 0x4000+i.
+                 LM numbers BG tiles 0x8000+i (pages 0x80-0xFF), and so does the editor.
                  Cross-check: the three streams are **byte-identical**, confirming the bank
                  lives only in `$0EF310` bits 4-6 and never in the stream.
   relocation     LM allocates a FRESH RATS block on every save (the pointer walked

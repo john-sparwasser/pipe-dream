@@ -106,7 +106,7 @@ public sealed class LevelScene
             palettes[p] = pal;
             backdrop[p] = pal.Rgba[0];
             // Always, not only when layer 2 is a background image: these 0x200 defs are the Map16
-            // editor's bank 2 and the drawer's BG sheet, which a level whose layer 2 is an object
+            // editor's BG bank and the drawer's BG sheet, which a level whose layer 2 is an object
             // stream still edits — and until now saw as a black bank.
             bgCaches[p] = Map16.ComposeAllBg(rom, level.Header, levelNum, p, pal);
 
@@ -282,7 +282,7 @@ public sealed class LevelScene
                 Array.Resize(ref TileCaches[p], count);
             }
 
-        // A BG definition (0x4000+) lives in its own caches; ComposeInto ignores it, so the bank-2
+        // A BG definition (0x8000+) lives in its own caches; ComposeInto ignores it, so the BG-bank
         // sheet kept showing the old tile until something rebuilt the scene.
         bool bgEdited = set.Any(t => t >= Map16.BgTileBase);
         Parallel.For(0, 4, p =>

@@ -338,21 +338,22 @@ public static class Map16
         return w;
     }
 
-    /// <summary>Where this editor's virtual numbering puts the BG Map16 table — LM's pages
-    /// 80-81, which it numbers 0x8000+ and this repo addresses as 0x4000+ (CONTRACT §10).</summary>
-    public const int BgTileBase = 0x4000;
+    /// <summary>Where the BG Map16 table sits in tile numbering — LM's own: pages 80-81, tiles
+    /// 0x8000+ (CONTRACT §10). Below it, 0x0000-0x7FFF, every tile is FG, including LM's
+    /// pages 40-7F that object 0x29 places.</summary>
+    public const int BgTileBase = 0x8000;
 
     /// <summary>
     /// ROM file offset of a Map16 tile's 8-byte definition (word order TL,BL,TR,BR), or
     /// -1 when the tile has no backing def. FG &lt; 0x200: vanilla per-tileset/shared bank-0D
-    /// tables; FG 0x200+: LM's extended region (when allocated); BG 0x4000-0x41FF: the
+    /// tables; FG 0x200+: LM's extended region (when allocated); BG 0x8000-0x81FF: the
     /// fixed $0D9100 table. This is the write target for tile editing.
     /// </summary>
     public static int DefFileOffset(Rom rom, int tileset, int tile)
     {
         if (tile < 0x200) return rom.FileOffset(BuildDefPointers(rom, tileset)[tile]);
         if (tile < rom.Map16TileCount) return rom.FileOffset(rom.LmMap16DefAddr(tile));
-        if (tile is >= 0x4000 and < 0x4200) return rom.FileOffset(0x0D9100 + (tile - 0x4000) * 8);
+        if (tile is >= BgTileBase and < BgTileBase + 0x200) return rom.FileOffset(0x0D9100 + (tile - BgTileBase) * 8);
         return -1;
     }
 

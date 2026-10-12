@@ -504,9 +504,9 @@ public class BackgroundEditTests(ITestOutputHelper log)
     }
 
     /// <summary>
-    /// The BG definitions are the Map16 editor's bank 2 and the drawer's BG sheet on EVERY level.
+    /// The BG definitions are the Map16 editor's BG bank and the drawer's BG sheet on EVERY level.
     /// They were composed only when the level's layer 2 was a background image, so on $009 —
-    /// objects on layer 2 — bank 2 was a black field with nothing to pick or edit.
+    /// objects on layer 2 — the BG bank was a black field with nothing to pick or edit.
     /// </summary>
     [RealRomFact]
     public void the_bg_definitions_have_a_sheet_on_a_level_whose_layer_2_is_objects()
