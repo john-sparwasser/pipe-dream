@@ -214,4 +214,51 @@ public class Map16AllocTests : IDisposable
         Assert.Equal(rom.FileOffset(0x0D9100), Map16.DefFileOffset(rom, 0, Map16.BgTileBase));
         Assert.Equal(rom.FileOffset(0x0D9100 + 8), Map16.DefFileOffset(rom, 0, Map16.BgTileBase + 1));
     }
+
+    /// <summary>
+    /// Real hacks are not contiguous: What The Shell 2!! has defs in ranges 0, 1, 2, 5, 6 and 7.
+    /// A tile exists when its own range holds it, so a populated range 5 over an empty range 4
+    /// is shown and editable, the hole between is not, and the allocation count — which only
+    /// our prep's ranges 0-3 can grow — does not move.
+    /// </summary>
+    [RealRomFact]
+    public void a_range_past_a_hole_exists_on_its_own()
+    {
+        var tmp = Path.Combine(dir, "sparse.smc");
+        File.Copy(TestRom.RealRomPath, tmp);
+        Assert.Null(RomPrep.PrepInPlace(tmp));
+        var rom = Rom.Load(tmp);
+        int count = rom.Map16TileCount;
+        // Range 5's slot (CONTRACT §7a-rev) pointing at bank $16. Its ceiling is wherever the
+        // RATS block it lands in ends — somewhere inside range 5.
+        int fo = rom.FileOffset(0x06F59C);
+        rom.Data[fo] = 0x69; rom.Data[fo + 1] = 0x00; rom.Data[fo + 2] = 0x80;
+        rom.Data[fo + 3] = 0xA0; rom.Data[fo + 4] = 0x00; rom.Data[fo + 5] = 0x16;
+        rom.map16Ceilings = null;
+
+        int end = rom.Map16TileEnd;
+        Assert.InRange(end, 0x5001, 0x6000);
+        Assert.True(rom.HasMap16Def(0x5000));
+        Assert.True(rom.HasMap16Def(end - 1));
+        Assert.False(rom.HasMap16Def(end));
+        Assert.False(rom.HasMap16Def(0x4000));                   // range 4: the hole
+        Assert.False(rom.HasMap16Def(0x6000));                   // range 6: nothing there
+        Assert.Equal(count, rom.Map16TileCount);                 // allocation does not see it
+        Assert.Equal(rom.FileOffset(rom.LmMap16DefAddr(0x5000)), Map16.DefFileOffset(rom, 0, 0x5000));
+        Assert.Equal(-1, Map16.DefFileOffset(rom, 0, 0x4000));
+    }
+
+    /// <summary>A hole in the tile cache leaves its cell transparent on the sheet, so the
+    /// view's own empty-page drawing shows through; a tile that exists is opaque.</summary>
+    [Fact]
+    public void a_hole_in_the_sheet_is_transparent()
+    {
+        var cache = new uint[0x20][];
+        cache[0x11] = new uint[256];                             // all colour 0: drawn grey
+        var (px, w, _) = Map16.ComposeSheet(cache, 0x10, 0x10);
+        Assert.Equal(0xFF303030u, px[16]);                       // tile 0x11 = second cell
+        Assert.Equal(0u, px[0]);                                 // tile 0x10: no def
+        Assert.Equal(0u, px[2 * 16]);                            // tile 0x12: no def
+        Assert.Equal(256, w);
+    }
 }

@@ -48,12 +48,12 @@ public sealed partial class EditorSession
     /// <summary>The Map16 tile sheet the drawer picks from, one image per animation phase — a
     /// tile made of animated graphics has to animate wherever it is DRAWN, not only in the
     /// level.</summary>
-    public (uint[]?[] Px, int W, int H) SheetPhases()
+    public (uint[]?[] Px, int W, int H) SheetPhases(int half = 0)
     {
         if (Scene is not { } s) return (new uint[4][], 0, 0);
         var px = new uint[4][];
         int w = 0, h = 0;
-        for (int p = 0; p < 4; p++) (px[p], w, h) = s.Sheet(p);
+        for (int p = 0; p < 4; p++) (px[p], w, h) = s.Sheet(p, half);
         return (px, w, h);
     }
 

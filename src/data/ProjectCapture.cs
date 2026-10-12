@@ -34,9 +34,12 @@ internal static class ProjectCapture
         // Both bounds matter. The ROM's live count is what the session actually has; the highest
         // recorded definition is what the project cannot do without, and it is the safer of the
         // two if the count walk ever stops early at a hole.
+        // Only tiles a build can allocate count: an edit on LM's pages 40-7F lives on a base
+        // that already has them, and asking for 0x4000+ would fail the build.
         int needed = rom.Map16TileCount;
         foreach (var t in m.Ext.Keys)
-            needed = Math.Max(needed, Convert.ToInt32(t, 16) + 1);
+            if (Convert.ToInt32(t, 16) is var tile && Map16Layout.CanAllocate(tile))
+                needed = Math.Max(needed, tile + 1);
         m.TileCount = Math.Max(m.TileCount, needed);
 
         foreach (var addr in m.Slots.Keys.ToArray())

@@ -247,6 +247,8 @@ public partial class MainWindow : Window
         var (px, w, h) = session.SheetPhases();
         palette.SetSheet(px, w, h, session.Map16TileCount);
         palette.SetPlaceholder(session.PlaceholderPhases());
+        var (hiPx, hiW, hiH) = session.SheetPhases(half: 1);
+        palette.SetHiSheet(hiPx, hiW, hiH);
         var (bgPx, bgW, bgH) = session.BgSheetPhases();
         palette.SetBgSheet(bgPx, bgW, bgH);
 

@@ -72,11 +72,12 @@ public static class Map16
     public static uint[][] ComposeAll(Rom rom, LevelHeader h, Gfx.FgTiles fg, Palette pal)
     {
         var defPtr = BuildDefPointers(rom, h.Tileset);
-        var tiles = new uint[rom.Map16TileCount][];         // 0x200, + LM extended pages (§7a)
+        // 0x200, + LM extended pages (§7a) up to the highest range; a tile in a hole stays null.
+        var tiles = new uint[rom.Map16TileEnd][];
         for (int t = 0; t < FgTiles; t++)
             tiles[t] = Compose(Definition(rom, defPtr, t), fg.Fetch, pal);
         for (int t = FgTiles; t < tiles.Length; t++)
-            tiles[t] = Compose(LmExtendedDef(rom, t), fg.Fetch, pal);
+            if (rom.HasMap16Def(t)) tiles[t] = Compose(LmExtendedDef(rom, t), fg.Fetch, pal);
         return tiles;
     }
 
@@ -90,8 +91,8 @@ public static class Map16
         var defPtr = BuildDefPointers(rom, h.Tileset);
         foreach (int t in tiles)
             if (t >= 0 && t < cache.Length)
-                cache[t] = Compose(t < FgTiles ? Definition(rom, defPtr, t) : LmExtendedDef(rom, t),
-                                   fg.Fetch, pal);
+                cache[t] = !rom.HasMap16Def(t) ? null!
+                         : Compose(t < FgTiles ? Definition(rom, defPtr, t) : LmExtendedDef(rom, t), fg.Fetch, pal);
     }
 
     /// <summary>Compose the 0x200 BG Map16 tiles (defs at fixed $0D9100 + idx*8, CONTRACT §10).</summary>
@@ -277,14 +278,19 @@ public static class Map16
 
     /// <summary>Compose the 512-tile picker sheet from a precomputed cache.</summary>
     public static (uint[] px, int w, int h) ComposeSheet(uint[][] cache, int cols = 16)
+        => ComposeSheet(cache, 0, cache.Length, cols);
+
+    /// <summary>The same, for <paramref name="count"/> tiles from <paramref name="from"/>. A tile
+    /// with no definition (null) stays fully transparent, so whatever the view lays under the
+    /// sheet — the empty-page tile — shows through the hole.</summary>
+    public static (uint[] px, int w, int h) ComposeSheet(uint[][] cache, int from, int count, int cols = 16)
     {
-        int count = cache.Length;                        // 0x200 + LM extended pages
         int rows = (count + cols - 1) / cols;
         int w = cols * 16, ht = rows * 16;
         var sheet = new uint[w * ht];
         for (int t = 0; t < count; t++)
         {
-            var img = cache[t];
+            var img = from + t < cache.Length ? cache[from + t] : null;
             if (img is null) continue;
             int ox = (t % cols) * 16, oy = (t / cols) * 16;
             for (int y = 0; y < 16; y++)
@@ -321,8 +327,7 @@ public static class Map16
     /// <summary>
     /// The 4 words (TL, BL, TR, BR) of an extended Map16 tile (0x200+) from LM's def region:
     /// def(tile) = bank:(imm + tile*8) with (imm, bank) taken from the lookup slot covering
-    /// tile's 0x1000-tile range (CONTRACT §7a-rev). Caller must ensure tile &lt;
-    /// rom.Map16TileCount, which only counts ranges that have a slot.
+    /// tile's 0x1000-tile range (CONTRACT §7a-rev). Caller must ensure rom.HasMap16Def(tile).
     /// </summary>
     public static Word[] LmExtendedDef(Rom rom, int tile)
     {
@@ -352,7 +357,7 @@ public static class Map16
     public static int DefFileOffset(Rom rom, int tileset, int tile)
     {
         if (tile < 0x200) return rom.FileOffset(BuildDefPointers(rom, tileset)[tile]);
-        if (tile < rom.Map16TileCount) return rom.FileOffset(rom.LmMap16DefAddr(tile));
+        if (tile < 0x8000 && rom.HasMap16Def(tile)) return rom.FileOffset(rom.LmMap16DefAddr(tile));
         if (tile is >= BgTileBase and < BgTileBase + 0x200) return rom.FileOffset(0x0D9100 + (tile - BgTileBase) * 8);
         return -1;
     }

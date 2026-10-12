@@ -189,14 +189,15 @@ public sealed class Map16Edit
     /// Record the touched def slot in the project. The save re-reads the slot's current bytes
     /// from the ROM, so undo, redo and a page relocation need no extra bookkeeping.
     ///
-    /// Extended FG tiles key by TILE NUMBER because their region moves when a page is
-    /// allocated; vanilla FG and BG slots key by the def's SNES address, which is canonical
-    /// across tilesets since tiles below 0x200 alias shared and per-tileset regions.
+    /// Extended FG tiles (LM's pages 40-7F included) key by TILE NUMBER because their region
+    /// moves when a page is allocated; vanilla FG and BG slots key by the def's SNES address,
+    /// which is canonical across tilesets since tiles below 0x200 alias shared and per-tileset
+    /// regions.
     /// </summary>
     private void Capture(int tile)
     {
         if (project is null) return;
-        if (tile is >= 0x200 and < 0x4000)
+        if (tile is >= 0x200 and < Map16.BgTileBase)
             project.Data.Map16.Ext.TryAdd(tile.ToString("X3"), "");
         else
         {

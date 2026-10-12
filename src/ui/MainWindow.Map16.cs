@@ -197,6 +197,8 @@ public partial class MainWindow
         var (px, w, h) = session.SheetPhases();
         map16Canvas.SetSheet(px, w, h, session.Map16TileCount);
         map16Canvas.SetPlaceholder(session.PlaceholderPhases());
+        var (hiPx, hiW, hiH) = session.SheetPhases(half: 1);
+        map16Canvas.SetHiSheet(hiPx, hiW, hiH);
         var (bgPx, bgW, bgH) = session.BgSheetPhases();
         map16Canvas.SetBgSheet(bgPx, bgW, bgH);
         map16Canvas.CustomBlocks = map16 is { HasCustomBlocks: true } m16 ? t => m16.CustomBlock(t) is not null : null;

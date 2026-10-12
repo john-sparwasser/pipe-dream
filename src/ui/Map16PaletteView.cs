@@ -69,6 +69,8 @@ public class Map16PaletteView : Control
 
     public void SetBgSheet(uint[]?[] px, int w, int h) { sheet.SetBgSheet(px, w, h, Phase); InvalidateVisual(); }
 
+    public void SetHiSheet(uint[]?[] px, int w, int h) { sheet.SetHiSheet(px, w, h, Phase); InvalidateVisual(); }
+
     /// <summary>Tile under a screen point, or null past the end of the bank.</summary>
     public int? TileAt(Point p)
     {

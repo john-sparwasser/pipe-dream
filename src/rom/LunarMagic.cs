@@ -164,22 +164,48 @@ public static class LunarMagic
         {
             get
             {
-                if (rom.map16TileCount >= 0) return rom.map16TileCount;
+                var ceilings = rom.Map16Ceilings;
                 int count = 0x200;
-                // Ranges 0-3 only. Ranges 4-7 are LM's FG pages 40-7F; LmMap16DefAddr reads
-                // them, but a flat count past 0x4000 would make the one-image FG sheet taller
-                // than a GPU texture, so the count stops here.
+                // Ranges 0-3 only: this is the count allocation grows, and our own prep cannot
+                // reach 4-7. What EXISTS, holes and LM's pages 40-7F included, is HasMap16Def.
                 for (int r = 0; r < Map16RangeCount && RangeStart(r) < 0x4000; r++)
                 {
                     if (RangeStart(r) > count) break;            // hole: stop before it
-                    int end = rom.RangeCeiling(r);
+                    int end = ceilings[r];
                     if (end <= count) break;
                     count = end;
                     if (end < (r + 1) << 12) break;              // range only partly allocated
                 }
-                return rom.map16TileCount = count;
+                return count;
             }
         }
+
+        /// <summary>Whether a tile has a definition to show or edit: the vanilla 0x200, BG's
+        /// 0x200 at 0x8000, and any tile inside an extended range's def block. Real hacks are not
+        /// contiguous — What The Shell 2!! has ranges 0 (partly), 1, 2, 5, 6 and 7 — so this is
+        /// per range, where <see cref="Map16TileCount"/> stops at the first hole.</summary>
+        public bool HasMap16Def(int tile)
+            => tile is >= 0 and < 0x200
+            || tile is >= Map16.BgTileBase and < Map16.BgTileBase + 0x200
+            || tile is >= 0x200 and < 0x8000 && tile >= RangeStart(tile >> 12) && tile < rom.Map16Ceilings[tile >> 12];
+
+        /// <summary>One past the highest FG tile that has a definition — how far the tile caches
+        /// and the sheets reach. At least <see cref="Map16TileCount"/>.</summary>
+        public int Map16TileEnd
+        {
+            get
+            {
+                var ceilings = rom.Map16Ceilings;
+                for (int r = Map16RangeCount - 1; r >= 0; r--)
+                    if (ceilings[r] > RangeStart(r)) return Math.Max(ceilings[r], rom.Map16TileCount);
+                return 0x200;
+            }
+        }
+
+        /// <summary>Each range's ceiling (its start when it has no defs), cached: a RATS walk per
+        /// range is too slow to repeat for every tile. Reset with the other scan caches.</summary>
+        private int[] Map16Ceilings
+            => rom.map16Ceilings ??= Enumerable.Range(0, Map16RangeCount).Select(rom.RangeCeiling).ToArray();
 
         /// <summary>Whether the in-game lookup ladder has a slot for this range at all — i.e.
         /// whether repatching it would actually be honoured in-game. True with bank 0 for a
@@ -224,7 +250,7 @@ public static class LunarMagic
             if (newCount <= rom.Map16TileCount) return null;
             for (int r = 0; r <= top; r++)
                 rom.GrowRange(r, Math.Min(newCount, (r + 1) << 12));
-            rom.map16TileCount = -1;
+            rom.map16Ceilings = null;
             return null;
         }
 
@@ -261,7 +287,7 @@ public static class LunarMagic
             int slot = rom.FileOffset(SlotAddr(range) + 1);
             rom.Data[slot] = (byte)newImm; rom.Data[slot + 1] = (byte)(newImm >> 8);
             rom.Data[slot + 3] = 0x00; rom.Data[slot + 4] = (byte)(dataSnes >> 16); // LDY #bank<<8
-            rom.map16TileCount = -1;                                         // the next range's growth re-reads the count
+            rom.map16Ceilings = null;                                        // the next range's growth re-reads the count
         }
 
         // --- LM expanded-table bases (CONTRACT §7d) -----------------------------

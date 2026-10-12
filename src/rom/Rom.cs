@@ -288,7 +288,7 @@ public sealed class Rom
     internal int lmExAnimSetupEntry = -2, lmExAnimProcEntry = -2;
     internal int pixiTable = -2;
     internal int lmSpriteBankTable = -2;
-    internal int map16TileCount = -1;
+    internal int[]? map16Ceilings;
 
     /// <summary>Session-only GFX slot overrides (the editor's GFX tab): (level, bypass word
     /// index) → GFX/ExGFX file. Overlaid on the bypass record in LunarMagic.LmGfxBypass so

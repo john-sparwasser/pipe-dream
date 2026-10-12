@@ -161,7 +161,16 @@ public sealed class LevelScene
 
     /// <summary>The Map16 tile sheet for the palette drawer, 16 tiles per row — the same
     /// composition the level uses, so a tile looks identical in both places.</summary>
-    public (uint[] Px, int W, int H) Sheet(int phase = 0) => Map16.ComposeSheet(TileCaches[phase & 3]);
+    /// <summary>One half of the FG picker sheet: banks 0-1 (tiles 0-0x3FFF) or, for
+    /// <paramref name="half"/> 1, banks 2-3 (LM's pages 40-7F). Two images because one covering
+    /// all 0x8000 tiles would be 32768px tall, past what a GPU texture holds; each half is cut
+    /// at the last tile it has, and is empty when it has none.</summary>
+    public (uint[] Px, int W, int H) Sheet(int phase = 0, int half = 0)
+    {
+        var cache = TileCaches[phase & 3];
+        int from = half * 0x4000, count = Math.Clamp(cache.Length - from, 0, 0x4000);
+        return count == 0 ? ([], 0, 0) : Map16.ComposeSheet(cache, from, count);
+    }
 
     /// <summary>The layer-2 background drawn as pixels — <paramref name="cols"/> columns wide
     /// (two screens side by side is how it repeats) by <paramref name="rows"/> rows. Empty when
@@ -274,7 +283,7 @@ public sealed class LevelScene
         // Painting an empty page allocated it: the caches still have the old tile count, and
         // ComposeInto ignores tiles past its end — which is how a freshly painted page stayed
         // black. Grow them to the ROM's count first; the new tail is composed like any edit.
-        int count = rom.Map16TileCount;
+        int count = rom.Map16TileEnd;
         for (int p = 0; p < 4; p++)
             if (count > TileCaches[p].Length)
             {

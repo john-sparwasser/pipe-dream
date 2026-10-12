@@ -758,7 +758,7 @@ public static partial class RomPrep
         rom.lmExAnimSetupEntry = rom.lmExAnimProcEntry = -2;
         rom.pixiTable = -2;
         rom.lmSpriteBankTable = -2;
-        rom.map16TileCount = -1;
+        rom.map16Ceilings = null;
     }
 
     /// <summary>

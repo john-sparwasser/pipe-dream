@@ -17,12 +17,12 @@ namespace PipeDream.Ui;
 /// </summary>
 internal sealed class Map16Sheet
 {
-    private readonly LevelBitmap sheet = new(), bgSheet = new();
+    private readonly LevelBitmap sheet = new(), hiSheet = new(), bgSheet = new();
     private readonly Bitmap?[] placeholder = new Bitmap?[4];
     // The placeholder gets its own blit: sharing one would have the two draws, at two sizes,
     // rebuild each other's intermediates every frame.
     private readonly PixelBlit blit = new(), tailBlit = new(), dragBlit = new(), holeBlit = new();
-    private int w, h, bgW, bgH;
+    private int w, h, hiW, hiH, bgW, bgH;
 
     public int TileCount { get; private set; }
 
@@ -31,6 +31,18 @@ internal sealed class Map16Sheet
         this.w = w; this.h = h; TileCount = tileCount;
         sheet.SetImages(px, w, h, phase);
     }
+
+    /// <summary>FG banks 2-3 — LM's pages 40-7F, tiles 0x4000-0x7FFF — as a second image: one
+    /// sheet for all four FG banks would be taller than a GPU texture. Empty on most ROMs.</summary>
+    public void SetHiSheet(uint[]?[] px, int w, int h, int phase)
+    {
+        hiW = w; hiH = h;
+        hiSheet.SetImages(px, w, h, phase);
+    }
+
+    /// <summary>The image a FG bank is a window into, and that window's bank within it.</summary>
+    private (WriteableBitmap? Bmp, int W, int H, int Bank) Fg(int bank, int phase)
+        => bank < 2 ? (sheet.For(phase), w, h, bank) : (hiSheet.For(phase), hiW, hiH, bank - 2);
 
     /// <summary>The BG definitions' sheet — the BG bank, LM's pages 80-81, tiles 0x8000-0x81FF. Its own
     /// image because those defs are a fixed table beside the FG sheet, not a window into it.</summary>
@@ -89,8 +101,9 @@ internal sealed class Map16Sheet
     public void DrawQuads(Control owner, DrawingContext ctx, int bank, int phase,
                           int qx, int qy, int qw, int qh, Rect dst)
     {
+        var fg = Fg(bank, phase);
         var (bmp, sw, sh, top) = bank == Map16Layout.BgBank ? (bgSheet.For(phase), bgW, bgH, 0)
-                                           : (sheet.For(phase), w, h, bank * Map16Layout.BankRows * 16);
+                                                           : (fg.Bmp, fg.W, fg.H, fg.Bank * Map16Layout.BankRows * 16);
         if (bmp is null || sh <= 0) return;
         var src = new Rect(qx * 8, top + qy * 8, qw * 8, qh * 8).Intersect(new Rect(0, 0, sw, sh));
         if (src.Width < 1 || src.Height < 1) return;
@@ -104,7 +117,7 @@ internal sealed class Map16Sheet
     /// origin. Black in the BG bank, whose empty tiles have no placeholder.</summary>
     public void DrawEmpty(Control owner, DrawingContext ctx, int bank, int phase, int qw, int qh, Rect dst)
     {
-        if (bank == Map16Layout.BgBank || placeholder[phase & 3] is not { } ph) { ctx.FillRectangle(Brushes.Black, dst); return; }
+        if (bank >= 2 || placeholder[phase & 3] is not { } ph) { ctx.FillRectangle(Brushes.Black, dst); return; }
         holeBlit.Draw(owner, ctx, ph, new Rect(0, 0, qw * 8, qh * 8), dst, TopLevel.GetTopLevel(owner)?.RenderScaling ?? 1);
     }
 
@@ -133,11 +146,11 @@ internal sealed class Map16Sheet
                           new Rect(0, 0, Map16Layout.Cols * tile, bgH / 16 * tile),
                           TopLevel.GetTopLevel(owner)?.RenderScaling ?? 1);
         }
-        else if (sheet.For(phase) is { } bmp && h > 0)
+        else if (Fg(bank, phase) is { Bmp: { } bmp, H: > 0 } fg)
         {
-            var (v0, v1, rows, _) = Map16Layout.SheetWindow(bank, h, TileCount);
+            var (v0, v1, rows, _) = Map16Layout.SheetWindow(fg.Bank, fg.H, fg.H / 16 * 16);
             if (rows > 0)
-                blit.Draw(owner, ctx, bmp, new Rect(0, v0 * h, w, (v1 - v0) * h),
+                blit.Draw(owner, ctx, bmp, new Rect(0, v0 * fg.H, fg.W, (v1 - v0) * fg.H),
                           new Rect(0, 0, Map16Layout.Cols * tile, rows * tile),
                           TopLevel.GetTopLevel(owner)?.RenderScaling ?? 1);
         }
