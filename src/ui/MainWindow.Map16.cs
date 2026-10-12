@@ -175,10 +175,16 @@ public partial class MainWindow
         // and leaving the gutter looking broken.
         string gps = m16.CustomBlock(h.Tile) is { } b ? $"GPS ${b.Addr:X6}  " : "";
         if (m16.ActsAsResolved(h.Tile) is not { } a)
-            return gps + (h.Tile >= 0x4000 ? "acts-like: n/a for BG tiles" : "acts-like: no LM table");
+            return gps + "acts-like: " + NoActsAs(h.Tile);
         string what = ActsAs.Describe(a);
         return gps + (what.Length > 0 ? $"acts 0x{a:X3}  {what}" : $"acts 0x{a:X3}");
     }
+
+    /// <summary>Why a tile has no acts-like to show: BG tiles never do, LM's pages 40-7F need a
+    /// second table, everything else needs LM's table at all.</summary>
+    private static string NoActsAs(int tile)
+        => tile >= Map16Layout.BgBank * Map16Layout.BankTiles ? "n/a for BG tiles"
+         : tile >= 0x4000 ? "no LM table for pages 40-7F" : "no LM acts-like table";
 
     /// <summary>A custom block in one line: where its code is, its header, and the contacts its
     /// code acts on — the acts-like covers the rest.</summary>
@@ -302,11 +308,11 @@ public partial class MainWindow
         loadingM16Props = true;
         // Acts-like is an FG concept and needs LM's table; say which is missing rather than
         // showing a box that does nothing.
-        bool acts = m16.HasActsAs && first < 0x4000;
+        bool acts = m16.ActsAs(first) is not null;
         m16ActsFor = acts ? tiles.ToArray() : [];
         m16Acts.IsEnabled = acts;
         m16Acts.Text = m16.ActsAs(first) is { } a ? $"{a:X3}" : "";
-        m16ActsNote.Text = acts ? "" : first >= 0x4000 ? "n/a for BG tiles" : "no LM acts-like table";
+        m16ActsNote.Text = acts ? "" : NoActsAs(first);
         m16Priority.IsChecked = def[0].Priority;
         m16Palette.SelectedIndex = def[0].Palette;
         RefreshM16Colors(def[0].Palette);

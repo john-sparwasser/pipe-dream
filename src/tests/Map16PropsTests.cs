@@ -112,14 +112,48 @@ public class Map16PropsTests(ITestOutputHelper log)
     }
 
     /// <summary>Acts-like is an FG concept and needs Lunar Magic's table: BG tiles have no entry
-    /// at all, and writing one would run past the end of the table.</summary>
+    /// at all, and writing one would run past the end of the table. Nor do LM's pages 40-7F on a
+    /// base without LM's second table, which our own prep never has.</summary>
     [Fact]
     public void acts_like_is_refused_for_bg_tiles()
     {
         if (Edit() is not { } m16) { log.WriteLine("SKIP: no ROM"); return; }
         log.WriteLine($"acts-like table present: {m16.HasActsAs}");
+        Assert.Null(m16.ActsAs(Map16.BgTileBase));
+        Assert.False(m16.SetActsAs([Map16.BgTileBase], 0x130));
         Assert.Null(m16.ActsAs(0x4000));
         Assert.False(m16.SetActsAs([0x4000], 0x130));
+    }
+
+    /// <summary>
+    /// LM's pages 40-7F have their own acts-like table. Its lookup forms X = tile*2 and, when that
+    /// sets bit 15, reads `LDA hiBase,X` at $06F639 instead, hiBase being the table minus $8000.
+    /// Reads, chains (an entry of 0x200+ is another tile) and writes all go there.
+    /// </summary>
+    [Fact]
+    public void pages_40_and_up_use_lms_second_acts_like_table()
+    {
+        var rom = TestRom.Create(size: 0x200000);
+        void Put(int snes, params byte[] b) => b.CopyTo(rom.Data, rom.FileOffset(snes));
+        Put(0x06F61E, 0xA8, 0x0A, 0xAA, 0x30, 0x16, 0xBF, 0x00, 0x80, 0x11, 0xC9, 0x00, 0x02);
+        Put(0x06F639, 0xBF, 0x00, 0x00, 0x12);
+        Put(0x118000 + 0x300 * 2, 0x30, 0x01);                     // tile 0x300 acts as 0x130
+        Put(0x128000 + 5 * 2, 0x25, 0x00);                          // tile 0x4005 acts as 0x025
+        Put(0x128000 + 6 * 2, 0x00, 0x03);                          // tile 0x4006 → tile 0x300
+
+        Assert.Equal(0x118000, rom.LmActsAsBase);
+        Assert.Equal(0x12800A, rom.ActsAsAddr(0x4005));
+        Assert.Equal(0x025, rom.ActsAs(0x4005));
+        Assert.Equal(0x130, rom.ActsAsResolved(0x4006));
+        Assert.Equal(-1, rom.ActsAsAddr(Map16.BgTileBase));
+
+        var m16 = new Map16Edit(rom, 0, null);
+        Assert.True(m16.SetActsAs([0x4007], 0x130));
+        Assert.Equal(0x130, rom.ReadValue(0x128000 + 7 * 2, 2));
+
+        rom.Data[rom.FileOffset(0x06F63C)] = 0xFF;                  // no second table
+        Assert.Equal(-1, rom.ActsAsAddr(0x4005));
+        Assert.Equal(0x4005, rom.ActsAs(0x4005));
     }
 
     [Fact]

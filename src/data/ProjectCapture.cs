@@ -54,10 +54,8 @@ internal static class ProjectCapture
         }
         if (rom.LmActsAsBase > 0)
             foreach (var t in m.ActsAs.Keys.ToArray())
-            {
-                int fo = rom.FileOffset(rom.LmActsAsBase + Convert.ToInt32(t, 16) * 2);
-                m.ActsAs[t] = rom.Data[fo] | (rom.Data[fo + 1] << 8);
-            }
+                if (rom.ActsAsAddr(Convert.ToInt32(t, 16)) is var addr and >= 0)
+                    m.ActsAs[t] = rom.ReadValue(addr, 2);
     }
 
     private static void RefreshEntrances(Rom rom, ProjectFile data)

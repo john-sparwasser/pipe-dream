@@ -104,8 +104,27 @@ public static class LunarMagic
         public int LmMap16Base => rom.LmMap16Defs.Bank == 0 ? -1 : (rom.LmMap16Defs.Bank << 16) | rom.LmMap16Defs.Imm;
 
         /// <summary>LM's acts-like table (2 bytes/tile, per-ROM location): the behavior tile a Map16 tile
-        /// acts as. Base 0 = the LM code slot exists but no table was allocated (all-vanilla behavior).</summary>
-        public int ActsAs(int tile) => rom.LmActsAsBase <= 0 ? tile : rom.ReadValue(rom.LmActsAsBase + tile * 2, 2);
+        /// acts as. Base 0 = the LM code slot exists but no table was allocated (all-vanilla behavior).
+        /// A tile with no entry (BG, or pages 40-7F without LM's second table) acts as itself.</summary>
+        public int ActsAs(int tile) => rom.ActsAsAddr(tile) is var a and >= 0 ? rom.ReadValue(a, 2) : tile;
+
+        /// <summary>
+        /// SNES address of a tile's acts-like entry, or -1 when it has none. Tiles 0-0x3FFF are in
+        /// the table at <see cref="LmActsAsBase"/>; LM's pages 40-7F have a second one. LM's
+        /// lookup at $06F61E forms X = tile*2, and when that sets bit 15 branches to
+        /// `$06F639 LDA hiBase,X` — hiBase stored as the table minus $8000, so tile 0x4000 lands on
+        /// its first entry. GPS reads the same operand ($06F63A, absent when its bank byte is $FF).
+        /// </summary>
+        public int ActsAsAddr(int tile)
+        {
+            if (tile is >= 0 and < 0x4000) return rom.LmActsAsBase > 0 ? rom.LmActsAsBase + tile * 2 : -1;
+            if (tile is < 0x4000 or >= 0x8000 || rom.LmActsAsBase <= 0) return -1;
+            // LM's fixed code: TAY : ASL : TAX : BMI +$16 : LDA long,X, and at the BMI's target
+            // another LDA long,X — the high table — with a real bank.
+            bool lmHook = rom.ReadValue(0x06F61E, 4) == 0x30AA0AA8 && rom.ReadByte(0x06F622) == 0x16
+                       && rom.ReadByte(0x06F639) == 0xBF && rom.ReadByte(0x06F63C) != 0xFF;
+            return lmHook ? rom.ReadValue(0x06F63A, 3) + (tile * 2 & 0xFFFF) : -1;
+        }
 
         /// <summary>
         /// What a tile ends up behaving as — the value the GAME arrives at, not the byte in the
@@ -122,7 +141,7 @@ public static class LunarMagic
         public int ActsAsResolved(int tile)
         {
             int v = rom.ActsAs(tile);
-            for (int hop = 0; v is >= 0x200 and < 0x4000 && hop < 8; hop++)
+            for (int hop = 0; v is >= 0x200 and < 0x8000 && hop < 8; hop++)
             {
                 int next = rom.ActsAs(v);
                 if (next == v) break;                          // a self-cycle: nothing more to learn

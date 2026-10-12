@@ -105,13 +105,13 @@ public sealed class Map16Edit
     /// takes both back together. Acts-like is an FG concept, so BG tiles have nothing to carry.</summary>
     private void StampActsAs(int to, int from)
     {
-        if (from < 0x4000) StampActsAs(to, (ushort)rom.ActsAs(from));
+        if (rom.ActsAsAddr(from) >= 0) StampActsAs(to, (ushort)rom.ActsAs(from));
     }
 
     private void StampActsAs(int to, ushort v)
     {
-        if (!HasActsAs || to >= 0x4000) return;
-        int fo = rom.FileOffset(rom.LmActsAsBase + to * 2);
+        if (rom.ActsAsAddr(to) is not (var addr and >= 0)) return;
+        int fo = rom.FileOffset(addr);
         ushort before = (ushort)(rom.Data[fo] | (rom.Data[fo + 1] << 8));
         if (before == v) return;
         rom.Data[fo] = (byte)v;
@@ -275,16 +275,17 @@ public sealed class Map16Edit
     /// <summary>Whether this ROM carries Lunar Magic's acts-like table at all.</summary>
     public bool HasActsAs => rom.LmActsAsBase > 0;
 
-    /// <summary>What a tile behaves as. Acts-like is an FG concept: BG tiles (0x4000+) have no
-    /// entry, and pretending otherwise would write past the table.</summary>
+    /// <summary>What a tile behaves as. Acts-like is an FG concept: BG tiles have no entry, nor
+    /// do LM's pages 40-7F on a ROM without its second table, and pretending otherwise would
+    /// write past the table.</summary>
     public int? ActsAs(int tile)
-        => HasActsAs && tile < 0x4000 ? rom.ActsAs(tile) : null;
+        => rom.ActsAsAddr(tile) >= 0 ? rom.ActsAs(tile) : null;
 
     /// <summary>What the tile ends up behaving as, chain followed (<see cref="Rom.ActsAsResolved"/>).
     /// The readouts and the hitboxes ask this; the acts-like FIELD asks <see cref="ActsAs"/>, so
     /// that editing a chained tile rewrites the entry it shows rather than the chain's answer.</summary>
     public int? ActsAsResolved(int tile)
-        => HasActsAs && tile < 0x4000 ? rom.ActsAsResolved(tile) : null;
+        => rom.ActsAsAddr(tile) >= 0 ? rom.ActsAsResolved(tile) : null;
 
     /// <summary>
     /// Remap what the selected tiles behave as. One stroke, so a selection's worth is one undo
@@ -368,7 +369,7 @@ public sealed class Map16Edit
         if (wholeTiles && HasActsAs)
             for (int j = 0; j < h; j += 2)
                 for (int i = 0; i < w; i += 2)
-                    if (TileOf(x + i, y + j) is var from && from < 0x4000)
+                    if (TileOf(x + i, y + j) is var from && rom.ActsAsAddr(from) >= 0)
                         acts.Add((TileOf(x + i + dx, y + j + dy), (ushort)rom.ActsAs(from)));
         for (int j = 0; j < h; j++)
             for (int i = 0; i < w; i++)

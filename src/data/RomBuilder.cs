@@ -36,7 +36,9 @@ internal static class RomBuilder
                 return "project has acts-as edits but the base ROM lacks LM's acts-like table.";
             foreach (var (tileHex, val) in m.ActsAs)
             {
-                int fo = rom.FileOffset(rom.LmActsAsBase + Convert.ToInt32(tileHex, 16) * 2);
+                int addr = rom.ActsAsAddr(Convert.ToInt32(tileHex, 16));
+                if (addr < 0) return $"project has an acts-as edit on tile {tileHex}, which the base ROM has no entry for.";
+                int fo = rom.FileOffset(addr);
                 rom.Data[fo] = (byte)val; rom.Data[fo + 1] = (byte)(val >> 8);
             }
         }
