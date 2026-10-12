@@ -76,6 +76,7 @@ public class ArchitectureTests(ITestOutputHelper log)
         (@"\bSpriteDisplay\b", "Catalog"),
         (@"\bSpriteOverlay\s*\.", "EditorSession"),
         (@"\bDm16Saver\b", "LevelEdit"),
+        (@"\bGpsBlocks\s*\.\s*Read", "Map16Edit.CustomBlock"),
         (@"\bDebugCommands\b", "EditorSession.RunCommandLine"),
         (@"\bFile\s*\.\s*(Exists|ReadAll|WriteAll|Copy|Delete|Open)", "EditorSession"),
         (@"\bDirectory\s*\.", "EditorSession"),

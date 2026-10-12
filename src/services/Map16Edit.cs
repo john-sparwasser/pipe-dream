@@ -24,6 +24,7 @@ public sealed class Map16Edit
         this.rom = rom;
         this.tileset = tileset;
         this.project = project;
+        gps = new(() => GpsBlocks.Read(rom));
     }
 
     /// <summary>Raw word order in the ROM for each visual quadrant (TL, TR, BL, BR).</summary>
@@ -258,6 +259,17 @@ public sealed class Map16Edit
         }
         EndStroke();
     }
+
+    // Read once: nothing in the editor inserts blocks yet, so the tables cannot change under it.
+    private readonly Lazy<GpsBlocks?> gps;
+
+    /// <summary>Whether GPS has custom blocks on this ROM.</summary>
+    public bool HasCustomBlocks => gps.Value?.Blocks.Count > 0;
+
+    /// <summary>The GPS block on a tile, or null. Our 0x4000+ are BG tiles, not LM's pages 40+,
+    /// so a block GPS put there has no tile here to show on.</summary>
+    public GpsBlock? CustomBlock(int tile)
+        => tile < Map16.BgTileBase && gps.Value?.Blocks.GetValueOrDefault(tile) is { } b ? b : null;
 
     /// <summary>Whether this ROM carries Lunar Magic's acts-like table at all.</summary>
     public bool HasActsAs => rom.LmActsAsBase > 0;

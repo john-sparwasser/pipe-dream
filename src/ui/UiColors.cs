@@ -61,6 +61,8 @@ internal static class UiColors
     public static readonly IBrush PathClimb = new SolidColorBrush(Color.FromArgb(0x70, 0x20, 0x20, 0x20));
     public static readonly IBrush PathSwim = new SolidColorBrush(Color.FromArgb(0x90, 0x40, 0x90, 0xFF));
     public static readonly IBrush PathExit = new SolidColorBrush(Color.FromArgb(0xA0, 0xFF, 0x40, 0x40));
+    /// <summary>The corner tag on a Map16 tile with a custom block's code behind it.</summary>
+    public static readonly IBrush CustomBlock = new SolidColorBrush(Color.Parse("#E8A33A"));
     /// <summary>Badge fills for the overworld's numbers: the event a level fires, a warp's
     /// index, and the red of a destination nothing leads back from.</summary>
     public static readonly IBrush EventBadge = new SolidColorBrush(Color.FromArgb(0xD0, 0x6A, 0x3D, 0x9E));

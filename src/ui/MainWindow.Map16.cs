@@ -173,10 +173,20 @@ public partial class MainWindow
         if (m16.ReadDef(h.Tile) is null) return "unallocated";
         // Same two reasons the header greys its acts-as box: say which, rather than going blank
         // and leaving the gutter looking broken.
+        string gps = m16.CustomBlock(h.Tile) is { } b ? $"GPS ${b.Addr:X6}  " : "";
         if (m16.ActsAsResolved(h.Tile) is not { } a)
-            return h.Tile >= 0x4000 ? "acts-like: n/a for BG tiles" : "acts-like: no LM table";
+            return gps + (h.Tile >= 0x4000 ? "acts-like: n/a for BG tiles" : "acts-like: no LM table");
         string what = ActsAs.Describe(a);
-        return what.Length > 0 ? $"acts 0x{a:X3}  {what}" : $"acts 0x{a:X3}";
+        return gps + (what.Length > 0 ? $"acts 0x{a:X3}  {what}" : $"acts 0x{a:X3}");
+    }
+
+    /// <summary>A custom block in one line: where its code is, its header, and the contacts its
+    /// code acts on — the acts-like covers the rest.</summary>
+    private static string CustomBlockText(GpsBlock b)
+    {
+        var handled = string.Join(", ", b.HandledContacts);
+        return $"GPS block at ${b.Addr:X6} (db ${b.Header:X2}): "
+             + (handled.Length > 0 ? $"code on {handled}" : "no code on any contact");
     }
 
     // ---- the sheet and the 8x8 picker ----
@@ -189,6 +199,7 @@ public partial class MainWindow
         map16Canvas.SetPlaceholder(session.PlaceholderPhases());
         var (bgPx, bgW, bgH) = session.BgSheetPhases();
         map16Canvas.SetBgSheet(bgPx, bgW, bgH);
+        map16Canvas.CustomBlocks = map16 is { HasCustomBlocks: true } m16 ? t => m16.CustomBlock(t) is not null : null;
         map16Canvas.Bank = Math.Max(0, bankBox.SelectedIndex);
         RebuildChrSheet();
     }
@@ -262,6 +273,7 @@ public partial class MainWindow
         {
             loadingM16Props = true;
             m16SelLabel.Text = "Tile ######";
+            ToolTip.SetTip(m16SelLabel, null);
             m16Acts.Text = "-";
             m16ActsNote.Text = "";
             m16Priority.IsChecked = false;
@@ -274,9 +286,11 @@ public partial class MainWindow
         }
 
         int first = tiles[0];
+        var block = tiles.Count == 1 ? m16.CustomBlock(first) : null;
         m16SelLabel.Text = tiles.Count > 1
             ? $"{tiles.Count} tiles selected"
-            : $"Tile 0x{first:X4}";
+            : block is null ? $"Tile 0x{first:X4}" : $"Tile 0x{first:X4} · GPS block";
+        ToolTip.SetTip(m16SelLabel, block is null ? null : CustomBlockText(block));
 
         var def = m16.ReadDef(first);
         m16Fields.IsVisible = def is not null;
@@ -355,6 +369,8 @@ public partial class MainWindow
         int tile = map16Canvas.HoverQuad!.Value.Tile;
         string name = Map16Tiles.Describe(tile, session.Tileset);
         if (name.Length == 0 && a != tile) name = Map16Tiles.Describe(a, session.Tileset);
+        if (map16!.CustomBlock(tile) is { } block)
+            name = name.Length == 0 ? CustomBlockText(block) : $"{name}\n{CustomBlockText(block)}";
         m16TileTipText.Text = name;
         m16TileTipText.IsVisible = name.Length > 0;
         string what = ActsAs.Describe(a);

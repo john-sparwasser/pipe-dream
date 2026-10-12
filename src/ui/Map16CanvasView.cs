@@ -52,6 +52,10 @@ public class Map16CanvasView : Control
 
     /// <summary>What each block releases when hit, drawn over it; null turns it off.</summary>
     public SpawnOverlay? Spawns { get; set; }
+
+    /// <summary>Whether a tile has a custom block (GPS) behind it, marked in its corner; null
+    /// when the ROM has none.</summary>
+    public Func<int, bool>? CustomBlocks { get; set; }
     public int TileCount => sheet.TileCount;
     public Point Origin { get; set; }
 
@@ -343,7 +347,7 @@ public class Map16CanvasView : Control
         double ts = TileSize;
         sheet.Draw(this, ctx, Bank, Phase, ts);
         if (ShowPages) Map16Sheet.DrawPages(ctx, Bank, ts);
-        if (Hitboxes is not null || Spawns is not null)
+        if (Hitboxes is not null || Spawns is not null || CustomBlocks is not null)
         {
             var vis = PixelBlit.Visible(this);
             int r0 = Math.Max(0, (int)((vis.Y + Origin.Y) / ts)), r1 = Math.Min(Map16Layout.BankRows - 1, (int)((vis.Bottom + Origin.Y) / ts));
@@ -353,6 +357,12 @@ public class Map16CanvasView : Control
                     int tile = Bank * Map16Layout.BankTiles + r * Map16Layout.Cols + c;
                     if (Hitboxes is { } hit) HitboxOverlay.Draw(ctx, hit(tile), Cells(c, r, 1, 1, ts));
                     Spawns?.Draw(this, ctx, tile, Cells(c, r, 1, 1, ts));
+                    if (CustomBlocks?.Invoke(tile) == true)
+                    {
+                        var cell = Cells(c, r, 1, 1, ts);
+                        double b = Math.Max(4, ts / 4);
+                        ctx.DrawRectangle(UiColors.CustomBlock, null, new Rect(cell.Right - b, cell.Y, b, b));
+                    }
                 }
         }
 
