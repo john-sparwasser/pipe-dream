@@ -92,6 +92,11 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
   library is looked for beside the app. `AsarTests` pass against the local `libasar.dylib` and
   skip without it. Not done: building the library for `win-x64`/`linux-x64` in CI, so CI only
   ever skips these.
+- **Speed (2026-10-13):** a patch on a 4MB ROM took 13.7 ms, 77% of it a CRC Asar takes over the
+  whole ROM after every patch for the symbols file alone. `tools/asar/build.sh` builds the
+  pinned Asar with `tools/asar/lazy-rom-crc.patch`, which takes that CRC only when a symbols
+  file is asked for: 2.3 ms. That makes our build a modified Asar under the LGPL (label it,
+  offer its source). Worth offering upstream; not offered yet.
 
 ### 3. Insert blocks from a GPS folder
 - Import copies `list.txt`, `blocks/`, `routines/` and the user's `main.asm`/`defines.asm` into
@@ -102,6 +107,20 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
 - Build order with Pipe Dream's own allocations is decided here, once.
 - Exit: the same inputs built by Pipe Dream and by GPS give equivalent tables and block code
   (the local oracle below; compare extracted tables, not whole ROMs).
+- **Status (2026-10-13): the inserter, not yet the import or the build.** `data/GpsInsert.cs`
+  does gps.exe's job in **one** Asar patch where gps.exe runs one per block file: clean the
+  last insertion, the user's `main.asm` (tables as in-memory placeholders, filled in after the
+  patch from the blocks' labels), routine macros, then each distinct block in freecode and its
+  own namespace. Asar frees autocleaned space in pass 0, so the new insertion reuses the old.
+  On What The Shell 2!! with the oracle list: every tile's header, handled contacts and
+  acts-like, and every block's code (JMPs taken relative, JSLs followed), match gps.exe's
+  output; gps.exe re-inserts cleanly over ours; ours over ours twice claims the same RATS
+  bytes. 27 ms warm, including cleaning out the hack's 965 old blocks; per block, as gps.exe
+  does it, that hack's 229 files would be ~3 s. `GpsInsertTests` run it through a minimal
+  driver of our own (GPS's files have no licence).
+  Differences from gps.exe, all from sharing one patch: two block files defining the same
+  macro collide, and a define set by one block is visible to later ones. Not done: no `.dsc`,
+  no `-O1`/`-O2`, no BTSD removal; import into a project and running it at build.
 
 ### 4. Acts-like has one owner
 - `list.txt` acts-like values import into the project's Map16 acts-as, so the Map16 editor and

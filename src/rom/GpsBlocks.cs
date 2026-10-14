@@ -29,11 +29,14 @@ public sealed class GpsBlocks
 
     public int AsmVersion { get; }
     public IReadOnlyDictionary<int, GpsBlock> Blocks { get; }
+    /// <summary>The tables' SNES addresses, which a re-insert frees. Pointers2 is -1 without pages 40+.</summary>
+    public (int Banks, int Pointers, int Pointers2) Tables { get; }
 
-    private GpsBlocks(int asmVersion, Dictionary<int, GpsBlock> blocks)
+    private GpsBlocks(int asmVersion, Dictionary<int, GpsBlock> blocks, (int, int, int) tables)
     {
         AsmVersion = asmVersion;
         Blocks = blocks;
+        Tables = tables;
     }
 
     /// <summary>GPS's blocks on this ROM, or null when GPS is not installed. The marker is only
@@ -54,9 +57,10 @@ public sealed class GpsBlocks
         int asm = d[m + 11];
         int v = asm == 1 ? 0 : 1;                                 // version 1 has no pages 40+ byte
         bool pages40 = v == 1 && d[m + 12] == 1;
-        int banks = rom.FileOffset(Field(12 + v, 3)), bankLen = Field(18 + v, 2);
-        int ptrs = rom.FileOffset(Field(15 + v, 3)), ptrLen = Field(20 + v, 2);
-        int ptrs2 = pages40 ? rom.FileOffset(Field(23, 3)) : 0, ptr2Len = pages40 ? Field(26, 2) : 0;
+        var tables = (Banks: Field(12 + v, 3), Pointers: Field(15 + v, 3), Pointers2: pages40 ? Field(23, 3) : -1);
+        int banks = rom.FileOffset(tables.Banks), bankLen = Field(18 + v, 2);
+        int ptrs = rom.FileOffset(tables.Pointers), ptrLen = Field(20 + v, 2);
+        int ptrs2 = pages40 ? rom.FileOffset(tables.Pointers2) : 0, ptr2Len = pages40 ? Field(26, 2) : 0;
         if (banks + bankLen > d.Length || ptrs + ptrLen > d.Length || ptrs2 + ptr2Len > d.Length) return null;
 
         // Read by file offset, as gps.exe copies them: a 32KB table runs on past its bank.
@@ -70,7 +74,7 @@ public sealed class GpsBlocks
             int addr = bank << 16 | d[table + idx] | d[table + idx + 1] << 8;
             if (Block(rom, tile, addr) is { } b) blocks[tile] = b;
         }
-        return new GpsBlocks(asm, blocks);
+        return new GpsBlocks(asm, blocks, tables);
     }
 
     /// <summary>One block's header and the contacts it acts on. A contact whose JMP lands on a

@@ -15,7 +15,8 @@ public static class Asar
 {
     /// <summary>What a patch did: Ok is false when Asar reported errors, and then the ROM is left
     /// unchanged. Errors and warnings read "file:line: message", as Asar prints them.</summary>
-    public sealed record Result(bool Ok, string[] Errors, string[] Warnings, string[] Prints, WrittenBlock[] Blocks);
+    public sealed record Result(bool Ok, string[] Errors, string[] Warnings, string[] Prints, WrittenBlock[] Blocks,
+                                IReadOnlyDictionary<string, int> Labels);
     public readonly record struct WrittenBlock(int Snes, int Length);
 
     private const string Lib = "asar";
@@ -50,8 +51,10 @@ public static class Asar
     }
 
     /// <summary>Assemble <paramref name="asmPath"/> onto <paramref name="rom"/> in place. The ROM
-    /// may grow (Asar expands it for freespace); a copier header is kept.</summary>
-    public static unsafe Result Patch(Rom rom, string asmPath)
+    /// may grow (Asar expands it for freespace); a copier header is kept. <paramref name="files"/>
+    /// are files that exist only in memory, by absolute path: Asar finds them before the disk, and
+    /// asmPath may be one of them.</summary>
+    public static unsafe Result Patch(Rom rom, string asmPath, IReadOnlyDictionary<string, byte[]>? files = null)
     {
         if (!Available) throw new InvalidOperationException("Asar library not found (set PIPEDREAM_ASAR)");
         lock (gate)
@@ -60,19 +63,24 @@ public static class Asar
             var buf = new byte[MaxRomSize];
             Array.Copy(rom.Data, rom.HeaderOffset, buf, 0, len);
             var path = Marshal.StringToCoTaskMemUTF8(Path.GetFullPath(asmPath));
+            var mem = (files ?? new Dictionary<string, byte[]>()).Select(f => (
+                Path: Marshal.StringToCoTaskMemUTF8(Path.GetFullPath(f.Key)), Pin: GCHandle.Alloc(f.Value, GCHandleType.Pinned), f.Value.Length)).ToArray();
             try
             {
                 bool ok;
+                var memFiles = mem.Select(m => new MemoryFile { Path = m.Path, Buffer = m.Pin.AddrOfPinnedObject(), Length = m.Length }).ToArray();
                 fixed (byte* b = buf)
+                fixed (MemoryFile* mf = memFiles)
                 {
                     var p = new PatchParams
                     {
                         StructSize = sizeof(PatchParams), PatchLoc = path, RomData = (IntPtr)b,
                         BufLen = MaxRomSize, RomLen = (IntPtr)(&len), ShouldReset = 1,
+                        MemoryFiles = (IntPtr)mf, MemoryFileCount = memFiles.Length,
                     };
                     ok = asar_patch_ex(ref p);
                 }
-                var result = new Result(ok, Messages(asar_geterrors), Messages(asar_getwarnings), Prints(), Blocks());
+                var result = new Result(ok, Messages(asar_geterrors), Messages(asar_getwarnings), Prints(), Blocks(), Labels());
                 if (ok)
                 {
                     var data = new byte[rom.HeaderOffset + len];
@@ -82,7 +90,11 @@ public static class Asar
                 }
                 return result;
             }
-            finally { Marshal.FreeCoTaskMem(path); }
+            finally
+            {
+                Marshal.FreeCoTaskMem(path);
+                foreach (var m in mem) { Marshal.FreeCoTaskMem(m.Path); m.Pin.Free(); }
+            }
         }
     }
 
@@ -104,6 +116,14 @@ public static class Asar
     {
         var p = (WrittenBlockData*)asar_getwrittenblocks(out int n);
         return Enumerable.Range(0, n).Select(i => new WrittenBlock(p[i].SnesOffset, p[i].NumBytes)).ToArray();
+    }
+
+    private static unsafe Dictionary<string, int> Labels()
+    {
+        var p = (LabelData*)asar_getalllabels(out int n);
+        var labels = new Dictionary<string, int>();
+        for (int i = 0; i < n; i++) labels[Marshal.PtrToStringUTF8(p[i].Name) ?? ""] = p[i].Location;
+        return labels;
     }
 
     // asardll.h's structs, field for field. bools are one byte (C99 bool).
@@ -135,6 +155,12 @@ public static class Asar
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    private struct LabelData { public IntPtr Name; public int Location; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MemoryFile { public IntPtr Path, Buffer; public nint Length; }
+
+    [StructLayout(LayoutKind.Sequential)]
     private struct WrittenBlockData { public int PcOffset, SnesOffset, NumBytes; }
 
     [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] private static extern int asar_apiversion();
@@ -144,4 +170,5 @@ public static class Asar
     [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] private static extern IntPtr asar_getwarnings(out int count);
     [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] private static extern IntPtr asar_getprints(out int count);
     [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] private static extern IntPtr asar_getwrittenblocks(out int count);
+    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] private static extern IntPtr asar_getalllabels(out int count);
 }
