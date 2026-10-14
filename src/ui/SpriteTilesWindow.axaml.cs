@@ -76,7 +76,7 @@ public partial class SpriteTilesWindow : Window
         for (int slot = 0; slot < 4; slot++) this.GetControl<TextBox>($"File{slot}").Text = $"{files[slot]:X2}";
         loading = false;
         RedrawSheet();
-        RedrawPreview();
+        RefreshTileList([Selected, .. Picked]);       // redraws the preview too; the row icons draw from these files
     }
 
     // ---- the selected tile ----
@@ -146,14 +146,31 @@ public partial class SpriteTilesWindow : Window
     private void RefreshTileList(params int[] select)
     {
         loading = true;
-        TileList.ItemsSource = tiles.Select(t =>
-            $"{t.Tile:X3}  {(t.Big ? 16 : 8),2}  x{t.X,4} y{t.Y,4}  pal {t.Pal}{(t.XFlip ? "  xf" : "")}{(t.YFlip ? "  yf" : "")}").ToList();
+        TileList.ItemsSource = tiles.Select(TileRow).ToList();
         TileList.Selection.Clear();
         foreach (int i in select.Select(i => Math.Min(i, tiles.Count - 1)).Where(i => i >= 0).Distinct())
             TileList.Selection.Select(i);
         loading = false;
         ShowTileFields();
         RedrawPreview();
+    }
+
+    /// <summary>A tile list row: the tile as drawn (palette and flips, an 8x8 centred in 16x16),
+    /// then its fields.</summary>
+    private Control TileRow(SpriteTile t)
+    {
+        int o = t.Big ? 0 : 4;
+        var icon = new PixelImage
+        {
+            Zoom = 1.5,
+            Source = LevelBitmap.FromPixels(session.DrawSpriteTiles([t with { X = 0, Y = 0 }], files, 16, 16, o, o), 16, 16),
+        };
+        var text = new TextBlock
+        {
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            Text = $"{t.Tile:X3}  {(t.Big ? 16 : 8),2}  x{t.X,4} y{t.Y,4}  pal {t.Pal}{(t.XFlip ? "  xf" : "")}{(t.YFlip ? "  yf" : "")}",
+        };
+        return new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 8, Children = { icon, text } };
     }
 
     private void OnAdd(object? sender, RoutedEventArgs e)
@@ -332,7 +349,7 @@ public partial class SpriteTilesWindow : Window
                 files[s] = f;
                 NeedChanged(s);
                 RedrawSheet();
-                RedrawPreview();
+                RefreshTileList([Selected, .. Picked]);
             };
             this.GetControl<CheckBox>($"Need{s}").IsCheckedChanged += (_, _) => { if (!loading) NeedChanged(s); };
         }

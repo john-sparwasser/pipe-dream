@@ -17,6 +17,9 @@ public class SpriteTilesTests(ITestOutputHelper log)
     private static string Vanilla => Path.Combine(
         Environment.GetEnvironmentVariable("PIPEDREAM_SMW_ROOT") ?? @"C:\SMW\Projects", ".resources", "SMW.smc");
 
+    /// <summary>A tile list row's text: the icon comes first.</summary>
+    private static string Row(object row) => ((TextBlock)((StackPanel)row).Children[1]).Text!;
+
     [AvaloniaFact]
     public void clicking_the_sheet_retiles_the_selected_sprite_tile()
     {
@@ -36,7 +39,8 @@ public class SpriteTilesTests(ITestOutputHelper log)
         w.MouseDown(at, MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
 
-        Assert.StartsWith("023", (string)tiles.SelectedItem!);      // row 2, column 3
+        Assert.StartsWith("023", Row(tiles.SelectedItem!));           // row 2, column 3
+        Assert.NotNull(((PixelImage)((StackPanel)tiles.SelectedItem!).Children[0]).Source);   // the row's icon
         Assert.Contains("1 sprite(s) edited", w.GetControl<TextBlock>("Status").Text);
         Assert.True(w.GetControl<Button>("SaveButton").IsEnabled);
         Assert.True(w.GetControl<CheckBox>("Need0").IsChecked);                 // the tile came from SP1
@@ -97,7 +101,7 @@ public class SpriteTilesTests(ITestOutputHelper log)
         w.KeyPressQwerty(PhysicalKey.ArrowRight, RawInputModifiers.None);  // and one nudge
         Dispatcher.UIThread.RunJobs();
 
-        var rows = ((IEnumerable<string>)tiles.ItemsSource!).ToList();
+        var rows = tiles.ItemsSource!.Cast<object>().Select(Row).ToList();
         for (int i = 0; i < 2; i++)
             Assert.Contains($"x{before[i].X + 6,4} y{before[i].Y - 2,4}", rows[i]);
         Assert.Equal(2, tiles.Selection.SelectedIndexes.Count());     // still both picked

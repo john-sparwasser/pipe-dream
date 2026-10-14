@@ -57,7 +57,7 @@
           <Button Content="▲" Click="OnUp" ToolTip.Tip="Earlier: draws in front"/>
           <Button Content="▼" Click="OnDown" ToolTip.Tip="Later: draws behind"/>
         </StackPanel>
-        <ListBox x:Name="Tiles" Classes="mono" Height="130" SelectionMode="Multiple"/>
+        <ListBox x:Name="Tiles" Classes="mono" Height="160" SelectionMode="Multiple"/>
         <Grid ColumnDefinitions="Auto,120,12,Auto,120" RowDefinitions="Auto,Auto,Auto" RowSpacing="6" ColumnSpacing="6">
           <TextBlock Classes="dim" Text="x"/>
           <NumericUpDown x:Name="TileX" Grid.Column="1" Minimum="-128" Maximum="127" Increment="1" FormatString="0"/>
