@@ -62,7 +62,21 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
   editor showed 324. Fixed by the Map16 work of 2026-10-12 (CONTRACT §7a-rev, §9d): tiles are
   numbered as LM numbers them (BG 0x8000+), exist per range, object 0x29 places pages 40-7F
   on layer 1, and their acts-like is LM's second table. All 965 now show, with their acts-like.
-  Still open: an oracle check against a `list.txt` we inserted ourselves.
+- **Oracle check (2026-10-13): passed.** GPS built from its own `src.zip` on the Mac (see
+  "The local oracle" below) re-inserted a copy of What The Shell 2!! with this list:
+
+  ```
+  200:0130       above.asm   ; $42, Mario above only, calls %glitter()
+  2FF            wall.asm    ; $37, wall feet + wall body only
+  R203-214:0025  none.asm    ; template.asm: every contact a bare RTL
+  4005:0130      above.asm   ; pages 40+
+  ```
+
+  `GpsBlocks.Read` then reported exactly 7 blocks (200, 203, 204, 213, 214, 2FF, 4005) and
+  none of the 965 GPS had just cleaned out: headers, handled contacts and acts-like as listed,
+  one address for the two uses of `above.asm` and one for the four of `none.asm`, and 2FF kept
+  the hack's own acts-like (04C) since its line sets none. Not a checked-in test: the ROM is
+  derived from SMW and a third-party hack, and the oracle needs a native build CI doesn't have.
 
 ### 2. Asar in the build
 - Build Asar's shared library from the pinned source (`~/asar`, `5fd539c`, API 3.3.0) for
@@ -79,8 +93,8 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
 - C# does what `gps.exe` does around it: parse `list.txt`, generate the routine macros, assemble
   each block, fill the tables, write the marker, clean up the last insertion.
 - Build order with Pipe Dream's own allocations is decided here, once.
-- Exit: the same inputs built by Pipe Dream and by `gps.exe` give equivalent tables and block code
-  (an oracle run of `gps.exe` on the Windows PC; compare extracted tables, not whole ROMs).
+- Exit: the same inputs built by Pipe Dream and by GPS give equivalent tables and block code
+  (the local oracle below; compare extracted tables, not whole ROMs).
 
 ### 4. Acts-like has one owner
 - `list.txt` acts-like values import into the project's Map16 acts-as, so the Map16 editor and
@@ -94,6 +108,25 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
 ### 6. ROMs that already carry GPS blocks
 - A base ROM inserted with `gps.exe` before it came to Pipe Dream: phase 1 reads it; phase 3
   must free the old insertion (or adopt it) before claiming its own. Decide which, with real hacks.
+
+## The local oracle: GPS and Asar built on the Mac
+
+No Windows PC needed. `main.cpp` is portable (its Asar loader `dlopen`s `./libasar.dylib`), it
+expects Asar API 303, and the pinned `~/asar` (`5fd539c`, v1.91+16) is API 3.3. Built in a
+scratch dir, never in the repo (GPS has no licence):
+
+```sh
+cmake ~/asar/src -DCMAKE_BUILD_TYPE=Release -DASAR_GEN_EXE=OFF -DASAR_GEN_DLL=ON \
+      -DASAR_GEN_LIB=OFF -DASAR_GEN_EXE_TEST=OFF -DASAR_GEN_DLL_TEST=OFF && cmake --build . -j8
+clang -c asar/asardll.c && clang++ -std=c++17 main.cpp asardll.o -o gps     # from src.zip
+```
+
+GPS works in the current directory: copy `main.asm`, `defines.asm`, `routines/`, a `blocks/`
+and `list.txt` beside `gps` and `libasar.dylib`, then `./gps rom.sfc`. It refuses a ROM Lunar
+Magic has not saved (it reads LM's acts-like pointer at `$06F624`), so vanilla will not do, and
+pages 40+ need LM to have created them (`$06F63C` != FF). `main.cpp` is dated the day before
+the shipped `gps.exe`; one byte-compare against `gps.exe` on Windows would confirm the build
+matches, but nothing waits on it.
 
 ## Open questions
 
