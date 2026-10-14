@@ -71,7 +71,7 @@ public static class GpsInsert
         if (!r.Ok) return new Result(false, r.Errors, r.Warnings, []);
 
         var (addrs, errors) = Assembled(rom, r, files);
-        if (errors.Count > 0) { rom.Data = before; return new Result(false, [.. errors], r.Warnings, []); }
+        if (errors.Count > 0) { rom.Data = before; RomPrep.ResetScanCaches(rom); return new Result(false, [.. errors], r.Warnings, []); }
         FillTables(rom, list, files, addrs);
         var prints = PrintsByBlock(r.Prints, files.Count);
         var inserted = list.OrderBy(kv => kv.Key).Select(kv =>

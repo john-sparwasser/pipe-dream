@@ -78,6 +78,7 @@ public class RomPrepTests
     private const string GoldenPrepV27Sha256 = "779c53f327ec2cd00da84433d9eabc95a5cf9c71657fd80f545639553942b206";
     private const string GoldenPrepV28Sha256 = "8856686d449e8769b132870658215a036f8e7836312836a4674e225b2431120b";
     private const string GoldenPrepV29Sha256 = "1fa4f67b931a8d40e403d979ced4bb469a9f604177952741ed100ab33527d0c5";
+    private const string GoldenPrepV30Sha256 = "98ede2c577caaabd9fbba3a514c880a8e5af8ecdeb5868d30e792ace3178c8a9";
 
     private static Rom Prepped()
     {
@@ -645,12 +646,14 @@ public class RomPrepTests
     }
 
     /// <summary>...and our remap is out from under it, with the four `JSL $00F545` sites naming the
-    /// new address. LM does not repoint those four on our base — it leaves a foreign hook alone —
-    /// so the remap has to be somewhere its own core will not land on.</summary>
+    /// new address through v29 (v30 hands them to LM's trampolines). LM does not repoint those
+    /// four on our base — it leaves a foreign hook alone — so the remap has to be somewhere its
+    /// own core will not land on.</summary>
     [RealRomFact]
     public void v26_moves_the_acts_remap_clear_of_lunar_magics_core()
     {
-        var rom = PreppedReal();
+        var rom = Rom.Load(TestRom.RealRomPath);
+        RomPrep.Apply(rom, 29);
         Assert.True(RomPrep.ActsRemapEntryV26 >= RomPrep.LmActsCore + 0x60
                     || RomPrep.ActsRemapEntryV26 < RomPrep.LmActsCore);
         foreach (int site in RomPrep.ActsCallSites)
@@ -912,11 +915,15 @@ public class RomPrepTests
             Assert.Equal(GoldenPrepV28Sha256, RomHash.HeaderlessSha256File(tmp));
 
             File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
-            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V29)
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 29));     // frozen V29 stamp list
+            Assert.Equal(GoldenPrepV29Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V30)
             string cur = RomHash.HeaderlessSha256File(tmp);
             // Spelled out rather than left to the assertion message: xunit truncates a mismatch,
             // and this hash is what the NEXT version bump has to be told.
-            Assert.True(GoldenPrepV29Sha256 == cur, $"V29 golden hash is now {cur}");
+            Assert.True(GoldenPrepV30Sha256 == cur, $"V30 golden hash is now {cur}");
         }
         finally { File.Delete(tmp); }
     }
@@ -1560,8 +1567,9 @@ public class RomPrepTests
     [RealRomFact]
     public void sprite_capture_is_identical_pre_and_post_prep()
     {
-        // Sprite OAM capture runs the block probes that JSL through the acts-like remap
-        // ($019533/$02A6EB) on a prepped image — identity table ⇒ identical OAM output.
+        // Sprite OAM capture runs the block probes that JSL through the acts-like sites
+        // ($019533/$02A6EB) on a prepped image — identity table ⇒ identical OAM output. From v30
+        // those sites reach LM's trampolines, which run LM's lookup ($06F617-$06F643).
         var clean = Rom.Load(TestRom.RealRomPath);
         var prep = PreppedReal();
         bool remapRan = false;
@@ -1577,12 +1585,12 @@ public class RomPrepTests
                 b = SpriteRender.Capture(prep, new Sprite(1, 4, 10, 0, num));
                 SpriteRender.Trace = false;
                 remapRan |= SpriteRender.LastPcHot?.Any(pc =>
-                    pc >= RomPrep.ActsRemapEntryV26 && pc < RomPrep.ActsRemapEntryV26 + 0x30) == true;
+                    pc >= RomPrep.LmActsLookup && pc < RomPrep.LmActsCore + 0x60) == true;
             }
             Assert.NotNull(a);
             Assert.Equal(a, b);
         }
-        Assert.True(remapRan, "acts-like remap never executed — test is vacuous");
+        Assert.True(remapRan, "LM's acts-like lookup never executed — test is vacuous");
     }
 
     [RealRomFact]

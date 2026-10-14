@@ -75,6 +75,8 @@ public static partial class RomPrep
         // V29: the overworld's half of the layer-3 TILEMAP bypass — the GFX half needed nothing,
         // because v14's pass is index-driven (reference/OVERWORLD.md §4).
         if (version >= 29) AppendV29Stamps(s);
+        // V30: LM's custom-block dispatch, and the four sites moved from our remap onto it.
+        if (version >= 30) AppendV30Stamps(s);
         return s;
     }
 
@@ -750,6 +752,44 @@ public static partial class RomPrep
         Array.Fill(block, (byte)0xFF);
         OwL3MapCode().CopyTo(block, 0);
         s.Add((OwL3MapTagPc, Rats(block)));
+    }
+
+    /// <summary>
+    /// V30: Lunar Magic's custom-block dispatch (`LM 11 01`), which is what GPS's blocks run
+    /// from. GPS writes a 16-byte stub per contact into LM's slots at `$06F690`-`$06F7EF` and
+    /// patches two of LM's trampolines; LM's trampolines are what reach those slots. Through v29
+    /// the slots were FF and the four acts-like sites went to our own remap, so blocks inserted on
+    /// a prepped base never ran, and the acts-like table GPS repoints at `$06F624` was never read.
+    ///
+    /// Bytes as What The Shell 2!! carries them (the one LM ROM with custom blocks measured,
+    /// 2026-10-14), in bank $06 where that FastROM hack names $86. The two 3-byte fall-throughs at
+    /// `$06F67B` and `$06F717` are GPS's there (`JML` to its WallRun/FixSpriteH); LM's own are
+    /// INFERRED as `JMP $F602`, the tail the third and fourth trampolines still end in and the
+    /// address both GPS hijacks fall back to. Every unused slot is LM's `JMP $F602 : NOP` ×4,
+    /// "carry on as vanilla"; `$06F7D0`-`$06F7EF` stay FF, as only GPS's wall-run hijack reaches them.
+    ///
+    /// The four sites leave our remap for the trampolines, which call LM's lookup (stamped by v26
+    /// beside them) — so the game now reads the acts-like table through `$06F624`, as LM ROMs do,
+    /// and the remap at <see cref="ActsRemapEntryV26"/> stays as frozen, unreferenced bytes. LM's
+    /// lookup does not keep the caller's B, which our remap did (CONTRACT §9d); every LM ROM runs
+    /// this code as it is, and keeping LM's bytes is what GPS's patches into it rely on. NOT YET
+    /// MEASURED: a Mesen pass (levels 0x100+, a block firing) and an LM save over the marker —
+    /// v26 found LM's `LM 12 01` at this address made it manage our extended-def block.
+    /// </summary>
+    private static void AppendV30Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        byte[] Slots(int n) => [.. Enumerable.Repeat<byte[]>([0x4C, 0x02, 0xF6, 0xEA], n * 4).SelectMany(b => b)];
+        s.Add((Pc(LmBlockMarker), Convert.FromHexString(
+            "4C4D1101" + "2008F6C98CF029C94CF035C926F041C9EBF04DC9B1F059C93CF065" + "4C02F6")));
+        s.Add((Pc(0x06F690), Slots(7)));
+        s.Add((Pc(0x06F700), Convert.FromHexString("2008F6C971F019C957F025C9D2F011C993F01DC97FF019" + "4C02F6")));
+        s.Add((Pc(0x06F720), Slots(4)));
+        s.Add((Pc(0x06F760), Convert.FromHexString("2008F6C909F0194C02F6")));
+        s.Add((Pc(0x06F780), Slots(2)));
+        s.Add((Pc(0x06F7A0), Convert.FromHexString("2008F6EBA50FF003A30AEBEBC9DAF0104C02F6")));
+        s.Add((Pc(0x06F7C0), Slots(1)));
+        foreach (var (site, to) in ActsCallSites.Zip(LmBlockTrampolines))
+            s.Add((Pc(site), [0x22, (byte)to, (byte)(to >> 8), (byte)(to >> 16)]));
     }
 
     /// <summary>

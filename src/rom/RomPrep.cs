@@ -78,7 +78,9 @@ public static partial class RomPrep
     /// import was zeroing it from under the LoadLevel hook;
     /// V24 replaces v1's private palette stubs with Lunar Magic's own palette engine, byte for
     /// byte, so an LM ExGFX import lands on code that is already there.
-    public const int Version = 29;
+    /// V30 carries Lunar Magic's custom-block dispatch, so GPS's blocks run on a prepped base
+    /// (see <see cref="AppendV30Stamps"/>).
+    public const int Version = 30;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -369,6 +371,14 @@ public static partial class RomPrep
     /// digits, and this needs ~0x60 bytes.</summary>
     public const int OwL3MapTagPc = 0x9C700, OwL3Map = 0x13C708;
 
+    // ---- V30: Lunar Magic's custom-block dispatch, which GPS's blocks hang off ----
+    /// <summary>LM's per-site trampolines, one for each of <see cref="ActsCallSites"/> in order.
+    /// Each runs LM's lookup (through `$06F608`, so the table is the one `$06F624` names) and
+    /// picks the contact by the caller's return address, branching to a 16-byte slot in
+    /// `$06F690`-`$06F7EF` — the slots GPS writes its stubs into.</summary>
+    public static readonly int[] LmBlockTrampolines = [0x06F660, 0x06F700, 0x06F760, 0x06F7A0];
+    public const int LmBlockMarker = 0x06F65C;        // "LM 11 01" — the custom-block hack's stamp
+
     /// <summary>`JSR resolve : RTL`, so the bank-04 hook can reach the bank-0F resolver, which is
     /// a near routine. Eight free bytes at the tail of v14's layer-3 pass.</summary>
     public const int L3ResolveThunk = 0x0FFA18;
@@ -540,7 +550,15 @@ public static partial class RomPrep
            // runs on a project's own base), so the cost is that IsPrepped(foreign, 29) reads
            // false, never a stamp over someone else's ROM.
            && (version < 29 || (rom.ReadByte(OwL3MapHook) == 0x22
-                                && rom.ReadValue(OwL3MapHook + 1, 3) == OwL3Map));
+                                && rom.ReadValue(OwL3MapHook + 1, 3) == OwL3Map))
+           // V30: the four acts-like sites reach LM's custom-block trampolines — the property an
+           // LM ROM with custom blocks has (What The Shell 2!!, in its FastROM bank $86).
+           && (version < 30 || HasLmBlockDispatch(rom));
+
+    /// <summary>Each acts-like site JSLs to its LM trampoline, in bank $06 or its $86 mirror.</summary>
+    public static bool HasLmBlockDispatch(Rom rom) =>
+        ActsCallSites.Zip(LmBlockTrampolines).All(p => rom.ReadByte(p.First) == 0x22
+            && (rom.ReadValue(p.First + 1, 3) & 0x7FFFFF) == p.Second);
 
     /// <summary>Stamp the prep into the in-memory image (no-op when already present),
     /// fix the checksum, and reset every LunarMagic scan cache on the Rom. Applying
@@ -751,7 +769,7 @@ public static partial class RomPrep
         }
     }
 
-    private static void ResetScanCaches(Rom rom)
+    internal static void ResetScanCaches(Rom rom)
     {
         rom.lmActsAsBase = rom.lmGfxBypassBase = rom.lmExGfxBase = rom.lmSpriteSizeBase = rom.lmExAnimBase = -2;
         rom.lmGlobalExAnimPtr = -2;

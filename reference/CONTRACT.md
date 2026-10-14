@@ -2387,6 +2387,24 @@ ROM, because LM's equivalent lives inside its overworld suite and leaves `$04D76
 is only ever reached for a base of ours, so the cost is `IsPrepped(foreign, 29)` reading false.
 Golden V29 pinned.
 
+PREP V30 carries Lunar Magic's custom-block dispatch, which is what GPS's blocks run from
+(`RomPrep.AppendV30Stamps`; 2026-10-14, reference/GPS_PORT.md "Build"). On an LM ROM the four
+`JSL $00F545` sites go to per-site trampolines (`$06F660`/`$06F700`/`$06F760`/`$06F7A0`, behind the
+`LM 11 01` marker at `$06F65C`); each `JSR $F608`s into LM's lookup (v26's core, so the table is
+the one `$06F624` names), reads the caller's return-address low byte the lookup leaves in A, and
+`BEQ`s to a 16-byte slot in `$06F690`-`$06F7EF` — `JMP $F602 : NOP` ×4 by default, GPS's stubs once
+inserted. Through v29 those slots were FF and the sites went to our remap, which reads `$11:8000`
+directly: GPS's blocks inserted and never ran, and the acts-like table its `main.asm` repoints was
+never read. V30 stamps the marker, trampolines and default slots as What The Shell 2!! carries
+them (bank `$06` for its FastROM `$86`), identical there apart from GPS's own bytes and the pages
+40+ operand at `$06F63B`; the fall-throughs at `$06F67B`/`$06F717`, which GPS overwrites, are
+INFERRED as `JMP $F602`. The sites move to the trampolines; the remap stays as frozen dead bytes.
+LM's lookup does not keep the caller's B (§9d) — every LM ROM runs it so, and the sprite capture
+through `$019533`/`$02A6EB` is identical pre- and post-prep. NOT YET MEASURED: Mesen (a block
+firing; levels `0x100`+) and an LM save over `LM 11 01` (v26: `LM 12 01` there made LM free our
+extended-def block). IsPrepped v30 = the four sites JSL to the trampolines, bank `$06` or `$86`.
+Golden V30 pinned.
+
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 
 No unified sprite→tile table exists; each sprite's look comes from its graphics routine.

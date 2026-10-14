@@ -92,6 +92,7 @@ public static class Asar
                     Array.Copy(rom.Data, data, rom.HeaderOffset);
                     Array.Copy(buf, 0, data, rom.HeaderOffset, len);
                     rom.Data = data;
+                    RomPrep.ResetScanCaches(rom);       // what was scanned before is stale now
                 }
                 return result;
             }

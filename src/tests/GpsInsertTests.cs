@@ -166,21 +166,29 @@ public class GpsInsertTests
         Assert.Contains("wall.asm:", status);
     }
 
-    /// <summary>Prep carries LM's acts-like core but not its custom-block dispatch, so GPS's own
-    /// check would pass and the blocks would never run: the build says so instead.</summary>
+    /// <summary>Prep v30 carries LM's custom-block dispatch: the acts-like sites reach LM's
+    /// trampolines, the trampolines branch into the slots GPS writes, and the acts-like table
+    /// the editor and the game read is the one GPS repointed $06F624 to.</summary>
     [AsarFact]
-    public void a_prepped_base_refuses_custom_blocks()
+    public void a_prepped_base_takes_custom_blocks_through_lunar_magics_dispatch()
     {
         if (!File.Exists(ReferenceRoms.Vanilla)) return;
         string dir = Directory.CreateTempSubdirectory("pipedream-proj-").FullName;
         var p = Project.Create(Path.Combine(dir, "proj"), ReferenceRoms.Vanilla);
-        Assert.True(p.Data.BaseRom.PrepVersion > 0);
-        Assert.Null(GpsInsert.Import(Folder("200 above.asm\n"), p.GpsFolder));
+        Assert.Equal(RomPrep.Version, p.Data.BaseRom.PrepVersion);
+        Assert.Null(GpsInsert.Import(Folder("200:0130 above.asm\n"), p.GpsFolder));
 
         var (status, built) = RomBuilder.Build(p);
 
-        Assert.Null(built);
-        Assert.Contains("Pipe Dream-prepped base", status);
+        Assert.True(built is not null, status);
+        var rom = Rom.Load(built!);
+        Assert.True(RomPrep.HasLmBlockDispatch(rom));
+        Assert.Equal(0xF0, rom.ReadByte(0x06F665));                               // BEQ …
+        Assert.Equal(0x06F690, 0x06F667 + (sbyte)rom.ReadByte(0x06F666));         // … to slot 0,
+        Assert.Equal([0x8B, 0xDA, 0xC2, 0x30], rom.Data[rom.FileOffset(0x06F690)..][..4]);   // GPS's stub
+        Assert.Equal(rom.ReadValue(0x06F624, 3), rom.LmActsAsBase);
+        Assert.Equal(0x130, rom.ActsAs(0x200));
+        Assert.Equal([0x200], GpsBlocks.Read(rom)!.Blocks.Keys);
     }
 
     [Fact]

@@ -118,20 +118,14 @@ internal static class RomBuilder
     /// before anything else allocates, and the project's own acts-like edits (ReplayMap16, next)
     /// land over list.txt's. Without the Asar library the blocks are skipped with a warning.
     /// Returns a build failure, or null.</summary>
-    private const int LmCustomBlockMarker = 0x06F65C;   // "LM" 11 01
-
     private static string? InsertGps(Rom rom, Project project, List<string> warnings)
     {
         if (!Directory.Exists(project.GpsFolder)) return null;
         if (!Asar.Available) { warnings.Add("custom blocks skipped (Asar library not found)"); return null; }
-        // Prep stamps LM's acts-like core (LM 10 01), so GPS's own check passes, but not LM's
-        // custom-block dispatch (LM 11 01 at $06F65C), which is what calls GPS's stubs at $06F690;
-        // and prep's acts-like remap reads $11:8000, not the table GPS repoints. The blocks would
-        // insert and never run. Measured on one LM ROM (What The Shell 2!!), so only a prepped
-        // base is refused, not every base without the marker.
-        if (project.Data.BaseRom.PrepVersion > 0 && rom.ReadValue(LmCustomBlockMarker, 3) != 0x114D4C)
-            return "build failed: custom blocks need Lunar Magic's custom-block code, which a "
-                 + "Pipe Dream-prepped base does not carry yet";
+        // Prep carries LM's custom-block dispatch from v30; before that the blocks would insert
+        // and never run (RomPrep.AppendV30Stamps), so an older prepped base is told to upgrade.
+        if (project.Data.BaseRom.PrepVersion > 0 && !RomPrep.HasLmBlockDispatch(rom))
+            return $"build failed: custom blocks need prep v30 (File → Upgrade base to prep v{RomPrep.Version})";
         GpsInsert.Result r;
         try { r = GpsInsert.Insert(rom, project.GpsFolder); }
         catch (FormatException e) { return "build failed: gps/" + e.Message; }
