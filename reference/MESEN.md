@@ -26,6 +26,15 @@ Tooling lives in `tools/mesen/`:
 
 Set `PIPEDREAM_MESEN` to point at the emulator; otherwise PATH, then `~/Mesen.exe`.
 
+**macOS/Linux:** `tools/mesen/probe.sh <rom> <body.lua>` does what the two PowerShell scripts do
+(flags are `--testrunner`/`--timeout=`; `PIPEDREAM_MESEN` = `Mesen.app/Contents/MacOS/Mesen`).
+Measured with Mesen 2.1.1 on an M-series Mac: unlike Windows, it **writes `<rom>.srm`** to
+`~/Library/Application Support/Mesen2/Saves` on stop, and the next run boots into that save —
+different modes at the same frames. probe.sh deletes it first. Boot also runs a few hundred frames
+ahead of the Windows numbers below (back in a level by ~2900, not 3400), so anchor on the first
+`T.inLevel()` after `T.OverworldFrame` instead of a fixed frame. Level `$105` kills Mario
+holding Right at X≈`$44` (an enemy; same on every ROM), so a contact test goes before that.
+
 ## Measured facts
 
 - **~210 fps** headless (~3.5x realtime), ~0.6 s process startup. A typical probe that boots

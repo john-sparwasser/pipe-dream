@@ -772,9 +772,10 @@ public static partial class RomPrep
     /// beside them) — so the game now reads the acts-like table through `$06F624`, as LM ROMs do,
     /// and the remap at <see cref="ActsRemapEntryV26"/> stays as frozen, unreferenced bytes. LM's
     /// lookup does not keep the caller's B, which our remap did (CONTRACT §9d); every LM ROM runs
-    /// this code as it is, and keeping LM's bytes is what GPS's patches into it rely on. NOT YET
-    /// MEASURED: a Mesen pass (levels 0x100+, a block firing) and an LM save over the marker —
-    /// v26 found LM's `LM 12 01` at this address made it manage our extended-def block.
+    /// this code as it is, and keeping LM's bytes is what GPS's patches into it rely on. MEASURED
+    /// in Mesen (reference/GPS_PORT.md): a GPS block fires in level $105 on v30 and not on v29, and
+    /// the level plays the same on both. NOT YET MEASURED: an LM save over the marker — v26 found
+    /// LM's `LM 12 01` at this address made it manage our extended-def block.
     /// </summary>
     private static void AppendV30Stamps(List<(int Pc, byte[] Bytes)> s)
     {

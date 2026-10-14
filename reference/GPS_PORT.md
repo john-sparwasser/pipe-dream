@@ -138,7 +138,10 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
   **A prepped base takes blocks from prep v30**, which carries LM's custom-block dispatch
   (CONTRACT §PREP V30): through v29 the stubs GPS writes at `$06F690` had nothing calling them,
   and prep's acts-like remap read `$11:8000`, not the table GPS repoints `$06F624` to. An older
-  prepped base fails the build with "upgrade base". Not yet run in Mesen or saved in LM.
+  prepped base fails the build with "upgrade base". Mesen (2026-10-14, macOS, `tools/mesen/probe.sh`):
+  a block (acts like $130) in a column in level $105 fires when Mario walks into it on v30, 3/3
+  runs, and never on the same build at v29; level $105 plays the same on plain v29 and v30 (Mario
+  position, death spot, timer, frame counter). Not yet saved in LM.
 
 ### 4. Acts-like has one owner
 - `list.txt` acts-like values import into the project's Map16 acts-as, so the Map16 editor and
