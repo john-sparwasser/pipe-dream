@@ -93,10 +93,15 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
   skip without it. Not done: building the library for `win-x64`/`linux-x64` in CI, so CI only
   ever skips these.
 - **Speed (2026-10-13):** a patch on a 4MB ROM took 13.7 ms, 77% of it a CRC Asar takes over the
-  whole ROM after every patch for the symbols file alone. `tools/asar/build.sh` builds the
-  pinned Asar with `tools/asar/lazy-rom-crc.patch`, which takes that CRC only when a symbols
-  file is asked for: 2.3 ms. That makes our build a modified Asar under the LGPL (label it,
-  offer its source). Worth offering upstream; not offered yet.
+  whole ROM after every patch for the symbols file alone. Taking that CRC only when a symbols
+  file is asked for: 2.3 ms.
+- **Quasar (2026-10-14):** our fork of Asar, [john-sparwasser/quasar](https://github.com/john-sparwasser/quasar),
+  branch `quasar`, where the speed work lives (the lazy CRC is its first commit). It keeps
+  Asar's API and library name, so it drops in where Asar would and stays replaceable. Under the
+  LGPL it is a modified Asar: its README says so, Alcaro stays credited, and the public fork is
+  the source we offer, so it must stay up and its pinned commits reachable while a release ships
+  them. `tools/asar/build.sh` builds the pinned commit; `QUASAR_SRC=<checkout>` builds a working
+  tree. Not offered upstream.
 
 ### 3. Insert blocks from a GPS folder
 - Import copies `list.txt`, `blocks/`, `routines/` and the user's `main.asm`/`defines.asm` into

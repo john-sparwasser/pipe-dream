@@ -4,9 +4,9 @@ namespace PipeDream;
 
 /// <summary>
 /// Asar, the SNES assembler GPS and most SMW tools run their patches through, loaded as a native
-/// library (asar.dll / libasar.so / libasar.dylib, built from the pinned ~/asar, API 3.3). Only
-/// the handful of calls a block insert needs are bound, from asardll.h's documented interface;
-/// upstream's asar.cs is not vendored.
+/// library (asar.dll / libasar.so / libasar.dylib, API 3.3) built from Quasar, our fork, by
+/// tools/asar/build.sh. Only the handful of calls a block insert needs are bound, from
+/// asardll.h's documented interface; upstream's asar.cs is not vendored.
 ///
 /// Asar's state is process-global, so every patch runs behind one lock. Set PIPEDREAM_ASAR to
 /// the library's path in development; otherwise it is looked for beside the app.
