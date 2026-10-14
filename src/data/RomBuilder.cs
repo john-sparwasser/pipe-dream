@@ -114,6 +114,32 @@ internal static class RomBuilder
         }
     }
 
+    /// <summary>The project's GPS folder, inserted first: its cleanup frees the base's old blocks
+    /// before anything else allocates, and the project's own acts-like edits (ReplayMap16, next)
+    /// land over list.txt's. Without the Asar library the blocks are skipped with a warning.
+    /// Returns a build failure, or null.</summary>
+    private const int LmCustomBlockMarker = 0x06F65C;   // "LM" 11 01
+
+    private static string? InsertGps(Rom rom, Project project, List<string> warnings)
+    {
+        if (!Directory.Exists(project.GpsFolder)) return null;
+        if (!Asar.Available) { warnings.Add("custom blocks skipped (Asar library not found)"); return null; }
+        // Prep stamps LM's acts-like core (LM 10 01), so GPS's own check passes, but not LM's
+        // custom-block dispatch (LM 11 01 at $06F65C), which is what calls GPS's stubs at $06F690;
+        // and prep's acts-like remap reads $11:8000, not the table GPS repoints. The blocks would
+        // insert and never run. Measured on one LM ROM (What The Shell 2!!), so only a prepped
+        // base is refused, not every base without the marker.
+        if (project.Data.BaseRom.PrepVersion > 0 && rom.ReadValue(LmCustomBlockMarker, 3) != 0x114D4C)
+            return "build failed: custom blocks need Lunar Magic's custom-block code, which a "
+                 + "Pipe Dream-prepped base does not carry yet";
+        GpsInsert.Result r;
+        try { r = GpsInsert.Insert(rom, project.GpsFolder); }
+        catch (FormatException e) { return "build failed: gps/" + e.Message; }
+        if (!r.Ok) return "build failed: custom blocks: " + string.Join("; ", r.Errors);
+        warnings.AddRange(r.Warnings.Select(w => "custom blocks: " + w));
+        return null;
+    }
+
     /// <summary>Build build\&lt;name&gt;.smc from the project. Returns a status line
     /// (including per-level warnings for LM-gated features on a vanilla base).</summary>
     internal static (string status, string? outPath) Build(Project project)
@@ -122,6 +148,7 @@ internal static class RomBuilder
         {
             var rom = Rom.Load(project.BaseRomPath);
             var warnings = new List<string>();
+            if (InsertGps(rom, project, warnings) is { } gpsErr) return (gpsErr, null);
             if (ReplayMap16(rom, project.Data) is { } err) return (err, null);
             ReplayEntrances(rom, project.Data);
             WriteGfx(rom, project.Data, warnings);

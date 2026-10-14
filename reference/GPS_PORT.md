@@ -131,6 +131,16 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
   and every listed block exists, and stages the copy before swapping it in, so a bad folder
   keeps the last import. The files sit beside project.pdp, not in it, so blocks stay editable
   in the user's editor; sharing a project with blocks now means sharing gps/ too.
+- **Build (2026-10-14):** `RomBuilder.Build` inserts `gps/` first, before `ReplayMap16`, so
+  the old insertion's space is freed before Pipe Dream allocates and the project's acts-like
+  edits land over list.txt's. An Asar error fails the build with `file:line: message`; no
+  library skips the blocks with a warning. ~17 ms on What The Shell 2!! with the oracle list.
+  **A prepped base is refused.** Prep stamps LM's acts-like core (`LM 10 01`), so GPS's own
+  check passes, but not LM's custom-block dispatch (`LM 11 01`, `$06F65C`), which is what calls
+  the stubs GPS writes at `$06F690`; and prep's acts-like remap reads `$11:8000` directly, while
+  GPS's `main.asm` repoints `$06F624` to a table of its own. Built anyway, the blocks insert
+  and never run. Custom blocks on a vanilla project need prep to carry that dispatch and to
+  read acts-like through `$06F624`: a prep version of its own.
 
 ### 4. Acts-like has one owner
 - `list.txt` acts-like values import into the project's Map16 acts-as, so the Map16 editor and

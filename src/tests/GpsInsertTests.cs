@@ -147,6 +147,42 @@ public class GpsInsertTests
         Assert.Equal(before, rom.Data);
     }
 
+    [AsarFact]
+    public void a_project_build_inserts_its_imported_blocks_and_fails_on_an_asar_error()
+    {
+        string dir = Directory.CreateTempSubdirectory("pipedream-proj-").FullName, rom = Path.Combine(dir, "base.sfc");
+        File.WriteAllBytes(rom, LmSaved().Data);
+        var p = Project.Create(Path.Combine(dir, "proj"), rom);
+        Assert.Null(GpsInsert.Import(Folder("200 above.asm\n2FF wall.asm\n"), p.GpsFolder));
+
+        var (status, built) = RomBuilder.Build(p);
+        Assert.NotNull(built);
+        Assert.Equal([0x200, 0x2FF], GpsBlocks.Read(Rom.Load(built!))!.Blocks.Keys.Order());
+
+        File.AppendAllText(Path.Combine(p.GpsFolder, "blocks", "wall.asm"), "LDA.q #0\n");
+        (status, built) = RomBuilder.Build(p);
+        Assert.Null(built);
+        Assert.StartsWith("build failed: custom blocks: ", status);
+        Assert.Contains("wall.asm:", status);
+    }
+
+    /// <summary>Prep carries LM's acts-like core but not its custom-block dispatch, so GPS's own
+    /// check would pass and the blocks would never run: the build says so instead.</summary>
+    [AsarFact]
+    public void a_prepped_base_refuses_custom_blocks()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla)) return;
+        string dir = Directory.CreateTempSubdirectory("pipedream-proj-").FullName;
+        var p = Project.Create(Path.Combine(dir, "proj"), ReferenceRoms.Vanilla);
+        Assert.True(p.Data.BaseRom.PrepVersion > 0);
+        Assert.Null(GpsInsert.Import(Folder("200 above.asm\n"), p.GpsFolder));
+
+        var (status, built) = RomBuilder.Build(p);
+
+        Assert.Null(built);
+        Assert.Contains("Pipe Dream-prepped base", status);
+    }
+
     [Fact]
     public void import_copies_the_inputs_only_and_a_bad_folder_keeps_the_last_import()
     {
