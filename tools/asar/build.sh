@@ -6,7 +6,7 @@
 # for working on the fork. Usage: tools/asar/build.sh <out-dir>   then
 # export PIPEDREAM_ASAR=<out-dir>/libasar.*
 set -eu
-pin=71f92733fbd5b4677561848cd52985a5421b5371
+pin=f11910b495f31f4b22b777d3eec0bef27bd0580c
 out=$(cd "${1:?usage: build.sh <out-dir>}" && pwd)
 src=${QUASAR_SRC:-"$out/quasar-src"}
 if [ -z "${QUASAR_SRC:-}" ]; then
