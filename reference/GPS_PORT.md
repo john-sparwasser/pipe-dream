@@ -85,6 +85,13 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
 - Asar's state is process-global: one patch at a time, behind a lock, like `SpriteRender.Capture`.
 - Exit: a test patches a small `.asm` onto an in-memory ROM and checks the bytes and the RATS tag;
   ROM-less CI still passes (the test skips without the native library, as ROM tests skip now).
+- **Status (2026-10-13):** `data/Asar.cs` binds the seven calls a patch needs (`apiversion`,
+  `init`, `patch_ex`, errors, warnings, prints, written blocks) straight from `asardll.h`'s
+  documented structs, instead of vendoring `asar.cs` (that file is LGPL; only the C interface
+  files carry the WTFPL exception). One lock; `PIPEDREAM_ASAR` points it at a dev build, else the
+  library is looked for beside the app. `AsarTests` pass against the local `libasar.dylib` and
+  skip without it. Not done: building the library for `win-x64`/`linux-x64` in CI, so CI only
+  ever skips these.
 
 ### 3. Insert blocks from a GPS folder
 - Import copies `list.txt`, `blocks/`, `routines/` and the user's `main.asm`/`defines.asm` into
@@ -132,8 +139,10 @@ matches, but nothing waits on it.
 
 1. ~~GPS source on this Mac.~~ GPS V1.4.5 is at `~/Downloads/GPS(V1.4.5)` (`main.asm`, and
    `src.zip` = `main.cpp` + Asar's dll loader). The marker layout above is from them.
-2. **Asar's licence** (`ROM_TOOLING.md`: WTFPL, LGPL and GPL all ship, none assigned to a target).
-   Ask upstream before linking it into a release; until then phases 2-5 stay behind `--dev`.
+2. **Asar's licence.** The repo's `LICENSE` (read 2026-10-13) settles most of it: Asar is LGPL
+   v3+, the DLL interface files are WTFPL, and a dynamic library shipped as a separate,
+   replaceable file, with Alcaro credited and source offered, meets the LGPL. Still the owner's
+   call before a release ships it; until then phases 2-5 stay behind `--dev`.
 3. **GPS's own licence.** `src.zip` carries no licence text, so nothing of it is copied:
    `gps.exe`'s behaviour is ported from its documented formats and observed output, as the repo
    treats Lunar Magic.
