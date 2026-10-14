@@ -84,6 +84,50 @@ public static class GpsInsert
 
     private static Result Fail(string message) => new(false, [message], [], []);
 
+    // ---- import ----
+
+    /// <summary>Copy what Insert reads from a GPS folder into <paramref name="dest"/>, replacing
+    /// whatever was there: list.txt, main.asm, defines.asm, blocks/ and routines/. gps.exe, its
+    /// dll and readme stay behind. Returns the problem, or null. The folder is checked first
+    /// (list.txt parses, every block it names exists) and copied beside dest before the swap, so
+    /// a bad import leaves the last good one in place.</summary>
+    public static string? Import(string source, string dest)
+    {
+        source = Path.GetFullPath(source);
+        dest = Path.GetFullPath(dest);
+        if (source == dest) return null;
+        if (!File.Exists(Path.Combine(source, "list.txt"))) return "not a GPS folder: no list.txt";
+        if (!File.Exists(Path.Combine(source, "main.asm"))) return "not a GPS folder: no main.asm";
+        Dictionary<int, Entry> list;
+        try { list = ParseList(File.ReadAllText(Path.Combine(source, "list.txt"))); }
+        catch (FormatException e) { return e.Message; }
+        foreach (var e in list.Values.DistinctBy(e => e.File).OrderBy(e => e.Line))
+            if (!File.Exists(Path.Combine(source, "blocks", e.File)))
+                return $"list.txt line {e.Line}: blocks/{e.File} not found";
+
+        string staged = dest + ".importing";
+        if (Directory.Exists(staged)) Directory.Delete(staged, true);
+        Directory.CreateDirectory(staged);
+        foreach (var f in new[] { "list.txt", "main.asm", "defines.asm" })
+            if (File.Exists(Path.Combine(source, f))) File.Copy(Path.Combine(source, f), Path.Combine(staged, f));
+        foreach (var d in new[] { "blocks", "routines" })
+            CopyTree(Path.Combine(source, d), Path.Combine(staged, d));
+        if (Directory.Exists(dest)) Directory.Delete(dest, true);
+        Directory.Move(staged, dest);
+        return null;
+    }
+
+    /// <summary>Copies a tree; an absent one becomes an empty folder (Insert lists routines/).</summary>
+    private static void CopyTree(string from, string to)
+    {
+        Directory.CreateDirectory(to);
+        if (!Directory.Exists(from)) return;
+        foreach (var dir in Directory.GetDirectories(from, "*", SearchOption.AllDirectories))
+            Directory.CreateDirectory(Path.Combine(to, Path.GetRelativePath(from, dir)));
+        foreach (var file in Directory.GetFiles(from, "*", SearchOption.AllDirectories))
+            File.Copy(file, Path.Combine(to, Path.GetRelativePath(from, file)));
+    }
+
     // ---- list.txt ----
 
     /// <summary>list.txt by tile, as README.txt describes it: `200 file.asm`, `200:0130 file.asm`,

@@ -223,6 +223,20 @@ public partial class MainWindow
         RefreshDrawer();
     }
 
+    /// <summary>Dev only: copy a GPS folder (list.txt, blocks/, routines/, main.asm) into the
+    /// project, ready for the build to insert. Says the outcome either way.</summary>
+    private async void OnImportGps(object? sender, RoutedEventArgs e)
+    {
+        if (session.ProjectName is null) return;
+        await SettleBeforeNativeDialog();
+        var dirs = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Choose the GPS folder (the one with list.txt)", AllowMultiple = false,
+        });
+        if (dirs.Count == 0 || dirs[0].TryGetLocalPath() is not { } folder) return;
+        await ConfirmWindow.Notice("Import GPS folder", session.ImportGps(folder)).ShowDialog(this);
+    }
+
     private void OnUpgradePrep(object? sender, RoutedEventArgs e)
     {
         session.UpgradeBasePrep();

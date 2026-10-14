@@ -126,6 +126,11 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
   Differences from gps.exe, all from sharing one patch: two block files defining the same
   macro collide, and a define set by one block is visible to later ones. Not done: no `.dsc`,
   no `-O1`/`-O2`, no BTSD removal; import into a project and running it at build.
+- **Import (2026-10-14):** `GpsInsert.Import` copies list.txt, main.asm, defines.asm, blocks/
+  and routines/ into `<project>/gps/` (Debug ▸ Import GPS folder…). It checks list.txt parses
+  and every listed block exists, and stages the copy before swapping it in, so a bad folder
+  keeps the last import. The files sit beside project.pdp, not in it, so blocks stay editable
+  in the user's editor; sharing a project with blocks now means sharing gps/ too.
 
 ### 4. Acts-like has one owner
 - `list.txt` acts-like values import into the project's Map16 acts-as, so the Map16 editor and

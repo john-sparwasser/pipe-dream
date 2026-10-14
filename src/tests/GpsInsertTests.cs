@@ -148,6 +148,27 @@ public class GpsInsertTests
     }
 
     [Fact]
+    public void import_copies_the_inputs_only_and_a_bad_folder_keeps_the_last_import()
+    {
+        string src = Folder("200 above.asm\n");
+        Directory.CreateDirectory(Path.Combine(src, "blocks", "sub"));
+        File.WriteAllText(Path.Combine(src, "blocks", "sub", "x.asm"), "RTL\n");
+        File.WriteAllText(Path.Combine(src, "gps.exe"), "");
+        string dest = Path.Combine(Directory.CreateTempSubdirectory("pipedream-proj-").FullName, "gps");
+
+        Assert.Null(GpsInsert.Import(src, dest));
+        Assert.True(File.Exists(Path.Combine(dest, "list.txt")));
+        Assert.True(File.Exists(Path.Combine(dest, "blocks", "sub", "x.asm")));
+        Assert.True(File.Exists(Path.Combine(dest, "routines", "sparkle.asm")));
+        Assert.False(File.Exists(Path.Combine(dest, "gps.exe")));
+
+        string bad = Folder("200 above.asm\n201 missing.asm\n");
+        Assert.Equal("list.txt line 2: blocks/missing.asm not found", GpsInsert.Import(bad, dest));
+        Assert.Equal("200 above.asm\n", File.ReadAllText(Path.Combine(dest, "list.txt")));
+        Assert.Equal("list.txt line 1: block id out of bounds", GpsInsert.Import(Folder("1FF above.asm\n"), dest));
+    }
+
+    [Fact]
     public void the_list_reads_singles_ranges_rectangles_and_acts_like()
     {
         var list = GpsInsert.ParseList("""

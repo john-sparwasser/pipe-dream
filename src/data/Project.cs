@@ -15,6 +15,9 @@ internal sealed class Project
     internal string Folder { get; }
     internal string BaseRomPath => Path.Combine(Folder, RomName);
     internal string FilePath => Path.Combine(Folder, FileName);
+    /// <summary>The imported GPS folder (GpsInsert.Import): files beside project.pdp, not in it,
+    /// so blocks stay editable in the user's own editor.</summary>
+    internal string GpsFolder => Path.Combine(Folder, "gps");
     internal string Name => Path.GetFileName(Folder.TrimEnd(Path.DirectorySeparatorChar));
     internal ProjectFile Data { get; private set; }
 
