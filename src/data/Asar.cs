@@ -24,6 +24,11 @@ public static class Asar
     private const int MaxRomSize = 16 * 1024 * 1024;
     private static readonly object gate = new();
     private static bool? available;
+    /// <summary>Asar's working buffer, kept between patches. A fresh 16MB array each time saved
+    /// nothing on the median patch but sent the GC into the large object heap, with the odd
+    /// 50-100 ms pause. Only the ROM's own length is read back, so what a bigger ROM left past
+    /// the end needs no clearing.</summary>
+    private static byte[]? buf;
 
     static Asar() => NativeLibrary.SetDllImportResolver(typeof(Asar).Assembly, (name, asm, path) =>
         name == Lib && Environment.GetEnvironmentVariable("PIPEDREAM_ASAR") is { Length: > 0 } p
@@ -60,7 +65,7 @@ public static class Asar
         lock (gate)
         {
             int len = rom.Data.Length - rom.HeaderOffset;
-            var buf = new byte[MaxRomSize];
+            buf ??= new byte[MaxRomSize];
             Array.Copy(rom.Data, rom.HeaderOffset, buf, 0, len);
             var path = Marshal.StringToCoTaskMemUTF8(Path.GetFullPath(asmPath));
             var mem = (files ?? new Dictionary<string, byte[]>()).Select(f => (
