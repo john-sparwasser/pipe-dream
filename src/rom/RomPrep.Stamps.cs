@@ -774,8 +774,14 @@ public static partial class RomPrep
     /// lookup does not keep the caller's B, which our remap did (CONTRACT §9d); every LM ROM runs
     /// this code as it is, and keeping LM's bytes is what GPS's patches into it rely on. MEASURED
     /// in Mesen (reference/GPS_PORT.md): a GPS block fires in level $105 on v30 and not on v29, and
-    /// the level plays the same on both. NOT YET MEASURED: an LM save over the marker — v26 found
-    /// LM's `LM 12 01` at this address made it manage our extended-def block.
+    /// the level plays the same on both. MEASURED under Lunar Magic 3.40's Map16 save (2026-10-15,
+    /// reference/LM_PARITY.md §2 "Map16 F9 on a plain v30 base"): F9 writes `LM 12 01` over the
+    /// marker and 3.40's 20-byte fourth trampoline over ours, and leaves the slots, the other three
+    /// trampolines, `$06F624` and the four sites alone — a GPS block still fires after it. The save
+    /// also frees our extended-def block at `$128000` and installs its own ranges, but it does the
+    /// same to a v29 base that carries no marker at all, so the marker is not the cause (v26's note
+    /// that LM leaves the block alone without one no longer holds under 3.40); after it the base is
+    /// in v26's "upgrade offered" state, IsPrepped false at every version.
     /// </summary>
     private static void AppendV30Stamps(List<(int Pc, byte[] Bytes)> s)
     {

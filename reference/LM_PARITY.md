@@ -596,6 +596,63 @@ Two findings worth keeping from getting there:
   `IsPrepped`'s v1 clause (`LmMap16Defs.Bank != 0`) reads false on such a base and the app offers
   an upgrade, which restamps our block and slot 0. Same as it already is for `after.smc`.
 
+**Map16 F9 on a plain v30 base: LM frees the block with no marker's help.**  [MEASURED 2026-10-15, LM 3.40]
+The question v30 raised: it puts `LM 11 01` at `$06F65C`, the address where the first v26's
+`LM 12 01` made the save free our extended-def block (above). Does the save read `11 01` the same
+way? Setup: a fresh v30 base from the clean US ROM (`--prep … 30`; 1 MB, copier header kept, so
+file offset = PC + 0x200), `Editors ▸ 16x16 Tile Map Editor`, F9, no edits
+(`tools/lm/Invoke-LmGui.ps1 -Action SaveMap16`), and a fresh v29 base through the same save as the
+control. The exe at `D:\SMW\Projects\.resources\Lunar Magic\` is **3.40** by its version resource
+and by the header it writes into `.map16` files; the readme beside it says 3.33, and the `C:\SMW`
+path the docs name no longer exists on this machine.
+
+| check | v30 base, F9 | v29 control, F9 |
+|---|---|---|
+| marker `$06F65C` | `4C 4D 11 01` → `4C 4D 12 01` | `FF FF FF FF` → `4C 4D 12 01` |
+| trampolines `$06F660`/`$06F700`/`$06F760` | unchanged | FF, except `$06F70B` 15 B: `C9 D2 F0 11 C9 93 F0 1D C9 7F F0 19 4C 02 F6` (the tail of the second) |
+| trampoline `$06F7A0` | rewritten, 20 B: `20 08 F6 A5 0F F0 04 A3 0A 80 02 A3 06 C9 DA F0 0F 4C 02 F6` | the same 20 B, over FF |
+| slots `$06F690`-`$06F7CF` | unchanged, `4C 02 F6 EA` ×4 each; `$06F7D0`-`$06F7FF` FF | FF |
+| `$06F624` operand | `00 80 11`, unchanged | unchanged |
+| the four sites | still `JSL $06F660`/`$06F700`/`$06F760`/`$06F7A0` | still `JSL $06F800`, our remap |
+| ext-def block, `$128000` | **FREED**: `53 54 41 52 FF 07 00 F8 04 10 …` → 2056 zero bytes, tag and all | FREED, byte for byte the same |
+| ladder `$06F553` | slot 0 `$12:7008` → `$00:F000` ("no defs"); slots 1-3 → three fresh 0x8000 blocks of LM's at `$1A8000`/`$1C8000`/`$208000` (ROM expanded to 2 MB) | the same |
+| acts-like table `$118000` | kept, tag and operand | kept |
+| `--diff` / `Test-RomRails` | 28 runs, 3 new RATS blocks; 4 overlaps: `$06F553`, `$06F65E`, `$06F7A3`, `$128000` | 29 runs; same overlaps |
+| Mesen | boots to `0xC7`; `-Walk left` reaches `$105` | not run |
+| `IsPrepped` | **false at every version** — the v1 clause (slot 0 bank 0); `Map16TileCount` 0x300 → 0x200. `HasLmBlockDispatch` still true | false |
+| a second F9 | writes nothing (byte-identical) | — |
+| `-ImportAllMap16` of the base's own export | byte-identical to the F9 | — |
+| the same export with tile `$200` edited, imported | the F9's bytes plus one 8-byte block at `$108150` holding the edited def, slot 0 → `$10:7150`; boots, reaches `$105` | — |
+| a GPS block after the F9 | fires — lives `$0DBE` = `0x63` walking into the column in `$105`, `0x04` standing still (the §2c build and its F9'd copy) | — |
+
+So the save does not mistake `LM 11 01` for its own install: it upgrades it, and the only dispatch
+bytes it touches are the marker's version byte and the fourth trampoline, rewritten to 3.40's shape
+whether or not one is there. The dispatch survives — slots, three trampolines, sites and `$06F624`
+untouched, and the block still fires. The extended-def block is freed **on the v29 control too**,
+which has no marker at all, so v30's marker is not what frees it. That contradicts the bullet
+above ("Without it, LM leaves the block"), measured in September against what the docs call
+3.33: either that LM differed or the note was wrong, because 3.40 frees the block on every
+prepped base, plain F9, no edits. After it the base is in the "upgrade offered" state with the
+block gone — `IsPrepped` false, page 2 nowhere, our reader following LM's ladder. A project never
+meets this on its own `base.smc` (`ValidateBase` rejects the hash); only a build output someone
+saved in Lunar Magic looks like this.
+
+**What this says about a v31.** A v31 that stamps everything except `LM 11 01` would not keep the
+block: the v29 control carries no marker and loses it the same way. What a v31 can buy is §2c's
+point — stamp 3.40's own `LM 12 01` and its 20-byte fourth trampoline, and the Map16 save writes
+nothing in `$06F65C`-`$06F7EF`. The block's fate belongs to LM's Map16 install, not to the
+dispatch: a separate question, open since v26, about whether our reader should take LM's ranges
+1-3 as the extended-def home after such a save.
+
+**Tooling, learned the hard way.** LM keeps `sysLMRestore/` beside the ROM, one `.lrp` per ROM
+name but ONE `smwOrig.smc` per folder. A v29 copy opened in the folder where a v30 copy had
+already been saved came back with vanilla's GFX pointer table at `$00B992`, 209 changed runs and
+most of the upper half zeroed, after LM offered to expand a 1 MB ROM "to 1 MB" — a restore, not
+a save. One ROM per folder, or delete `sysLMRestore` between runs; the fresh-folder rerun is what
+the table records. `Invoke-LmGui` posts F9 to every child of the editor, so LM logs "File
+Operation Already in Progress" once and the expand prompt twice; the save still runs once
+(byte-identical to a single `-ImportAllMap16`).
+
 **The methods that worked, for next time.** `lm-savelevel.ps1`, `lm-entrance.ps1` (`-MenuDown 3`
 = ExAnimated Frames, 7 = Main/Midway, 8 = Secondary; `-Combos`/`-Fields`/`-Checks` dirty the
 level), `lm-levelgfx.ps1`, `lm-submapgfx.ps1`, `lm-map16.ps1` (F9), and
