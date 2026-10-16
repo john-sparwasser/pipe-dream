@@ -32,14 +32,14 @@ public partial class NewBlockWindow : Window
         name = this.GetControl<TextBox>("BlockName");
         icons = this.GetControl<ListBox>("Icons");
         hint = this.GetControl<TextBlock>("Hint");
-        var rows = EditorSession.BlockIconTiles.Select(t => new IconRow(t, Icon(session, t))).ToList();
+        var rows = EditorSession.BlockIconTiles.Select(t => new IconRow(t, IconFor(session, t))).ToList();
         icons.ItemsSource = rows;
         icons.SelectedItem = rows[0];
         Opened += (_, _) => name.Focus();
     }
 
     /// <summary>A block icon as a bitmap, or null with no level open to draw it in.</summary>
-    internal static Bitmap? Icon(EditorSession session, int? tile)
+    internal static Bitmap? IconFor(EditorSession session, int? tile)
         => tile is { } t && session.Map16TilePixels(t) is { } px ? LevelBitmap.FromPixels(px, 16, 16) : null;
 
     private void OnOkay(object? sender, RoutedEventArgs e)

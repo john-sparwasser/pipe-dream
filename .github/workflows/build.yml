@@ -57,17 +57,36 @@ jobs:
             echo "VERSION=${base#v}.${{ github.run_number }}" >> "$GITHUB_ENV"
           fi
 
+      # Asar for custom blocks: Quasar, our fork, at the commit tools/asar/build.sh pins, built
+      # for this runner (MSVC / gcc). PIPEDREAM_ASAR points the tests at it, so the Asar and
+      # custom-block tests run here instead of skipping, and publish packs it into the app.
+      # ponytail: rebuilt every run (a minute or two); cache it on the pin if that starts to hurt.
+      - name: Build Asar (Quasar)
+        shell: bash
+        run: |
+          mkdir -p bin/asar
+          lib=$(sh tools/asar/build.sh bin/asar | tail -n 1)
+          echo "PIPEDREAM_ASAR=$lib" >> "$GITHUB_ENV"
+
       # ROM-dependent tests skip themselves when no SMW ROM is present, which is always here.
       - run: dotnet test src/tests/PipeDream.Tests.csproj -c Release
 
       # One file: the runtime and every dependency live inside the executable, unpacked to a
       # temp dir on first run. Native libraries need the second flag to come along; without
-      # it they stay beside the exe and the "single file" is a lie.
+      # it they stay beside the exe and the "single file" is a lie. Asar arrives as a content
+      # file (AsarLib in the csproj), which takes the third. PIPEDREAM_ASAR still overrides
+      # the packed copy, which is how a user swaps in their own Asar build (Asar is LGPL).
       - run: >
           dotnet publish src/PipeDream.csproj -c Release -r ${{ matrix.rid }} --self-contained true
-          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none
-          -p:Version=${{ env.VERSION }}
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:IncludeAllContentForSelfExtract=true -p:AsarLib=${{ env.PIPEDREAM_ASAR }}
+          -p:DebugType=none -p:Version=${{ env.VERSION }}
           -o bin/publish
+
+      # The published binary must find the Asar packed inside it, not the one the tests used.
+      - name: Check the published binary loads Asar
+        if: matrix.os != 'windows-latest'
+        run: env -u PIPEDREAM_ASAR bin/publish/PipeDream --asarcheck
 
       # Signing, in two passes: the binary here, then the installer once ISCC has wrapped it.
       # Both matter — the installer is what SmartScreen judges on download, and the binary is
@@ -173,6 +192,11 @@ jobs:
           # sets $LASTEXITCODE — Start-Process is the only way to read the code back.
           $check = Start-Process $app '--selfcheck' -Wait -PassThru
           if ($check.ExitCode -ne 0) { throw "installed binary failed --selfcheck ($($check.ExitCode))" }
+          # Custom blocks: the installed exe must load the Asar packed inside it, so the build's
+          # own copy is taken out of the environment first.
+          Remove-Item Env:PIPEDREAM_ASAR
+          $asar = Start-Process $app '--asarcheck' -Wait -PassThru
+          if ($asar.ExitCode -ne 0) { throw "installed binary cannot load Asar ($($asar.ExitCode))" }
           # Catches the ordering trap: sign bin\publish after ISCC has already packaged it and
           # the installer is signed while the binary it lays down is not, which no other check
           # here would notice.

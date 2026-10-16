@@ -93,8 +93,10 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
   documented structs, instead of vendoring `asar.cs` (that file is LGPL; only the C interface
   files carry the WTFPL exception). One lock; `PIPEDREAM_ASAR` points it at a dev build, else the
   library is looked for beside the app. `AsarTests` pass against the local `libasar.dylib` and
-  skip without it. Not done: building the library for `win-x64`/`linux-x64` in CI, so CI only
-  ever skips these.
+  skip without it. Since 2026-10-16 CI builds it for `win-x64` and `linux-x64` with
+  `tools/asar/build.sh`, runs these tests against it, and publishes it packed inside the app
+  (the `AsarLib` item in the csproj); `--asarcheck` on the published binary and on the installed
+  Windows app proves the packed copy loads. `PIPEDREAM_ASAR` still overrides it.
 - **Speed (2026-10-13):** a patch on a 4MB ROM took 13.7 ms, 77% of it a CRC Asar takes over the
   whole ROM after every patch for the symbols file alone. Taking that CRC only when a symbols
   file is asked for: 2.3 ms.

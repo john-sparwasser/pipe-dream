@@ -9,6 +9,7 @@ static class DebugCommands
     private static readonly (string Flag, Func<string[], int, int> Run)[] Commands =
     {
         ("--selfcheck",         (_, _) => SelfCheck()),
+        ("--asarcheck",         (_, _) => AsarCheck()),
         ("--newproject",        NewProject),
         ("--prep",              (a, i) => PrepRom(a[i + 1], a.Length > i + 2 ? int.Parse(a[i + 2]) : RomPrep.Version)),
         ("--buildproject",      BuildProject),
@@ -156,6 +157,19 @@ static class DebugCommands
 
     // --selfcheck : run the ROM self-check suite (exit code = failures).
     public static int SelfCheck() => RomSelfCheck.Run();
+
+    // --asarcheck : load Asar and assemble one byte, so CI knows the published app can build
+    // custom blocks (exit 0 = it can).
+    public static int AsarCheck()
+    {
+        if (!Asar.Available) { Console.Error.WriteLine("asar: library not found, or not API 3.3+"); return 1; }
+        var rom = Rom.FromBytes(new byte[0x80000]);
+        string asm = Path.Combine(Path.GetTempPath(), "pipedream-asarcheck.asm");   // in memory only
+        var r = Asar.Patch(rom, asm, new Dictionary<string, byte[]> { [asm] = "org $008000\ndb $42\n"u8.ToArray() });
+        bool ok = r.Ok && rom.Data[rom.HeaderOffset] == 0x42;
+        Console.WriteLine(ok ? "asar: ok" : "asar: patch failed: " + string.Join("; ", r.Errors));
+        return ok ? 0 : 1;
+    }
 
     // --owpng <rom> <out.png> [window] : the overworld canvas, 512x1024, for eyeballing the reader;
     // with a window, that many cells from (cellX, cellY), each pixel drawn scale times.

@@ -256,3 +256,9 @@ of Nintendo.
 The block editor's font, [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono), ships
 inside the app under the SIL Open Font License 1.1 ([assets/fonts/JetBrainsMono-OFL.txt](assets/fonts/JetBrainsMono-OFL.txt)).
 The editor itself is [AvaloniaEdit](https://github.com/AvaloniaUI/AvaloniaEdit) (MIT).
+
+Custom blocks are assembled by [Asar](https://github.com/RPGHacker/asar) (by Alcaro and
+contributors, LGPL v3+), shipped inside the app as the shared library built from
+[Quasar](https://github.com/john-sparwasser/quasar), our modified fork of it; Quasar's repository
+is that library's source. Set `PIPEDREAM_ASAR` to the path of another build of the library to use
+it instead.

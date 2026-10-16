@@ -71,4 +71,11 @@
     <AvaloniaResource Include="..\assets\pipe-icon-64.png" Link="assets/pipe-icon-64.png" />
   </ItemGroup>
 
+  <!-- Asar (Quasar's build, tools/asar/build.sh) for custom blocks: CI passes -p:AsarLib=<path>
+       to publish, so the library goes into the app. A dev build without it finds the library
+       through PIPEDREAM_ASAR instead. -->
+  <ItemGroup Condition="'$(AsarLib)' != ''">
+    <None Include="$(AsarLib)" Link="%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
