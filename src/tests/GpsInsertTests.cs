@@ -166,6 +166,19 @@ public class GpsInsertTests
         }
     }
 
+    /// <summary>Blocks gps.exe already put on a ROM count as foreign until a GPS folder is the
+    /// project's driver; our own driver, or none, cannot carry them.</summary>
+    [AsarFact]
+    public void blocks_already_on_the_rom_are_foreign_until_their_gps_folder_is_imported()
+    {
+        var rom = LmSaved();
+        Assert.Equal(0, GpsInsert.ForeignBlocks(rom, GpsInsert.Driver()));                // nothing there yet
+        Assert.True(GpsInsert.Insert(rom, GpsFiles(), Library(), Blocks("200 above.asm\n2FF wall.asm\n")).Ok);   // as gps.exe would
+        Assert.Equal(2, GpsInsert.ForeignBlocks(rom, GpsInsert.Driver()));
+        Assert.Equal(2, GpsInsert.ForeignBlocks(rom, new Dictionary<string, string>()));
+        Assert.Equal(0, GpsInsert.ForeignBlocks(rom, GpsFiles()));                       // their folder is in
+    }
+
     [AsarFact]
     public void reinserting_frees_the_last_insertion_first()
     {
@@ -407,6 +420,52 @@ public class GpsInsertTests
         while (s.BlockSource("spin.asm") != "; edited\n" && DateTime.UtcNow < until) { Thread.Sleep(20); s.Tick(); }
         Assert.Equal("; edited\n", s.BlockSource("spin.asm"));
         Assert.Equal("nope.asm is not in the library", s.OpenBlockExternally("nope.asm"));
+    }
+
+    /// <summary>A base gps.exe already put blocks on: every block action is refused with the way
+    /// out, the build will not clean them off, and importing their GPS folder lifts it.</summary>
+    [Avalonia.Headless.XUnit.AvaloniaFact]
+    public void a_base_with_gps_blocks_is_locked_until_its_gps_folder_is_imported()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla) || !Asar.Available) return;
+        string dir = Directory.CreateTempSubdirectory("pipedream-proj-").FullName;
+        var p = Project.Create(Path.Combine(dir, "proj"), ReferenceRoms.Vanilla);
+        var baseRom = Rom.Load(p.BaseRomPath);
+        Assert.True(GpsInsert.Insert(baseRom, GpsFiles(), Library(), Blocks("200 above.asm\n2FF wall.asm\n")).Ok);
+        RatsWriter.SaveAs(baseRom, p.BaseRomPath);
+        p.Data.BaseRom.Sha256 = RomHash.HeaderlessSha256File(p.BaseRomPath);         // a hack with GPS blocks as its base
+        p.Data.BaseRom.PrepVersion = 0;
+        p.Save();
+
+        var s = new PipeDream.Services.EditorSession();
+        Assert.True(s.OpenProject(p.FilePath), s.Status);
+        string locked = s.BlocksLockedReason!;
+        Assert.StartsWith("This base ROM already has 2 custom blocks inserted by GPS", locked);
+        Assert.Contains("Import GPS folder", locked);
+        Assert.Equal(locked, s.NewBlock("spin", out var made));
+        Assert.Null(made);
+        Assert.Equal(locked, s.AssignBlock(0x201, "above.asm"));
+        Assert.Empty(s.BlockNames);
+        var w = new PipeDream.Ui.BlocksWindow(s);
+        Assert.True(w.GetControl<Border>("LockNotice").IsVisible);
+        Assert.Equal(locked, w.GetControl<TextBlock>("LockText").Text);
+        Assert.False(w.GetControl<Button>("NewButton").IsEnabled);
+        Assert.False(w.GetControl<Button>("ImportButton").IsEnabled);
+
+        // A project that got blocks before this guard existed still cannot build over them.
+        var stale = Project.Open(p.FilePath);
+        stale.Data.GpsFiles = GpsInsert.Driver();
+        stale.Data.BlockLibrary["x.asm"] = Wall;
+        stale.Data.Blocks["300"] = "x.asm";
+        Assert.StartsWith("build failed: the base ROM already has 2 custom blocks from GPS", RomBuilder.Build(stale).status);
+        Assert.Equal(2, GpsBlocks.Read(Rom.Load(p.BaseRomPath))!.Blocks.Count);         // and they are still there
+
+        s.ImportGps(Folder("200 above.asm\n2FF wall.asm\n"));
+        Assert.Null(s.BlocksLockedReason);
+        w = new PipeDream.Ui.BlocksWindow(s);
+        Assert.False(w.GetControl<Border>("LockNotice").IsVisible);
+        Assert.True(w.GetControl<Button>("NewButton").IsEnabled);
+        Assert.Equal("added spin.asm to the library", s.NewBlock("spin", out _));
     }
 
     /// <summary>The picker leads with "none", marks the tile's current block, and names the tiles.</summary>

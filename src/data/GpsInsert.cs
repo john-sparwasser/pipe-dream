@@ -103,11 +103,21 @@ public static class GpsInsert
     /// <summary>Pipe Dream's own block driver (data/blockdriver: main.asm, defines.asm), as the
     /// files a project keeps in <see cref="ProjectFile.GpsFiles"/>. No routines: GPS's carry no
     /// licence, so a block calling one assembles only after a GPS folder is imported.</summary>
-    public static Dictionary<string, string> Driver() => new[] { "main.asm", "defines.asm" }.ToDictionary(n => n, n =>
+    public static Dictionary<string, string> Driver() => new(driver ??= new[] { "main.asm", "defines.asm" }.ToDictionary(n => n, n =>
     {
         using var s = typeof(GpsInsert).Assembly.GetManifestResourceStream("blockdriver/" + n)!;
         return new StreamReader(s).ReadToEnd();
-    });
+    }));
+    private static Dictionary<string, string>? driver;
+
+    /// <summary>How many custom blocks gps.exe already put on <paramref name="rom"/> that the
+    /// project cannot carry: all of them, unless <paramref name="gpsFiles"/> came from an imported
+    /// GPS folder. Insert cleans out the last insertion before its own, so building our blocks
+    /// over these would delete blocks whose ASM the project does not have.</summary>
+    // ponytail: trusts that the imported folder is the one those blocks came from
+    public static int ForeignBlocks(Rom rom, IReadOnlyDictionary<string, string> gpsFiles)
+        => gpsFiles.TryGetValue("main.asm", out var main) && main != Driver()["main.asm"] ? 0
+            : GpsBlocks.Read(rom)?.Blocks.Count ?? 0;
 
     private static Result Fail(string message) => new(false, [message], [], []);
 

@@ -47,6 +47,11 @@ public partial class BlockPickerWindow : Window
             ? $"Tile 0x{tiles[0]:X4}" + (current is null ? " has no custom block." : $" runs {current}.")
             : $"{tiles.Count} tiles selected — the block you pick goes on all of them.";
         Refresh(current);
+        if (session.BlocksLockedReason is { } locked)
+        {
+            hint.Text = locked;
+            this.GetControl<Button>("NewBlock").IsEnabled = false;
+        }
     }
 
     /// <summary>Refill the list: none first, then the library, landing on <paramref name="want"/>.</summary>
