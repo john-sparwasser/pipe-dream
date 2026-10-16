@@ -53,7 +53,7 @@ public static class GpsInsert
     {
         if (blocks.Keys.FirstOrDefault(t => t is < 0x200 or >= 0x8000, -1) is var bad and >= 0)
             return Fail($"tile {bad:X3} cannot be a custom block (pages 02-7F only)");
-        if (!gpsFiles.ContainsKey("main.asm")) return Fail("no GPS driver: import a GPS folder for its main.asm");
+        if (!gpsFiles.ContainsKey("main.asm")) return Fail("no block driver (main.asm) in the project");
         if (blocks.FirstOrDefault(kv => !library.ContainsKey(kv.Value)) is { Value: not null } missing)
             return Fail($"tile {missing.Key:X3} runs {missing.Value}, which is not in the block library");
         if (rom.ReadValue(0x06F624, 3) == 0xFFFFFF)
@@ -99,6 +99,15 @@ public static class GpsInsert
         }).ToList();
         return new Result(true, [], r.Warnings, inserted);
     }
+
+    /// <summary>Pipe Dream's own block driver (data/blockdriver: main.asm, defines.asm), as the
+    /// files a project keeps in <see cref="ProjectFile.GpsFiles"/>. No routines: GPS's carry no
+    /// licence, so a block calling one assembles only after a GPS folder is imported.</summary>
+    public static Dictionary<string, string> Driver() => new[] { "main.asm", "defines.asm" }.ToDictionary(n => n, n =>
+    {
+        using var s = typeof(GpsInsert).Assembly.GetManifestResourceStream("blockdriver/" + n)!;
+        return new StreamReader(s).ReadToEnd();
+    });
 
     private static Result Fail(string message) => new(false, [message], [], []);
 

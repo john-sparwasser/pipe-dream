@@ -16,6 +16,10 @@ internal sealed class Config
     /// files with, so the command works before anyone has set anything.</summary>
     public string? EmulatorPath { get; set; }
 
+    /// <summary>Text editor that custom block ASM opens in. Null = whatever the OS opens .asm
+    /// files with.</summary>
+    public string? TextEditorPath { get; set; }
+
     /// <summary>Whether to ask GitHub about newer releases on startup. On by default; the only
     /// thing it sends is the request itself, and a build that never checks is a build that
     /// stays old.</summary>
@@ -129,6 +133,7 @@ internal sealed class Config
             if (VanillaRomPath == was.VanillaRomPath) VanillaRomPath = disk.VanillaRomPath;
             if (RecentProjects.SequenceEqual(was.RecentProjects)) RecentProjects = disk.RecentProjects;
             if (EmulatorPath == was.EmulatorPath) EmulatorPath = disk.EmulatorPath;
+            if (TextEditorPath == was.TextEditorPath) TextEditorPath = disk.TextEditorPath;
             if (CheckForUpdates == was.CheckForUpdates) CheckForUpdates = disk.CheckForUpdates;
             if (SkippedUpdate == was.SkippedUpdate) SkippedUpdate = disk.SkippedUpdate;
             if (LastUpdateCheckUtc == was.LastUpdateCheckUtc) LastUpdateCheckUtc = disk.LastUpdateCheckUtc;

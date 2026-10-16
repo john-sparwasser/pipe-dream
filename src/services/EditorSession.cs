@@ -782,7 +782,11 @@ public sealed partial class EditorSession
     }
 
     /// <summary>Autosave tick — the project debounces its own writes.</summary>
-    public void Tick() => Project?.Tick();
+    public void Tick()
+    {
+        PullExternalEdits();
+        Project?.Tick();
+    }
 }
 
 /// <summary>The choice lists whose text comes out of the ROM. The fields whose meanings are

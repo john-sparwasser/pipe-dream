@@ -318,7 +318,8 @@
         <Separator/>
         <MenuItem x:Name="UpgradePrepItem" Header="Upgrade base prep" Click="OnUpgradePrep"/>
         <MenuItem Header="Set vanilla ROM…" Click="OnSetVanilla"/>
-        <MenuItem Header="Set e_mulator…" Click="OnSetEmulator"/>
+        <MenuItem Header="_Preferences…" Click="OnPreferences"
+                  ToolTip.Tip="The text editor custom blocks open in, and the emulator for Run in emulator (F4)"/>
         <MenuItem Header="ROM _info…" Click="OnRomInfo"/>
         <Separator/>
         <MenuItem Header="E_xit" Click="OnExit"/>

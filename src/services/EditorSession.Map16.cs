@@ -57,6 +57,11 @@ public sealed partial class EditorSession
         return (px, w, h);
     }
 
+    /// <summary>One Map16 tile's 16x16 pixels in the open level's graphics (first phase), or null
+    /// with no level open or no such tile.</summary>
+    public uint[]? Map16TilePixels(int tile)
+        => Scene?.TileCaches[0] is { } c && tile >= 0 && tile < c.Length ? c[tile] : null;
+
     /// <summary>The empty-page tile per phase, for the picker to tile over unallocated pages.</summary>
     public uint[]?[] PlaceholderPhases()
     {

@@ -37,8 +37,8 @@ public sealed partial class EditorSession
 
     // ---- the library ----
 
-    /// <summary>Whether the project has GPS's driver (main.asm), which every block needs: it
-    /// comes from an imported GPS folder, since GPS's files carry no licence we could ship under.</summary>
+    /// <summary>Whether the project has a block driver (main.asm), which every block needs: our
+    /// own, put in with the first block (<see cref="GpsInsert.Driver"/>), or an imported GPS folder's.</summary>
     public bool HasGpsDriver => Project?.Data.GpsFiles.ContainsKey("main.asm") == true;
 
     /// <summary>The library's block names, sorted.</summary>
@@ -69,6 +69,81 @@ public sealed partial class EditorSession
         return AddBlock(Path.GetFileNameWithoutExtension(path), asm, out made);
     }
 
+    // ---- the external editor ----
+
+    /// <summary>The editor's name for the UI ("Code", "notepad++"), null when the OS picks.</summary>
+    public string? TextEditorName => Config.TextEditorPath is { } p ? Path.GetFileNameWithoutExtension(p) : null;
+
+    public string? TextEditorPath => Config.TextEditorPath;
+
+    public void SetTextEditor(string? path)
+    {
+        Config.TextEditorPath = path;
+        SaveConfig();
+    }
+
+    /// <summary>A block open in the external editor: the temp copy it edits, and when that copy
+    /// was last read back.</summary>
+    private sealed record ExternalBlock(Project Project, string Name, string Path, DateTime Read);
+    private readonly Dictionary<string, ExternalBlock> external = new();
+
+    /// <summary>Open a library block in the user's text editor. The block lives in the .pdp, so the
+    /// editor gets a temp copy, and each save there comes back into the library on the next
+    /// <see cref="Tick"/>. Returns the status.</summary>
+    public string OpenBlockExternally(string name)
+    {
+        if (Project is null) return Report2("no project open");
+        if (BlockSource(name) is not { } asm) return Report2($"{name} is not in the library");
+        string? editor = Config.TextEditorPath;
+        if (editor is not null && !File.Exists(editor) && !Directory.Exists(editor))
+            return Report2($"text editor not found at {editor} — File → Preferences");
+        string path = external.TryGetValue(name, out var open) && open.Project == Project ? open.Path
+            : Path.Combine(Directory.CreateTempSubdirectory("pipedream-block-").FullName, name);
+        if (!Guard("write the block for the editor", () => File.WriteAllText(path, asm), path)) return Status;
+        external[name] = new ExternalBlock(Project, name, path, File.GetLastWriteTimeUtc(path));
+        try
+        {
+            System.Diagnostics.Process.Start(editor is null
+                ? new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true }
+                : editor.EndsWith(".app")                              // a macOS bundle runs through open
+                    ? new System.Diagnostics.ProcessStartInfo("open", ["-a", editor, path])
+                    : new System.Diagnostics.ProcessStartInfo(editor, [path]));
+        }
+        catch (Exception e) { return Report2($"could not open {name}: {e.Message}"); }
+        return Report2($"opened {name} in {TextEditorName ?? "the default editor"}; saving there updates the project");
+    }
+
+    /// <summary>Read back every externally open block whose copy was saved since the last look.</summary>
+    // ponytail: a stat per open block per frame; a FileSystemWatcher if anyone opens hundreds
+    private void PullExternalEdits()
+    {
+        foreach (var b in external.Values.ToList())
+        {
+            if (b.Project != Project) { external.Remove(b.Name); continue; }
+            if (!File.Exists(b.Path) || File.GetLastWriteTimeUtc(b.Path) is var t && t == b.Read) continue;
+            external[b.Name] = b with { Read = t };
+            try { SetBlockSource(b.Name, File.ReadAllText(b.Path)); }
+            catch (IOException) { external[b.Name] = b; }                    // mid-save: next tick
+        }
+    }
+
+    // ---- icons ----
+
+    /// <summary>The icons a block can have: vanilla Map16 tiles, drawn in the open level's
+    /// graphics — turn, ?, cement, used, throw, note, on/off, star blocks, the four switch
+    /// blocks, coin, vine, translucent block and donut block.</summary>
+    public static readonly int[] BlockIconTiles =
+        [0x11E, 0x124, 0x130, 0x132, 0x12E, 0x113, 0x112, 0x12D, 0x16A, 0x16B, 0x16C, 0x16D, 0x02B, 0x006, 0x12C, 0x144];
+
+    public int? BlockIcon(string name) => Project?.Data.BlockIcons.TryGetValue(name, out int t) == true ? t : null;
+
+    public void SetBlockIcon(string name, int? tile)
+    {
+        if (Project is null || !Project.Data.BlockLibrary.ContainsKey(name) || BlockIcon(name) == tile) return;
+        if (tile is { } t) Project.Data.BlockIcons[name] = t; else Project.Data.BlockIcons.Remove(name);
+        Project.MarkDirty();
+    }
+
     private string AddBlock(string name, string? asm, out string? made)
     {
         made = null;
@@ -80,6 +155,7 @@ public sealed partial class EditorSession
         if (Project.Data.BlockLibrary.ContainsKey(name + ".asm")) return Report2($"{name}.asm is already in the library");
         made = name + ".asm";
         Project.Data.BlockLibrary[made] = asm ?? BlockTemplate(name);
+        if (!HasGpsDriver) Project.Data.GpsFiles = GpsInsert.Driver();
         Project.MarkDirty();
         return Report2($"added {made} to the library");
     }
@@ -92,6 +168,7 @@ public sealed partial class EditorSession
         int used = Project.Data.Blocks.Values.Count(v => v == name);
         if (used > 0) return Report2($"{name} runs on {used} tile(s) — take it off them first");
         if (!Project.Data.BlockLibrary.Remove(name)) return Report2($"{name} is not in the library");
+        Project.Data.BlockIcons.Remove(name);
         Project.MarkDirty();
         return Report2($"deleted {name}");
     }
@@ -156,7 +233,7 @@ public sealed partial class EditorSession
         ; The header byte picks the contact list: $42 is the ten contacts below; $37 adds
         ; "wall feet" and "wall body" (two more JMPs) for wall-running. One JMP per contact,
         ; in this order; a contact the block ignores lands on RTL.
-        ; Routines from the imported GPS routines/ are called as macros: %erase_block(), %create_smoke(), ...
+        ; Routines are called as macros (%erase_block(), %create_smoke(), ...) once a GPS folder is imported.
         db $42
         JMP MarioBelow : JMP MarioAbove : JMP MarioSide
         JMP SpriteV : JMP SpriteH : JMP MarioCape : JMP MarioFireball

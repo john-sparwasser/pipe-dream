@@ -67,9 +67,9 @@ public sealed partial class EditorSession
         string rom = Path.Combine(Project.Folder, "build", Project.Name + ".smc");
         if (!File.Exists(rom)) return Status;                  // the build already said why
         string? emu = Config.EmulatorPath;
-        if (emu is not null && !File.Exists(emu)) return $"emulator not found at {emu} — File → Set emulator…";
+        if (emu is not null && !File.Exists(emu)) return $"emulator not found at {emu} — File → Preferences";
         if (emu is null && FindMesen() is { } found) { emu = found; SetEmulator(found); }
-        if (emu is null) return "no emulator found — File → Set emulator… (Mesen.exe)";
+        if (emu is null) return "no emulator found — File → Preferences (Mesen.exe)";
         try
         {
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(emu, $"\"{rom}\"") { UseShellExecute = true });

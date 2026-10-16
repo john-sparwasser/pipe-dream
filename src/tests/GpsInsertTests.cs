@@ -127,7 +127,7 @@ public class GpsInsertTests
             Assert.Single(GpsInsert.Insert(rom, GpsFiles(), Library(), new Dictionary<int, string> { [0x1FF] = "above.asm" }).Errors));
         Assert.Equal("tile 201 runs gone.asm, which is not in the block library",
             Assert.Single(GpsInsert.Insert(rom, GpsFiles(), Library(), new Dictionary<int, string> { [0x201] = "gone.asm" }).Errors));
-        Assert.Equal("no GPS driver: import a GPS folder for its main.asm",
+        Assert.Equal("no block driver (main.asm) in the project",
             Assert.Single(GpsInsert.Insert(rom, new Dictionary<string, string>(), Library(), Blocks("200 above.asm\n")).Errors));
 
         // The routine went to freespace once, its slot names it, and only the used one is filled.
@@ -136,6 +136,34 @@ public class GpsInsertTests
         Assert.Equal(0xFFFFFF, rom.ReadValue(0x0CB66F + 3, 3));                     // unused.asm
         int above = gps.Blocks[0x200].Addr, code = rom.ReadValue(above + 5, 2) | above & 0xFF0000;   // JMP #2: Mario above
         Assert.Equal([0x22, (byte)sparkle, (byte)(sparkle >> 8), (byte)(sparkle >> 16)], rom.Data[rom.FileOffset(code)..][..4]);
+    }
+
+    /// <summary>Our own driver, with and without pages 40+: blocks go in, GpsBlocks.Read finds them
+    /// behind its slots, the defines resolve, and a re-insert reclaims the same space.</summary>
+    [AsarFact]
+    public void our_driver_runs_blocks_on_both_page_layouts_and_reinserts_in_place()
+    {
+        var library = new Dictionary<string, string>
+        {
+            ["wall.asm"] = Wall,
+            ["status.asm"] = "db $42\nJMP A : JMP A : JMP A : JMP A : JMP A : JMP A : JMP A : JMP A : JMP A : JMP A\nA:\n\tLDA !sprite_status,x : STA !14C8|!addr\n\tRTL\n",
+        };
+        foreach (bool hi in new[] { false, true })
+        {
+            var rom = LmSaved();
+            if (hi) rom.Data[rom.FileOffset(0x06F63C)] = 0;                    // LM made pages 40+
+            var blocks = hi ? Blocks("2FF wall.asm\n4005 status.asm\n") : Blocks("2FF wall.asm\n300 status.asm\n");
+            var r = GpsInsert.Insert(rom, GpsInsert.Driver(), library, blocks);
+            Assert.True(r.Ok, string.Join("\n", r.Errors));
+            var gps = GpsBlocks.Read(rom)!;
+            Assert.Equal(blocks.Keys.Order(), gps.Blocks.Keys);
+            Assert.Equal(hi, gps.Tables.Pointers2 >= 0);
+            Assert.Equal(["wall feet"], gps.Blocks[0x2FF].HandledContacts);
+            Assert.Equal(0x37, gps.Blocks[0x2FF].Header);
+            int once = Claimed(rom);
+            Assert.True(GpsInsert.Insert(rom, GpsInsert.Driver(), library, blocks).Ok);
+            Assert.Equal(once, Claimed(rom));
+        }
     }
 
     [AsarFact]
@@ -342,6 +370,45 @@ public class GpsInsertTests
         Assert.False(Directory.Exists(Path.Combine(dir, "proj", "gps")));          // nothing beside the .pdp
     }
 
+    /// <summary>A fresh project needs no GPS folder: the first block brings our driver, and it builds.</summary>
+    [AsarFact]
+    public void the_first_block_brings_our_driver_and_the_project_builds()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla)) return;
+        string dir = Directory.CreateTempSubdirectory("pipedream-proj-").FullName;
+        var s = new PipeDream.Services.EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), ReferenceRoms.Vanilla), s.Status);
+        Assert.False(s.HasGpsDriver);
+        s.NewBlock("spin", out _);
+        Assert.True(s.HasGpsDriver);
+        s.AssignBlock(0x201, "spin.asm");
+        s.Build();
+        var e = Assert.Single(s.BlockEntries);
+        Assert.True(e.Built, s.Status);
+    }
+
+    /// <summary>A block opened in the external editor is a temp copy; a save there comes back into
+    /// the library on the session's tick. The "editor" is a script that edits its argument.</summary>
+    [Fact]
+    public void a_block_saved_in_the_external_editor_comes_back_into_the_project()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla) || OperatingSystem.IsWindows()) return;
+        string dir = Directory.CreateTempSubdirectory("pipedream-proj-").FullName;
+        var s = new PipeDream.Services.EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), ReferenceRoms.Vanilla), s.Status);
+        s.NewBlock("spin", out _);
+        string editor = Path.Combine(dir, "ed");
+        File.WriteAllText(editor, "#!/bin/sh\nprintf '; edited\\n' > \"$1\"\n");
+        File.SetUnixFileMode(editor, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        s.SetTextEditor(editor);
+
+        Assert.StartsWith("opened spin.asm in ed;", s.OpenBlockExternally("spin.asm"));
+        var until = DateTime.UtcNow.AddSeconds(10);
+        while (s.BlockSource("spin.asm") != "; edited\n" && DateTime.UtcNow < until) { Thread.Sleep(20); s.Tick(); }
+        Assert.Equal("; edited\n", s.BlockSource("spin.asm"));
+        Assert.Equal("nope.asm is not in the library", s.OpenBlockExternally("nope.asm"));
+    }
+
     /// <summary>The picker leads with "none", marks the tile's current block, and names the tiles.</summary>
     [Avalonia.Headless.XUnit.AvaloniaFact]
     public void the_block_picker_lists_none_first_and_marks_the_current_block()
@@ -355,14 +422,166 @@ public class GpsInsertTests
         Assert.Null(w.Picked);                                                     // cancelled until Use
     }
 
+    /// <summary>Selecting a library block arms Remove and Edit; the editor's Save writes the ASM
+    /// back and Cancel drops it.</summary>
+    [Avalonia.Headless.XUnit.AvaloniaFact]
+    public void the_blocks_window_lists_the_library_and_edits_the_selected_block()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla)) return;
+        string dir = Directory.CreateTempSubdirectory("pipedream-proj-").FullName;
+        var s = new PipeDream.Services.EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), ReferenceRoms.Vanilla), s.Status);
+        s.NewBlock("spin", out _);
+        s.AssignBlock(0x201, "spin.asm");
+        s.NewBlock("lib", out _);
+
+        var w = new PipeDream.Ui.BlocksWindow(s);
+        var library = w.GetControl<ListBox>("Library");
+        var rows = ((System.Collections.IEnumerable)library.ItemsSource!).Cast<PipeDream.Ui.BlocksWindow.LibraryRow>().ToList();
+        Assert.Equal([new("lib.asm", "unused"), new("spin.asm", "on 1 tile")], rows);
+        Assert.False(w.GetControl<Button>("EditButton").IsEnabled);
+        library.SelectedItem = rows[1];
+        Assert.True(w.GetControl<Button>("EditButton").IsEnabled);
+        Assert.True(w.GetControl<Button>("RemoveButton").IsEnabled);
+
+        var edit = new PipeDream.Ui.BlockEditWindow(s, "spin.asm");
+        Assert.Equal("spin.asm", edit.Title);
+        var editor = edit.GetControl<AvaloniaEdit.TextEditor>("Editor");
+        Assert.True(editor.ShowLineNumbers);
+        Assert.Equal("Asar", editor.SyntaxHighlighting?.Name);
+        Assert.Equal("JetBrains Mono", editor.FontFamily.FamilyNames[0]);
+        edit.GetControl<AvaloniaEdit.TextEditor>("Editor").Text = "; cancelled";
+        edit.Close();                                                               // closing is a cancel
+        Assert.NotEqual("; cancelled", s.BlockSource("spin.asm"));
+        edit = new PipeDream.Ui.BlockEditWindow(s, "spin.asm");
+        edit.GetControl<AvaloniaEdit.TextEditor>("Editor").Text = "; saved";
+        edit.GetControl<Button>("Save").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Assert.Equal("; saved", s.BlockSource("spin.asm"));
+    }
+
+    /// <summary>New block: the icons are vanilla tiles drawn in the level's graphics; Okay adds the
+    /// template under the name with the picked icon, a bad name stays open with the reason, and
+    /// Cancel adds nothing.</summary>
+    [Avalonia.Headless.XUnit.AvaloniaFact]
+    public void the_new_block_modal_names_the_block_and_picks_its_icon()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla)) return;
+        string dir = Directory.CreateTempSubdirectory("pipedream-proj-").FullName;
+        var s = new PipeDream.Services.EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), ReferenceRoms.Vanilla), s.Status);
+        s.ShowLevel(0x105);
+        var okay = new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent);
+
+        var w = new PipeDream.Ui.NewBlockWindow(s);
+        var icons = w.GetControl<ListBox>("Icons");
+        var rows = ((System.Collections.IEnumerable)icons.ItemsSource!).Cast<PipeDream.Ui.NewBlockWindow.IconRow>().ToList();
+        Assert.Equal(PipeDream.Services.EditorSession.BlockIconTiles, rows.Select(r => r.Tile));
+        Assert.All(rows, r => Assert.NotNull(r.Image));
+        w.GetControl<Button>("Okay").RaiseEvent(okay);
+        Assert.Equal("a block name is letters, digits, _ and -", w.GetControl<TextBlock>("Hint").Text);
+        Assert.Null(w.Made);
+        w.GetControl<TextBox>("BlockName").Text = "spin";
+        icons.SelectedItem = rows[2];
+        w.GetControl<Button>("Okay").RaiseEvent(okay);
+        Assert.Equal("spin.asm", w.Made);
+        Assert.Equal(0x130, s.BlockIcon("spin.asm"));
+        Assert.Contains("db $42", s.BlockSource("spin.asm"));                     // the boilerplate Edit opens
+
+        var cancelled = new PipeDream.Ui.NewBlockWindow(s);
+        cancelled.GetControl<TextBox>("BlockName").Text = "other";
+        cancelled.Close();
+        Assert.Equal(["spin.asm"], s.BlockNames);
+        Assert.Equal("deleted spin.asm", s.DeleteBlock("spin.asm"));
+        Assert.Null(s.BlockIcon("spin.asm"));
+    }
+
+    /// <summary>The block editor's colours pick out each kind of token in a block.</summary>
+    [Avalonia.Headless.XUnit.AvaloniaFact]
+    public void asar_highlighting_colours_comments_labels_defines_macros_opcodes_and_numbers()
+    {
+        var doc = new AvaloniaEdit.Document.TextDocument("Above: LDA !sprite_status,x : %glitter() ; hi\n.sub db $42, %0101, 3\n");
+        var h = new AvaloniaEdit.Highlighting.DocumentHighlighter(doc, PipeDream.Ui.BlockEditWindow.Highlighting);
+        string? ColourAt(int line, string token)
+        {
+            var l = doc.GetLineByNumber(line);
+            int at = l.Offset + doc.GetText(l).IndexOf(token);
+            return h.HighlightLine(line).Sections.LastOrDefault(x => x.Offset <= at && at < x.Offset + x.Length)?.Color.Name;
+        }
+        Assert.Equal("Label", ColourAt(1, "Above:"));
+        Assert.Equal("Opcode", ColourAt(1, "LDA"));
+        Assert.Equal("Define", ColourAt(1, "!sprite_status"));
+        Assert.Equal("Macro", ColourAt(1, "%glitter"));
+        Assert.Equal("Comment", ColourAt(1, "; hi"));
+        Assert.Equal("Label", ColourAt(2, ".sub"));
+        Assert.Equal("Directive", ColourAt(2, "db"));
+        Assert.Equal("Number", ColourAt(2, "$42"));
+        Assert.Equal("Number", ColourAt(2, "%0101"));
+    }
+
+    /// <summary>The linter is quiet on good code — the template, our driver, the test blocks — and
+    /// names each kind of typo where it is.</summary>
+    [Fact]
+    public void the_linter_passes_good_asm_and_points_at_typos()
+    {
+        foreach (string good in GpsInsert.Driver().Values.Concat([MainAsm, Above, Wall, PipeDream.Services.EditorSession.BlockTemplate("x")]))
+            Assert.Empty(AsmLint.Check(good));
+        Assert.Empty(AsmLint.Check("?loop LDA $00 : BNE ?loop\n?+ RTL\nprint \"costs $ : 5\"\n!x #= 5%2\nmacro m(a)\n\tLDA <a>\nendmacro\n"));
+
+        string bad = "LDQ #1\nRTL #2\nLDA\nLDA.q #0\nLDA $G0 : ORA %102\nJML [$0000\nprint \"oops\n";
+        string At(AsmIssue i) => bad.Substring(i.Offset, i.Length) + " — " + i.Message;
+        Assert.Equal(
+        [
+            "LDQ — unknown instruction LDQ",
+            "#2 — RTL takes no operand",
+            "LDA — LDA needs an operand",
+            ".q — .q is not a size: .b, .w or .l",
+            "$G0 — not a hex number",
+            "%102 — not a binary number",
+            "[$0000 — this [ is never closed",
+            "\"oops — this quote is never closed",
+        ], AsmLint.Check(bad).Select(At));
+    }
+
+    /// <summary>The editor squiggles what the linter finds and counts it, re-checked as you type.</summary>
+    [Avalonia.Headless.XUnit.AvaloniaFact]
+    public void the_block_editor_counts_problems_as_you_type()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla)) return;
+        string dir = Directory.CreateTempSubdirectory("pipedream-proj-").FullName;
+        var s = new PipeDream.Services.EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), ReferenceRoms.Vanilla), s.Status);
+        s.NewBlock("spin", out _);
+        var w = new PipeDream.Ui.BlockEditWindow(s, "spin.asm");
+        var problems = w.GetControl<TextBlock>("Problems");
+        Assert.Equal("", problems.Text);                                          // the template is clean
+        w.GetControl<AvaloniaEdit.TextEditor>("Editor").Text = "LDQ #1\nRTS #2\n";
+        Assert.Equal("2 problems", problems.Text);
+        Assert.Equal("line 1: unknown instruction LDQ\nline 2: RTS takes no operand", ToolTip.GetTip(problems));
+        Assert.Equal(2, w.Lint.Issues.Count);
+    }
+
+    /// <summary>Preferences shows each program, or what happens while it is unset.</summary>
+    [Avalonia.Headless.XUnit.AvaloniaFact]
+    public void preferences_show_the_editor_and_emulator_or_their_defaults()
+    {
+        var s = new PipeDream.Services.EditorSession();
+        s.SetTextEditor("/usr/bin/vim");
+        s.SetEmulator(null);
+        var w = new PipeDream.Ui.PreferencesWindow(s);
+        Assert.Equal("/usr/bin/vim", w.GetControl<TextBox>("EditorPath").Text);
+        Assert.Equal("Mesen, found automatically", w.GetControl<TextBox>("EmulatorPath").Text);
+        s.SetTextEditor(null);
+    }
+
     /// <summary>The window loads and reads an empty session without a project.</summary>
     [Avalonia.Headless.XUnit.AvaloniaFact]
     public void the_blocks_window_opens_on_a_session_without_a_project()
     {
         var w = new PipeDream.Ui.BlocksWindow(new PipeDream.Services.EditorSession());
-        Assert.Empty((System.Collections.IEnumerable)w.GetControl<ListBox>("Blocks").ItemsSource!);
         Assert.Empty((System.Collections.IEnumerable)w.GetControl<ListBox>("Library").ItemsSource!);
         Assert.Contains("no blocks yet", w.GetControl<TextBlock>("Hint").Text);
+        Assert.False(w.GetControl<Button>("RemoveButton").IsEnabled);              // nothing selected
+        Assert.False(w.GetControl<Button>("EditButton").IsEnabled);
     }
 
     [Fact]

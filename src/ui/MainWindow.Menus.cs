@@ -195,12 +195,10 @@ public partial class MainWindow
         session.SetVanillaRom(p);
     }
 
-    private async void OnSetEmulator(object? sender, RoutedEventArgs e)
+    private async void OnPreferences(object? sender, RoutedEventArgs e)
     {
-        var exe = new FilePickerFileType("Emulator") { Patterns = OperatingSystem.IsWindows() ? ["*.exe"] : ["*"] };
-        if (await PickFile("Choose the emulator for Run in emulator (F4)", exe) is not { } p) return;
-        session.SetEmulator(p);
-        RefreshFileMenu();
+        await new PreferencesWindow(session).ShowDialog(this);
+        RefreshFileMenu();                       // Run in emulator names the emulator
     }
 
     /// <summary>Dev only: build, then hand the result to Lunar Magic — the check that a base
@@ -238,9 +236,8 @@ public partial class MainWindow
         await ConfirmWindow.Notice("Import GPS folder", session.ImportGps(folder)).ShowDialog(this);
     }
 
-    /// <summary>ASM ▸ Custom blocks: the project's block library and which tile runs which block,
-    /// with what the last build found each handling. The one piece of the GPS work in shipped
-    /// UI; the import that feeds it stays in Debug (reference/GPS_PORT.md "Open questions" on
+    /// <summary>ASM ▸ Custom blocks: the project's block library — import, edit and remove blocks.
+    /// The one piece of the GPS work in shipped UI; the import that feeds it stays in Debug (reference/GPS_PORT.md "Open questions" on
     /// Asar's licence).</summary>
     private async void OnBlocks(object? sender, RoutedEventArgs e)
     {

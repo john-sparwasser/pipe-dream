@@ -11,7 +11,7 @@ namespace PipeDream.Ui;
 /// Pick the custom block for the selected Map16 tile(s): the project's block library, with "none"
 /// at the top to take a block away. Opened from the Custom button beside the acts-as field; the
 /// caller assigns what <see cref="Picked"/> says. New block adds the template and selects it,
-/// so a tile can get a fresh block without a trip to the Blocks window (where it is edited).
+/// so a tile can get a fresh block without a trip to the Blocks window (where Edit opens it).
 /// </summary>
 public partial class BlockPickerWindow : Window
 {
@@ -47,7 +47,6 @@ public partial class BlockPickerWindow : Window
             ? $"Tile 0x{tiles[0]:X4}" + (current is null ? " has no custom block." : $" runs {current}.")
             : $"{tiles.Count} tiles selected — the block you pick goes on all of them.";
         Refresh(current);
-        if (!session.HasGpsDriver) hint.Text = "no GPS driver yet — Debug ▸ Import GPS folder… brings main.asm, routines and blocks in";
     }
 
     /// <summary>Refill the list: none first, then the library, landing on <paramref name="want"/>.</summary>

@@ -252,3 +252,7 @@ No timelines, and these land one at a time.
 
 MIT — see [LICENSE](LICENSE). Not affiliated with Nintendo; Super Mario World is a trademark
 of Nintendo.
+
+The block editor's font, [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono), ships
+inside the app under the SIL Open Font License 1.1 ([assets/fonts/JetBrainsMono-OFL.txt](assets/fonts/JetBrainsMono-OFL.txt)).
+The editor itself is [AvaloniaEdit](https://github.com/AvaloniaUI/AvaloniaEdit) (MIT).

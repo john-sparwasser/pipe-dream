@@ -52,8 +52,12 @@ public sealed class ProjectFile
     /// here and is not inserted.</summary>
     public Dictionary<string, string> BlockLibrary { get; set; } = new();
 
-    /// <summary>What the blocks assemble with: GPS's driver and shared routines as imported
-    /// from a GPS folder — path ("main.asm", "defines.asm", "routines/x.asm") → source.</summary>
+    /// <summary>Each library block's icon in the Blocks window: name → a vanilla Map16 tile drawn
+    /// as a placeholder (ponytail: until there is art of our own). A block without one has none.</summary>
+    public Dictionary<string, int> BlockIcons { get; set; } = new();
+
+    /// <summary>What the blocks assemble with: our driver (GpsInsert.Driver) or GPS's driver and
+    /// shared routines as imported from a GPS folder — path ("main.asm", "defines.asm", "routines/x.asm") → source.</summary>
     public Dictionary<string, string> GpsFiles { get; set; } = new();
 
     /// <summary>LM ExAnimation (reference/EXANIMATION.md): the encoded record per level (key =

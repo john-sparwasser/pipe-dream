@@ -1,0 +1,59 @@
+<?xml version="1.0"?>
+<!-- Syntax colours for block ASM (Asar's dialect of 65816) in the built-in block editor
+     (BlockEditWindow), on the dark theme. Rules run in order, first match wins. -->
+<SyntaxDefinition name="Asar" xmlns="http://icsharpcode.net/sharpdevelop/syntaxdefinition/2008">
+  <Color name="Comment"   foreground="#6A9955"/>
+  <Color name="String"    foreground="#CE9178"/>
+  <Color name="Label"     foreground="#4EC9B0"/>
+  <Color name="Define"    foreground="#4FC1FF"/>
+  <Color name="Macro"     foreground="#F78C6C"/>
+  <Color name="Opcode"    foreground="#569CD6" fontWeight="bold"/>
+  <Color name="Directive" foreground="#C586C0"/>
+  <Color name="Number"    foreground="#E5C07B"/>
+
+  <RuleSet ignoreCase="true">
+    <Span color="Comment" begin=";"/>
+    <Span color="String" begin="&quot;" end="&quot;"/>
+    <Span color="String" begin="'" end="'"/>
+
+    <!-- A label: "name:" or a sublabel ".name" opening a line, or a ?local -->
+    <Rule color="Label">^\s*[A-Za-z_?][\w.]*:|^\s*\.+[A-Za-z_]\w*|\?[A-Za-z_]\w*</Rule>
+    <Rule color="Define">!\w+</Rule>
+    <Rule color="Macro">%[A-Za-z_]\w*</Rule>
+    <Rule color="Number">\$[0-9A-Fa-f]+|%[01]+\b|\b\d+\b</Rule>
+
+    <Keywords color="Opcode">
+      <Word>ADC</Word><Word>AND</Word><Word>ASL</Word><Word>BCC</Word><Word>BCS</Word><Word>BEQ</Word>
+      <Word>BIT</Word><Word>BMI</Word><Word>BNE</Word><Word>BPL</Word><Word>BRA</Word><Word>BRK</Word>
+      <Word>BRL</Word><Word>BVC</Word><Word>BVS</Word><Word>CLC</Word><Word>CLD</Word><Word>CLI</Word>
+      <Word>CLV</Word><Word>CMP</Word><Word>COP</Word><Word>CPX</Word><Word>CPY</Word><Word>DEC</Word>
+      <Word>DEX</Word><Word>DEY</Word><Word>EOR</Word><Word>INC</Word><Word>INX</Word><Word>INY</Word>
+      <Word>JML</Word><Word>JMP</Word><Word>JSL</Word><Word>JSR</Word><Word>LDA</Word><Word>LDX</Word>
+      <Word>LDY</Word><Word>LSR</Word><Word>MVN</Word><Word>MVP</Word><Word>NOP</Word><Word>ORA</Word>
+      <Word>PEA</Word><Word>PEI</Word><Word>PER</Word><Word>PHA</Word><Word>PHB</Word><Word>PHD</Word>
+      <Word>PHK</Word><Word>PHP</Word><Word>PHX</Word><Word>PHY</Word><Word>PLA</Word><Word>PLB</Word>
+      <Word>PLD</Word><Word>PLP</Word><Word>PLX</Word><Word>PLY</Word><Word>REP</Word><Word>ROL</Word>
+      <Word>ROR</Word><Word>RTI</Word><Word>RTL</Word><Word>RTS</Word><Word>SBC</Word><Word>SEC</Word>
+      <Word>SED</Word><Word>SEI</Word><Word>SEP</Word><Word>STA</Word><Word>STP</Word><Word>STX</Word>
+      <Word>STY</Word><Word>STZ</Word><Word>TAX</Word><Word>TAY</Word><Word>TCD</Word><Word>TCS</Word>
+      <Word>TDC</Word><Word>TRB</Word><Word>TSB</Word><Word>TSC</Word><Word>TSX</Word><Word>TXA</Word>
+      <Word>TXS</Word><Word>TXY</Word><Word>TYA</Word><Word>TYX</Word><Word>WAI</Word><Word>WDM</Word>
+      <Word>XBA</Word><Word>XCE</Word>
+    </Keywords>
+
+    <Keywords color="Directive">
+      <Word>org</Word><Word>base</Word><Word>freecode</Word><Word>freedata</Word><Word>freespace</Word>
+      <Word>autoclean</Word><Word>prot</Word><Word>cleaned</Word><Word>align</Word><Word>incsrc</Word>
+      <Word>incbin</Word><Word>includeonce</Word><Word>db</Word><Word>dw</Word><Word>dl</Word><Word>dd</Word>
+      <Word>fill</Word><Word>fillbyte</Word><Word>pad</Word><Word>padbyte</Word><Word>skip</Word>
+      <Word>warnpc</Word><Word>macro</Word><Word>endmacro</Word><Word>if</Word><Word>elseif</Word>
+      <Word>else</Word><Word>endif</Word><Word>while</Word><Word>endwhile</Word><Word>for</Word>
+      <Word>endfor</Word><Word>print</Word><Word>error</Word><Word>warn</Word><Word>assert</Word>
+      <Word>namespace</Word><Word>pushpc</Word><Word>pullpc</Word><Word>pushbase</Word><Word>pullbase</Word>
+      <Word>lorom</Word><Word>hirom</Word><Word>exlorom</Word><Word>exhirom</Word><Word>sa1rom</Word>
+      <Word>fullsa1rom</Word><Word>norom</Word><Word>arch</Word><Word>math</Word><Word>check</Word>
+      <Word>bank</Word><Word>function</Word><Word>struct</Word><Word>endstruct</Word><Word>global</Word>
+      <Word>undef</Word><Word>table</Word><Word>cleartable</Word><Word>rep</Word>
+    </Keywords>
+  </RuleSet>
+</SyntaxDefinition>

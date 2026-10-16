@@ -1,0 +1,24 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PipeDream.Ui.PreferencesWindow"
+        Title="Preferences" Width="560" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+  <!-- Each choice is saved as it is made; Default goes back to what the app does unset. -->
+  <StackPanel Margin="16" Spacing="12">
+    <Grid ColumnDefinitions="110,*,Auto,Auto" RowDefinitions="Auto,8,Auto" >
+      <TextBlock Grid.Row="0" Text="Text editor" VerticalAlignment="Center"/>
+      <TextBox x:Name="EditorPath" Grid.Row="0" Grid.Column="1" IsReadOnly="True" Margin="0,0,8,0"/>
+      <Button Grid.Row="0" Grid.Column="2" Content="Browse…" Click="OnBrowseEditor" Margin="0,0,8,0"/>
+      <Button Grid.Row="0" Grid.Column="3" Content="Default" Click="OnDefaultEditor"
+              ToolTip.Tip="Open blocks in whatever the OS opens .asm files with"/>
+
+      <TextBlock Grid.Row="2" Text="Emulator" VerticalAlignment="Center"/>
+      <TextBox x:Name="EmulatorPath" Grid.Row="2" Grid.Column="1" IsReadOnly="True" Margin="0,0,8,0"/>
+      <Button Grid.Row="2" Grid.Column="2" Content="Browse…" Click="OnBrowseEmulator" Margin="0,0,8,0"/>
+      <Button Grid.Row="2" Grid.Column="3" Content="Default" Click="OnDefaultEmulator"
+              ToolTip.Tip="Run in emulator (F4) looks for Mesen in the usual places"/>
+    </Grid>
+    <Button Content="Close" Click="OnClose" IsCancel="True" HorizontalAlignment="Right"/>
+  </StackPanel>
+</Window>

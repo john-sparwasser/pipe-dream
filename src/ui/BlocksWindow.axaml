@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="PipeDream.Ui.BlocksWindow"
-        Title="Custom blocks" Width="900" Height="680"
+        Title="Custom blocks" Width="560" Height="520"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
 
@@ -16,13 +16,6 @@
       <Setter Property="FontSize" Value="12"/>
       <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
-    <Style Selector="TextBox.code">
-      <Setter Property="FontFamily" Value="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"/>
-      <Setter Property="FontSize" Value="12"/>
-      <Setter Property="AcceptsReturn" Value="True"/>
-      <Setter Property="AcceptsTab" Value="True"/>
-      <Setter Property="TextWrapping" Value="NoWrap"/>
-    </Style>
     <Style Selector="TextBlock.note">
       <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
       <Setter Property="FontSize" Value="11"/>
@@ -31,69 +24,34 @@
   </Window.Styles>
 
   <DockPanel Margin="14">
-    <TextBlock DockPanel.Dock="Top" Classes="dim" TextWrapping="Wrap"
-               Text="The library is the project's blocks, kept in project.pdp; a tile runs one of them, and many tiles can run the same one. The build inserts only the blocks a tile runs, with the imported GPS driver. Acts-like is the tile's, set in the Map16 editor; contacts are what the last build found the block handling."/>
+    <!-- Header bar: New and Import always; Remove, Edit and Open act on the selected block. -->
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8">
+      <Button Content="New…" Click="OnNew" ToolTip.Tip="Adds a block from the template, with a name and an icon"/>
+      <Button Content="Import…" Click="OnImport" ToolTip.Tip="Adds .asm files from disk to the library"/>
+      <Button x:Name="RemoveButton" Content="Remove" Click="OnRemove" IsEnabled="False"/>
+      <Button x:Name="EditButton" Content="Edit" Click="OnEdit" IsEnabled="False"/>
+      <Button x:Name="OpenButton" Click="OnOpen" IsEnabled="False"
+              ToolTip.Tip="Open the block in your text editor (File ▸ Preferences); saving there updates the project"/>
+    </StackPanel>
 
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right"
                 Spacing="8" Margin="0,12,0,0">
-      <TextBlock x:Name="Hint" Classes="dim" TextWrapping="Wrap" MaxWidth="520"/>
-      <Button Content="Build" Click="OnBuild" ToolTip.Tip="Build the ROM; an assembler error shows here as file:line: message"/>
+      <TextBlock x:Name="Hint" Classes="dim" TextWrapping="Wrap" MaxWidth="440"/>
       <Button Content="Close" Click="OnClose" IsCancel="True"/>
     </StackPanel>
 
-    <Grid ColumnDefinitions="240,12,*" RowDefinitions="*,12,Auto,200" Margin="0,10,0,0">
-      <!-- The library: every block the project has, used or not. -->
-      <DockPanel Grid.Column="0" Grid.Row="0">
-        <TextBlock DockPanel.Dock="Top" Classes="dim" Text="Library"/>
-        <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,6,0,0">
-          <StackPanel Orientation="Horizontal" Spacing="6">
-            <TextBox x:Name="NewName" Width="150" Watermark="new block name"/>
-            <Button Content="New" Click="OnNew" ToolTip.Tip="Adds a block from a template that does nothing on any contact"/>
+    <ListBox x:Name="Library" Margin="0,10,0,0" SelectionChanged="OnSelect" DoubleTapped="OnEdit">
+      <ListBox.ItemTemplate>
+        <DataTemplate>
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Panel Width="16" Height="16">
+              <Image Source="{Binding Icon}" RenderOptions.BitmapInterpolationMode="None"/>
+            </Panel>
+            <TextBlock Text="{Binding Name}" Classes="mono"/>
+            <TextBlock Text="{Binding Note}" Classes="note"/>
           </StackPanel>
-          <StackPanel Orientation="Horizontal" Spacing="6">
-            <Button Content="Import .asm…" Click="OnImportFile" ToolTip.Tip="Adds an .asm file from disk to the library"/>
-            <Button x:Name="DeleteButton" Content="Delete" Click="OnDelete"/>
-          </StackPanel>
-        </StackPanel>
-        <ListBox x:Name="Library" Background="Transparent" BorderThickness="0" SelectionChanged="OnLibrarySelect">
-          <ListBox.ItemTemplate>
-            <DataTemplate>
-              <StackPanel Orientation="Horizontal" Spacing="8">
-                <TextBlock Text="{Binding Name}" Classes="mono"/>
-                <TextBlock Text="{Binding Note}" Classes="note"/>
-              </StackPanel>
-            </DataTemplate>
-          </ListBox.ItemTemplate>
-        </ListBox>
-      </DockPanel>
-
-      <!-- The selected block's ASM. Edits go into the project when another block is picked, on
-           Build, and on Close. -->
-      <DockPanel Grid.Column="2" Grid.Row="0">
-        <TextBlock x:Name="EditorTitle" DockPanel.Dock="Top" Classes="dim" Text="no block selected"/>
-        <TextBox x:Name="Editor" Classes="code" IsEnabled="False"/>
-      </DockPanel>
-
-      <!-- Which tile runs what. -->
-      <StackPanel Grid.Column="0" Grid.ColumnSpan="3" Grid.Row="2" Orientation="Horizontal" Spacing="8">
-        <TextBlock Classes="dim" Text="tile"/>
-        <TextBox x:Name="TileBox" Width="64" Watermark="200"/>
-        <Button Content="Run the selected block" Click="OnAssign"/>
-        <Button x:Name="RemoveButton" Content="Take block off tile" Click="OnRemove"/>
-      </StackPanel>
-      <ListBox x:Name="Blocks" Grid.Column="0" Grid.ColumnSpan="3" Grid.Row="3" Margin="0,6,0,0"
-               Background="Transparent" BorderThickness="0" SelectionChanged="OnSelect">
-        <ListBox.ItemTemplate>
-          <DataTemplate>
-            <StackPanel Orientation="Horizontal" Spacing="12">
-              <TextBlock Text="{Binding Slot}" Classes="mono" Width="48"/>
-              <TextBlock Text="{Binding File}" Width="200" VerticalAlignment="Center"/>
-              <TextBlock Text="{Binding Acts}" Classes="mono" Width="80"/>
-              <TextBlock Text="{Binding Note}" Classes="note"/>
-            </StackPanel>
-          </DataTemplate>
-        </ListBox.ItemTemplate>
-      </ListBox>
-    </Grid>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
   </DockPanel>
 </Window>

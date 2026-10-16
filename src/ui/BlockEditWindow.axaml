@@ -1,0 +1,25 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ae="using:AvaloniaEdit"
+        x:Class="PipeDream.Ui.BlockEditWindow"
+        Width="760" Height="620"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+  <DockPanel Margin="14">
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right"
+                Spacing="8" Margin="0,12,0,0">
+      <TextBlock x:Name="Problems" VerticalAlignment="Center" Margin="0,0,8,0" FontSize="12"
+                 Foreground="#F14C4C"/>
+      <Button Content="Cancel" Click="OnCancel" IsCancel="True"/>
+      <Button x:Name="Save" Content="Save" Click="OnSave"/>
+    </StackPanel>
+    <!-- JetBrains Mono ships with the app (assets/fonts, OFL), so the code reads the same on
+         every platform; colours are ui/Asar.xshd. -->
+    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4">
+      <ae:TextEditor x:Name="Editor" ShowLineNumbers="True" WordWrap="False"
+                     FontFamily="avares://PipeDream/assets/fonts#JetBrains Mono, Cascadia Mono, Consolas, Menlo, monospace" FontSize="13"
+                     Foreground="#D4D4D4" LineNumbersForeground="#6E7681" Padding="4"
+                     HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"/>
+    </Border>
+  </DockPanel>
+</Window>

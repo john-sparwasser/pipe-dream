@@ -13,6 +13,7 @@
   </Application.Resources>
   <Application.Styles>
     <FluentTheme />
+    <StyleInclude Source="avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml"/>
     <!-- Mode toggles: a row of ToggleButtons acting as radio buttons (the main toolbar's
          level/map16/gfx switch, the GFX browser's view switch). App-wide because more than
          one window draws them, and two copies of a style drift. -->

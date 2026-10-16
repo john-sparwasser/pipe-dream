@@ -81,7 +81,7 @@ our canvas and gesture layer (`Gestures.cs`, `Overlay.cs`) and are not listed it
 | Insert/extract **bypass** files (`file_*_bypass`) | missing | |
 | Expand ROM (`file_expand_rom`) | partial | `RomBuilder`/prep expand as needed; no user-facing command |
 | Restore system (`file_restore*`, IPS) | n/a | LM's `sysLMRestore`; we have BPS export + project history |
-| Run/setup emulator (`file_emulator_*`, `file_simulator_*`) | done | `Run in emulator`, `Set emulator…` |
+| Run/setup emulator (`file_emulator_*`, `file_simulator_*`) | done | `Run in emulator`, emulator in `Preferences…` |
 | **Export bitmap / directory bitmap** | **missing** | screenshot export |
 | Analyze levels, scan ROM, clear level area | missing | utilities over data we already parse |
 
