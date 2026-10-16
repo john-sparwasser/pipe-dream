@@ -189,9 +189,12 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
   layout from GPS's documented format, not its `template.asm` — and opens it with the OS's .asm
   association; it needs the imported driver (gps/main.asm), which we cannot ship. Build is the
   ordinary build, so an Asar error lands in the hint as `file:line: message`. The Map16 readout
-  names the assigned block for the hovered tile. Not yet: assigning from the Map16 canvas
-  itself, a description column (the block's first `print`, which `GpsInsert.Result` already
-  carries but the session does not keep), and anything outside `--dev`.
+  names the assigned block for the hovered tile, and the Map16 header's **Custom** button, beside
+  the acts-as field, opens `ui/BlockPickerWindow` — "none" first, then gps/blocks/, the tile's
+  current block marked, New block available there too — and assigns the pick to every selected
+  tile of pages 02-7F; the selection label then reads `Tile 0x0200 · solid.asm`. Not yet: a
+  description column (the block's first `print`, which `GpsInsert.Result` already carries but the
+  session does not keep), and anything outside `--dev`.
 
 ### 6. ROMs that already carry GPS blocks
 - A base ROM inserted with `gps.exe` before it came to Pipe Dream: phase 1 reads it; phase 3

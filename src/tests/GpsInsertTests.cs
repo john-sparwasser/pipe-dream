@@ -285,6 +285,19 @@ public class GpsInsertTests
         Assert.True(File.Exists(Path.Combine(dir, "proj", "gps", "blocks", "spin.asm")));   // the file stays
     }
 
+    /// <summary>The picker leads with "none", marks the tile's current block, and names the tiles.</summary>
+    [Avalonia.Headless.XUnit.AvaloniaFact]
+    public void the_block_picker_lists_none_first_and_marks_the_current_block()
+    {
+        var w = new PipeDream.Ui.BlockPickerWindow(new PipeDream.Services.EditorSession(), [0x200, 0x201], null);
+        var rows = ((System.Collections.IEnumerable)w.GetControl<ListBox>("List").ItemsSource!).Cast<PipeDream.Ui.BlockPickerWindow.Row>().ToList();
+        Assert.Equal("(none)", Assert.Single(rows).Name);
+        Assert.Null(rows[0].File);
+        Assert.Equal(PipeDream.Ui.UiColors.Selection, rows[0].Highlight);                     // none IS the current block
+        Assert.Contains("2 tiles selected", w.GetControl<TextBlock>("Subject").Text);
+        Assert.Null(w.Picked);                                                     // cancelled until Use
+    }
+
     /// <summary>The window loads and reads an empty session without a project.</summary>
     [Avalonia.Headless.XUnit.AvaloniaFact]
     public void the_blocks_window_opens_on_a_session_without_a_project()

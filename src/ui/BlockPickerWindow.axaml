@@ -1,0 +1,52 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PipeDream.Ui.BlockPickerWindow"
+        Title="Custom block" Width="520" Height="480"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+
+  <Window.Styles>
+    <Style Selector="TextBlock.dim">
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+    <Style Selector="TextBlock.mono">
+      <Setter Property="FontFamily" Value="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+  </Window.Styles>
+
+  <DockPanel Margin="14">
+    <StackPanel DockPanel.Dock="Top" Spacing="8">
+      <TextBlock x:Name="Subject" Classes="dim" TextWrapping="Wrap"/>
+      <TextBlock Classes="dim" TextWrapping="Wrap"
+                 Text="The block's code runs on the tile's contacts; what the tile does otherwise is still its acts-like. The files are the project's gps/blocks/."/>
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <TextBox x:Name="NewName" Width="190" Watermark="new block name"/>
+        <Button Content="New block" Click="OnNew"
+                ToolTip.Tip="Writes gps/blocks/&lt;name&gt;.asm from a template that does nothing on any contact, opens it, and selects it here"/>
+      </StackPanel>
+    </StackPanel>
+
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right"
+                Spacing="8" Margin="0,12,0,0">
+      <TextBlock x:Name="Hint" Classes="dim" TextWrapping="Wrap" MaxWidth="220"/>
+      <Button Content="Open .asm" Click="OnOpenFile"/>
+      <Button Content="Cancel" Click="OnCancel" IsCancel="True"/>
+      <Button Content="Use" Click="OnUse" IsDefault="True"/>
+    </StackPanel>
+
+    <ListBox x:Name="List" Margin="0,10" Background="Transparent" BorderThickness="0" DoubleTapped="OnUse">
+      <ListBox.ItemTemplate>
+        <DataTemplate>
+          <StackPanel Orientation="Horizontal" Spacing="10">
+            <TextBlock Text="{Binding Name}" Classes="mono" Foreground="{Binding Highlight}"/>
+            <TextBlock Text="{Binding Note}" Classes="dim"/>
+          </StackPanel>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+  </DockPanel>
+</Window>

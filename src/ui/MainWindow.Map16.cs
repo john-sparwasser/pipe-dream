@@ -35,6 +35,7 @@ public partial class MainWindow
     private TextBlock m16SelLabel = null!, m16ActsNote = null!, m16Unallocated = null!;
     private StackPanel m16Fields = null!;
     private TextBox m16Acts = null!;
+    private Button m16Custom = null!;
     /// <summary>The tiles the acts-as field currently shows — what a commit writes to.</summary>
     private int[] m16ActsFor = [];
     private Border m16ActsTip = null!;
@@ -110,6 +111,7 @@ public partial class MainWindow
         map16Canvas.PointerMoved += (_, e) => ShowActsTip(e.KeyModifiers);
         map16Canvas.PointerExited += (_, _) => m16ActsTip.IsVisible = false;
         m16ActsNote = this.GetControl<TextBlock>("M16ActsNote");
+        m16Custom = this.GetControl<Button>("M16Custom");
         m16Priority = this.GetControl<ToggleButton>("M16Priority");
         m16Palette = this.GetControl<ComboBox>("M16Palette");
         for (int i = 0; i < 8; i++) m16Palette.Items.Add($"{i}");
@@ -287,6 +289,7 @@ public partial class MainWindow
             ToolTip.SetTip(m16SelLabel, null);
             m16Acts.Text = "-";
             m16ActsNote.Text = "";
+            m16Custom.IsEnabled = false;
             m16Priority.IsChecked = false;
             m16Palette.SelectedIndex = -1;
             RefreshM16Colors(-1);
@@ -298,10 +301,16 @@ public partial class MainWindow
 
         int first = tiles[0];
         var block = tiles.Count == 1 ? m16.CustomBlock(first) : null;
+        // The project's assignment names its file; a block already on the ROM (an LM hack that
+        // came with GPS's tables) is only known by its code.
+        string? assigned = tiles.Count == 1 ? session.BlockFileOf(first) : null;
         m16SelLabel.Text = tiles.Count > 1
             ? $"{tiles.Count} tiles selected"
+            : assigned is not null ? $"Tile 0x{first:X4} · {assigned}"
             : block is null ? $"Tile 0x{first:X4}" : $"Tile 0x{first:X4} · GPS block";
         ToolTip.SetTip(m16SelLabel, block is null ? null : CustomBlockText(block));
+        // A custom block is a project edit on an FG tile of pages 02-7F, as GPS has it.
+        m16Custom.IsEnabled = session.HasProject && tiles.All(t => t is >= 0x200 and < 0x8000);
 
         var def = m16.ReadDef(first);
         m16Fields.IsVisible = def is not null;
@@ -320,6 +329,21 @@ public partial class MainWindow
         m16Palette.SelectedIndex = def[0].Palette;
         RefreshM16Colors(def[0].Palette);
         loadingM16Props = false;
+    }
+
+    /// <summary>The Custom button: pick a block file for the selected tiles, or none. The tiles
+    /// are taken before the modal opens, for the same reason the acts-as field remembers its own:
+    /// the selection can change under a dialog.</summary>
+    private async void OnM16Custom(object? sender, RoutedEventArgs e)
+    {
+        var tiles = map16Canvas.SelectedTiles().Where(t => t is >= 0x200 and < 0x8000).ToList();
+        if (tiles.Count == 0 || !session.HasProject) return;
+        var dlg = new BlockPickerWindow(session, tiles, session.BlockFileOf(tiles[0]));
+        await dlg.ShowDialog(this);
+        if (dlg.Picked is not { } file) return;
+        foreach (int t in tiles) session.AssignBlock(t, file);
+        RefreshMap16Props();
+        UpdateTitle();
     }
 
     /// <summary>Commit the acts-as field, or put the ROM's value back if it does not parse.</summary>
