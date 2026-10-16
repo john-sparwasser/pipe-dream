@@ -24,15 +24,25 @@
   </Window.Styles>
 
   <DockPanel Margin="14">
-    <!-- Header bar: New and Import always; Remove, Edit and Open act on the selected block. -->
+    <!-- Header bar: New and Import always; Remove, Edit and Open act on the selected block.
+         Import GPS folder brings a whole GPS folder in: its driver, routines, blocks and list. -->
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8">
-      <Button Content="New…" Click="OnNew" ToolTip.Tip="Adds a block from the template, with a name and an icon"/>
-      <Button Content="Import…" Click="OnImport" ToolTip.Tip="Adds .asm files from disk to the library"/>
+      <Button x:Name="NewButton" Content="New…" Click="OnNew" ToolTip.Tip="Adds a block from the template, with a name and an icon"/>
+      <Button x:Name="ImportButton" Content="Import…" Click="OnImport" ToolTip.Tip="Adds .asm files from disk to the library"/>
       <Button x:Name="RemoveButton" Content="Remove" Click="OnRemove" IsEnabled="False"/>
       <Button x:Name="EditButton" Content="Edit" Click="OnEdit" IsEnabled="False"/>
       <Button x:Name="OpenButton" Click="OnOpen" IsEnabled="False"
               ToolTip.Tip="Open the block in your text editor (File ▸ Preferences); saving there updates the project"/>
+      <Button Content="Import GPS folder…" Click="OnImportGps"
+              ToolTip.Tip="Bring in a GPS folder: its blocks, its list of which tile runs which, and the routines they call"/>
     </StackPanel>
+
+    <!-- A base GPS already put blocks on: nothing here may change until their folder is imported
+         (EditorSession.BlocksLockedReason). -->
+    <Border x:Name="LockNotice" DockPanel.Dock="Top" IsVisible="False" Margin="0,10,0,0" Padding="10,8"
+            CornerRadius="4" Background="#3A2E12" BorderBrush="#8A6D1F" BorderThickness="1">
+      <TextBlock x:Name="LockText" TextWrapping="Wrap" Foreground="#F2D58A" FontSize="12"/>
+    </Border>
 
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right"
                 Spacing="8" Margin="0,12,0,0">

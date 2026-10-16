@@ -41,6 +41,24 @@ public sealed partial class EditorSession
     /// own, put in with the first block (<see cref="GpsInsert.Driver"/>), or an imported GPS folder's.</summary>
     public bool HasGpsDriver => Project?.Data.GpsFiles.ContainsKey("main.asm") == true;
 
+    /// <summary>Why custom blocks cannot be managed here, or null when they can: the base ROM
+    /// already carries blocks gps.exe inserted, and until their GPS folder is imported the project
+    /// does not have their ASM — a build would clean them out (<see cref="GpsInsert.ForeignBlocks"/>).</summary>
+    public string? BlocksLockedReason
+    {
+        get
+        {
+            if (Project is null || Rom is null) return null;
+            // Cached on the two things the answer depends on: an import or a first block replaces GpsFiles.
+            if (blocksLock is not { } c || c.Rom != Rom || c.Files != Project.Data.GpsFiles)
+                blocksLock = c = (Rom, Project.Data.GpsFiles, GpsInsert.ForeignBlocks(Rom, Project.Data.GpsFiles));
+            return c.Count == 0 ? null
+                : $"This base ROM already has {c.Count} custom blocks inserted by GPS, and the project doesn't have their source. "
+                + "Use Import GPS folder… and point it at the GPS folder those blocks came from; then they can be managed here.";
+        }
+    }
+    private (Rom Rom, Dictionary<string, string> Files, int Count)? blocksLock;
+
     /// <summary>The library's block names, sorted.</summary>
     public IReadOnlyList<string> BlockNames =>
         Project?.Data.BlockLibrary.Keys.Order(StringComparer.OrdinalIgnoreCase).ToList() ?? [];
@@ -51,7 +69,7 @@ public sealed partial class EditorSession
     /// <summary>Replace a library block's ASM. An unchanged text is not an edit.</summary>
     public void SetBlockSource(string name, string asm)
     {
-        if (Project is null || !Project.Data.BlockLibrary.TryGetValue(name, out var old) || old == asm) return;
+        if (Project is null || BlocksLockedReason is not null || !Project.Data.BlockLibrary.TryGetValue(name, out var old) || old == asm) return;
         Project.Data.BlockLibrary[name] = asm;
         Project.MarkDirty();
     }
@@ -93,6 +111,7 @@ public sealed partial class EditorSession
     public string OpenBlockExternally(string name)
     {
         if (Project is null) return Report2("no project open");
+        if (BlocksLockedReason is { } locked) return Report2(locked);
         if (BlockSource(name) is not { } asm) return Report2($"{name} is not in the library");
         string? editor = Config.TextEditorPath;
         if (editor is not null && !File.Exists(editor) && !Directory.Exists(editor))
@@ -148,6 +167,7 @@ public sealed partial class EditorSession
     {
         made = null;
         if (Project is null) return Report2("no project open");
+        if (BlocksLockedReason is { } locked) return Report2(locked);
         name = name.Trim();
         if (name.EndsWith(".asm", StringComparison.OrdinalIgnoreCase)) name = name[..^4];
         if (name.Length == 0 || name.Any(c => !(char.IsLetterOrDigit(c) || c is '_' or '-')))
@@ -165,6 +185,7 @@ public sealed partial class EditorSession
     public string DeleteBlock(string name)
     {
         if (Project is null) return Report2("no project open");
+        if (BlocksLockedReason is { } locked) return Report2(locked);
         int used = Project.Data.Blocks.Values.Count(v => v == name);
         if (used > 0) return Report2($"{name} runs on {used} tile(s) — take it off them first");
         if (!Project.Data.BlockLibrary.Remove(name)) return Report2($"{name} is not in the library");
@@ -208,6 +229,7 @@ public sealed partial class EditorSession
     public string AssignBlock(int tile, string? name)
     {
         if (Project is null) return Report2("no project open");
+        if (BlocksLockedReason is { } locked) return Report2(locked);
         if (tile is < 0x200 or >= 0x8000) return Report2($"tile {tile:X3} cannot be a custom block (pages 02-7F only)");
         string key = tile.ToString("X3");
         if (string.IsNullOrEmpty(name))

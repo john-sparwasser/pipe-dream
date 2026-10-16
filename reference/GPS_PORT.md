@@ -210,6 +210,14 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
 ### 6. ROMs that already carry GPS blocks
 - A base ROM inserted with `gps.exe` before it came to Pipe Dream: phase 1 reads it; phase 3
   must free the old insertion (or adopt it) before claiming its own. Decide which, with real hacks.
+- **Decided (2026-10-16): refuse until the GPS folder is imported.** Insert frees the last
+  insertion before its own, so building our blocks over a gps.exe base would delete blocks whose
+  ASM the project does not have. `GpsInsert.ForeignBlocks` counts the base's GPS blocks unless
+  the project's driver came from an imported GPS folder; while it is non-zero,
+  `EditorSession.BlocksLockedReason` refuses every block action (new, import, edit, remove,
+  assign, open), the Blocks window shows the notice with only Import GPS folder… live, and the
+  build fails rather than clean them out. Import GPS folder… moved from Debug to the ASM menu and
+  sits in the Blocks window's header. Adopting the old blocks without their folder is not done.
 
 ## The local oracle: GPS and Asar built on the Mac
 

@@ -11,7 +11,8 @@ namespace PipeDream.Ui;
 /// New adds one from the template with a name and icon (<see cref="NewBlockWindow"/>), Import adds .asm files to <see cref="ProjectFile.BlockLibrary"/>, Edit opens the selected one in
 /// <see cref="BlockEditWindow"/>, Open hands it to the user's text editor (File ▸ Preferences),
 /// Remove deletes it once no tile runs it. Which tile runs which block
-/// is set from the Map16 editor's Custom button.
+/// is set from the Map16 editor's Custom button. On a base gps.exe already put blocks on, all of
+/// that waits for their GPS folder to be imported (<see cref="EditorSession.BlocksLockedReason"/>).
 /// </summary>
 public partial class BlocksWindow : Window
 {
@@ -19,7 +20,7 @@ public partial class BlocksWindow : Window
 
     private readonly EditorSession session = null!;
     private ListBox library = null!;
-    private Button removeButton = null!, editButton = null!, openButton = null!;
+    private Button removeButton = null!, editButton = null!, openButton = null!, newButton = null!, importButton = null!;
     private TextBlock hint = null!;
 
     /// <summary>Parameterless for the XAML loader; the real entry point is the other one.</summary>
@@ -33,9 +34,13 @@ public partial class BlocksWindow : Window
         editButton = this.GetControl<Button>("EditButton");
         openButton = this.GetControl<Button>("OpenButton");
         openButton.Content = $"Open in {session.TextEditorName ?? "editor"}";
+        newButton = this.GetControl<Button>("NewButton");
+        importButton = this.GetControl<Button>("ImportButton");
         hint = this.GetControl<TextBlock>("Hint");
         Refresh();
     }
+
+    private bool Locked => session.BlocksLockedReason is not null;
 
     private string? Selected => (library.SelectedItem as LibraryRow)?.Name;
 
@@ -49,10 +54,30 @@ public partial class BlocksWindow : Window
         library.ItemsSource = rows;
         library.SelectedItem = rows.FirstOrDefault(r => r.Name == want);
         if (rows.Count == 0) hint.Text = "no blocks yet — New… starts one, Import… adds .asm files";
+        var locked = session.BlocksLockedReason;
+        this.GetControl<Border>("LockNotice").IsVisible = locked is not null;
+        this.GetControl<TextBlock>("LockText").Text = locked;
+        newButton.IsEnabled = importButton.IsEnabled = locked is null;
+        UpdateButtons();
     }
 
-    private void OnSelect(object? sender, SelectionChangedEventArgs e)
-        => removeButton.IsEnabled = editButton.IsEnabled = openButton.IsEnabled = Selected is not null;
+    private void OnSelect(object? sender, SelectionChangedEventArgs e) => UpdateButtons();
+
+    private void UpdateButtons()
+        => removeButton.IsEnabled = editButton.IsEnabled = openButton.IsEnabled = Selected is not null && !Locked;
+
+    /// <summary>A GPS folder: driver, routines, blocks and list.txt, into the project. On a base GPS
+    /// already put blocks on, this is what lets them be managed here.</summary>
+    private async void OnImportGps(object? sender, RoutedEventArgs e)
+    {
+        var dirs = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Choose the GPS folder (the one with list.txt)", AllowMultiple = false,
+        });
+        if (dirs.Count == 0 || dirs[0].TryGetLocalPath() is not { } folder) return;
+        hint.Text = session.ImportGps(folder);
+        Refresh(Selected);
+    }
 
     private async void OnNew(object? sender, RoutedEventArgs e)
     {

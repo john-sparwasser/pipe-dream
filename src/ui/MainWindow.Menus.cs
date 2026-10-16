@@ -221,7 +221,7 @@ public partial class MainWindow
         RefreshDrawer();
     }
 
-    /// <summary>Dev only: import a GPS folder — its driver and routines into the project, its
+    /// <summary>ASM ▸ Import GPS folder: a GPS folder — its driver and routines into the project, its
     /// blocks into the library, its list.txt into the project's tiles and acts-as — ready for the
     /// build to insert. Says the outcome either way.</summary>
     private async void OnImportGps(object? sender, RoutedEventArgs e)
