@@ -180,7 +180,8 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
 - A Blocks list (tile, file, acts-like, handled contacts), assign a block to a tile, new block
   from `template.asm`, open the `.asm` in the user's editor, and Asar's errors shown as
   `file:line: message` after a build.
-- **Status:** `ui/BlocksWindow` (Debug ▸ Custom blocks…, dev-gated with the rest) over
+- **Status:** `ui/BlocksWindow` (ASM ▸ Custom blocks…, in the shipped menu bar since 2026-10-16;
+  the GPS import that feeds it is still Debug-only) over
   `EditorSession.BlockEntries`/`AssignBlock`/`NewBlock`/`OpenBlockFile`. Acts-like is read from
   the Map16 editor, never edited here (one owner). The contacts column reads GPS's tables off
   the LAST BUILD (`build/<name>.smc`), because a block exists on a ROM only once assembled into

@@ -238,9 +238,10 @@ public partial class MainWindow
         await ConfirmWindow.Notice("Import GPS folder", session.ImportGps(folder)).ShowDialog(this);
     }
 
-    /// <summary>Dev only: the project's custom blocks — which tile runs which block file, with
-    /// what the last build found each handling. Behind the Debug menu with the rest of the GPS
-    /// work until Asar's licence is settled (reference/GPS_PORT.md "Open questions").</summary>
+    /// <summary>ASM ▸ Custom blocks: the project's blocks — which tile runs which block file,
+    /// with what the last build found each handling. The one piece of the GPS work in shipped
+    /// UI; the import that feeds it stays in Debug (reference/GPS_PORT.md "Open questions" on
+    /// Asar's licence).</summary>
     private async void OnBlocks(object? sender, RoutedEventArgs e)
     {
         if (!session.HasProject) return;
