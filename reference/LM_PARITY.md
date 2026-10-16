@@ -646,6 +646,26 @@ nothing in `$06F65C`-`$06F7EF`. The block's fate belongs to LM's Map16 install, 
 dispatch: a separate question, open since v26, about whether our reader should take LM's ranges
 1-3 as the extended-def home after such a save.
 
+**v31 measured ahead of itself (same day).** The v30 base with exactly those two runs written by
+hand — `$06F65E` = `12`, and `$06F7A0`-`$06F7B3` = `20 08 F6 A5 0F F0 04 A3 0A 80 02 A3 06 C9 DA
+F0 0F 4C 02 F6` — then `--fixchecksum`, then the same F9 in a fresh folder: **zero bytes change
+in `$06F650`-`$06F7FF`**; 26 runs, and the rails audit's overlaps drop from four to two (the
+ladder and the `$128000` block, both LM's Map16 install as above); a second F9 writes nothing;
+boots to `0xC7` and reaches `$105` before and after. Against the v30 F9 result the saved ROM
+differs by 8 bytes: LM's bookkeeping at `$0FEFE9` and the 4-byte checksum balance at `$1080E8`
+(the RATS block at `$108000` that `RatsWriter` rebalances on every write). So a v31 that stamps
+those two runs makes the Map16 save a no-op on the dispatch, and its `--diff` against a v30 base
+should show `$06F65E` len 1, `$06F7A3` len 17 and the balance bytes at `$1080E8`, nothing else.
+
+**Our reader on a 3.40-saved ROM.** `--map16def <rom> 105 200` on the edited-import ROM reads
+the edited tile through LM's ladder — `070 p7 072 p7 071 p7 073 p7`, from the 8-byte block at
+`$108150` — so the reader follows the slots as §7a-rev promised. Tile `$201`, untouched by the
+edit, reads `000 p0` ×4 there where our block's default was `004 p4`: LM's range 0 holds only the
+edited tile, and the ladder reads past its 8 bytes into zeros. On the plain F9 ROM, where range 0
+is "no defs", both tiles still read `004 p4` (the reader's default). Worth knowing before any
+decision to treat a saved ROM as a base: unedited page-2 tiles no longer draw what the prep's
+block drew.
+
 **Tooling, learned the hard way.** LM keeps `sysLMRestore/` beside the ROM, one `.lrp` per ROM
 name but ONE `smwOrig.smc` per folder. A v29 copy opened in the folder where a v30 copy had
 already been saved came back with vanilla's GFX pointer table at `$00B992`, 209 changed runs and

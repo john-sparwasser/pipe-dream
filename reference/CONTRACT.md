@@ -2415,9 +2415,13 @@ own ext-def ranges and free our `$128000` block. That last part is not the marke
 the file's: a plain F9 with no edits does it to a fresh v30 base and to a v29 base with no marker
 (reference/LM_PARITY.md §2 "Map16 F9 on a plain v30 base"), so it is 3.40's Map16 install, the
 §PREP V26 "upgrade offered" state. With the v12 marker and trampoline stamped by hand first, the
-same import writes nothing in `$06F65C`-`$06F7EF`; a v31 that stamps LM 3.40's bytes instead of
-WTS2's would make LM's Map16 save a no-op there (GPS patches neither byte), though not keep the
-block. IsPrepped v30 = the four sites JSL to the trampolines, bank `$06` or `$86`. Golden V30 pinned.
+same import writes nothing in `$06F65C`-`$06F7EF`, and on a plain v30 base with just those two
+runs hand-written (`$06F65E` = `12`; `$06F7A0`, 20 bytes) a plain F9 changes nothing in
+`$06F650`-`$06F7FF` either, a second F9 writes nothing, and the ROM boots and reaches `$105`
+(LM_PARITY §2 "v31 measured ahead of itself"). So a v31 that stamps LM 3.40's bytes instead of
+WTS2's makes LM's Map16 save a no-op on the dispatch (GPS patches neither byte), though it does not
+keep the block. IsPrepped v30 = the four sites JSL to the trampolines, bank `$06` or `$86`. Golden
+V30 pinned.
 
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 
