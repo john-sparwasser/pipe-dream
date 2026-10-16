@@ -992,11 +992,11 @@
                 <Rectangle Classes="sep"/>
                 <TextBlock Classes="dim" Text="acts as"/>
                 <TextBox x:Name="M16Acts" Width="64"/>
-                <!-- The tile's custom block (GPS): a file in the project's gps/blocks/ whose code
+                <!-- The tile's custom block (GPS): a block in the project's library whose code
                      runs on the tile's contacts. Picked in a modal, since the list is the
-                     project's files and can grow from inside it. Pages 02-7F only, as GPS has it. -->
+                     project's library and can grow from inside it. Pages 02-7F only, as GPS has it. -->
                 <Button x:Name="M16Custom" Content="Custom" Click="OnM16Custom"
-                        ToolTip.Tip="Choose the custom block the selected tiles run — a file in the project's gps/blocks/"/>
+                        ToolTip.Tip="Choose the custom block the selected tiles run, from the project's block library"/>
                 <TextBlock x:Name="M16ActsNote" Classes="mono"/>
                 <Rectangle Classes="sep"/>
                 <!-- A toggle button, not a checkbox: Fluent's checkbox carries a 32px floor

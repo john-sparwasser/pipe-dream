@@ -8,23 +8,23 @@ using PipeDream.Services;
 namespace PipeDream.Ui;
 
 /// <summary>
-/// Pick the custom block for the selected Map16 tile(s): the project's block files, with "none"
+/// Pick the custom block for the selected Map16 tile(s): the project's block library, with "none"
 /// at the top to take a block away. Opened from the Custom button beside the acts-as field; the
-/// caller assigns what <see cref="Picked"/> says. New block writes the template and selects it,
-/// so a tile can get a fresh block without a trip to the Blocks window.
+/// caller assigns what <see cref="Picked"/> says. New block adds the template and selects it,
+/// so a tile can get a fresh block without a trip to the Blocks window (where it is edited).
 /// </summary>
 public partial class BlockPickerWindow : Window
 {
     public sealed class Row(string? file, string note, bool current)
     {
-        /// <summary>The block file under gps/blocks/, or null for "none".</summary>
+        /// <summary>The library block, or null for "none".</summary>
         public string? File => file;
         public string Name => file ?? "(none)";
         public string Note => note;
         public IBrush Highlight => current ? UiColors.Selection : Brushes.White;
     }
 
-    /// <summary>The chosen file, "" for none, or null when cancelled.</summary>
+    /// <summary>The chosen block, "" for none, or null when cancelled.</summary>
     public string? Picked { get; private set; }
 
     private readonly EditorSession session = null!;
@@ -50,12 +50,12 @@ public partial class BlockPickerWindow : Window
         if (!session.HasGpsDriver) hint.Text = "no GPS driver yet — Debug ▸ Import GPS folder… brings main.asm, routines and blocks in";
     }
 
-    /// <summary>Refill the list: none first, then the files, landing on <paramref name="want"/>.</summary>
+    /// <summary>Refill the list: none first, then the library, landing on <paramref name="want"/>.</summary>
     private void Refresh(string? want)
     {
         var used = session.BlockEntries.GroupBy(e => e.File).ToDictionary(g => g.Key, g => g.Count());
         var rows = new List<Row> { new(null, "", current is null) };
-        rows.AddRange(session.BlockFiles.Select(f =>
+        rows.AddRange(session.BlockNames.Select(f =>
             new Row(f, used.TryGetValue(f, out int n) ? (n == 1 ? "on 1 tile" : $"on {n} tiles") : "", f == current)));
         list.ItemsSource = rows;
         list.SelectedItem = rows.FirstOrDefault(r => r.File == want) ?? rows[0];
@@ -76,13 +76,6 @@ public partial class BlockPickerWindow : Window
         if (file is null) return;
         newName.Text = "";
         Refresh(file);
-        if (session.OpenBlockFile(file) is { } problem) hint.Text += " — " + problem;
-    }
-
-    private void OnOpenFile(object? sender, RoutedEventArgs e)
-    {
-        if ((list.SelectedItem as Row)?.File is not { } file) return;
-        hint.Text = session.OpenBlockFile(file) ?? $"opened {file}";
     }
 
     private void OnCancel(object? sender, RoutedEventArgs e) => Close();

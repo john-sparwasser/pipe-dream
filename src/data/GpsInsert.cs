@@ -5,11 +5,12 @@ namespace PipeDream;
 
 /// <summary>
 /// Inserts a project's custom blocks — what gps.exe does, in one Asar patch instead of one per
-/// block. The folder is used as GPS uses it: blocks/, routines/ and the user's own main.asm and
-/// defines.asm, so whatever their driver does still happens. What gps.exe reads from list.txt
-/// the project carries instead (<see cref="ProjectFile.Blocks"/>: tile → block file; acts-like
-/// in <see cref="ProjectFile.Map16State.ActsAs"/>, written by the build after this runs), and a
-/// list.txt is only ever read once, at import, to fill those.
+/// block. Everything comes from the project, as files Asar reads from memory laid out the way a
+/// GPS folder is: the user's own main.asm, defines.asm and routines/ (<see cref="ProjectFile.GpsFiles"/>),
+/// so whatever their driver does still happens, and blocks/ from <see cref="ProjectFile.BlockLibrary"/>.
+/// What gps.exe reads from list.txt the project carries instead (<see cref="ProjectFile.Blocks"/>:
+/// tile → block; acts-like in <see cref="ProjectFile.Map16State.ActsAs"/>, written by the build
+/// after this runs), and a list.txt is only ever read once, at import, to fill those.
 ///
 /// The patch, generated in memory beside main.asm:
 ///   1. autoclean the last insertion (its blocks, tables and shared routines), when GPS is on the ROM;
@@ -39,14 +40,22 @@ public static class GpsInsert
 
     private const int RoutineSlots = 0x0CB66F, MaxRoutines = 100;
 
-    /// <summary>Insert <paramref name="blocks"/> (tile → file under gpsDir/blocks/) with the
-    /// folder's driver and routines. The acts-like tables go back as they are on the ROM: the
-    /// project's acts-as edits are the build's to write, after this.</summary>
-    public static Result Insert(Rom rom, string gpsDir, IReadOnlyDictionary<int, string> blocks)
+    /// <summary>Where the in-memory GPS folder sits. Nothing is written there: Asar finds memory
+    /// files before the disk, and this only gives their paths (and its messages) a folder.</summary>
+    private static readonly string VirtualDir = Path.Combine(Path.GetTempPath(), "pipedream-gps");
+
+    /// <summary>Insert <paramref name="blocks"/> (tile → name in <paramref name="library"/>) with
+    /// <paramref name="gpsFiles"/>' driver and routines. Only the blocks a tile runs go in. The
+    /// acts-like tables go back as they are on the ROM: the project's acts-as edits are the
+    /// build's to write, after this.</summary>
+    public static Result Insert(Rom rom, IReadOnlyDictionary<string, string> gpsFiles,
+                                IReadOnlyDictionary<string, string> library, IReadOnlyDictionary<int, string> blocks)
     {
-        gpsDir = Path.GetFullPath(gpsDir);
         if (blocks.Keys.FirstOrDefault(t => t is < 0x200 or >= 0x8000, -1) is var bad and >= 0)
             return Fail($"tile {bad:X3} cannot be a custom block (pages 02-7F only)");
+        if (!gpsFiles.ContainsKey("main.asm")) return Fail("no GPS driver: import a GPS folder for its main.asm");
+        if (blocks.FirstOrDefault(kv => !library.ContainsKey(kv.Value)) is { Value: not null } missing)
+            return Fail($"tile {missing.Key:X3} runs {missing.Value}, which is not in the block library");
         if (rom.ReadValue(0x06F624, 3) == 0xFFFFFF)
             return Fail("Please save a level in Lunar Magic before using GPS");
         bool hi = blocks.Keys.Any(t => t >= 0x4000);
@@ -56,19 +65,21 @@ public static class GpsInsert
 
         // One asm label per distinct file, in tile order: the order gps.exe assembles them in.
         var files = blocks.OrderBy(kv => kv.Key).Select(kv => kv.Value).Distinct().ToList();
-        var routines = Directory.GetFiles(Path.Combine(gpsDir, "routines"), "*.asm")
+        var routines = gpsFiles.Keys.Where(k => k.StartsWith("routines/") && k.EndsWith(".asm") && k.Count(c => c == '/') == 1)
             .Select(Path.GetFileNameWithoutExtension).Order(StringComparer.Ordinal).ToList();
         if (routines.Count > MaxRoutines) return Fail($"More than {MaxRoutines} routines in routines/");
 
-        string root = Path.Combine(gpsDir, "__pipedream_gps.asm");
-        var mem = new Dictionary<string, byte[]>
+        string gpsDir = VirtualDir, root = Path.Combine(gpsDir, "__pipedream_gps.asm");
+        var mem = gpsFiles.Concat(files.Select(f => KeyValuePair.Create("blocks/" + f, library[f])))
+            .ToDictionary(kv => Path.Combine(gpsDir, kv.Key), kv => Encoding.UTF8.GetBytes(kv.Value));
+        foreach (var (name, bytes) in new Dictionary<string, byte[]>
         {
             [root] = Encoding.UTF8.GetBytes(Source(rom, files, routines)),
             [Path.Combine(gpsDir, "__temp_settings.asm")] = Encoding.UTF8.GetBytes($"!__insert_pages_40_plus = {(hi ? 1 : 0)}"),
             [Path.Combine(gpsDir, "__banks.bin")] = new byte[hi ? 0x8000 : 0x4000],
             [Path.Combine(gpsDir, "__pointers_1.bin")] = new byte[0x8000],
             [Path.Combine(gpsDir, "__pointers_2.bin")] = new byte[0x8000],
-        };
+        }) mem[name] = bytes;
         var acts = ActsLikes(rom, lmHi);
         mem[Path.Combine(gpsDir, "__acts_likes_1.bin")] = acts[..0x8000];
         mem[Path.Combine(gpsDir, "__acts_likes_2.bin")] = acts[0x8000..];
@@ -97,50 +108,46 @@ public static class GpsInsert
 
     // ---- import ----
 
-    /// <summary>Copy what Insert reads from a GPS folder into <paramref name="dest"/>, replacing
-    /// whatever was there: main.asm, defines.asm, blocks/ and routines/. list.txt is not copied —
-    /// it comes back parsed in <paramref name="list"/> for the project to keep as its own
-    /// (<see cref="ProjectFile.Blocks"/> and acts-as) — and gps.exe, its dll and readme stay
-    /// behind. Returns the problem, or null. The folder is checked first (list.txt parses, every
-    /// block it names exists) and copied beside dest before the swap, so a bad import leaves the
-    /// last good one in place.</summary>
-    public static string? Import(string source, string dest, out Dictionary<int, Entry> list)
+    /// <summary>Read what Insert needs from a GPS folder: <paramref name="gpsFiles"/> (main.asm,
+    /// defines.asm, routines/) and <paramref name="library"/> (every .asm under blocks/, named by
+    /// its path there), with list.txt parsed into <paramref name="list"/> for the project to keep
+    /// as its own (<see cref="ProjectFile.Blocks"/> and acts-as). gps.exe, its dll and readme stay
+    /// behind. Returns the problem, or null; the folder is checked first (list.txt parses, every
+    /// block it names exists), so a bad one hands nothing over.</summary>
+    public static string? Import(string source, out Dictionary<int, Entry> list,
+                                 out Dictionary<string, string> gpsFiles, out Dictionary<string, string> library)
     {
-        list = new();
-        source = Path.GetFullPath(source);
-        dest = Path.GetFullPath(dest);
+        list = new(); gpsFiles = new(); library = new();
         if (!File.Exists(Path.Combine(source, "list.txt"))) return "not a GPS folder: no list.txt";
         if (!File.Exists(Path.Combine(source, "main.asm"))) return "not a GPS folder: no main.asm";
         Dictionary<int, Entry> parsed;
         try { parsed = ParseList(File.ReadAllText(Path.Combine(source, "list.txt"))); }
         catch (FormatException e) { return e.Message; }
+        var (files, blocks) = ReadFolder(source);
         foreach (var e in parsed.Values.DistinctBy(e => e.File).OrderBy(e => e.Line))
-            if (!File.Exists(Path.Combine(source, "blocks", e.File)))
-                return $"list.txt line {e.Line}: blocks/{e.File} not found";
-        list = parsed;                                          // only a folder that imports hands its list over
-        if (source == dest) return null;
-
-        string staged = dest + ".importing";
-        if (Directory.Exists(staged)) Directory.Delete(staged, true);
-        Directory.CreateDirectory(staged);
-        foreach (var f in new[] { "main.asm", "defines.asm" })
-            if (File.Exists(Path.Combine(source, f))) File.Copy(Path.Combine(source, f), Path.Combine(staged, f));
-        foreach (var d in new[] { "blocks", "routines" })
-            CopyTree(Path.Combine(source, d), Path.Combine(staged, d));
-        if (Directory.Exists(dest)) Directory.Delete(dest, true);
-        Directory.Move(staged, dest);
+            if (!blocks.ContainsKey(e.File)) return $"list.txt line {e.Line}: blocks/{e.File} not found";
+        (list, gpsFiles, library) = (parsed, files, blocks);
         return null;
     }
 
-    /// <summary>Copies a tree; an absent one becomes an empty folder (Insert lists routines/).</summary>
-    private static void CopyTree(string from, string to)
+    /// <summary>A GPS folder's assembly as the project keeps it: main.asm, defines.asm and
+    /// everything under routines/ by relative path, and blocks/*.asm by their path under blocks/.
+    /// Forward slashes, so a .pdp reads the same on every OS.</summary>
+    internal static (Dictionary<string, string> GpsFiles, Dictionary<string, string> Blocks) ReadFolder(string dir)
     {
-        Directory.CreateDirectory(to);
-        if (!Directory.Exists(from)) return;
-        foreach (var dir in Directory.GetDirectories(from, "*", SearchOption.AllDirectories))
-            Directory.CreateDirectory(Path.Combine(to, Path.GetRelativePath(from, dir)));
-        foreach (var file in Directory.GetFiles(from, "*", SearchOption.AllDirectories))
-            File.Copy(file, Path.Combine(to, Path.GetRelativePath(from, file)));
+        var files = new Dictionary<string, string>();
+        foreach (var f in new[] { "main.asm", "defines.asm" })
+            if (File.Exists(Path.Combine(dir, f))) files[f] = File.ReadAllText(Path.Combine(dir, f));
+        foreach (var (rel, text) in Tree(dir, "routines", "*")) files["routines/" + rel] = text;
+        return (files, Tree(dir, "blocks", "*.asm").ToDictionary());
+    }
+
+    private static IEnumerable<(string Rel, string Text)> Tree(string dir, string sub, string pattern)
+    {
+        string root = Path.Combine(dir, sub);
+        if (!Directory.Exists(root)) yield break;
+        foreach (var f in Directory.GetFiles(root, pattern, SearchOption.AllDirectories).Order(StringComparer.Ordinal))
+            yield return (Path.GetRelativePath(root, f).Replace('\\', '/'), File.ReadAllText(f));
     }
 
     // ---- list.txt ----

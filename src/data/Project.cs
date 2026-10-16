@@ -15,8 +15,8 @@ internal sealed class Project
     internal string Folder { get; }
     internal string BaseRomPath => Path.Combine(Folder, RomName);
     internal string FilePath => Path.Combine(Folder, FileName);
-    /// <summary>The imported GPS folder (GpsInsert.Import): files beside project.pdp, not in it,
-    /// so blocks stay editable in the user's own editor.</summary>
+    /// <summary>Where projects from before the block library kept their imported GPS folder;
+    /// <see cref="Open"/> reads it into the .pdp.</summary>
     internal string GpsFolder => Path.Combine(Folder, "gps");
     internal string Name => Path.GetFileName(Folder.TrimEnd(Path.DirectorySeparatorChar));
     internal ProjectFile Data { get; private set; }
@@ -84,7 +84,15 @@ internal sealed class Project
         var data = ProjectFile.FromJson(File.ReadAllText(pdpPath));
         if (data.SchemaVersion > 1)
             throw new InvalidDataException($"project schema v{data.SchemaVersion} is newer than this editor");
-        return new Project(Path.GetDirectoryName(Path.GetFullPath(pdpPath))!, data);
+        var p = new Project(Path.GetDirectoryName(Path.GetFullPath(pdpPath))!, data);
+        if (data.GpsFiles.Count == 0 && Directory.Exists(p.GpsFolder))
+        {
+            // ponytail: the folder stays on disk; the .pdp is the copy that counts from here
+            (data.GpsFiles, var blocks) = GpsInsert.ReadFolder(p.GpsFolder);
+            foreach (var (name, asm) in blocks) data.BlockLibrary.TryAdd(name, asm);
+            p.MarkDirty();
+        }
+        return p;
     }
 
     /// <summary>null = base copy present and matching; otherwise a user-facing problem.</summary>

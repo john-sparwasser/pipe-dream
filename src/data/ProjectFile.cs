@@ -40,14 +40,21 @@ public sealed class ProjectFile
     /// so an older .pdp still loads unchanged.</summary>
     public Dictionary<string, string> CourseBot { get; set; } = new();
 
-    /// <summary>Custom blocks: Map16 tile hex ("200") → the block's file under the project's
-    /// gps/blocks/ (reference/GPS_PORT.md). This is what gps.exe reads from list.txt, kept as an
-    /// edit of the project's rather than a copied text file: one tile, one file, no ranges, and a
-    /// block's acts-like is an ordinary <see cref="Map16State.ActsAs"/> entry, so the Map16
-    /// editor and the build never disagree about it. The assembly itself (main.asm, blocks/,
-    /// routines/) stays as files beside the .pdp. A separate map, so an older .pdp still loads
-    /// unchanged.</summary>
+    /// <summary>Custom blocks, which tile runs what: Map16 tile hex ("200") → a block's name in
+    /// <see cref="BlockLibrary"/> (reference/GPS_PORT.md). Many tiles may run one block. This is
+    /// what gps.exe reads from list.txt, kept as an edit of the project's: one tile, one block, no
+    /// ranges, and a block's acts-like is an ordinary <see cref="Map16State.ActsAs"/> entry, so
+    /// the Map16 editor and the build never disagree about it.</summary>
     public Dictionary<string, string> Blocks { get; set; } = new();
+
+    /// <summary>The custom blocks the project has: name ("spin.asm", "sub/x.asm") → the block's
+    /// ASM source. In the .pdp so sharing the file shares the blocks; a block no tile runs stays
+    /// here and is not inserted.</summary>
+    public Dictionary<string, string> BlockLibrary { get; set; } = new();
+
+    /// <summary>What the blocks assemble with: GPS's driver and shared routines as imported
+    /// from a GPS folder — path ("main.asm", "defines.asm", "routines/x.asm") → source.</summary>
+    public Dictionary<string, string> GpsFiles { get; set; } = new();
 
     /// <summary>LM ExAnimation (reference/EXANIMATION.md): the encoded record per level (key =
     /// level hex, value = ExAnimation.Encode hex, alt-file index in its header) and the global

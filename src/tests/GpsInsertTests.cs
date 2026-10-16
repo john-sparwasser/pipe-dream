@@ -4,7 +4,7 @@ using Xunit;
 namespace PipeDream.Tests;
 
 /// <summary>
-/// GpsInsert end to end through Asar, against a GPS folder the test writes itself: GPS's own
+/// GpsInsert end to end through Asar, against GPS files the test writes itself: GPS's own
 /// main.asm, defines.asm and routines carry no licence, so the driver here is a minimal one laid
 /// out as GpsBlocks reads (hook stub, marker, tables). The real folder was checked against gps.exe
 /// by hand (GPS_PORT.md, phase 3).
@@ -64,6 +64,17 @@ public class GpsInsertTests
     private static Dictionary<int, string> Blocks(string list)
         => GpsInsert.ParseList(list).ToDictionary(kv => kv.Key, kv => kv.Value.File);
 
+    /// <summary>The driver and routines as a project keeps them (ProjectFile.GpsFiles).</summary>
+    private static Dictionary<string, string> GpsFiles() => new()
+    {
+        ["main.asm"] = MainAsm,
+        ["routines/sparkle.asm"] = "LDA #$01 : STA $1DFC\nRTL\n",
+        ["routines/unused.asm"] = "RTL\n",
+    };
+
+    /// <summary>A block library (ProjectFile.BlockLibrary).</summary>
+    private static Dictionary<string, string> Library() => new() { ["above.asm"] = Above, ["wall.asm"] = Wall };
+
     /// <summary>A GPS folder in a temp dir with <paramref name="list"/> as its list.txt.</summary>
     private static string Folder(string list)
     {
@@ -100,7 +111,7 @@ public class GpsInsertTests
     public void inserts_each_tile_sharing_one_copy_per_file_and_leaves_acts_like_to_the_project()
     {
         var rom = LmSaved();
-        var r = GpsInsert.Insert(rom, Folder(""), Blocks("200\tabove.asm\nR203-214 above.asm\n2FF wall.asm\n"));
+        var r = GpsInsert.Insert(rom, GpsFiles(), Library(), Blocks("200\tabove.asm\nR203-214 above.asm\n2FF wall.asm\n"));
 
         Assert.True(r.Ok, string.Join("\n", r.Errors));
         var gps = GpsBlocks.Read(rom)!;
@@ -113,7 +124,11 @@ public class GpsInsertTests
         Assert.Equal([0, 0, 0x4C], new[] { 0x200, 0x203, 0x2FF }.Select(t => rom.ReadValue(acts + t * 2, 2)));
         Assert.Equal(["above only"], r.Blocks.Single(b => b.Tile == 0x200).Prints);
         Assert.Equal("tile 1FF cannot be a custom block (pages 02-7F only)",
-            Assert.Single(GpsInsert.Insert(rom, Folder(""), new Dictionary<int, string> { [0x1FF] = "above.asm" }).Errors));
+            Assert.Single(GpsInsert.Insert(rom, GpsFiles(), Library(), new Dictionary<int, string> { [0x1FF] = "above.asm" }).Errors));
+        Assert.Equal("tile 201 runs gone.asm, which is not in the block library",
+            Assert.Single(GpsInsert.Insert(rom, GpsFiles(), Library(), new Dictionary<int, string> { [0x201] = "gone.asm" }).Errors));
+        Assert.Equal("no GPS driver: import a GPS folder for its main.asm",
+            Assert.Single(GpsInsert.Insert(rom, new Dictionary<string, string>(), Library(), Blocks("200 above.asm\n")).Errors));
 
         // The routine went to freespace once, its slot names it, and only the used one is filled.
         int sparkle = rom.ReadValue(0x0CB66F, 3);
@@ -127,15 +142,14 @@ public class GpsInsertTests
     public void reinserting_frees_the_last_insertion_first()
     {
         var rom = LmSaved();
-        string dir = Folder("");
         var blocks = Blocks("200 above.asm\n2FF wall.asm\n");
-        Assert.True(GpsInsert.Insert(rom, dir, blocks).Ok);
+        Assert.True(GpsInsert.Insert(rom, GpsFiles(), Library(), blocks).Ok);
         int once = Claimed(rom);
 
-        Assert.True(GpsInsert.Insert(rom, dir, blocks).Ok);
+        Assert.True(GpsInsert.Insert(rom, GpsFiles(), Library(), blocks).Ok);
         Assert.Equal(once, Claimed(rom));                         // nothing leaked
 
-        Assert.True(GpsInsert.Insert(rom, dir, Blocks("300 wall.asm\n")).Ok);
+        Assert.True(GpsInsert.Insert(rom, GpsFiles(), Library(), Blocks("300 wall.asm\n")).Ok);
         Assert.Equal([0x300], GpsBlocks.Read(rom)!.Blocks.Keys);
         Assert.Equal(0xFFFFFF, rom.ReadValue(0x0CB66F, 3));        // sparkle's slot emptied with its last user
     }
@@ -144,11 +158,11 @@ public class GpsInsertTests
     public void a_file_without_a_block_header_fails_and_leaves_the_rom_alone()
     {
         var rom = LmSaved();
-        string dir = Folder("");
-        File.WriteAllText(Path.Combine(dir, "blocks", "bad.asm"), "db $00\nRTL\n");
+        var library = Library();
+        library["bad.asm"] = "db $00\nRTL\n";
         var before = rom.Data.ToArray();
 
-        var r = GpsInsert.Insert(rom, dir, Blocks("200 bad.asm\n"));
+        var r = GpsInsert.Insert(rom, GpsFiles(), library, Blocks("200 bad.asm\n"));
 
         Assert.False(r.Ok);
         Assert.Contains("db $42 or db $37", Assert.Single(r.Errors));
@@ -161,7 +175,8 @@ public class GpsInsertTests
         string dir = Directory.CreateTempSubdirectory("pipedream-proj-").FullName, rom = Path.Combine(dir, "base.sfc");
         File.WriteAllBytes(rom, LmSaved().Data);
         var p = Project.Create(Path.Combine(dir, "proj"), rom);
-        Assert.Null(GpsInsert.Import(Folder("200 above.asm\n2FF wall.asm\n"), p.GpsFolder, out var list));
+        Assert.Null(GpsInsert.Import(Folder("200 above.asm\n2FF wall.asm\n"), out var list, out var files, out var library));
+        (p.Data.GpsFiles, p.Data.BlockLibrary) = (files, library);
         p.Data.Blocks = list.ToDictionary(kv => kv.Key.ToString("X3"), kv => kv.Value.File);
         p.Save();
 
@@ -169,7 +184,7 @@ public class GpsInsertTests
         Assert.NotNull(built);
         Assert.Equal([0x200, 0x2FF], GpsBlocks.Read(Rom.Load(built!))!.Blocks.Keys.Order());
 
-        File.AppendAllText(Path.Combine(p.GpsFolder, "blocks", "wall.asm"), "LDA.q #0\n");
+        p.Data.BlockLibrary["wall.asm"] += "LDA.q #0\n";
         (status, built) = RomBuilder.Build(p);
         Assert.Null(built);
         Assert.StartsWith("build failed: custom blocks: ", status);
@@ -186,8 +201,10 @@ public class GpsInsertTests
         string dir = Directory.CreateTempSubdirectory("pipedream-proj-").FullName;
         var p = Project.Create(Path.Combine(dir, "proj"), ReferenceRoms.Vanilla);
         Assert.Equal(RomPrep.Version, p.Data.BaseRom.PrepVersion);
-        Assert.Null(GpsInsert.Import(Folder("200:0130 above.asm\n"), p.GpsFolder, out var list));
-        // What the session does with the list: the block into Blocks, the acts-like into ActsAs.
+        Assert.Null(GpsInsert.Import(Folder("200:0130 above.asm\n"), out var list, out var files, out var library));
+        // What the session does with the import: the files and library in, the block into
+        // Blocks, the acts-like into ActsAs.
+        (p.Data.GpsFiles, p.Data.BlockLibrary) = (files, library);
         p.Data.Blocks["200"] = list[0x200].File;
         p.Data.Map16.ActsAs["200"] = list[0x200].ActsLike;
         p.Save();
@@ -206,28 +223,53 @@ public class GpsInsertTests
     }
 
     [Fact]
-    public void import_copies_the_assembly_only_returns_the_list_and_a_bad_folder_keeps_the_last_import()
+    public void import_reads_the_assembly_only_and_a_bad_folder_hands_nothing_over()
     {
         string src = Folder("200:0130 above.asm\n");
         Directory.CreateDirectory(Path.Combine(src, "blocks", "sub"));
         File.WriteAllText(Path.Combine(src, "blocks", "sub", "x.asm"), "RTL\n");
+        File.WriteAllText(Path.Combine(src, "blocks", "notes.txt"), "");
         File.WriteAllText(Path.Combine(src, "gps.exe"), "");
-        string dest = Path.Combine(Directory.CreateTempSubdirectory("pipedream-proj-").FullName, "gps");
 
-        Assert.Null(GpsInsert.Import(src, dest, out var list));
+        Assert.Null(GpsInsert.Import(src, out var list, out var files, out var library));
         Assert.Equal(("above.asm", 0x130), (list[0x200].File, list[0x200].ActsLike));
-        Assert.False(File.Exists(Path.Combine(dest, "list.txt")));              // the project's now
-        Assert.True(File.Exists(Path.Combine(dest, "main.asm")));
-        Assert.True(File.Exists(Path.Combine(dest, "blocks", "sub", "x.asm")));
-        Assert.True(File.Exists(Path.Combine(dest, "routines", "sparkle.asm")));
-        Assert.False(File.Exists(Path.Combine(dest, "gps.exe")));
+        Assert.Equal(["main.asm", "routines/sparkle.asm", "routines/unused.asm"], files.Keys.Order());   // no list.txt, no gps.exe
+        Assert.Equal(["above.asm", "sub/x.asm", "wall.asm"], library.Keys.Order());
+        Assert.Equal(Above, library["above.asm"]);
 
-        File.WriteAllText(Path.Combine(dest, "blocks", "kept.asm"), "RTL\n");
-        string bad = Folder("200 above.asm\n201 missing.asm\n");
-        Assert.Equal("list.txt line 2: blocks/missing.asm not found", GpsInsert.Import(bad, dest, out list));
-        Assert.Empty(list);
-        Assert.True(File.Exists(Path.Combine(dest, "blocks", "kept.asm")));
-        Assert.Equal("list.txt line 1: block id out of bounds", GpsInsert.Import(Folder("1FF above.asm\n"), dest, out _));
+        Assert.Equal("list.txt line 2: blocks/missing.asm not found",
+            GpsInsert.Import(Folder("200 above.asm\n201 missing.asm\n"), out list, out files, out library));
+        Assert.Empty(list); Assert.Empty(files); Assert.Empty(library);
+        Assert.Equal("list.txt line 1: block id out of bounds", GpsInsert.Import(Folder("1FF above.asm\n"), out _, out _, out _));
+    }
+
+    /// <summary>A project from before the library kept its import in gps/ beside the .pdp; opening
+    /// it reads that into the .pdp, which from then on carries the blocks alone.</summary>
+    [Fact]
+    public void an_old_projects_gps_folder_moves_into_the_pdp_and_the_pdp_alone_carries_it()
+    {
+        string dir = Directory.CreateTempSubdirectory("pipedream-proj-").FullName, rom = Path.Combine(dir, "base.sfc");
+        File.WriteAllBytes(rom, LmSaved().Data);
+        var p = Project.Create(Path.Combine(dir, "proj"), rom);
+        p.Data.Blocks["200"] = "above.asm";
+        p.Save();
+        string old = Folder("");
+        foreach (var f in new[] { "main.asm", "blocks/above.asm", "blocks/wall.asm", "routines/sparkle.asm" })
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.Combine(p.GpsFolder, f))!);
+            File.Copy(Path.Combine(old, f), Path.Combine(p.GpsFolder, f));
+        }
+
+        var opened = Project.Open(p.FilePath);
+        Assert.Equal(["main.asm", "routines/sparkle.asm"], opened.Data.GpsFiles.Keys.Order());
+        Assert.Equal(["above.asm", "wall.asm"], opened.Data.BlockLibrary.Keys.Order());
+        opened.Save();
+
+        Directory.Delete(p.GpsFolder, true);
+        var shared = Project.Open(p.FilePath);
+        Assert.Equal(Above, shared.Data.BlockLibrary["above.asm"]);
+        Assert.Equal(MainAsm, shared.Data.GpsFiles["main.asm"]);
+        Assert.Equal("above.asm", shared.Data.Blocks["200"]);
     }
 
     [Fact]
@@ -251,38 +293,53 @@ public class GpsInsertTests
         Assert.True(s.NewProject(Path.Combine(dir, "proj"), ReferenceRoms.Vanilla), s.Status);
         s.ShowLevel(0x105);
         Assert.False(s.HasGpsDriver);
-        Assert.Equal("import a GPS folder first — its main.asm is what inserts blocks", s.NewBlock("spin", out _));
 
         s.ImportGps(Folder("200:0130 above.asm\n"));
-        Assert.StartsWith("imported GPS folder: 1 block tile(s), 1 acts-like", s.Status);
+        Assert.StartsWith("imported GPS folder: 2 block(s), 1 block tile(s), 1 acts-like", s.Status);
+        Assert.True(s.HasGpsDriver);
         var e = Assert.Single(s.BlockEntries);
-        Assert.Equal((0x200, "above.asm", true, 0x130, false), (e.Tile, e.File, e.FileExists, e.ActsLike, e.Built));
-        Assert.Equal(["above.asm", "wall.asm"], s.BlockFiles);
+        Assert.Equal((0x200, "above.asm", true, 0x130, false), (e.Tile, e.File, e.InLibrary, e.ActsLike, e.Built));
+        Assert.Equal(["above.asm", "wall.asm"], s.BlockNames);
 
         Assert.Equal("tile 2FF: wall.asm", s.AssignBlock(0x2FF, "wall.asm"));
         Assert.StartsWith("tile 1FF cannot be a custom block", s.AssignBlock(0x1FF, "wall.asm"));
-        Assert.Equal("gps/blocks/nope.asm does not exist", s.AssignBlock(0x201, "nope.asm"));
-        Assert.Equal("created gps/blocks/spin.asm", s.NewBlock("spin", out var made));
+        Assert.Equal("nope.asm is not in the library", s.AssignBlock(0x201, "nope.asm"));
+        Assert.Equal("added spin.asm to the library", s.NewBlock("spin", out var made));
         Assert.Equal("spin.asm", made);
-        Assert.Equal("gps/blocks/spin.asm already exists", s.NewBlock("spin.asm", out _));
+        Assert.Equal("spin.asm is already in the library", s.NewBlock("spin.asm", out _));
         Assert.Equal("a block name is letters, digits, _ and -", s.NewBlock("../x", out _));
         Assert.Equal("tile 201: spin.asm", s.AssignBlock(0x201, "spin.asm"));
+        Assert.Equal("tile 202: spin.asm", s.AssignBlock(0x202, "spin.asm"));          // many tiles, one block
         Assert.Equal("spin.asm", s.BlockFileOf(0x201));
+        string file = Path.Combine(dir, "lib.asm");
+        File.WriteAllText(file, "db $42\nRTL\n");
+        Assert.Equal("added lib.asm to the library", s.ImportBlockFile(file, out _));
+        Assert.Equal("added lib.asm to the library", s.Status);
 
         s.Build();
         Assert.StartsWith("built ", s.Status);
         var rows = s.BlockEntries;
-        Assert.Equal([0x200, 0x201, 0x2FF], rows.Select(r => r.Tile));
+        Assert.Equal([0x200, 0x201, 0x202, 0x2FF], rows.Select(r => r.Tile));
         Assert.All(rows, r => Assert.True(r.Built));
         Assert.Equal(["Mario above"], rows[0].Handled);
         Assert.Empty(rows[1].Handled);                                  // the template: RTL on every contact
-        Assert.Equal(["wall feet"], rows[2].Handled);
+        Assert.Equal(["wall feet"], rows[3].Handled);
+        var built = GpsBlocks.Read(Rom.Load(Path.Combine(dir, "proj", "build", "proj.smc")))!;
+        Assert.Equal(built.Blocks[0x201].Addr, built.Blocks[0x202].Addr);           // one copy of spin
+        Assert.Equal(3, built.Blocks.Values.Select(b => b.Addr).Distinct().Count()); // lib.asm, run nowhere, not inserted
+
+        s.SetBlockSource("spin.asm", s.BlockSource("spin.asm")!.Replace("    RTL", "    LDA #$01 : STA $19\n    RTL"));
+        s.Build();
+        Assert.Equal(GpsBlocks.Contacts[..10], Assert.Single(s.BlockEntries, r => r.Tile == 0x201).Handled);   // the edit was built
         Assert.Equal(0x130, Rom.Load(Path.Combine(dir, "proj", "build", "proj.smc")).ActsAs(0x200));
 
+        Assert.Equal("spin.asm runs on 2 tile(s) — take it off them first", s.DeleteBlock("spin.asm"));
         Assert.Equal("tile 201: block removed", s.AssignBlock(0x201, null));
         Assert.Equal("tile 201 has no block", s.AssignBlock(0x201, ""));
-        Assert.Equal([0x200, 0x2FF], s.BlockEntries.Select(r => r.Tile));
-        Assert.True(File.Exists(Path.Combine(dir, "proj", "gps", "blocks", "spin.asm")));   // the file stays
+        Assert.Equal([0x200, 0x202, 0x2FF], s.BlockEntries.Select(r => r.Tile));
+        Assert.Contains("spin.asm", s.BlockNames);                                 // the block stays
+        Assert.Equal("deleted lib.asm", s.DeleteBlock("lib.asm"));
+        Assert.False(Directory.Exists(Path.Combine(dir, "proj", "gps")));          // nothing beside the .pdp
     }
 
     /// <summary>The picker leads with "none", marks the tile's current block, and names the tiles.</summary>
@@ -304,6 +361,7 @@ public class GpsInsertTests
     {
         var w = new PipeDream.Ui.BlocksWindow(new PipeDream.Services.EditorSession());
         Assert.Empty((System.Collections.IEnumerable)w.GetControl<ListBox>("Blocks").ItemsSource!);
+        Assert.Empty((System.Collections.IEnumerable)w.GetControl<ListBox>("Library").ItemsSource!);
         Assert.Contains("no blocks yet", w.GetControl<TextBlock>("Hint").Text);
     }
 

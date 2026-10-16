@@ -22,18 +22,17 @@
     <StackPanel DockPanel.Dock="Top" Spacing="8">
       <TextBlock x:Name="Subject" Classes="dim" TextWrapping="Wrap"/>
       <TextBlock Classes="dim" TextWrapping="Wrap"
-                 Text="The block's code runs on the tile's contacts; what the tile does otherwise is still its acts-like. The files are the project's gps/blocks/."/>
+                 Text="The block's code runs on the tile's contacts; what the tile does otherwise is still its acts-like. The list is the project's block library — edit a block in ASM ▸ Custom blocks."/>
       <StackPanel Orientation="Horizontal" Spacing="8">
         <TextBox x:Name="NewName" Width="190" Watermark="new block name"/>
         <Button Content="New block" Click="OnNew"
-                ToolTip.Tip="Writes gps/blocks/&lt;name&gt;.asm from a template that does nothing on any contact, opens it, and selects it here"/>
+                ToolTip.Tip="Adds a block to the library from a template that does nothing on any contact, and selects it here"/>
       </StackPanel>
     </StackPanel>
 
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right"
                 Spacing="8" Margin="0,12,0,0">
       <TextBlock x:Name="Hint" Classes="dim" TextWrapping="Wrap" MaxWidth="220"/>
-      <Button Content="Open .asm" Click="OnOpenFile"/>
       <Button Content="Cancel" Click="OnCancel" IsCancel="True"/>
       <Button Content="Use" Click="OnUse" IsDefault="True"/>
     </StackPanel>

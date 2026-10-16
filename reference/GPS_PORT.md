@@ -12,6 +12,7 @@ without shelling out to `gps.exe`. Started 2026-10-10. Background on GPS's on-RO
 | Where do blocks come from? | **Both**: import an existing GPS folder, and create/edit blocks in the app | Existing hacks move over unchanged; app-made blocks use the same files and format. |
 | First milestone? | **Read what's already there** | No assembler: detect a GPS-inserted ROM and show which Map16 tiles are custom blocks. |
 | Where does list.txt live? (2026-10-15) | **Nowhere.** Tile → block is `ProjectFile.Blocks`, a block's acts-like is an ordinary Map16 acts-as entry | list.txt is read once, at import, and converted; the assembly (main.asm, blocks/, routines/) stays as files in gps/. The app's Blocks list edits the project, not a text file, and acts-like has one owner. |
+| Where do the blocks live? (2026-10-16) | **In project.pdp.** A block library (`ProjectFile.BlockLibrary`: name → ASM) and, separately, which tile runs which (`ProjectFile.Blocks`, many tiles to one block); the driver and routines in `ProjectFile.GpsFiles` | Sharing the .pdp shares everything — the project's core rule. A block can sit in the library run by no tile, and is then not inserted. Asar reads it all as in-memory files, so nothing is written to disk to build. Plain text for now; gzip if size ever matters. |
 
 ## What GPS does, which is what we have to do
 
@@ -136,7 +137,12 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
   not copied. The import checks list.txt parses and every listed block exists, and stages the
   copy before swapping it in, so a bad folder keeps the last import and hands over no list. The
   assembly sits beside project.pdp, not in it, so blocks stay editable in the user's editor;
-  sharing a project with blocks means sharing gps/ too.
+  sharing a project with blocks means sharing gps/ too. **Superseded 2026-10-16:** the import
+  now reads the folder into the .pdp — driver and routines into `GpsFiles` (replacing the last
+  import's), blocks/*.asm into `BlockLibrary` (merged by name), list.txt over `Blocks` — and a
+  project with the old gps/ folder has it read in on open (`Project.Open`; the folder is left on
+  disk). The real GPS 1.4.5 folder inserted onto What The Shell 2!! this way is byte-identical
+  to the folder-based inserter's output.
 - **Build (2026-10-14):** `RomBuilder.Build` inserts the project's blocks first, before
   `ReplayMap16`, so the old insertion's space is freed before Pipe Dream allocates. The inserter
   puts the acts-like tables back as the ROM has them and `ReplayMap16` then writes the project's
@@ -187,11 +193,12 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
   the LAST BUILD (`build/<name>.smc`), because a block exists on a ROM only once assembled into
   one: before a build it says so, after one it names the contacts or "no code on any contact".
   New block writes a template of OUR own — header `$42`, every contact's JMP landing on RTL, the
-  layout from GPS's documented format, not its `template.asm` — and opens it with the OS's .asm
-  association; it needs the imported driver (gps/main.asm), which we cannot ship. Build is the
+  layout from GPS's documented format, not its `template.asm`. Since 2026-10-16 the window is the
+  library: blocks are added (New, Import .asm…), edited in an in-app editor (committed on picking
+  another block, Build and Close), deleted when no tile runs them, and run on tiles below. Build is the
   ordinary build, so an Asar error lands in the hint as `file:line: message`. The Map16 readout
   names the assigned block for the hovered tile, and the Map16 header's **Custom** button, beside
-  the acts-as field, opens `ui/BlockPickerWindow` — "none" first, then gps/blocks/, the tile's
+  the acts-as field, opens `ui/BlockPickerWindow` — "none" first, then the library, the tile's
   current block marked, New block available there too — and assigns the pick to every selected
   tile of pages 02-7F; the selection label then reads `Tile 0x0200 · solid.asm`. Not yet: a
   description column (the block's first `print`, which `GpsInsert.Result` already carries but the

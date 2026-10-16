@@ -223,8 +223,8 @@ public partial class MainWindow
         RefreshDrawer();
     }
 
-    /// <summary>Dev only: import a GPS folder — its assembly (blocks/, routines/, main.asm) into
-    /// the project's gps/, its list.txt into the project's blocks and acts-as — ready for the
+    /// <summary>Dev only: import a GPS folder — its driver and routines into the project, its
+    /// blocks into the library, its list.txt into the project's tiles and acts-as — ready for the
     /// build to insert. Says the outcome either way.</summary>
     private async void OnImportGps(object? sender, RoutedEventArgs e)
     {
@@ -238,7 +238,7 @@ public partial class MainWindow
         await ConfirmWindow.Notice("Import GPS folder", session.ImportGps(folder)).ShowDialog(this);
     }
 
-    /// <summary>ASM ▸ Custom blocks: the project's blocks — which tile runs which block file,
+    /// <summary>ASM ▸ Custom blocks: the project's block library and which tile runs which block,
     /// with what the last build found each handling. The one piece of the GPS work in shipped
     /// UI; the import that feeds it stays in Debug (reference/GPS_PORT.md "Open questions" on
     /// Asar's licence).</summary>

@@ -120,14 +120,16 @@ internal static class RomBuilder
     /// skipped with a warning. Returns a build failure, or null.</summary>
     private static string? InsertGps(Rom rom, Project project, List<string> warnings)
     {
-        if (!Directory.Exists(project.GpsFolder)) return null;
+        // No driver and nothing assigned: the project has never had blocks. A driver with no
+        // tiles still runs, so blocks taken off every tile are cleaned off the ROM.
+        if (project.Data.GpsFiles.Count == 0 && project.Data.Blocks.Count == 0) return null;
         if (!Asar.Available) { warnings.Add("custom blocks skipped (Asar library not found)"); return null; }
         // Prep carries LM's custom-block dispatch from v30; before that the blocks would insert
         // and never run (RomPrep.AppendV30Stamps), so an older prepped base is told to upgrade.
         if (project.Data.BaseRom.PrepVersion > 0 && !RomPrep.HasLmBlockDispatch(rom))
             return $"build failed: custom blocks need prep v30 (File → Upgrade base to prep v{RomPrep.Version})";
         GpsInsert.Result r;
-        try { r = GpsInsert.Insert(rom, project.GpsFolder, GpsInsert.BlocksOf(project.Data)); }
+        try { r = GpsInsert.Insert(rom, project.Data.GpsFiles, project.Data.BlockLibrary, GpsInsert.BlocksOf(project.Data)); }
         catch (FormatException e) { return "build failed: custom blocks: " + e.Message; }
         if (!r.Ok) return "build failed: custom blocks: " + string.Join("; ", r.Errors);
         warnings.AddRange(r.Warnings.Select(w => "custom blocks: " + w));
