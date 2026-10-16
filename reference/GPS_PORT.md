@@ -216,8 +216,8 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
   the project's driver came from an imported GPS folder; while it is non-zero,
   `EditorSession.BlocksLockedReason` refuses every block action (new, import, edit, remove,
   assign, open), the Blocks window shows the notice with only Import GPS folder… live, and the
-  build fails rather than clean them out. Import GPS folder… moved from Debug to the ASM menu and
-  sits in the Blocks window's header. Adopting the old blocks without their folder is not done.
+  build fails rather than clean them out. Import GPS folder… moved from the Debug menu into the
+  Blocks window's header, its only home. Adopting the old blocks without their folder is not done.
 
 ## The local oracle: GPS and Asar built on the Mac
 

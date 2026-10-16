@@ -221,24 +221,8 @@ public partial class MainWindow
         RefreshDrawer();
     }
 
-    /// <summary>ASM ▸ Import GPS folder: a GPS folder — its driver and routines into the project, its
-    /// blocks into the library, its list.txt into the project's tiles and acts-as — ready for the
-    /// build to insert. Says the outcome either way.</summary>
-    private async void OnImportGps(object? sender, RoutedEventArgs e)
-    {
-        if (session.ProjectName is null) return;
-        await SettleBeforeNativeDialog();
-        var dirs = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-        {
-            Title = "Choose the GPS folder (the one with list.txt)", AllowMultiple = false,
-        });
-        if (dirs.Count == 0 || dirs[0].TryGetLocalPath() is not { } folder) return;
-        await ConfirmWindow.Notice("Import GPS folder", session.ImportGps(folder)).ShowDialog(this);
-    }
-
-    /// <summary>ASM ▸ Custom blocks: the project's block library — import, edit and remove blocks.
-    /// The one piece of the GPS work in shipped UI; the import that feeds it stays in Debug (reference/GPS_PORT.md "Open questions" on
-    /// Asar's licence).</summary>
+    /// <summary>ASM ▸ Custom blocks: the project's block library — new, import, edit and remove
+    /// blocks, and Import GPS folder… for a whole GPS folder.</summary>
     private async void OnBlocks(object? sender, RoutedEventArgs e)
     {
         if (!session.HasProject) return;

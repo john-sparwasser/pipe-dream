@@ -354,8 +354,6 @@
       <!-- Assembly the build inserts into the ROM: custom blocks today (reference/GPS_PORT.md). -->
       <MenuItem Header="_ASM">
         <MenuItem Header="Custom _blocks…" Click="OnBlocks"/>
-        <MenuItem Header="Import _GPS folder…" Click="OnImportGps"
-                  ToolTip.Tip="Bring in a GPS folder: its blocks, its list of which tile runs which, and the routines they call"/>
       </MenuItem>
       <!-- Only in a - -dev launch (the F5 profile): shortcuts for testing, never shipped UI. -->
       <MenuItem x:Name="DebugMenu" Header="De_bug" IsVisible="False">

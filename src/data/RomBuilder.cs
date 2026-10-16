@@ -125,7 +125,7 @@ internal static class RomBuilder
         if (project.Data.GpsFiles.Count == 0 && project.Data.Blocks.Count == 0) return null;
         if (!Asar.Available) { warnings.Add("custom blocks skipped (Asar library not found)"); return null; }
         if (GpsInsert.ForeignBlocks(rom, project.Data.GpsFiles) is var n and > 0)
-            return $"build failed: the base ROM already has {n} custom blocks from GPS — import their GPS folder (ASM → Import GPS folder…) first";
+            return $"build failed: the base ROM already has {n} custom blocks from GPS — import their GPS folder (ASM → Custom blocks → Import GPS folder…) first";
         // Prep carries LM's custom-block dispatch from v30; before that the blocks would insert
         // and never run (RomPrep.AppendV30Stamps), so an older prepped base is told to upgrade.
         if (project.Data.BaseRom.PrepVersion > 0 && !RomPrep.HasLmBlockDispatch(rom))
