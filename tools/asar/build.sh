@@ -7,7 +7,7 @@
 # working on the fork. Usage: tools/asar/build.sh <out-dir>   — the last line printed is the
 # library's path, for PIPEDREAM_ASAR.
 set -eu
-pin=5b38db8065a777c09468745110634923c9dc0981
+pin=ed02c322fe85524e843a13eea1719d3f459ffae9
 out=$(cd "${1:?usage: build.sh <out-dir>}" && pwd)
 # Git Bash on Windows: CMake and MSVC want C:/... rather than /c/...
 if command -v cygpath >/dev/null 2>&1; then out=$(cygpath -m "$out"); fi
