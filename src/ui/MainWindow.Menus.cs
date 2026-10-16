@@ -223,8 +223,9 @@ public partial class MainWindow
         RefreshDrawer();
     }
 
-    /// <summary>Dev only: copy a GPS folder (list.txt, blocks/, routines/, main.asm) into the
-    /// project, ready for the build to insert. Says the outcome either way.</summary>
+    /// <summary>Dev only: import a GPS folder — its assembly (blocks/, routines/, main.asm) into
+    /// the project's gps/, its list.txt into the project's blocks and acts-as — ready for the
+    /// build to insert. Says the outcome either way.</summary>
     private async void OnImportGps(object? sender, RoutedEventArgs e)
     {
         if (session.ProjectName is null) return;

@@ -59,6 +59,10 @@ public class GpsInsertTests
             RTL
         """;
 
+    /// <summary>A list.txt's tiles as Insert takes them from a project: tile → file.</summary>
+    private static Dictionary<int, string> Blocks(string list)
+        => GpsInsert.ParseList(list).ToDictionary(kv => kv.Key, kv => kv.Value.File);
+
     /// <summary>A GPS folder in a temp dir with <paramref name="list"/> as its list.txt.</summary>
     private static string Folder(string list)
     {
@@ -92,10 +96,10 @@ public class GpsInsertTests
     private static int Claimed(Rom rom) => RatsWriter.EnumerateRats(rom).Sum(r => r.Size + 8);
 
     [AsarFact]
-    public void inserts_each_listed_tile_with_its_acts_like_and_shares_one_copy_per_file()
+    public void inserts_each_tile_sharing_one_copy_per_file_and_leaves_acts_like_to_the_project()
     {
         var rom = LmSaved();
-        var r = GpsInsert.Insert(rom, Folder("200:0130\tabove.asm\nR203-214:0025 above.asm\n2FF wall.asm\n"));
+        var r = GpsInsert.Insert(rom, Folder(""), Blocks("200\tabove.asm\nR203-214 above.asm\n2FF wall.asm\n"));
 
         Assert.True(r.Ok, string.Join("\n", r.Errors));
         var gps = GpsBlocks.Read(rom)!;
@@ -103,9 +107,12 @@ public class GpsInsertTests
         Assert.Single(gps.Blocks.Values.Where(b => b.Tile != 0x2FF).Select(b => b.Addr).Distinct());
         Assert.Equal(["Mario above"], gps.Blocks[0x200].HandledContacts);
         Assert.Equal(["wall feet"], gps.Blocks[0x2FF].HandledContacts);
+        // The acts-like table came back as it was (the project's edits are the build's to write).
         int acts = rom.ReadValue(0x06F624, 3);                   // read as LM's hook does: no hook code here
-        Assert.Equal([0x130, 0x25, 0x4C], new[] { 0x200, 0x203, 0x2FF }.Select(t => rom.ReadValue(acts + t * 2, 2)));
+        Assert.Equal([0, 0, 0x4C], new[] { 0x200, 0x203, 0x2FF }.Select(t => rom.ReadValue(acts + t * 2, 2)));
         Assert.Equal(["above only"], r.Blocks.Single(b => b.Tile == 0x200).Prints);
+        Assert.Equal("tile 1FF cannot be a custom block (pages 02-7F only)",
+            Assert.Single(GpsInsert.Insert(rom, Folder(""), new Dictionary<int, string> { [0x1FF] = "above.asm" }).Errors));
 
         // The routine went to freespace once, its slot names it, and only the used one is filled.
         int sparkle = rom.ReadValue(0x0CB66F, 3);
@@ -119,15 +126,15 @@ public class GpsInsertTests
     public void reinserting_frees_the_last_insertion_first()
     {
         var rom = LmSaved();
-        string dir = Folder("200 above.asm\n2FF wall.asm\n");
-        Assert.True(GpsInsert.Insert(rom, dir).Ok);
+        string dir = Folder("");
+        var blocks = Blocks("200 above.asm\n2FF wall.asm\n");
+        Assert.True(GpsInsert.Insert(rom, dir, blocks).Ok);
         int once = Claimed(rom);
 
-        Assert.True(GpsInsert.Insert(rom, dir).Ok);
+        Assert.True(GpsInsert.Insert(rom, dir, blocks).Ok);
         Assert.Equal(once, Claimed(rom));                         // nothing leaked
 
-        File.WriteAllText(Path.Combine(dir, "list.txt"), "300 wall.asm\n");
-        Assert.True(GpsInsert.Insert(rom, dir).Ok);
+        Assert.True(GpsInsert.Insert(rom, dir, Blocks("300 wall.asm\n")).Ok);
         Assert.Equal([0x300], GpsBlocks.Read(rom)!.Blocks.Keys);
         Assert.Equal(0xFFFFFF, rom.ReadValue(0x0CB66F, 3));        // sparkle's slot emptied with its last user
     }
@@ -136,11 +143,11 @@ public class GpsInsertTests
     public void a_file_without_a_block_header_fails_and_leaves_the_rom_alone()
     {
         var rom = LmSaved();
-        string dir = Folder("200 bad.asm\n");
+        string dir = Folder("");
         File.WriteAllText(Path.Combine(dir, "blocks", "bad.asm"), "db $00\nRTL\n");
         var before = rom.Data.ToArray();
 
-        var r = GpsInsert.Insert(rom, dir);
+        var r = GpsInsert.Insert(rom, dir, Blocks("200 bad.asm\n"));
 
         Assert.False(r.Ok);
         Assert.Contains("db $42 or db $37", Assert.Single(r.Errors));
@@ -153,7 +160,9 @@ public class GpsInsertTests
         string dir = Directory.CreateTempSubdirectory("pipedream-proj-").FullName, rom = Path.Combine(dir, "base.sfc");
         File.WriteAllBytes(rom, LmSaved().Data);
         var p = Project.Create(Path.Combine(dir, "proj"), rom);
-        Assert.Null(GpsInsert.Import(Folder("200 above.asm\n2FF wall.asm\n"), p.GpsFolder));
+        Assert.Null(GpsInsert.Import(Folder("200 above.asm\n2FF wall.asm\n"), p.GpsFolder, out var list));
+        p.Data.Blocks = list.ToDictionary(kv => kv.Key.ToString("X3"), kv => kv.Value.File);
+        p.Save();
 
         var (status, built) = RomBuilder.Build(p);
         Assert.NotNull(built);
@@ -176,7 +185,11 @@ public class GpsInsertTests
         string dir = Directory.CreateTempSubdirectory("pipedream-proj-").FullName;
         var p = Project.Create(Path.Combine(dir, "proj"), ReferenceRoms.Vanilla);
         Assert.Equal(RomPrep.Version, p.Data.BaseRom.PrepVersion);
-        Assert.Null(GpsInsert.Import(Folder("200:0130 above.asm\n"), p.GpsFolder));
+        Assert.Null(GpsInsert.Import(Folder("200:0130 above.asm\n"), p.GpsFolder, out var list));
+        // What the session does with the list: the block into Blocks, the acts-like into ActsAs.
+        p.Data.Blocks["200"] = list[0x200].File;
+        p.Data.Map16.ActsAs["200"] = list[0x200].ActsLike;
+        p.Save();
 
         var (status, built) = RomBuilder.Build(p);
 
@@ -192,24 +205,36 @@ public class GpsInsertTests
     }
 
     [Fact]
-    public void import_copies_the_inputs_only_and_a_bad_folder_keeps_the_last_import()
+    public void import_copies_the_assembly_only_returns_the_list_and_a_bad_folder_keeps_the_last_import()
     {
-        string src = Folder("200 above.asm\n");
+        string src = Folder("200:0130 above.asm\n");
         Directory.CreateDirectory(Path.Combine(src, "blocks", "sub"));
         File.WriteAllText(Path.Combine(src, "blocks", "sub", "x.asm"), "RTL\n");
         File.WriteAllText(Path.Combine(src, "gps.exe"), "");
         string dest = Path.Combine(Directory.CreateTempSubdirectory("pipedream-proj-").FullName, "gps");
 
-        Assert.Null(GpsInsert.Import(src, dest));
-        Assert.True(File.Exists(Path.Combine(dest, "list.txt")));
+        Assert.Null(GpsInsert.Import(src, dest, out var list));
+        Assert.Equal(("above.asm", 0x130), (list[0x200].File, list[0x200].ActsLike));
+        Assert.False(File.Exists(Path.Combine(dest, "list.txt")));              // the project's now
+        Assert.True(File.Exists(Path.Combine(dest, "main.asm")));
         Assert.True(File.Exists(Path.Combine(dest, "blocks", "sub", "x.asm")));
         Assert.True(File.Exists(Path.Combine(dest, "routines", "sparkle.asm")));
         Assert.False(File.Exists(Path.Combine(dest, "gps.exe")));
 
+        File.WriteAllText(Path.Combine(dest, "blocks", "kept.asm"), "RTL\n");
         string bad = Folder("200 above.asm\n201 missing.asm\n");
-        Assert.Equal("list.txt line 2: blocks/missing.asm not found", GpsInsert.Import(bad, dest));
-        Assert.Equal("200 above.asm\n", File.ReadAllText(Path.Combine(dest, "list.txt")));
-        Assert.Equal("list.txt line 1: block id out of bounds", GpsInsert.Import(Folder("1FF above.asm\n"), dest));
+        Assert.Equal("list.txt line 2: blocks/missing.asm not found", GpsInsert.Import(bad, dest, out list));
+        Assert.Empty(list);
+        Assert.True(File.Exists(Path.Combine(dest, "blocks", "kept.asm")));
+        Assert.Equal("list.txt line 1: block id out of bounds", GpsInsert.Import(Folder("1FF above.asm\n"), dest, out _));
+    }
+
+    [Fact]
+    public void a_projects_blocks_are_keyed_by_tile_hex()
+    {
+        var data = new ProjectFile { Blocks = { ["200"] = "a.asm", ["2FF"] = "b.asm" } };
+        Assert.Equal(new Dictionary<int, string> { [0x200] = "a.asm", [0x2FF] = "b.asm" }, GpsInsert.BlocksOf(data));
+        Assert.Throws<FormatException>(() => GpsInsert.BlocksOf(new ProjectFile { Blocks = { ["zz"] = "a.asm" } }));
     }
 
     [Fact]

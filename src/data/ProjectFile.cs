@@ -40,6 +40,15 @@ public sealed class ProjectFile
     /// so an older .pdp still loads unchanged.</summary>
     public Dictionary<string, string> CourseBot { get; set; } = new();
 
+    /// <summary>Custom blocks: Map16 tile hex ("200") → the block's file under the project's
+    /// gps/blocks/ (reference/GPS_PORT.md). This is what gps.exe reads from list.txt, kept as an
+    /// edit of the project's rather than a copied text file: one tile, one file, no ranges, and a
+    /// block's acts-like is an ordinary <see cref="Map16State.ActsAs"/> entry, so the Map16
+    /// editor and the build never disagree about it. The assembly itself (main.asm, blocks/,
+    /// routines/) stays as files beside the .pdp. A separate map, so an older .pdp still loads
+    /// unchanged.</summary>
+    public Dictionary<string, string> Blocks { get; set; } = new();
+
     /// <summary>LM ExAnimation (reference/EXANIMATION.md): the encoded record per level (key =
     /// level hex, value = ExAnimation.Encode hex, alt-file index in its header) and the global
     /// list's. Source files 60-63 live in <see cref="Gfx"/> under their ids.</summary>

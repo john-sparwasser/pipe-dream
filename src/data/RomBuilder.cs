@@ -114,10 +114,10 @@ internal static class RomBuilder
         }
     }
 
-    /// <summary>The project's GPS folder, inserted first: its cleanup frees the base's old blocks
-    /// before anything else allocates, and the project's own acts-like edits (ReplayMap16, next)
-    /// land over list.txt's. Without the Asar library the blocks are skipped with a warning.
-    /// Returns a build failure, or null.</summary>
+    /// <summary>The project's custom blocks, inserted first: the cleanup frees the base's old
+    /// blocks before anything else allocates, and the acts-like table is then the project's to
+    /// write (ReplayMap16, next), block tiles included. Without the Asar library the blocks are
+    /// skipped with a warning. Returns a build failure, or null.</summary>
     private static string? InsertGps(Rom rom, Project project, List<string> warnings)
     {
         if (!Directory.Exists(project.GpsFolder)) return null;
@@ -127,8 +127,8 @@ internal static class RomBuilder
         if (project.Data.BaseRom.PrepVersion > 0 && !RomPrep.HasLmBlockDispatch(rom))
             return $"build failed: custom blocks need prep v30 (File → Upgrade base to prep v{RomPrep.Version})";
         GpsInsert.Result r;
-        try { r = GpsInsert.Insert(rom, project.GpsFolder); }
-        catch (FormatException e) { return "build failed: gps/" + e.Message; }
+        try { r = GpsInsert.Insert(rom, project.GpsFolder, GpsInsert.BlocksOf(project.Data)); }
+        catch (FormatException e) { return "build failed: custom blocks: " + e.Message; }
         if (!r.Ok) return "build failed: custom blocks: " + string.Join("; ", r.Errors);
         warnings.AddRange(r.Warnings.Select(w => "custom blocks: " + w));
         return null;

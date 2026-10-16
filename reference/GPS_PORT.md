@@ -11,6 +11,7 @@ without shelling out to `gps.exe`. Started 2026-10-10. Background on GPS's on-RO
 | How are blocks assembled? | **Link Asar as a library** (its C ABI through upstream's `asar.cs`), not the CLI | Full Asar compatibility from the start; our code is GPS's logic and the UI. A native library per platform, and a licence to settle before it ships. |
 | Where do blocks come from? | **Both**: import an existing GPS folder, and create/edit blocks in the app | Existing hacks move over unchanged; app-made blocks use the same files and format. |
 | First milestone? | **Read what's already there** | No assembler: detect a GPS-inserted ROM and show which Map16 tiles are custom blocks. |
+| Where does list.txt live? (2026-10-15) | **Nowhere.** Tile → block is `ProjectFile.Blocks`, a block's acts-like is an ordinary Map16 acts-as entry | list.txt is read once, at import, and converted; the assembly (main.asm, blocks/, routines/) stays as files in gps/. The app's Blocks list edits the project, not a text file, and acts-like has one owner. |
 
 ## What GPS does, which is what we have to do
 
@@ -104,11 +105,11 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
   tree. Not offered upstream.
 
 ### 3. Insert blocks from a GPS folder
-- Import copies `list.txt`, `blocks/`, `routines/` and the user's `main.asm`/`defines.asm` into
-  the project folder. Running *their* driver through Asar keeps exact compatibility, and means we
-  ship none of GPS's assembly.
-- C# does what `gps.exe` does around it: parse `list.txt`, generate the routine macros, assemble
-  each block, fill the tables, write the marker, clean up the last insertion.
+- Import copies `blocks/`, `routines/` and the user's `main.asm`/`defines.asm` into the project
+  folder, and `list.txt` into the project file (the decision above). Running *their* driver
+  through Asar keeps exact compatibility, and means we ship none of GPS's assembly.
+- C# does what `gps.exe` does around it: read the project's blocks, generate the routine
+  macros, assemble each block, fill the tables, write the marker, clean up the last insertion.
 - Build order with Pipe Dream's own allocations is decided here, once.
 - Exit: the same inputs built by Pipe Dream and by GPS give equivalent tables and block code
   (the local oracle below; compare extracted tables, not whole ROMs).
@@ -126,14 +127,20 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
   Differences from gps.exe, all from sharing one patch: two block files defining the same
   macro collide, and a define set by one block is visible to later ones. Not done: no `.dsc`,
   no `-O1`/`-O2`, no BTSD removal; import into a project and running it at build.
-- **Import (2026-10-14):** `GpsInsert.Import` copies list.txt, main.asm, defines.asm, blocks/
-  and routines/ into `<project>/gps/` (Debug ▸ Import GPS folder…). It checks list.txt parses
-  and every listed block exists, and stages the copy before swapping it in, so a bad folder
-  keeps the last import. The files sit beside project.pdp, not in it, so blocks stay editable
-  in the user's editor; sharing a project with blocks now means sharing gps/ too.
-- **Build (2026-10-14):** `RomBuilder.Build` inserts `gps/` first, before `ReplayMap16`, so
-  the old insertion's space is freed before Pipe Dream allocates and the project's acts-like
-  edits land over list.txt's. An Asar error fails the build with `file:line: message`; no
+- **Import (2026-10-14, reshaped 2026-10-15):** `GpsInsert.Import` copies main.asm, defines.asm,
+  blocks/ and routines/ into `<project>/gps/` (Debug ▸ Import GPS folder…) and hands list.txt
+  back parsed; the session puts each tile's block into `ProjectFile.Blocks` (tile hex → file
+  under gps/blocks/, ranges and rectangles expanded, a later line's tile wins) and each
+  acts-like the list gives through the Map16 editor's `SetActsAs`, so it lands in the live ROM
+  and in `Map16.ActsAs` like any other acts-as edit, one undo step per value. list.txt itself is
+  not copied. The import checks list.txt parses and every listed block exists, and stages the
+  copy before swapping it in, so a bad folder keeps the last import and hands over no list. The
+  assembly sits beside project.pdp, not in it, so blocks stay editable in the user's editor;
+  sharing a project with blocks means sharing gps/ too.
+- **Build (2026-10-14):** `RomBuilder.Build` inserts the project's blocks first, before
+  `ReplayMap16`, so the old insertion's space is freed before Pipe Dream allocates. The inserter
+  puts the acts-like tables back as the ROM has them and `ReplayMap16` then writes the project's
+  acts-as, block tiles included: one owner. An Asar error fails the build with `file:line: message`; no
   library skips the blocks with a warning. ~17 ms on What The Shell 2!! with the oracle list.
   **A prepped base takes blocks from prep v30**, which carries LM's custom-block dispatch
   (CONTRACT §PREP V30): through v29 the stubs GPS writes at `$06F690` had nothing calling them,
@@ -162,9 +169,10 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
   leave `$06F65C`-`$06F7EF` entirely alone, and that ROM plays the same (see CONTRACT §PREP V30
   for the follow-up this suggests). The level save writes 8 runs, none near the dispatch.
 
-### 4. Acts-like has one owner
+### 4. Acts-like has one owner  [DONE 2026-10-15]
 - `list.txt` acts-like values import into the project's Map16 acts-as, so the Map16 editor and
-  the block list can never disagree; the build writes them once, as it does today.
+  the block list can never disagree; the build writes them once, as it does today. Fell out of
+  moving list.txt into the project (phase 3's import): the inserter no longer writes acts-like.
 
 ### 5. Blocks in the app
 - A Blocks list (tile, file, acts-like, handled contacts), assign a block to a tile, new block
