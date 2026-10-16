@@ -656,6 +656,10 @@ differs by 8 bytes: LM's bookkeeping at `$0FEFE9` and the 4-byte checksum balanc
 (the RATS block at `$108000` that `RatsWriter` rebalances on every write). So a v31 that stamps
 those two runs makes the Map16 save a no-op on the dispatch, and its `--diff` against a v30 base
 should show `$06F65E` len 1, `$06F7A3` len 17 and the balance bytes at `$1080E8`, nothing else.
+**Prep v31 is those two runs (2026-10-16, CONTRACT §PREP V31):** `--prep … 31` from the clean ROM
+is byte-identical to the hand-stamped ROM (sha256 `41b4e7cf…`, now Golden V31), its own F9 in a
+fresh folder produced a ROM byte-identical to the hand-stamped one's, and the §2c build with the
+two runs stamped fires its block 3/3 in Mesen.
 
 **Our reader on a 3.40-saved ROM.** `--map16def <rom> 105 200` on the edited-import ROM reads
 the edited tile through LM's ladder — `070 p7 072 p7 071 p7 073 p7`, from the 8-byte block at

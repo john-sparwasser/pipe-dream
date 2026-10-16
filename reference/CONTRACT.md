@@ -2423,6 +2423,23 @@ WTS2's makes LM's Map16 save a no-op on the dispatch (GPS patches neither byte),
 keep the block. IsPrepped v30 = the four sites JSL to the trampolines, bank `$06` or `$86`. Golden
 V30 pinned.
 
+PREP V31 claims the custom-block dispatch at Lunar Magic 3.40's version (`RomPrep.AppendV31Stamps`;
+2026-10-16). Two runs over v30: the marker's version byte, `LM 11 01` → `LM 12 01` at `$06F65C`,
+and the fourth trampoline at `$06F7A0` as 3.40 writes it, 20 bytes (`JSR $F608 : LDA $0F : BEQ +4 :
+LDA $0A,s : BRA +2 : LDA $06,s : CMP #$DA : BEQ $06F7C0 : JMP $F602`) over v30's 19 from What The
+Shell 2!!'s older LM; `--diff` v30 → v31 is exactly `$06F65E` len 1, `$06F7A3` len 17 and the
+checksum balance. That is the v26 rule applied — claim the hack you carry, at the version you
+carry it — and what it buys is that 3.40's Map16 save (F9, `-ImportAllMap16`) finds nothing to
+upgrade: MEASURED on the v31 base itself, byte-identical to the hand-stamped ROM of 2026-10-15
+(`41b4e7cf…`, pinned as Golden V31), F9 changes zero bytes in `$06F650`-`$06F7FF`, a second F9
+writes nothing, the ROM boots and reaches `$105`, and a GPS block on a v31-stamped build fires 3/3
+walking into it (lives `$0DBE` → `0x63`, `0x04` standing). GPS reads neither changed byte. What it
+does NOT buy: the save still frees our extended-def block at `$128000` and installs its own ranges,
+on v29, v30 and v31 alike — §PREP V26's "upgrade offered" state, a separate question (LM_PARITY §2
+"Our reader on a 3.40-saved ROM"). IsPrepped v31 = the marker's version byte is 3.40's or later —
+true of every ROM 3.40 has Map16-saved, false of WTS2's `11`, which only Apply sees and Apply is
+only reached for a base of ours. Golden V31 pinned.
+
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 
 No unified sprite→tile table exists; each sprite's look comes from its graphics routine.

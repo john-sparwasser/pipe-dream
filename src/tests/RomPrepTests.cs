@@ -79,6 +79,10 @@ public class RomPrepTests
     private const string GoldenPrepV28Sha256 = "8856686d449e8769b132870658215a036f8e7836312836a4674e225b2431120b";
     private const string GoldenPrepV29Sha256 = "1fa4f67b931a8d40e403d979ced4bb469a9f604177952741ed100ab33527d0c5";
     private const string GoldenPrepV30Sha256 = "98ede2c577caaabd9fbba3a514c880a8e5af8ecdeb5868d30e792ace3178c8a9";
+    // Also the hash of the v30 base with v31's two runs written by hand and F9-saved in Lunar
+    // Magic 3.40 with nothing changed in the dispatch (LM_PARITY §2 "v31 measured ahead of itself"):
+    // that measurement is of THESE bytes only while this hash holds.
+    private const string GoldenPrepV31Sha256 = "41b4e7cfc13dfc0064dc01688ebce4549f18ceb3691e7a2af26f984acb41f87d";
 
     private static Rom Prepped()
     {
@@ -919,13 +923,41 @@ public class RomPrepTests
             Assert.Equal(GoldenPrepV29Sha256, RomHash.HeaderlessSha256File(tmp));
 
             File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
-            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V30)
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 30));     // frozen V30 stamp list
+            Assert.Equal(GoldenPrepV30Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V31)
             string cur = RomHash.HeaderlessSha256File(tmp);
             // Spelled out rather than left to the assertion message: xunit truncates a mismatch,
             // and this hash is what the NEXT version bump has to be told.
-            Assert.True(GoldenPrepV30Sha256 == cur, $"V30 golden hash is now {cur}");
+            Assert.True(GoldenPrepV31Sha256 == cur, $"V31 golden hash is now {cur}");
         }
         finally { File.Delete(tmp); }
+    }
+
+    /// <summary>V31 over V30 is exactly Lunar Magic 3.40's two Map16-save writes — the marker's
+    /// version byte and the 20-byte fourth trampoline — and nothing else but the checksum balance.
+    /// Measured: with these bytes in, 3.40's F9 changes nothing in the dispatch
+    /// (LM_PARITY §2 "v31 measured ahead of itself").</summary>
+    [RealRomFact]
+    public void v31_claims_the_block_dispatch_at_lunar_magic_340s_version()
+    {
+        var v30 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v30, 30);
+        var v31 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v31, 31);
+
+        Assert.Equal([0x4C, 0x4D, 0x12, 0x01], v31.Data[v31.FileOffset(RomPrep.LmBlockMarker)..][..4]);
+        Assert.Equal("2008F6A50FF004A30A8002A306C9DAF00F4C02F6", Convert.ToHexString(v31.Data.AsSpan(v31.FileOffset(0x06F7A0), 20)));
+        Assert.Equal(0xFF, v31.ReadByte(0x06F7B4));                                   // the run ends where 3.40's does
+        var changed = Enumerable.Range(0, v30.ActualRomSize).Where(pc => v30.Data[v30.HeaderOffset + pc] != v31.Data[v31.HeaderOffset + pc])
+            .Where(pc => pc is < 0x7FDC or > 0x7FDF)                                 // the checksum itself
+            .Where(pc => pc < RomPrep.BalanceTagPc + 8 || pc >= RomPrep.BalanceTagPc + 8 + RomPrep.BalanceSize);   // its balance
+        Assert.Equal([0x3765E, .. Enumerable.Range(0x377A3, 17)], changed);
+
+        Assert.True(RomPrep.IsPrepped(v31, 31));
+        Assert.False(RomPrep.IsPrepped(v30, 31));                                      // v30 is offered the upgrade
+        Assert.True(RomPrep.IsPrepped(v30, 30));
+        Assert.True(RomPrep.HasLmBlockDispatch(v31));                                 // GPS reads neither changed byte
     }
 
     /// <summary>

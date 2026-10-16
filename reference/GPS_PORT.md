@@ -148,7 +148,9 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
   prepped base fails the build with "upgrade base". Mesen (2026-10-14, macOS, `tools/mesen/probe.sh`):
   a block (acts like $130) in a column in level $105 fires when Mario walks into it on v30, 3/3
   runs, and never on the same build at v29; level $105 plays the same on plain v29 and v30 (Mario
-  position, death spot, timer, frame counter).
+  position, death spot, timer, frame counter). **Prep v31 (2026-10-16)** restamps the marker and
+  the fourth trampoline as LM 3.40 writes them, so its Map16 save leaves the dispatch alone
+  (CONTRACT §PREP V31); the block fires 3/3 on a v31-stamped build too.
 - **Saved in Lunar Magic (2026-10-15, Windows, LM 3.40, GPS 1.4.1's main.asm from the user's own
   hack):** a v30 project with two blocks (one acts-like $130 that sets lives to 99 on any Mario
   contact, placed as a 3-tile column in level $105) was built, then copies went through LM's

@@ -79,8 +79,10 @@ public static partial class RomPrep
     /// V24 replaces v1's private palette stubs with Lunar Magic's own palette engine, byte for
     /// byte, so an LM ExGFX import lands on code that is already there.
     /// V30 carries Lunar Magic's custom-block dispatch, so GPS's blocks run on a prepped base
-    /// (see <see cref="AppendV30Stamps"/>).
-    public const int Version = 30;
+    /// (see <see cref="AppendV30Stamps"/>);
+    /// V31 claims that dispatch at Lunar Magic 3.40's version, so its Map16 save leaves the
+    /// dispatch alone (see <see cref="AppendV31Stamps"/>).
+    public const int Version = 31;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -377,7 +379,11 @@ public static partial class RomPrep
     /// picks the contact by the caller's return address, branching to a 16-byte slot in
     /// `$06F690`-`$06F7EF` — the slots GPS writes its stubs into.</summary>
     public static readonly int[] LmBlockTrampolines = [0x06F660, 0x06F700, 0x06F760, 0x06F7A0];
-    public const int LmBlockMarker = 0x06F65C;        // "LM 11 01" — the custom-block hack's stamp
+    public const int LmBlockMarker = 0x06F65C;        // "LM 11 01" (v30) / "LM 12 01" (v31) — the custom-block hack's stamp
+    /// <summary>The version byte of that marker as Lunar Magic 3.40 writes it on a Map16 save.
+    /// What The Shell 2!!'s older LM wrote 0x11; 3.40 upgrades an 0x11 to this and rewrites the
+    /// fourth trampoline with it (reference/LM_PARITY.md §2 "Map16 F9 on a plain v30 base").</summary>
+    public const byte LmBlockMarkerVersion340 = 0x12;
 
     /// <summary>`JSR resolve : RTL`, so the bank-04 hook can reach the bank-0F resolver, which is
     /// a near routine. Eight free bytes at the tail of v14's layer-3 pass.</summary>
@@ -553,7 +559,12 @@ public static partial class RomPrep
                                 && rom.ReadValue(OwL3MapHook + 1, 3) == OwL3Map))
            // V30: the four acts-like sites reach LM's custom-block trampolines — the property an
            // LM ROM with custom blocks has (What The Shell 2!!, in its FastROM bank $86).
-           && (version < 30 || HasLmBlockDispatch(rom));
+           && (version < 30 || HasLmBlockDispatch(rom))
+           // V31: the dispatch is claimed at LM 3.40's version or later — what every ROM 3.40 has
+           // Map16-saved has, and what makes that save leave the dispatch alone. An older LM's
+           // ROM (What The Shell 2!!, 0x11) reads false here, which only matters to Apply, and
+           // Apply is only ever reached for a base of ours (the v29 note).
+           && (version < 31 || rom.ReadByte(LmBlockMarker + 2) >= LmBlockMarkerVersion340);
 
     /// <summary>Each acts-like site JSLs to its LM trampoline, in bank $06 or its $86 mirror.</summary>
     public static bool HasLmBlockDispatch(Rom rom) =>

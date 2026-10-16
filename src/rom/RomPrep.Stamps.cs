@@ -77,6 +77,9 @@ public static partial class RomPrep
         if (version >= 29) AppendV29Stamps(s);
         // V30: LM's custom-block dispatch, and the four sites moved from our remap onto it.
         if (version >= 30) AppendV30Stamps(s);
+        // V31 restamps the marker and the fourth trampoline as Lunar Magic 3.40 writes them, so
+        // its Map16 save finds nothing to upgrade there; v30's 19-byte trampoline stays frozen.
+        if (version >= 31) AppendV31Stamps(s);
         return s;
     }
 
@@ -797,6 +800,29 @@ public static partial class RomPrep
         s.Add((Pc(0x06F7C0), Slots(1)));
         foreach (var (site, to) in ActsCallSites.Zip(LmBlockTrampolines))
             s.Add((Pc(site), [0x22, (byte)to, (byte)(to >> 8), (byte)(to >> 16)]));
+    }
+
+    /// <summary>
+    /// V31: the custom-block dispatch claimed at Lunar Magic 3.40's version. V30 stamped the
+    /// marker as `LM 11 01` and the fourth trampoline as What The Shell 2!!'s older LM wrote
+    /// them; 3.40's Map16 save (F9, or `-ImportAllMap16`) treats that as an install to upgrade and
+    /// writes `12` over the version byte and its own 20-byte trampoline at `$06F7A0` —
+    /// `JSR $F608 : LDA $0F : BEQ +4 : LDA $0A,s : BRA +2 : LDA $06,s : CMP #$DA : BEQ $06F7C0 :
+    /// JMP $F602`, one byte longer than v30's — and nothing else in the dispatch (measured
+    /// 2026-10-15, reference/LM_PARITY.md §2 "Map16 F9 on a plain v30 base"). Stamping those two
+    /// runs ourselves makes that save a no-op on `$06F650`-`$06F7FF`: measured on a v30 base with
+    /// exactly these bytes written by hand, zero bytes changed there, a second F9 wrote nothing,
+    /// and the ROM booted and reached level $105 before and after ("v31 measured ahead of itself").
+    ///
+    /// Claiming a hack we carry at the version we carry it is the v26 rule applied, not bent: the
+    /// dispatch IS 3.40's from here. What the marker does not buy is the extended-def block at
+    /// `$128000` — 3.40's save frees that on a v29 base with no marker at all, so it is the
+    /// §PREP V26 "upgrade offered" state and not this version's to fix. GPS reads neither byte.
+    /// </summary>
+    private static void AppendV31Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        s.Add((Pc(LmBlockMarker), [0x4C, 0x4D, LmBlockMarkerVersion340, 0x01]));
+        s.Add((Pc(0x06F7A0), Convert.FromHexString("2008F6A50FF004A30A8002A306C9DAF00F4C02F6")));
     }
 
     /// <summary>
