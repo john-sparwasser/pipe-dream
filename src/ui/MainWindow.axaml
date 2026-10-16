@@ -356,6 +356,7 @@
         <MenuItem Header="Build and open in _Lunar Magic" Click="OnOpenLunarMagic"/>
         <MenuItem Header="_Sprite tiles…" Click="OnSpriteTiles"/>
         <MenuItem Header="Import _GPS folder…" Click="OnImportGps"/>
+        <MenuItem Header="Custom _blocks…" Click="OnBlocks"/>
       </MenuItem>
       <MenuItem Header="_Help">
         <MenuItem Header="Check for _updates…" Click="OnCheckUpdates"/>

@@ -1,0 +1,67 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PipeDream.Ui.BlocksWindow"
+        Title="Custom blocks" Width="640" Height="560"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+
+  <Window.Styles>
+    <Style Selector="TextBlock.dim">
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+    <Style Selector="TextBlock.mono">
+      <Setter Property="FontFamily" Value="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="TextBlock.note">
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+  </Window.Styles>
+
+  <DockPanel Margin="14">
+    <StackPanel DockPanel.Dock="Top" Spacing="8">
+      <TextBlock Classes="dim" TextWrapping="Wrap"
+                 Text="A block is an .asm file in the project's gps/blocks/ assigned to a Map16 tile; the build assembles and inserts it with the imported GPS driver. Acts-like is the tile's, set in the Map16 editor. Contacts show what the last build found the block handling."/>
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <TextBlock Classes="dim" Text="tile"/>
+        <TextBox x:Name="TileBox" Width="64" Watermark="200"/>
+        <TextBlock Classes="dim" Text="block"/>
+        <ComboBox x:Name="FileBox" Width="220"/>
+        <Button Content="Assign" Click="OnAssign"/>
+      </StackPanel>
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <TextBox x:Name="NewName" Width="190" Watermark="new block name"/>
+        <Button Content="New block" Click="OnNew"
+                ToolTip.Tip="Writes gps/blocks/&lt;name&gt;.asm from a template that does nothing on any contact, and opens it"/>
+      </StackPanel>
+    </StackPanel>
+
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right"
+                Spacing="8" Margin="0,12,0,0">
+      <TextBlock x:Name="Hint" Classes="dim" TextWrapping="Wrap" MaxWidth="300"/>
+      <Button x:Name="RemoveButton" Content="Remove" Click="OnRemove"/>
+      <Button Content="Open .asm" Click="OnOpenFile"/>
+      <Button Content="Build" Click="OnBuild" ToolTip.Tip="Build the ROM; an assembler error shows here as file:line: message"/>
+      <Button Content="Close" Click="OnClose" IsCancel="True"/>
+    </StackPanel>
+
+    <ListBox x:Name="Blocks" Margin="0,10" Background="Transparent" BorderThickness="0"
+             SelectionChanged="OnSelect" DoubleTapped="OnOpenFile">
+      <ListBox.ItemTemplate>
+        <DataTemplate>
+          <StackPanel Orientation="Horizontal" Spacing="12">
+            <TextBlock Text="{Binding Slot}" Classes="mono" Width="48"/>
+            <TextBlock Text="{Binding File}" Width="200" VerticalAlignment="Center"/>
+            <TextBlock Text="{Binding Acts}" Classes="mono" Width="80"/>
+            <TextBlock Text="{Binding Note}" Classes="note"/>
+          </StackPanel>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+  </DockPanel>
+</Window>

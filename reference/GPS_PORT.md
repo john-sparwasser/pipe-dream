@@ -176,10 +176,22 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
   the block list can never disagree; the build writes them once, as it does today. Fell out of
   moving list.txt into the project (phase 3's import): the inserter no longer writes acts-like.
 
-### 5. Blocks in the app
+### 5. Blocks in the app  [FIRST CUT 2026-10-16]
 - A Blocks list (tile, file, acts-like, handled contacts), assign a block to a tile, new block
   from `template.asm`, open the `.asm` in the user's editor, and Asar's errors shown as
   `file:line: message` after a build.
+- **Status:** `ui/BlocksWindow` (Debug ▸ Custom blocks…, dev-gated with the rest) over
+  `EditorSession.BlockEntries`/`AssignBlock`/`NewBlock`/`OpenBlockFile`. Acts-like is read from
+  the Map16 editor, never edited here (one owner). The contacts column reads GPS's tables off
+  the LAST BUILD (`build/<name>.smc`), because a block exists on a ROM only once assembled into
+  one: before a build it says so, after one it names the contacts or "no code on any contact".
+  New block writes a template of OUR own — header `$42`, every contact's JMP landing on RTL, the
+  layout from GPS's documented format, not its `template.asm` — and opens it with the OS's .asm
+  association; it needs the imported driver (gps/main.asm), which we cannot ship. Build is the
+  ordinary build, so an Asar error lands in the hint as `file:line: message`. The Map16 readout
+  names the assigned block for the hovered tile. Not yet: assigning from the Map16 canvas
+  itself, a description column (the block's first `print`, which `GpsInsert.Result` already
+  carries but the session does not keep), and anything outside `--dev`.
 
 ### 6. ROMs that already carry GPS blocks
 - A base ROM inserted with `gps.exe` before it came to Pipe Dream: phase 1 reads it; phase 3

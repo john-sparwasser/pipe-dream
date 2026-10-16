@@ -1,3 +1,4 @@
+using Avalonia.Controls;
 using Xunit;
 
 namespace PipeDream.Tests;
@@ -235,6 +236,62 @@ public class GpsInsertTests
         var data = new ProjectFile { Blocks = { ["200"] = "a.asm", ["2FF"] = "b.asm" } };
         Assert.Equal(new Dictionary<int, string> { [0x200] = "a.asm", [0x2FF] = "b.asm" }, GpsInsert.BlocksOf(data));
         Assert.Throws<FormatException>(() => GpsInsert.BlocksOf(new ProjectFile { Blocks = { ["zz"] = "a.asm" } }));
+    }
+
+    /// <summary>The block list as the Blocks window sees it: import fills it, Assign and New block
+    /// edit it, the Map16 editor supplies the acts-like, and the contacts column reads the last
+    /// build — so it is empty before one, and tells a block that handles nothing from one that
+    /// was never built.</summary>
+    [AsarFact]
+    public void the_block_list_assigns_creates_and_reads_the_last_build()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla)) return;
+        string dir = Directory.CreateTempSubdirectory("pipedream-proj-").FullName;
+        var s = new PipeDream.Services.EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), ReferenceRoms.Vanilla), s.Status);
+        s.ShowLevel(0x105);
+        Assert.False(s.HasGpsDriver);
+        Assert.Equal("import a GPS folder first — its main.asm is what inserts blocks", s.NewBlock("spin", out _));
+
+        s.ImportGps(Folder("200:0130 above.asm\n"));
+        Assert.StartsWith("imported GPS folder: 1 block tile(s), 1 acts-like", s.Status);
+        var e = Assert.Single(s.BlockEntries);
+        Assert.Equal((0x200, "above.asm", true, 0x130, false), (e.Tile, e.File, e.FileExists, e.ActsLike, e.Built));
+        Assert.Equal(["above.asm", "wall.asm"], s.BlockFiles);
+
+        Assert.Equal("tile 2FF: wall.asm", s.AssignBlock(0x2FF, "wall.asm"));
+        Assert.StartsWith("tile 1FF cannot be a custom block", s.AssignBlock(0x1FF, "wall.asm"));
+        Assert.Equal("gps/blocks/nope.asm does not exist", s.AssignBlock(0x201, "nope.asm"));
+        Assert.Equal("created gps/blocks/spin.asm", s.NewBlock("spin", out var made));
+        Assert.Equal("spin.asm", made);
+        Assert.Equal("gps/blocks/spin.asm already exists", s.NewBlock("spin.asm", out _));
+        Assert.Equal("a block name is letters, digits, _ and -", s.NewBlock("../x", out _));
+        Assert.Equal("tile 201: spin.asm", s.AssignBlock(0x201, "spin.asm"));
+        Assert.Equal("spin.asm", s.BlockFileOf(0x201));
+
+        s.Build();
+        Assert.StartsWith("built ", s.Status);
+        var rows = s.BlockEntries;
+        Assert.Equal([0x200, 0x201, 0x2FF], rows.Select(r => r.Tile));
+        Assert.All(rows, r => Assert.True(r.Built));
+        Assert.Equal(["Mario above"], rows[0].Handled);
+        Assert.Empty(rows[1].Handled);                                  // the template: RTL on every contact
+        Assert.Equal(["wall feet"], rows[2].Handled);
+        Assert.Equal(0x130, Rom.Load(Path.Combine(dir, "proj", "build", "proj.smc")).ActsAs(0x200));
+
+        Assert.Equal("tile 201: block removed", s.AssignBlock(0x201, null));
+        Assert.Equal("tile 201 has no block", s.AssignBlock(0x201, ""));
+        Assert.Equal([0x200, 0x2FF], s.BlockEntries.Select(r => r.Tile));
+        Assert.True(File.Exists(Path.Combine(dir, "proj", "gps", "blocks", "spin.asm")));   // the file stays
+    }
+
+    /// <summary>The window loads and reads an empty session without a project.</summary>
+    [Avalonia.Headless.XUnit.AvaloniaFact]
+    public void the_blocks_window_opens_on_a_session_without_a_project()
+    {
+        var w = new PipeDream.Ui.BlocksWindow(new PipeDream.Services.EditorSession());
+        Assert.Empty((System.Collections.IEnumerable)w.GetControl<ListBox>("Blocks").ItemsSource!);
+        Assert.Contains("no blocks yet", w.GetControl<TextBlock>("Hint").Text);
     }
 
     [Fact]

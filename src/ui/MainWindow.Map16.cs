@@ -173,7 +173,10 @@ public partial class MainWindow
         if (m16.ReadDef(h.Tile) is null) return "unallocated";
         // Same two reasons the header greys its acts-as box: say which, rather than going blank
         // and leaving the gutter looking broken.
-        string gps = m16.CustomBlock(h.Tile) is { } b ? $"GPS ${b.Addr:X6}  " : "";
+        // The project's assignment first (what the build will insert), else a block already on
+        // the ROM (an LM hack that came with GPS's tables).
+        string gps = session.BlockFileOf(h.Tile) is { } f ? $"block {f}  "
+                   : m16.CustomBlock(h.Tile) is { } b ? $"GPS ${b.Addr:X6}  " : "";
         if (m16.ActsAsResolved(h.Tile) is not { } a)
             return gps + "acts-like: " + NoActsAs(h.Tile);
         string what = ActsAs.Describe(a);
