@@ -69,6 +69,23 @@ dialog. The GUI can, and it is scriptable enough:
 That sequence is what produced the finding in CONTRACT §0 that LM can write to a prepped base
 and the result does not boot.
 
+**The scripted way (2026-10-15): `tools/lm/Invoke-LmGui.ps1 -Rom copy.smc -Action SaveLevel|SaveMap16`.**
+It needs no focus and no coordinates, so it runs while something else owns the screen:
+
+- LM is started on the ROM alone — a level number after it makes LM exit at once — and its
+  `LMFrame` window's menu bar is walked for the item's text, then the same `WM_COMMAND` the
+  accelerator would send is posted to it. `Save Level to ROM` writes nothing for an unmodified
+  level; `-Dirty` posts Select All + Bring to Front first.
+- The 16x16 editor has no menu bar, and its window is a `#32770` dialog like a message box: F9
+  is posted as `WM_KEYDOWN`/`WM_KEYUP` to the frame and every child, after waiting until no
+  modifier key is physically held (the keyboard belongs to the person at the PC). Its toolbar
+  is unlabelled buttons; index 0 is the reload (it asks to "discard all changes").
+- Dialogs are polled for by class `#32770` whose children are only `Static`/`Button`; each is
+  logged (title, text, buttons) and answered through a posted `BM_CLICK`: "Restore" → Cancel,
+  "discard" → No, else OK/Yes. A `SendMessage` here deadlocked once; posting does not.
+- LM holds the ROM exclusively while writing, so a hash taken mid-save throws; the poll treats
+  that as "not yet". LM is closed with `WM_CLOSE` and killed if it lingers.
+
 ## The bisect method
 
 This is how `$0DF100` was found, and it generalises to any "LM dislikes our ROM" report:

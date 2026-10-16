@@ -141,7 +141,26 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
   prepped base fails the build with "upgrade base". Mesen (2026-10-14, macOS, `tools/mesen/probe.sh`):
   a block (acts like $130) in a column in level $105 fires when Mario walks into it on v30, 3/3
   runs, and never on the same build at v29; level $105 plays the same on plain v29 and v30 (Mario
-  position, death spot, timer, frame counter). Not yet saved in LM.
+  position, death spot, timer, frame counter).
+- **Saved in Lunar Magic (2026-10-15, Windows, LM 3.40, GPS 1.4.1's main.asm from the user's own
+  hack):** a v30 project with two blocks (one acts-like $130 that sets lives to 99 on any Mario
+  contact, placed as a 3-tile column in level $105) was built, then copies went through LM's
+  level save (Ctrl+S, dirtied), the 16x16 editor's F9, `-ImportLevel` and `-ImportAllMap16`
+  (`tools/lm/Invoke-LmGui.ps1` drives the two GUI routes). The block fires 3/3 before and after
+  every one of them. Nothing LM wrote touches GPS's bytes: the stubs in `$06F690`+, its two
+  `JML` hijacks at `$06F67B`/`$06F717`, its marker, tables and block code are byte-identical
+  through all four saves, and the four acts-like sites still JSL to LM's trampolines. What the
+  two Map16 routes (F9 and `-ImportAllMap16`, identical diffs) DO write is LM upgrading the
+  dispatch it finds: the marker goes `LM 11 01` → `LM 12 01` and the fourth trampoline at
+  `$06F7A0` is rewritten to LM 3.40's 20-byte shape (17 bytes differ from What The Shell 2!!'s,
+  whose LM was older); `$06F626` goes `$91` → `$11` (GPS's FastROM-mirrored table pointer,
+  normalised to the same table); and LM installed its own extended-def ranges and freed our
+  `$128000` block — which it also does on a v29 base, and to a plain v30 or v29 base on an F9
+  with no edits at all (LM_PARITY §2 "Map16 F9 on a plain v30 base"), so that is 3.40's Map16
+  install, the known "upgrade offered" state (CONTRACT §PREP V26), not v30's doing and not the
+  page-2 tiles in the file. Hand-stamping the v12 marker and trampoline first makes the same import
+  leave `$06F65C`-`$06F7EF` entirely alone, and that ROM plays the same (see CONTRACT §PREP V30
+  for the follow-up this suggests). The level save writes 8 runs, none near the dispatch.
 
 ### 4. Acts-like has one owner
 - `list.txt` acts-like values import into the project's Map16 acts-as, so the Map16 editor and

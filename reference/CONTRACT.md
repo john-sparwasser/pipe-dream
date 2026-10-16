@@ -2310,7 +2310,10 @@ ROM measured and our own bank-06 blocks resume at `$06FA00`. The four sites' JSL
 core is dead code on our base — nothing calls its wrapper and its lookup is a second reader of the
 same table — but it is what makes the save leave us alone. LM's **Map16** marker (`LM 12 01` at
 `$06F65C`) is deliberately NOT stamped even though the save writes it: with it in, LM treats the
-extended-def block as its own and frees ours at `$128000`, tag and all. Verified: the same F9 now
+extended-def block as its own and frees ours at `$128000`, tag and all. (That was the September
+reading; under LM 3.40 the same F9 frees the block on a v29 base with no marker at all, 2026-10-15,
+reference/LM_PARITY.md §2 "Map16 F9 on a plain v30 base" — so the marker is not what decides the
+block's fate, and the rule stands only as "claim what you carry".) Verified: the same F9 now
 boots and builds level `0xC7` in Mesen (v25: exit 1, level `0x00`), LM keeps the acts-like table at
 `$118000`, our remap and the four sites are untouched, and a second F9 writes nothing. Not taken,
 and still LM's on a save: `$04DCFA → JSL $06F5E4` and `$058A65`/`B45`/`C33`/`D2A` → `JSL $06F540`,
@@ -2400,10 +2403,21 @@ them (bank `$06` for its FastROM `$86`), identical there apart from GPS's own by
 40+ operand at `$06F63B`; the fall-throughs at `$06F67B`/`$06F717`, which GPS overwrites, are
 INFERRED as `JMP $F602`. The sites move to the trampolines; the remap stays as frozen dead bytes.
 LM's lookup does not keep the caller's B (§9d) — every LM ROM runs it so, and the sprite capture
-through `$019533`/`$02A6EB` is identical pre- and post-prep. NOT YET MEASURED: Mesen (a block
-firing; levels `0x100`+) and an LM save over `LM 11 01` (v26: `LM 12 01` there made LM free our
-extended-def block). IsPrepped v30 = the four sites JSL to the trampolines, bank `$06` or `$86`.
-Golden V30 pinned.
+through `$019533`/`$02A6EB` is identical pre- and post-prep. MEASURED in Mesen (2026-10-14, a block
+fires in level `$105` on v30 and not v29) and under LM 3.40's saves (2026-10-15, reference/GPS_PORT.md
+"Saved in Lunar Magic"; the exe's version resource says 3.40, its readme 3.33): level save, Map16
+F9, `-ImportLevel` and `-ImportAllMap16` all leave GPS's stubs, hijacks, tables and the four sites
+alone, and the block still fires after each. The two Map16 routes upgrade the dispatch in place —
+marker `LM 11 01` → `LM 12 01`, and the fourth trampoline at `$06F7A0` rewritten to LM 3.40's
+20-byte form (`JSR $F608 : LDA $0F : BEQ +4 : LDA $0A,s : BRA +2 : LDA $06,s : CMP #$DA :
+BEQ $06F7C0 : JMP $F602`; What The Shell 2!! carries an older LM's 16-byte one) — and install LM's
+own ext-def ranges and free our `$128000` block. That last part is not the marker's doing and not
+the file's: a plain F9 with no edits does it to a fresh v30 base and to a v29 base with no marker
+(reference/LM_PARITY.md §2 "Map16 F9 on a plain v30 base"), so it is 3.40's Map16 install, the
+§PREP V26 "upgrade offered" state. With the v12 marker and trampoline stamped by hand first, the
+same import writes nothing in `$06F65C`-`$06F7EF`; a v31 that stamps LM 3.40's bytes instead of
+WTS2's would make LM's Map16 save a no-op there (GPS patches neither byte), though not keep the
+block. IsPrepped v30 = the four sites JSL to the trampolines, bank `$06` or `$86`. Golden V30 pinned.
 
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 

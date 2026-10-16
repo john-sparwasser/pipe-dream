@@ -588,7 +588,9 @@ Two findings worth keeping from getting there:
 - **Claim only the hack you carry.** The first v26 also stamped LM's *Map16* marker (`LM 12 01` at
   `$06F65C`, which the save writes). With it in, LM reads the extended-def block as its own to
   manage: it FREED our 0x800 block at `$128000`, tag and all. Without it, LM leaves the block and
-  only re-points the slot. Same family as the RATS-shape rule below — a marker is a promise.
+  only re-points the slot — as measured then; under LM 3.40 the save frees the block with no
+  marker at all ("Map16 F9 on a plain v30 base", below). Same family as the RATS-shape rule
+  below — a marker is a promise.
 - **LM's install is staged.** Once the acts-like core is present, that save moves on to the next
   piece: it stops writing the `$04DCFA`/`$058A65` hooks and instead populates ladder ranges 1 and 2
   (banks `$1A`/`$1C`, two fresh 0x8000 blocks) with its per-tileset pages, leaving range 0 at "no
@@ -712,6 +714,32 @@ Those are the remaining unknowns in this table.
 `ConvertGfxTo4bpp`, `BakeLmFourBppFiles`, `MigrateSecondaryDestinationBit` — is listed by hand in
 the script, and that list is what caught `-ImportGFX`. A new data step needs adding there or the
 audit will wave it through.
+
+## 2c. The same routes on a v30 base carrying GPS blocks  [MEASURED 2026-10-15, LM 3.40]
+
+Prep v30 stamps LM's custom-block dispatch (`LM 11 01`, CONTRACT §PREP V30), and a built project
+puts GPS's stubs and hijacks into it. Re-run on such a ROM (two blocks, one placed in level `$105`,
+`tools/lm/Invoke-LmGui.ps1` for the GUI routes), with the block's firing in Mesen as the in-game check:
+
+| route | runs | overlaps | verdict |
+|---|---|---|---|
+| Level save (Ctrl+S, level dirtied) | 8 | 1 (`$0EF205`, the per-level sprite bank entry) | clear; block fires |
+| Map16 F9 save | 38 | 5 | **upgrades the dispatch in place** (below); block fires |
+| `-ImportAllMap16` (file carries page-2 tiles) | 38 | 5 | identical to F9, byte for byte; a second import writes nothing |
+| `-ImportLevel` | 28 | 5 (the §2b set) | clear; block fires |
+
+The five Map16 overlaps: `$06F65E` (marker version `11` → `12`), `$06F7A3` len 17 (the fourth
+trampoline rewritten to LM 3.40's shape, one byte longer than What The Shell 2!!'s), `$06F626`
+(`$91` → `$11`: GPS points `$06F624` at the FastROM mirror of our table and LM normalises it),
+`$06F553` len 34 (ladder range operands) and `$128000` (our ext-def block freed, LM's three 32KB
+ranges allocated). The last two happen on a v29 base too — same import, control run — so they are
+the "upgrade offered" state of §2 "Map16 F9", not v30's. GPS's own bytes (`$06F67B`, `$06F690`+,
+`$06F717`, marker, tables, code) and the four sites are untouched by every route. With the v12
+marker and trampoline hand-stamped beforehand, the import leaves `$06F65C`-`$06F7EF` alone entirely.
+
+Two LM facts from driving it: a level number after the ROM on its command line makes LM exit at
+once, and Save Level to ROM writes nothing for an unmodified level (the driver reorders its objects
+first). Neither GUI save raised a dialog on this install.
 
 ## 3. What we write that LM does not
 
