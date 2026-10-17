@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace PipeDream;
 
@@ -109,6 +110,13 @@ public static class GpsInsert
         return new StreamReader(s).ReadToEnd();
     }));
     private static Dictionary<string, string>? driver;
+
+    /// <summary>A block's description, as gps.exe takes it: its first print. Read off the ASM
+    /// rather than an assembly, so a block no tile runs (and so never inserted) has one too; a
+    /// print that is more than one string literal reads as none.</summary>
+    public static string? Description(string asm)
+        => Regex.Match(asm, @"^[ \t]*print[ \t]+""([^""]*)""[ \t]*(?:;.*)?$", RegexOptions.Multiline | RegexOptions.IgnoreCase)
+            is { Success: true } m ? m.Groups[1].Value.Trim() : null;
 
     /// <summary>How many custom blocks gps.exe already put on <paramref name="rom"/> that the
     /// project cannot carry: all of them, unless <paramref name="gpsFiles"/> came from an imported

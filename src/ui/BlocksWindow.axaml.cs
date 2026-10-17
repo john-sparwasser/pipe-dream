@@ -16,7 +16,7 @@ namespace PipeDream.Ui;
 /// </summary>
 public partial class BlocksWindow : Window
 {
-    public sealed record LibraryRow(string Name, string Note, Avalonia.Media.Imaging.Bitmap? Icon = null);
+    public sealed record LibraryRow(string Name, string Note, Avalonia.Media.Imaging.Bitmap? Icon = null, string? Description = null);
 
     private readonly EditorSession session = null!;
     private ListBox library = null!;
@@ -50,7 +50,7 @@ public partial class BlocksWindow : Window
         var used = session.BlockEntries.GroupBy(e => e.File).ToDictionary(g => g.Key, g => g.Count());
         var rows = session.BlockNames.Select(n => new LibraryRow(n,
             used.TryGetValue(n, out int c) ? (c == 1 ? "on 1 tile" : $"on {c} tiles") : "unused",
-            NewBlockWindow.IconFor(session, session.BlockIcon(n)))).ToList();
+            NewBlockWindow.IconFor(session, session.BlockIcon(n)), session.BlockDescription(n))).ToList();
         library.ItemsSource = rows;
         library.SelectedItem = rows.FirstOrDefault(r => r.Name == want);
         if (rows.Count == 0) hint.Text = "no blocks yet — New… starts one, Import… adds .asm files";

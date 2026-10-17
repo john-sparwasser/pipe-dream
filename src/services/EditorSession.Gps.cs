@@ -66,6 +66,12 @@ public sealed partial class EditorSession
     /// <summary>A library block's ASM, or null.</summary>
     public string? BlockSource(string name) => Project?.Data.BlockLibrary.GetValueOrDefault(name);
 
+    /// <summary>What a library block says it does (its first print), or null. Our template prints
+    /// the block's own name, which says nothing the name column doesn't, so that reads as none.</summary>
+    public string? BlockDescription(string name)
+        => BlockSource(name) is { } asm && GpsInsert.Description(asm) is { Length: > 0 } d
+           && !d.Equals(Path.GetFileNameWithoutExtension(name), StringComparison.OrdinalIgnoreCase) ? d : null;
+
     /// <summary>Replace a library block's ASM. An unchanged text is not an edit.</summary>
     public void SetBlockSource(string name, string asm)
     {

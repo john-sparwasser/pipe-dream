@@ -53,13 +53,14 @@
     <ListBox x:Name="Library" Margin="0,10,0,0" SelectionChanged="OnSelect" DoubleTapped="OnEdit">
       <ListBox.ItemTemplate>
         <DataTemplate>
-          <StackPanel Orientation="Horizontal" Spacing="8">
-            <Panel Width="16" Height="16">
-              <Image Source="{Binding Icon}" RenderOptions.BitmapInterpolationMode="None"/>
-            </Panel>
-            <TextBlock Text="{Binding Name}" Classes="mono"/>
-            <TextBlock Text="{Binding Note}" Classes="note"/>
-          </StackPanel>
+          <!-- icon, name, description (the block's first print, trimmed to fit), how many tiles run it -->
+          <Grid ColumnDefinitions="16,Auto,*,Auto" ColumnSpacing="8">
+            <Image Source="{Binding Icon}" Width="16" Height="16" RenderOptions.BitmapInterpolationMode="None"/>
+            <TextBlock Grid.Column="1" Text="{Binding Name}" Classes="mono"/>
+            <TextBlock Grid.Column="2" Text="{Binding Description}" Classes="dim" TextTrimming="CharacterEllipsis"
+                       ToolTip.Tip="{Binding Description}"/>
+            <TextBlock Grid.Column="3" Text="{Binding Note}" Classes="note"/>
+          </Grid>
         </DataTemplate>
       </ListBox.ItemTemplate>
     </ListBox>

@@ -263,6 +263,17 @@ public class GpsInsertTests
         Assert.Equal([0x200], GpsBlocks.Read(rom)!.Blocks.Keys);
     }
 
+    /// <summary>The description is the first print read off the ASM, the one Insert's prints start
+    /// with; a print built from more than one literal reads as none rather than half of it.</summary>
+    [Fact]
+    public void a_blocks_description_is_its_first_print()
+    {
+        Assert.Equal("above only", GpsInsert.Description(Above));
+        Assert.Equal("Solid for sprites", GpsInsert.Description("db $42\n  PRINT \"Solid for sprites\"  ; desc\nprint \"@pswitch=1\"\n"));
+        Assert.Null(GpsInsert.Description("db $42\nprint \"tile \", hex($200)\n"));
+        Assert.Null(GpsInsert.Description("db $42\n; print \"commented out\"\nRTL\n"));
+    }
+
     [Fact]
     public void import_reads_the_assembly_only_and_a_bad_folder_hands_nothing_over()
     {

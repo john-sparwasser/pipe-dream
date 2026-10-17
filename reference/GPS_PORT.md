@@ -205,9 +205,10 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
   names the assigned block for the hovered tile, and the Map16 header's **Custom** button, beside
   the acts-as field, opens `ui/BlockPickerWindow` — "none" first, then the library, the tile's
   current block marked; since 2026-10-16 the list and nothing else, blocks being made in ASM ▸ Custom blocks — and assigns the pick to every selected
-  tile of pages 02-7F; the Map16 hover card then names it (`Custom block: solid.asm`) after the tile's number, which left the header bar on 2026-10-16. Not yet: a
-  description column (the block's first `print`, which `GpsInsert.Result` already carries but the
-  session does not keep), and anything outside `--dev`.
+  tile of pages 02-7F; the Map16 hover card then names it (`Custom block: solid.asm`) after the tile's number, which left the header bar on 2026-10-16. Each library
+  row shows the block's description (2026-10-17): its first `print`, read off the ASM by
+  `GpsInsert.Description` rather than kept from a build, so a block no tile runs has one too; our
+  template's print of the block's own name reads as none. Not yet: anything outside `--dev`.
 
 ### 6. ROMs that already carry GPS blocks
 - A base ROM inserted with `gps.exe` before it came to Pipe Dream: phase 1 reads it; phase 3
