@@ -27,6 +27,18 @@ public sealed partial class Overworld
         Drop(quarters, k => k.Submap == submap);
     }
 
+    /// <summary>Drop every submap's palette and the pixels composed with it, keeping the loaded
+    /// tiles — what an edited colour changes. All submaps at once: most colour words are shared.</summary>
+    public void InvalidatePalette()
+    {
+        Array.Clear(pal);
+        tile8Px.Clear();
+        map16Px.Clear();
+        layer1Art.Clear();
+        quarters.Clear();
+        fillerPx = null;
+    }
+
     private static void Drop<K, V>(Dictionary<K, V> cache, Func<K, bool> gone) where K : notnull
     {
         foreach (var key in cache.Keys.Where(gone).ToList()) cache.Remove(key);

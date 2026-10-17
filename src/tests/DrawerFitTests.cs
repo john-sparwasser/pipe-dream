@@ -207,7 +207,7 @@ public class DrawerFitTests(ITestOutputHelper log)
         w.MouseWheel(at, new Vector(0, 1), RawInputModifiers.Alt);
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(width + 128, col.Width.Value, 1);
-        Assert.Equal(cell + 128.0 / (grid.Cols + 0.6), grid.Cell, 1);
+        Assert.Equal(cell + 128.0 / (grid.Cols + 0.8), grid.Cell, 1);
         Assert.Equal(grid.Cols * grid.Cell + grid.HeaderSize, grid.Bounds.Width, 1);
         // The header is not a swatch: a click in it picks nothing, one past it picks (row 0, col 0).
         Assert.Null(grid.IndexAt(new Point(grid.HeaderSize / 2, grid.HeaderSize + cell)));

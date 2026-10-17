@@ -619,31 +619,37 @@
               <Border DockPanel.Dock="Top" Padding="10,8" Background="{DynamicResource SurfaceBrush}">
                 <StackPanel Spacing="6">
                   <TextBlock x:Name="PaletteNote" Classes="dim" TextWrapping="Wrap"/>
-                  <StackPanel x:Name="PalSubmapRow" Orientation="Horizontal" Spacing="8" IsVisible="False">
-                    <TextBlock Classes="dim" Text="submap" VerticalAlignment="Center"/>
-                    <ComboBox x:Name="PalSubmap" Width="180" SelectedIndex="0"
-                              ToolTip.Tip="Which submap's palette to show — each builds its own from the level loader plus the overworld's overrides"/>
-                  </StackPanel>
-                  <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock x:Name="PaletteIndex" Classes="mono" Width="150"/>
-                    <Button x:Name="PaletteReset" Content="Reset" Padding="10,2" Click="OnResetPalette"/>
-                    <Button x:Name="PaletteExport" Content="Export…" Padding="10,2" Click="OnExportPalette"
-                            ToolTip.Tip="Write this level's palette out as a 256-colour .pal (Lunar Magic, YY-CHR)"/>
-                    <Button x:Name="PaletteImport" Content="Import…" Padding="10,2" Click="OnImportPalette"
-                            ToolTip.Tip="Load a 256-colour .pal into this level, as ordinary colour edits"/>
-                    <!-- Layer 3 can reach 32 of these 256, and hunting for them in a 16x16 block
-                         is the whole problem. Four wide by eight tall over CGRAM 00-1F puts one
-                         palette GROUP on each row, which is also the shape of the answer to
-                         "which palettes can layer 3 use". -->
-                    <CheckBox x:Name="PaletteLayer3" Content="Layer 3"
-                              IsCheckedChanged="OnPaletteLayer3Only"
-                              ToolTip.Tip="Show only CGRAM 00-1F — the 32 colours a 2bpp layer-3 tile can name, one palette group per row"/>
-                  </StackPanel>
+                  <!-- One line: the submap drop-down on the Overworld tab, the actions beside it —
+                       pushed right there, left on the Level tab where nothing sits before them. -->
+                  <DockPanel>
+                    <StackPanel x:Name="PalSubmapRow" DockPanel.Dock="Left" Orientation="Horizontal" IsVisible="False">
+                      <ComboBox x:Name="PalSubmap" Width="180" SelectedIndex="0"
+                                ToolTip.Tip="Which submap's palette to show — each builds its own from the level loader plus the overworld's overrides"/>
+                    </StackPanel>
+                    <WrapPanel x:Name="PaletteActions" ItemSpacing="8" LineSpacing="6" VerticalAlignment="Center">
+                      <Button x:Name="PaletteReset" Content="Reset" Padding="10,2" Click="OnResetPalette"/>
+                      <Button x:Name="PaletteExport" Content="Export…" Padding="10,2" Click="OnExportPalette"
+                              ToolTip.Tip="Write this level's palette out as a 256-colour .pal (Lunar Magic, YY-CHR)"/>
+                      <Button x:Name="PaletteImport" Content="Import…" Padding="10,2" Click="OnImportPalette"
+                              ToolTip.Tip="Load a 256-colour .pal into this level, as ordinary colour edits"/>
+                      <!-- Layer 3 can reach 32 of these 256, and hunting for them in a 16x16 block
+                           is the whole problem. Four wide by eight tall over CGRAM 00-1F puts one
+                           palette GROUP on each row, which is also the shape of the answer to
+                           "which palettes can layer 3 use". -->
+                      <CheckBox x:Name="PaletteLayer3" Content="Layer 3"
+                                IsCheckedChanged="OnPaletteLayer3Only"
+                                ToolTip.Tip="Show only CGRAM 00-1F — the 32 colours a 2bpp layer-3 tile can name, one palette group per row"/>
+                      <!-- The selected swatch's readout, after the buttons, wrapping under them when
+                           the drawer is narrow: in front, its blank slot pushed them right. -->
+                      <TextBlock x:Name="PaletteIndex" Classes="mono" VerticalAlignment="Center"/>
+                    </WrapPanel>
+                  </DockPanel>
                 </StackPanel>
               </Border>
               <!-- Colour 0 is the back area colour, broken out on its own: in the grid it reads
-                   as just another swatch, and it is the one people hunt for. -->
-              <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="8,8,8,0">
+                   as just another swatch, and it is the one people hunt for. The level's only:
+                   the overworld does not set colour 0, so its tab has nothing to show here. -->
+              <StackPanel x:Name="PaletteBgRow" DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="8,8,8,0">
                 <ui:PaletteGridView x:Name="PaletteBg" Cols="1" Rows="1"/>
                 <TextBlock Classes="dim" Text="Background Color" VerticalAlignment="Center"/>
               </StackPanel>

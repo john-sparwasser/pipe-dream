@@ -167,6 +167,17 @@ internal static class RomBuilder
             if (project.Data.Overworld.EventPieces is { } owp
                 && Overworld.WriteEventPieces(rom, ProjectSession.WordsOf(Convert.FromBase64String(owp))) is { } owpErr)
                 warnings.Add("overworld: " + owpErr);
+            // Overworld colours go back where Lunar Magic keeps them: the vanilla tables, in place.
+            foreach (var (at, bgr) in project.Data.Overworld.Palette)
+            {
+                // The key is an address taken on trust from the file; a hand-edited one must not
+                // become a two-byte write anywhere in the ROM.
+                if (!Palette.IsOverworldColor(rom, at))
+                { warnings.Add($"overworld: ignored palette entry ${at:X6} — not an overworld colour"); continue; }
+                int fo = rom.FileOffset(at);
+                rom.Data[fo] = (byte)bgr;
+                rom.Data[fo + 1] = (byte)(bgr >> 8);
+            }
             if (project.Data.Overworld.Layer1Defs is { } owf) Overworld.WriteLayer1Defs(rom, ProjectSession.WordsOf(Convert.FromBase64String(owf)));
             if (project.Data.Overworld.EventSteps is { } ows
                 && Overworld.WriteEventSteps(rom, Overworld.UnpackEventSteps(Convert.FromBase64String(ows))) is { } owsErr)

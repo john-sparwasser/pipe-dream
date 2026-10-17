@@ -737,6 +737,7 @@ public partial class MainWindow : Window
             if (redo ? session.PaletteRedo() : session.PaletteUndo())
             {
                 AdoptSession();
+                if (PaletteScopeOverworld) RepaintOverworld();
             }
         }
         else if (modeGfx.IsChecked == true)

@@ -89,28 +89,72 @@ public sealed class Palette
         const int introLevel = 0xC7;
         var p = Load(rom, new LevelHeader(rom.Data.AsSpan(rom.FileOffset(rom.Layer1Pointer(introLevel)), 5)));
         var cg = p.Bgr;
-        int set = rom.Data[rom.FileOffset(0x00AD1E) + submap];                       // DATA_00AD1E
-        int setOff = rom.ReadValue(0x00ABDF + set * 2, 2);                            // DATA_00ABDF
-        LoadColors(rom, cg, 0x41, (specialPassed ? 0x00B732 : 0x00B3D8) + setOff, 7, 4);
-        LoadColors(rom, cg, 0x29, 0x00B528, 7, 6);
-        LoadColors(rom, cg, 0x81, 0x00B57C, 7, 8);
-        LoadColors(rom, cg, 0x08, 0x00B5EC, 8, 2);
+        foreach (var load in OverworldLoads(rom, submap, specialPassed))
+            LoadColors(rom, cg, load, rom.OwPaletteEdits);
         for (int i = 0; i < 256; i++) p.Rgba[i] = ToRgba(cg[i]);
         return p;
     }
 
-    /// <summary>The game's LoadColors ($00ACFF): <paramref name="numColors"/> words from
-    /// <paramref name="srcSnes"/> into each of <paramref name="rows"/> palette rows, starting at
-    /// <paramref name="destColor"/> and stepping a row (16 colours) at a time.</summary>
-    private static void LoadColors(Rom rom, ushort[] cg, int destColor, int srcSnes, int numColors, int rows)
+    /// <summary>One LoadColors call of $00AD25: <c>N</c> words from <c>Src</c> into each of
+    /// <c>Rows</c> palette rows, starting at CGRAM <c>Dest</c> and stepping a row at a time.</summary>
+    private readonly record struct ColorLoad(int Dest, int Src, int N, int Rows);
+
+    /// <summary>The overworld's four colour loads for a submap, in the game's order. The first is
+    /// the submap's own set (DATA_00AD1E picks it, DATA_00ABDF says where it starts); the other
+    /// three are one table for every submap.</summary>
+    private static ColorLoad[] OverworldLoads(Rom rom, int submap, bool specialPassed)
     {
-        int fo = rom.FileOffset(srcSnes);
-        for (int r = 0; r < rows; r++)
-            for (int c = 0; c < numColors; c++, fo += 2)
+        int set = rom.Data[rom.FileOffset(0x00AD1E) + submap];                       // DATA_00AD1E
+        int setOff = rom.ReadValue(0x00ABDF + set * 2, 2);                            // DATA_00ABDF
+        return [new(0x41, (specialPassed ? 0x00B732 : 0x00B3D8) + setOff, 7, 4),
+                new(0x29, 0x00B528, 7, 6),
+                new(0x81, 0x00B57C, 7, 8),
+                new(0x08, 0x00B5EC, 8, 2)];
+    }
+
+    /// <summary>
+    /// The SNES address of the word a submap's CGRAM <paramref name="index"/> is loaded from, or
+    /// null for a colour the overworld does not set — those are the level loader's leftovers,
+    /// which belong to level C7 and not to the map. Editing an overworld colour IS writing this
+    /// word: Lunar Magic edits these tables in place (reference/OVERWORLD.md §5 table).
+    /// </summary>
+    public static int? OverworldSource(Rom rom, int submap, int index)
+    {
+        foreach (var (dest, src, n, rows) in OverworldLoads(rom, submap, false))
+            for (int r = 0; r < rows; r++)
+                if (index - (dest + r * 16) is var c && c >= 0 && c < n) return src + (r * n + c) * 2;
+        return null;
+    }
+
+    /// <summary>The submaps that load their colour from <paramref name="snes"/> — all seven for
+    /// the shared tables, one or two for a submap's own set (Vanilla Dome and Valley of Bowser
+    /// share theirs). Same index in each, since every submap lays its colours out alike.</summary>
+    public static int[] OverworldSharers(Rom rom, int index, int snes)
+        => [.. Enumerable.Range(0, Overworld.Submaps).Where(s => OverworldSource(rom, s, index) == snes)];
+
+    /// <summary>Whether <paramref name="snes"/> is a colour word some submap loads.</summary>
+    public static bool IsOverworldColor(Rom rom, int snes)
+        => Enumerable.Range(0, Overworld.Submaps)
+                     .Any(s => Enumerable.Range(0, 256).Any(i => OverworldSource(rom, s, i) == snes));
+
+    /// <summary>The game's LoadColors ($00ACFF). A word with an entry in <paramref name="edits"/>
+    /// (SNES address → BGR555) loads the edit instead of the ROM's bytes.</summary>
+    private static void LoadColors(Rom rom, ushort[] cg, ColorLoad load, Dictionary<int, ushort> edits)
+    {
+        for (int r = 0; r < load.Rows; r++)
+            for (int c = 0; c < load.N; c++)
             {
-                int i = destColor + r * 16 + c;
-                if (i < 256) cg[i] = (ushort)(rom.Data[fo] | (rom.Data[fo + 1] << 8));
+                int i = load.Dest + r * 16 + c, at = load.Src + (r * load.N + c) * 2;
+                if (i >= 256) continue;
+                cg[i] = edits.TryGetValue(at, out var v) ? v : RomWord(rom, at);
             }
+    }
+
+    /// <summary>The colour word the ROM itself holds at a SNES address, edits aside.</summary>
+    public static ushort RomWord(Rom rom, int snes)
+    {
+        int fo = rom.FileOffset(snes);
+        return (ushort)(rom.Data[fo] | (rom.Data[fo + 1] << 8));
     }
 
     /// <summary>SNES 15-bit BGR555 → RGBA8888 (0xAABBGGRR in memory: R,G,B,A bytes).</summary>

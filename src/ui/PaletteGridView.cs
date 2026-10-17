@@ -31,15 +31,25 @@ public class PaletteGridView : Control
     /// Swatches are vector squares, so any size is a clean size.</summary>
     public bool FitWidth { get; set; }
 
+    /// <summary>How many columns <see cref="FitWidth"/> sizes the swatches for; 0 = <see cref="Cols"/>.
+    /// The Palette drawer pins this at 16 so narrowing to layer 3's four columns keeps the
+    /// swatches the size they were, rather than blowing four of them up to the drawer's width.</summary>
+    public int FitCols { get; set; }
+
     /// <summary>Number the rows and columns from 0, in a dark band above and to the left of the
     /// swatches — the Palette drawer, where "row 4, column 2" is how a colour is named. Hex, the
     /// way the indices are written everywhere else here (swatch 0x42 IS row 4, column 2).</summary>
     public bool Headers { get; set; }
 
+    /// <summary>Dark space left between neighbouring swatches, in layout units. The cell keeps
+    /// its size, so clicks, rings and indices are unchanged; only the paint is inset. 256
+    /// swatches edge to edge read as one blur, and a gap is what separates them.</summary>
+    public double Gap { get; set; }
+
     /// <summary>How much the header band takes, in layout units: a fraction of a swatch, so it
     /// scales with the grid. 0 without <see cref="Headers"/>. Also where the swatches start.</summary>
     public double HeaderSize => Headers ? Cell * HeaderScale : 0;
-    private const double HeaderScale = 0.6;
+    private const double HeaderScale = 0.8;
     private static readonly IBrush HeaderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x3A));
 
     /// <summary>The colours to draw, RGBA, row-major.</summary>
@@ -93,7 +103,7 @@ public class PaletteGridView : Control
     protected override Size MeasureOverride(Size available)
     {
         // The header band is a fraction of a swatch, so a width fits Cols swatches plus that.
-        double units = Cols + (Headers ? HeaderScale : 0);
+        double units = (FitCols > 0 ? FitCols : Cols) + (Headers ? HeaderScale : 0);
         if (FitWidth && Cols > 0 && double.IsFinite(available.Width)) Cell = available.Width / units;
         return new(Cols * Cell + HeaderSize, Rows * Cell + HeaderSize);
     }
@@ -181,7 +191,7 @@ public class PaletteGridView : Control
         for (int i = 0; i < Count; i++)
         {
             if (HideFirst && i == 0) continue;
-            var r = new Rect(i % Cols * c, i / Cols * c, c, c);
+            var r = new Rect(i % Cols * c, i / Cols * c, c, c).Deflate(Gap / 2);
             uint v = i < Colors.Length ? Colors[i] : 0xFF000000u;
             // Colours arrive as 0xAABBGGRR from the composer; Avalonia wants them named.
             var swatch = UiColors.FromRgba(v);

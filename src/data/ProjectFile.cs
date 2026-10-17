@@ -112,6 +112,10 @@ public sealed class ProjectFile
         /// (<see cref="PipeDream.Overworld.GfxSlotOrder"/>), so a submap's list is stored as the
         /// slots that differ rather than as a whole record.</summary>
         public Dictionary<string, Dictionary<int, int>> GfxSlots { get; set; } = [];
+        /// <summary>Edited overworld colours: SNES address of the colour word → BGR555
+        /// (<see cref="PipeDream.Palette.OverworldSource"/>). Keyed by address, not by submap and
+        /// index, because most of these words are shared by every submap.</summary>
+        public Dictionary<int, int> Palette { get; set; } = [];
     }
 
     public sealed class TilemapPreset

@@ -42,6 +42,8 @@ public class RoundTripTests(ITestOutputHelper log) : IDisposable
         public (int Cx, int Cy) SpriteCell;
         public int PaletteIndex;
         public ushort PaletteColor;
+        public int OwSubmap, OwIndex;
+        public ushort OwColor;
         public int Map16Tile;
         public ushort Map16Quad;
         public int ActsTile;
@@ -85,6 +87,12 @@ public class RoundTripTests(ITestOutputHelper log) : IDisposable
         m.PaletteIndex = 0x42;
         m.PaletteColor = (ushort)(s.PaletteBgr(m.PaletteIndex) ^ 0x1F);
         s.SetPaletteColor(m.PaletteIndex, m.PaletteColor);
+
+        // An overworld colour, from Yoshi's Island's own set.
+        m.OwSubmap = 1;
+        m.OwIndex = 0x42;
+        m.OwColor = (ushort)(s.Overworld!.PaletteOf(m.OwSubmap).Bgr[m.OwIndex] ^ 0x1F);
+        s.SetOwPaletteColor(m.OwSubmap, m.OwIndex, m.OwColor);
 
         // A Map16 definition, on a page that has to be allocated first.
         m.Map16Tile = 0x300;
@@ -147,6 +155,7 @@ public class RoundTripTests(ITestOutputHelper log) : IDisposable
         Assert.Contains(b.Sprites!.Sprites.Sprites,
                         s => s.Number == m.SpriteNumber && s.Cell(false) == m.SpriteCell);
         Assert.Equal(m.PaletteColor, b.PaletteBgr(m.PaletteIndex));
+        Assert.Equal(m.OwColor, b.Overworld!.PaletteOf(m.OwSubmap).Bgr[m.OwIndex]);
         Assert.Equal(m.Map16Quad, b.Map16!.ReadDef(m.Map16Tile)![0].Raw);
         Assert.Equal(m.ActsValue, b.Map16.ActsAs(m.ActsTile));
         Assert.Equal(m.GfxColor, b.GfxPixels!.Also(g => g.Open(m.GfxFile)).ColorAt(m.GfxPixelX, m.GfxPixelY));
@@ -195,6 +204,9 @@ public class RoundTripTests(ITestOutputHelper log) : IDisposable
                      Gfx.DecodeTile(data!, off, Gfx.RomBpp(rom))[(m.GfxPixelY & 7) * 8 + (m.GfxPixelX & 7)]);
 
         Assert.Equal(m.Header, LevelParser.Parse(rom, Level).Header.ToBytes());
+
+        // The overworld colour, in its table word in place — what the game itself loads.
+        Assert.Equal(m.OwColor, Palette.LoadOverworld(rom, m.OwSubmap).Bgr[m.OwIndex]);
 
         // Two things are base-gated rather than lost, and the builder has to SAY so — a warning
         // is the difference between "not supported here" and data quietly vanishing.

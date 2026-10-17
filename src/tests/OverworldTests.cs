@@ -1565,6 +1565,7 @@ public class OverworldTests(ITestOutputHelper log)
         Assert.False(w.GetControl<DockPanel>("LevelPane").IsVisible);
         Assert.True(w.GetControl<DockPanel>("OverworldPane").IsVisible);
         Assert.True(w.GetControl<StackPanel>("PalSubmapRow").IsVisible);
+        Assert.False(w.GetControl<StackPanel>("PaletteBgRow").IsVisible);   // colour 0 is not the overworld's
         Assert.Equal(session.Overworld!.PaletteOf(0).Rgba, grid.Colors);
         // Colours only: no brushes, no View toggles, layer 1 on, the path pictures off.
         Assert.False(w.GetControl<StackPanel>("OwBrushBar").IsVisible);
@@ -1581,14 +1582,61 @@ public class OverworldTests(ITestOutputHelper log)
         w.GetControl<ComboBox>("PalSubmap").SelectedIndex = 1;
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(session.Overworld!.PaletteOf(1).Rgba, grid.Colors);
-        Assert.Contains("Yoshi", w.GetControl<TextBlock>("PaletteNote").Text);
+        Assert.False(w.GetControl<TextBlock>("PaletteNote").IsVisible);     // nothing edited, nothing to say
+        Assert.True(grid.IsDisabled!(0x11));                // the level loader's colour: veiled, not the map's
+        Assert.False(grid.IsDisabled!(0x41));               // the submap's own set: editable
 
         tabs.SelectedIndex = 0;
         Dispatcher.UIThread.RunJobs();
         Assert.True(w.GetControl<DockPanel>("LevelPane").IsVisible);
         Assert.False(w.GetControl<DockPanel>("OverworldPane").IsVisible);
         Assert.Equal(session.PaletteRgba, grid.Colors);
+        Assert.True(w.GetControl<StackPanel>("PaletteBgRow").IsVisible);
         Assert.Equal(10, zoom.TickFrequency);                // and back to the level's steps
+    }
+
+    /// <summary>
+    /// An overworld colour is a word in one of the overworld's tables, and editing it edits that
+    /// word: a colour from a shared table changes every submap, one from a submap's own set
+    /// changes only the submaps that load that set (Vanilla Dome and Valley of Bowser share one),
+    /// and a colour the level loader leaves behind is not the overworld's to edit at all. One
+    /// undo takes an edit back, and putting the ROM's own colour back removes it.
+    /// </summary>
+    [Fact]
+    public void an_overworld_colour_edits_the_word_every_submap_that_loads_it_shares()
+    {
+        if (PreppedRom.Fork() is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new Services.EditorSession();
+        Assert.True(s.OpenRom(p));
+        var ow = s.Overworld!;
+
+        Assert.Null(s.OwPaletteSource(0, 0x11));                     // rows 0-3 colours 1-7: level C7's
+        Assert.Equal(Overworld.Submaps, s.OwPaletteSharers(0, 0x29).Length);   // $00B528: everyone's
+        Assert.Equal([2, 4], s.OwPaletteSharers(2, 0x41));           // Vanilla Dome's set is Valley of Bowser's too
+
+        // A shared colour, edited from Yoshi's Island, shows on the main map.
+        ushort was = ow.PaletteOf(0).Bgr[0x29], now = (ushort)(was ^ 0x1F);
+        Assert.True(s.SetOwPaletteColor(1, 0x29, now));
+        Assert.Equal(now, ow.PaletteOf(0).Bgr[0x29]);
+        Assert.True(s.IsOwPaletteEdited(6, 0x29));
+        Assert.Equal(1, s.OwPaletteEditCount);
+
+        // A submap's own colour stays its own.
+        ushort other = ow.PaletteOf(3).Bgr[0x41];
+        Assert.True(s.SetOwPaletteColor(2, 0x41, (ushort)(ow.PaletteOf(2).Bgr[0x41] ^ 0x3E0)));
+        Assert.Equal(ow.PaletteOf(2).Bgr[0x41], ow.PaletteOf(4).Bgr[0x41]);
+        Assert.Equal(other, ow.PaletteOf(3).Bgr[0x41]);
+
+        Assert.False(s.SetOwPaletteColor(0, 0x11, 0x7FFF));          // refused: nothing to write it to
+
+        Assert.True(s.PaletteUndo());
+        Assert.True(s.PaletteUndo());
+        Assert.Equal(was, ow.PaletteOf(0).Bgr[0x29]);
+        Assert.Equal(0, s.OwPaletteEditCount);
+
+        Assert.True(s.SetOwPaletteColor(0, 0x29, now));
+        Assert.True(s.SetOwPaletteColor(0, 0x29, was));              // back to the ROM's: no edit left
+        Assert.Equal(0, s.OwPaletteEditCount);
     }
 
     /// <summary>The layer 2 streams round-trip through the encoder, and the vanilla map re-packs

@@ -101,7 +101,8 @@ public sealed partial class EditorSession
                      .ToArray();
         if (entry.Length == 0) return;
         PushPalette(entry);
-        Recolour();                    // the phases the drag skipped catch up here
+        if (entry.Any(e => !IsOwKey(e.Key)))
+            Recolour();                // the phases the drag skipped catch up here
     }
 
     /// <summary>Drop every palette edit on this level and go back to the ROM's colours.</summary>
@@ -132,7 +133,8 @@ public sealed partial class EditorSession
     public bool CanUndoPalette => palUndo.Count > 0;
     public bool CanRedoPalette => palRedo.Count > 0;
 
-    private ushort? Edited(int index) => paletteEdits.TryGetValue(index, out var v) ? v : null;
+    private ushort? Edited(int key)
+        => (IsOwKey(key) ? Rom?.OwPaletteEdits : paletteEdits) is { } edits && edits.TryGetValue(key, out var v) ? v : null;
 
     /// <summary>What the ROM itself has at this CGRAM index — the level's colours with no editor
     /// edits on top, including any LM custom palette.</summary>
@@ -155,13 +157,19 @@ public sealed partial class EditorSession
     {
         if (from.Count == 0) return false;
         var entry = from.Pop();
+        to.Push(entry);
+        bool level = false, ow = false;
         foreach (var (i, before, after) in entry)
         {
-            if ((redo ? after : before) is { } c) paletteEdits[i] = c;
+            var value = redo ? after : before;
+            if (IsOwKey(i)) { SetOwEdit(i, value); ow = true; continue; }
+            if (value is { } c) paletteEdits[i] = c;
             else paletteEdits.Remove(i);
+            level = true;
         }
+        if (ow) OwPaletteChanged();
+        if (!level) return true;
         paletteDirty = true;
-        to.Push(entry);
         Project?.MarkDirty();
         touched.Add(LevelNum);
         Recolour();

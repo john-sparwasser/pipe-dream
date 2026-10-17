@@ -20,7 +20,7 @@ namespace PipeDream.Ui;
 public partial class MainWindow
 {
     private CheckBox paletteLayer3 = null!;
-    private Button paletteReset = null!;
+    private Button paletteReset = null!, paletteExport = null!, paletteImport = null!;
 
     private PaletteGridView paletteGrid = null!, paletteBg = null!;
     private TextBlock paletteNote = null!, paletteIndex = null!;
@@ -33,8 +33,18 @@ public partial class MainWindow
         ["Main map", "Yoshi's Island", "Vanilla Dome", "Forest of Illusion", "Valley of Bowser", "Special World", "Star World"];
     private bool PaletteScopeOverworld => palScopeTabs.SelectedIndex == 1;
 
+    private int PalSubmapIndex => Math.Max(0, palSubmap.SelectedIndex);
+
     /// <summary>The submap palette under the Overworld tab, or null on the Level tab or without a ROM.</summary>
-    private Palette? OwPalette => PaletteScopeOverworld ? session.Overworld?.PaletteOf(Math.Max(0, palSubmap.SelectedIndex)) : null;
+    private Palette? OwPalette => PaletteScopeOverworld ? session.Overworld?.PaletteOf(PalSubmapIndex) : null;
+
+    /// <summary>A swatch the Overworld tab cannot edit: a colour the level loader leaves, which
+    /// no overworld table sets. Veiled rather than hidden, as the grid does for any inert swatch.</summary>
+    private bool OwSwatchFixed(int index) => PaletteScopeOverworld && session.OwPaletteSource(PalSubmapIndex, index) is null;
+
+    /// <summary>Whether a swatch carries an edit, on whichever tab is showing.</summary>
+    private bool SwatchEdited(int index)
+        => PaletteScopeOverworld ? session.IsOwPaletteEdited(PalSubmapIndex, index) : session.IsPaletteEdited(index);
 
     /// <summary>A swatch's colour wherever the drawer is pointed: the level's CGRAM, or the submap's.</summary>
     private ushort SwatchBgr(int index) => OwPalette is { } p ? p.Bgr[index] : session.PaletteBgr(index);
@@ -42,8 +52,7 @@ public partial class MainWindow
     /// <summary>
     /// The Palette drawer's tab decides which canvas sits beside it: the level for the level's
     /// colours, the overworld for a submap's — colours are read against the picture they colour.
-    /// Runs on the tab and on entering the mode. ponytail: the overworld palettes are shown, not
-    /// edited — LM writes them back into the vanilla tables in place, which is the next step.
+    /// Runs on the tab and on entering the mode.
     /// </summary>
     private void ApplyPaletteScope()
     {
@@ -75,8 +84,11 @@ public partial class MainWindow
         // its CGRAM number stay the same thing, and edits, tooltips and the picker are unchanged.
         bool ow = PaletteScopeOverworld;
         palSubmapRow.IsVisible = ow;
-        paletteLayer3.IsVisible = !ow;          // layer 3's reach and the level's reset are the level's business
-        paletteReset.IsVisible = !ow;
+        paletteLayer3.IsVisible = !ow;          // layer 3's reach and the .pal files are the level's business
+        paletteExport.IsVisible = !ow;
+        paletteImport.IsVisible = !ow;
+        this.GetControl<StackPanel>("PaletteBgRow").IsVisible = !ow;      // colour 0 is not the overworld's
+        this.GetControl<WrapPanel>("PaletteActions").HorizontalAlignment = ow ? Avalonia.Layout.HorizontalAlignment.Right : Avalonia.Layout.HorizontalAlignment.Left;
         bool l3 = !ow && paletteLayer3.IsChecked == true;
         var all = ow ? OwPalette?.Rgba ?? new uint[256] : session.PaletteRgba;
         paletteGrid.Cols = l3 ? Layer3.PaletteColors : 16;
@@ -85,12 +97,11 @@ public partial class MainWindow
         paletteGrid.InvalidateVisual();
         paletteBg.Colors = all is { Length: > 0 } pr ? [pr[0]] : [0xFF000000u];
         paletteBg.InvalidateVisual();
-        // Just the provenance: which palette you are editing, and whether you have moved it. The
-        // rest was a paragraph explaining a grid that explains itself.
-        paletteNote.Text = ow
-            ? $"overworld — {SubmapNames[Math.Max(0, palSubmap.SelectedIndex)]}: the level loader's colours under the overworld's own ($00AD25). Shown, not edited yet."
-            : (session.HasCustomPalette ? "LM custom palette" : "vanilla")
-              + (session.PaletteEditCount > 0 ? $"  —  {session.PaletteEditCount} edit(s)" : "");
+        // Only what the grid cannot say itself: how many colours you have moved. Nothing at all
+        // on an untouched palette — the line goes away.
+        int edits = ow ? session.OwPaletteEditCount : session.PaletteEditCount;
+        paletteNote.Text = edits > 0 ? $"{edits} edit(s)" : "";
+        paletteNote.IsVisible = paletteNote.Text.Length > 0;
         ShowPaletteColor(paletteGrid.Selected);
     }
 
@@ -127,20 +138,36 @@ public partial class MainWindow
     /// would re-derive H/S/V from the quantised value, jumping the crosshair and losing the hue
     /// mid-drag. Loading the picker is <see cref="OpenPicker"/>'s job and happens once, on open.</summary>
     private void ShowPaletteColor(int index)
-        => paletteIndex.Text = index < 0 ? "pick a colour" : DescribeSwatch(index);
+        => paletteIndex.Text = index < 0 ? "" : DescribeSwatch(index);
 
     /// <summary>The swatch hover text, as the ImGui grid had it.</summary>
     private string DescribeSwatch(int index)
         => $"0x{index:X2} r{index >> 4} c{index & 15}  {SwatchBgr(index):X4}"
-         + (!PaletteScopeOverworld && session.IsPaletteEdited(index) ? "  (edited)" : "");
+         + (SwatchEdited(index) ? "  (edited)" : "");
 
     /// <summary>A swatch's colour, for the hover tip: the five-bit channels the picker's sliders
-    /// use, then the 24-bit hex they display as.</summary>
+    /// use, then the 24-bit hex they display as — and on the Overworld tab, who else it colours.</summary>
     private string SwatchRgb(int index)
     {
         ushort bgr = SwatchBgr(index);
         uint rgba = EditorSession.Rgba(bgr);
-        return $"R{bgr & 31} G{bgr >> 5 & 31} B{bgr >> 10 & 31}  #{rgba & 0xFF:X2}{rgba >> 8 & 0xFF:X2}{rgba >> 16 & 0xFF:X2}";
+        return $"R{bgr & 31} G{bgr >> 5 & 31} B{bgr >> 10 & 31}  #{rgba & 0xFF:X2}{rgba >> 8 & 0xFF:X2}{rgba >> 16 & 0xFF:X2}"
+             + (PaletteScopeOverworld ? "\n" + OwSwatchReach(index) : "");
+    }
+
+    /// <summary>Where an overworld colour lands besides here. Most words are one table for every
+    /// submap, so an edit that recolours the whole map must say so before it is made — otherwise
+    /// it reads as a bug the first time a neighbour changes.</summary>
+    private string OwSwatchReach(int index)
+    {
+        var all = session.OwPaletteSharers(PalSubmapIndex, index);
+        return all.Length switch
+        {
+            0 => "the level loader's colour — not the overworld's to edit",
+            Overworld.Submaps => "shared by every submap",
+            1 => "this submap's own",
+            _ => "also " + string.Join(", ", all.Where(s => s != PalSubmapIndex).Select(s => SubmapNames[s])),
+        };
     }
 
     /// <summary>Load the picker with the clicked swatch and pop it over the cursor — ImGui
@@ -149,9 +176,9 @@ public partial class MainWindow
     /// is quantised behind the user's back the way a 24-bit picker would.</summary>
     private void OpenPicker()
     {
-        if (paletteGrid.Selected < 0 || PaletteScopeOverworld) return;     // the overworld's colours are read-only here
+        if (paletteGrid.Selected < 0 || OwSwatchFixed(paletteGrid.Selected)) return;
         loadingSwatch = true;
-        picker.Begin(session.PaletteBgr(paletteGrid.Selected));
+        picker.Begin(SwatchBgr(paletteGrid.Selected));
         loadingSwatch = false;
         pickerFlyout.ShowAt(paletteGrid, showAtPointer: true);
     }
@@ -165,28 +192,48 @@ public partial class MainWindow
     /// Only the level image and this tab are refreshed. The Map16 sheet and the rest of the
     /// drawer are recoloured too, but nobody is looking at them mid-drag; AdoptSession brings
     /// them up to date when the picker closes.
+    ///
+    /// On the Overworld tab the colour goes into the submap's table word, and the map beside the
+    /// drawer redraws from the overworld's own caches, which the edit has dropped.
     /// </summary>
     private void OnPickerColor(ushort bgr)
     {
         if (loadingSwatch || paletteGrid.Selected < 0) return;
-        if (!session.SetPaletteColor(paletteGrid.Selected, bgr)) return;
-
-        bitmap.SetImages(session.Phases, session.PxW, session.PxH, canvas.Phase);
-        canvas.InvalidateVisual();
+        if (PaletteScopeOverworld)
+        {
+            if (!session.SetOwPaletteColor(PalSubmapIndex, paletteGrid.Selected, bgr)) return;
+            RepaintOverworld();
+        }
+        else
+        {
+            if (!session.SetPaletteColor(paletteGrid.Selected, bgr)) return;
+            bitmap.SetImages(session.Phases, session.PxW, session.PxH, canvas.Phase);
+            canvas.InvalidateVisual();
+        }
         RefreshPaletteTab();
     }
 
-    /// <summary>Reset throws away every colour edit on the level at once and there is no undo on
-    /// this tab, so it asks first — the one button here whose miss-click cannot be walked back.</summary>
+    /// <summary>Redraw the overworld map and its sheet in the current colours.</summary>
+    private void RepaintOverworld()
+    {
+        owView.Invalidate();
+        owSheet.Invalidate();
+    }
+
+    /// <summary>Reset throws away every colour edit on the tab at once, so it asks first — it
+    /// is one undo, but a miss-click that recolours the whole map is worth a question.</summary>
     private async void OnResetPalette(object? sender, RoutedEventArgs e)
     {
+        bool ow = PaletteScopeOverworld;
+        int n = ow ? session.OwPaletteEditCount : session.PaletteEditCount;
+        string whose = ow ? "the overworld" : "this level";
         var dlg = new ConfirmWindow("Reset palette",
-            session.PaletteEditCount is var n and > 0
-                ? $"Discard {n} colour edit(s) on this level and go back to its original palette?"
-                : "Reset this level's palette to its original colours?", "Reset");
+            n > 0 ? $"Discard {n} colour edit(s) on {whose} and go back to its original palette?"
+                  : $"Reset {whose}'s palette to its original colours?", "Reset");
         await dlg.ShowDialog(this);
-        if (!dlg.Confirmed || !session.ResetPalette()) return;
+        if (!dlg.Confirmed || !(ow ? session.ResetOwPalette() : session.ResetPalette())) return;
         AdoptSession();
+        if (ow) RepaintOverworld();
     }
 
     /// <summary>Lunar Magic's "Export Level Palette to File", on the palette bar rather than in a

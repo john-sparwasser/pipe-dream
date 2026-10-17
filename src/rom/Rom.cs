@@ -332,6 +332,11 @@ public sealed class Rom
     /// <see cref="Overworld.BaseEvents"/>), or null to read the ROM's own.</summary>
     public byte[]? OwBaseEvents;
 
+    /// <summary>Edited overworld colours: the SNES address of a colour word in the overworld's
+    /// palette tables (<see cref="Palette.OverworldSource"/>) → its BGR555 value. Read over the
+    /// ROM's own words by <see cref="Palette.LoadOverworld"/>; written in place at build time.</summary>
+    public readonly Dictionary<int, ushort> OwPaletteEdits = [];
+
     /// <summary>The edited star/pipe warp tables as one block, 8 bytes a slot
     /// (<see cref="Overworld.WarpTable"/>), or null to read the ROM's four arrays.</summary>
     public byte[]? OwWarps;
