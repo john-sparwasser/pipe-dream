@@ -41,7 +41,7 @@ without shelling out to `gps.exe`. Started 2026-10-10. Background on GPS's on-RO
 
 ## Phases
 
-Each phase ends shippable (or, for the Asar ones, dev-only until the licence is settled).
+Each phase ends shippable. The Asar ones waited on the licence, settled 2026-10-17 (open question 2).
 
 ### 1. Read GPS blocks off a ROM — no assembler
 - `rom/GpsBlocks.cs` (storage): find GPS in a ROM — the `"GPS_VeRsIoN"` marker, cross-checked by
@@ -185,12 +185,12 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
   the block list can never disagree; the build writes them once, as it does today. Fell out of
   moving list.txt into the project (phase 3's import): the inserter no longer writes acts-like.
 
-### 5. Blocks in the app  [FIRST CUT 2026-10-16]
+### 5. Blocks in the app  [SHIPPING 2026-10-17]
 - A Blocks list (tile, file, acts-like, handled contacts), assign a block to a tile, new block
   from `template.asm`, open the `.asm` in the user's editor, and Asar's errors shown as
   `file:line: message` after a build.
-- **Status:** `ui/BlocksWindow` (ASM ▸ Custom blocks…, in the shipped menu bar since 2026-10-16;
-  the GPS import that feeds it is still Debug-only) over
+- **Status:** `ui/BlocksWindow` (ASM ▸ Custom blocks…, in the shipped menu bar since 2026-10-16,
+  with Import GPS folder… in its header) over
   `EditorSession.BlockEntries`/`AssignBlock`/`NewBlock`/`OpenBlockFile`. Acts-like is read from
   the Map16 editor, never edited here (one owner). The contacts column reads GPS's tables off
   the LAST BUILD (`build/<name>.smc`), because a block exists on a ROM only once assembled into
@@ -208,7 +208,8 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
   tile of pages 02-7F; the Map16 hover card then names it (`Custom block: solid.asm`) after the tile's number, which left the header bar on 2026-10-16. Each library
   row shows the block's description (2026-10-17): its first `print`, read off the ASM by
   `GpsInsert.Description` rather than kept from a build, so a block no tile runs has one too; our
-  template's print of the block's own name reads as none. Not yet: anything outside `--dev`.
+  template's print of the block's own name reads as none. Nothing of it is behind `--dev`; it goes
+  out with the first release after 2026-10-17 (v0.5.2 predates it).
 
 ### 6. ROMs that already carry GPS blocks
 - A base ROM inserted with `gps.exe` before it came to Pipe Dream: phase 1 reads it; phase 3
@@ -245,10 +246,16 @@ matches, but nothing waits on it.
 
 1. ~~GPS source on this Mac.~~ GPS V1.4.5 is at `~/Downloads/GPS(V1.4.5)` (`main.asm`, and
    `src.zip` = `main.cpp` + Asar's dll loader). The marker layout above is from them.
-2. **Asar's licence.** The repo's `LICENSE` (read 2026-10-13) settles most of it: Asar is LGPL
-   v3+, the DLL interface files are WTFPL, and a dynamic library shipped as a separate,
-   replaceable file, with Alcaro credited and source offered, meets the LGPL. Still the owner's
-   call before a release ships it; until then phases 2-5 stay behind `--dev`.
+2. ~~**Asar's licence.**~~ **Decided 2026-10-17: ship it.** Asar's `LICENSE` (read 2026-10-13):
+   LGPL v3+, the DLL interface files WTFPL, and a redistributor must credit Alcaro, label a
+   modification and offer its source, and let the user replace the library — keep it a separate
+   replaceable file, or offer everything needed to rebuild the tool. Ours: Quasar is labelled a
+   modified Asar, its public fork is the source (the pinned commit must stay reachable while a
+   release ships it); the library is packed into the one-file binary, but `PIPEDREAM_ASAR`
+   replaces it and Pipe Dream's own source is public. The LGPL and GPL texts, Asar's statement
+   and a third-party notice (`assets/licenses/`) are embedded and shown under Help ▸ Third-party
+   licences…, and the Windows installer puts them in `{app}\licenses`. `LicensesTests` fails if
+   the notice's commit and `tools/asar/build.sh`'s pin part ways.
 3. **GPS's own licence.** `src.zip` carries no licence text, so nothing of it is copied:
    `gps.exe`'s behaviour is ported from its documented formats and observed output, as the repo
    treats Lunar Magic.

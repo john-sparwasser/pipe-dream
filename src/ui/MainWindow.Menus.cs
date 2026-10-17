@@ -273,6 +273,8 @@ public partial class MainWindow
         catch { /* Help ▸ Check for updates: a failed check is nothing the user can act on */ }
     }
 
+    private async void OnLicenses(object? sender, RoutedEventArgs e) => await new LicensesWindow().ShowDialog(this);
+
     /// <summary>A file the session could not read or write, in front of the user: which file,
     /// why, and what to try. Posted rather than shown inline because it can fire from inside
     /// another handler or an open dialog, and a modal opened re-entrantly there is the freeze the

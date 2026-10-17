@@ -44,6 +44,8 @@ ChangesAssociations=yes
 [Files]
 ; One self-contained executable — the editor and the ROM tools are the same binary.
 Source: "..\bin\publish\PipeDream.exe"; DestDir: "{app}"; Flags: ignoreversion
+; The licences of what ships inside it (Asar's LGPL among them), also under Help ▸ Third-party licences.
+Source: "..\assets\licenses\*.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\Pipe Dream"; Filename: "{app}\PipeDream.exe"

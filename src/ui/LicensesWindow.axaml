@@ -1,0 +1,15 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PipeDream.Ui.LicensesWindow"
+        Title="Third-party licences" Width="640" Height="560"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+  <DockPanel Margin="14">
+    <Button DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,12,0,0"
+            Content="Close" Click="OnClose" IsCancel="True" IsDefault="True"/>
+    <!-- Read-only rather than a TextBlock so the text can be selected and copied (a URL, a commit). -->
+    <TextBox x:Name="Text" IsReadOnly="True" TextWrapping="NoWrap" AcceptsReturn="True"
+             FontFamily="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace" FontSize="12"
+             ScrollViewer.HorizontalScrollBarVisibility="Auto"/>
+  </DockPanel>
+</Window>

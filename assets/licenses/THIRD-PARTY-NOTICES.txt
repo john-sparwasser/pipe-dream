@@ -1,0 +1,31 @@
+Pipe Dream is MIT-licensed (https://github.com/john-sparwasser/pipe-dream). It ships with the
+following third-party software, under their own licences.
+
+
+Asar (as Quasar) — LGPL v3 or later
+-----------------------------------
+Custom blocks are assembled by Asar, by Alcaro and contributors
+(https://github.com/RPGHacker/asar). Pipe Dream ships a MODIFIED Asar: Quasar, a fork made
+faster, whose source is https://github.com/john-sparwasser/quasar. This release's library is
+built from commit ed02c322fe85524e843a13eea1719d3f459ffae9 of that repository.
+
+The library is packed inside the Pipe Dream executable. To use another build of Asar instead
+(any version with the same interface), set the environment variable PIPEDREAM_ASAR to the path
+of that library (asar.dll, libasar.so or libasar.dylib) before starting Pipe Dream. Pipe Dream's
+own source, everything needed to rebuild it, is at the address above.
+
+Asar's licence statement, the LGPL v3 and the GPL v3 it builds on follow at the end of this
+file (in the app) and sit beside it as Asar-LICENSE.txt, LGPL-3.0.txt and GPL-3.0.txt.
+
+
+JetBrains Mono — SIL Open Font License 1.1
+------------------------------------------
+The block editor's font, https://github.com/JetBrains/JetBrainsMono. Licence text:
+JetBrainsMono-OFL.txt.
+
+
+Avalonia and AvaloniaEdit — MIT
+-------------------------------
+The user interface toolkit (https://github.com/AvaloniaUI/Avalonia) and the block editor's text
+editor (https://github.com/AvaloniaUI/AvaloniaEdit), both under the MIT licence; their
+copyright notices are in their repositories' LICENSE files.

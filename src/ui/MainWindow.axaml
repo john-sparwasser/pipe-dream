@@ -360,6 +360,7 @@
       </MenuItem>
       <MenuItem Header="_Help">
         <MenuItem Header="Check for _updates…" Click="OnCheckUpdates"/>
+        <MenuItem Header="Third-party _licences…" Click="OnLicenses"/>
       </MenuItem>
     </Menu>
 
