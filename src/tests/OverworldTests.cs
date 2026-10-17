@@ -2058,5 +2058,18 @@ public class OverworldTests(ITestOutputHelper log)
         var after = texts.Skip(at).ToList();
         foreach (string name in new[] { "[FG1]", "[FG2]", "[FG3]", "[FG4]", "[SP1]", "[SP2]", "[SP3]", "[SP4]" })
             Assert.Contains(name, after);
+
+        // An overworld bin draws the land, so its palette rows are the land's: 4-7.
+        var bins = w.GetControl<StackPanel>("GfxBins");
+        var fg1 = bins.GetLogicalDescendants().OfType<TextBlock>().Last(t => t.Text == "[FG1]");
+        var card = fg1.GetLogicalAncestors().OfType<Control>().First(c => c.Parent == bins);
+        card.BringIntoView();
+        Dispatcher.UIThread.RunJobs();
+        var click = card.TranslatePoint(new Point(4, 4), w)!.Value;
+        w.MouseDown(click, MouseButton.Left);
+        w.MouseUp(click, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
+        var rows = w.GetControl<ComboBox>("GfxPalRow");
+        Assert.Equal([4, 5, 6, 7], rows.Items.Cast<int>());
     }
 }
