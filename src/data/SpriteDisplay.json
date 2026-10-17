@@ -223,9 +223,10 @@
     "1B": {
       "name": "Bouncing football in place",
       "tiles": [
-        { "x": 0, "y": 0, "tile": "0x10A", "pal": 0, "size": 16, "xflip": true }
+        { "x": 0, "y": 0, "tile": "0x18A", "pal": 0, "size": 16, "xflip": true }
       ],
-      "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 }
+      "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
+      "gfx": { "3": ["0x04"] }
     },
     "1C": {
       "name": "Bullet Bill",
@@ -273,8 +274,7 @@
     "21": {
       "name": "Moving coin",
       "tiles": [
-        { "x": 4, "y": 0, "tile": "0x0FA", "pal": 2, "size": 8 },
-        { "x": 4, "y": 8, "tile": "0x0FA", "pal": 2, "size": 8, "yflip": true }
+        { "x": 0, "y": 0, "tile": "0x0E8", "pal": 2, "size": 16 }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
       "gfx": { "1": ["0x01"] }
@@ -291,8 +291,8 @@
     "23": {
       "name": "Red vertical net Koopa",
       "tiles": [
-        { "x": 0, "y": -1, "tile": "0x14C", "pal": 4, "size": 16 },
-        { "x": 0, "y": 15, "tile": "0x129", "pal": 4, "size": 16 }
+        { "x": 0, "y": 0, "tile": "0x14C", "pal": 4, "size": 16 },
+        { "x": 0, "y": 16, "tile": "0x129", "pal": 4, "size": 16 }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 21 },
       "gfx": { "2": ["0x12"] }
@@ -309,8 +309,8 @@
     "25": {
       "name": "Red horizontal net Koopa",
       "tiles": [
-        { "x": -1, "y": 0, "tile": "0x14C", "pal": 4, "size": 16 },
-        { "x": -1, "y": 16, "tile": "0x129", "pal": 4, "size": 16 }
+        { "x": 0, "y": 0, "tile": "0x14C", "pal": 4, "size": 16 },
+        { "x": 0, "y": 16, "tile": "0x129", "pal": 4, "size": 16 }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 21 },
       "gfx": { "2": ["0x12"] }
