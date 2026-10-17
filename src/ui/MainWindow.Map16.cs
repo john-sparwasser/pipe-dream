@@ -378,8 +378,8 @@ public partial class MainWindow
         m16Colors.InvalidateVisual();
     }
 
-    /// <summary>The hovered tile: its number; what it is in this level's tileset, when the table
-    /// knows; what it acts as, "ID - description", when there is an acts-like table; and its custom
+    /// <summary>The hovered tile: what it is in this level's tileset, when the table knows; what it
+    /// acts as, "ID - description", when there is an acts-like table; its number; and its custom
     /// block. A custom tile has no sentence of its own, so it borrows the one for the tile it acts
     /// as — a block set to act as 130 reads as the cement block. Nothing off the sheet.
     ///

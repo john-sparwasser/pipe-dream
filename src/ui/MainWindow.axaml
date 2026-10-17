@@ -1019,10 +1019,10 @@
                     Padding="10,6" Margin="14" HorizontalAlignment="Right" VerticalAlignment="Bottom"
                     IsHitTestVisible="False" IsVisible="False">
               <StackPanel Spacing="2">
-                <!-- Monospaced, so the card does not change width as the pointer crosses tiles. -->
-                <TextBlock x:Name="M16TileTipId" Classes="mono"/>
                 <TextBlock x:Name="M16TileTipText" IsVisible="False" TextWrapping="Wrap" MaxWidth="360"/>
                 <TextBlock x:Name="M16ActsTipText" Classes="dim"/>
+                <!-- Monospaced, so the card does not change width as the pointer crosses tiles. -->
+                <TextBlock x:Name="M16TileTipId" Classes="mono"/>
                 <TextBlock x:Name="M16BlockTipText" IsVisible="False" TextWrapping="Wrap" MaxWidth="360"
                            Foreground="{DynamicResource AccentBrush}"/>
               </StackPanel>
