@@ -338,7 +338,7 @@ public partial class MainWindow
     {
         var tiles = map16Canvas.SelectedTiles().Where(t => t is >= 0x200 and < 0x8000).ToList();
         if (tiles.Count == 0 || !session.HasProject) return;
-        var dlg = new BlockPickerWindow(session, tiles, session.BlockFileOf(tiles[0]));
+        var dlg = new BlockPickerWindow(session, session.BlockFileOf(tiles[0]));
         await dlg.ShowDialog(this);
         if (dlg.Picked is not { } file) return;
         foreach (int t in tiles) session.AssignBlock(t, file);

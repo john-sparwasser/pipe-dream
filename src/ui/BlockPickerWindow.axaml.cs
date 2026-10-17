@@ -10,8 +10,7 @@ namespace PipeDream.Ui;
 /// <summary>
 /// Pick the custom block for the selected Map16 tile(s): the project's block library, with "none"
 /// at the top to take a block away. Opened from the Custom button beside the acts-as field; the
-/// caller assigns what <see cref="Picked"/> says. New block adds the template and selects it,
-/// so a tile can get a fresh block without a trip to the Blocks window (where Edit opens it).
+/// caller assigns what <see cref="Picked"/> says. Blocks are made and edited in ASM ▸ Custom blocks.
 /// </summary>
 public partial class BlockPickerWindow : Window
 {
@@ -30,31 +29,21 @@ public partial class BlockPickerWindow : Window
     private readonly EditorSession session = null!;
     private readonly string? current;
     private ListBox list = null!;
-    private TextBox newName = null!;
-    private TextBlock hint = null!;
 
     public BlockPickerWindow() => AvaloniaXamlLoader.Load(this);
 
     /// <param name="current">The block the first selected tile has now, or null.</param>
-    internal BlockPickerWindow(EditorSession session, IReadOnlyList<int> tiles, string? current) : this()
+    internal BlockPickerWindow(EditorSession session, string? current) : this()
     {
         this.session = session;
         this.current = current;
         list = this.GetControl<ListBox>("List");
-        newName = this.GetControl<TextBox>("NewName");
-        hint = this.GetControl<TextBlock>("Hint");
-        this.GetControl<TextBlock>("Subject").Text = tiles.Count == 1
-            ? $"Tile 0x{tiles[0]:X4}" + (current is null ? " has no custom block." : $" runs {current}.")
-            : $"{tiles.Count} tiles selected — the block you pick goes on all of them.";
+        // Picking would be refused, so say why rather than fail silently.
+        this.GetControl<TextBlock>("Hint").Text = session.BlocksLockedReason;
         Refresh(current);
-        if (session.BlocksLockedReason is { } locked)
-        {
-            hint.Text = locked;
-            this.GetControl<Button>("NewBlock").IsEnabled = false;
-        }
     }
 
-    /// <summary>Refill the list: none first, then the library, landing on <paramref name="want"/>.</summary>
+    /// <summary>Fill the list: none first, then the library, landing on <paramref name="want"/>.</summary>
     private void Refresh(string? want)
     {
         var used = session.BlockEntries.GroupBy(e => e.File).ToDictionary(g => g.Key, g => g.Count());
@@ -73,14 +62,6 @@ public partial class BlockPickerWindow : Window
     }
 
     private void OnUse(object? sender, TappedEventArgs e) => OnUse(sender, (RoutedEventArgs)e);
-
-    private void OnNew(object? sender, RoutedEventArgs e)
-    {
-        hint.Text = session.NewBlock(newName.Text ?? "", out var file);
-        if (file is null) return;
-        newName.Text = "";
-        Refresh(file);
-    }
 
     private void OnCancel(object? sender, RoutedEventArgs e) => Close();
 }

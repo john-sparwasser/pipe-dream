@@ -204,7 +204,7 @@ Each phase ends shippable (or, for the Asar ones, dev-only until the licence is 
   building is the ordinary build. The Map16 readout
   names the assigned block for the hovered tile, and the Map16 header's **Custom** button, beside
   the acts-as field, opens `ui/BlockPickerWindow` — "none" first, then the library, the tile's
-  current block marked, New block available there too — and assigns the pick to every selected
+  current block marked; since 2026-10-16 the list and nothing else, blocks being made in ASM ▸ Custom blocks — and assigns the pick to every selected
   tile of pages 02-7F; the selection label then reads `Tile 0x0200 · solid.asm`. Not yet: a
   description column (the block's first `print`, which `GpsInsert.Result` already carries but the
   session does not keep), and anything outside `--dev`.
