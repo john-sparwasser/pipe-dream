@@ -665,7 +665,6 @@ public class Map16ModeTests(ITestOutputHelper log)
 
         var sheet = w.GetControl<Map16CanvasView>("Map16Canvas");
         var chr = w.GetControl<ChrPaletteView>("Chr");
-        var label = w.GetControl<TextBlock>("M16SelLabel");
         var fields = w.GetControl<StackPanel>("M16Fields");
         Assert.True(fields.IsEnabled);                     // a tile is armed on the way in
         Assert.NotNull(sheet.SelectedTile);
@@ -694,9 +693,7 @@ public class Map16ModeTests(ITestOutputHelper log)
         Assert.Equal((0, 0, 1, 1), chr.Brush);             // ...footprint and all
         Assert.Equal(1, sheet.BrushW);
         Assert.Equal(1, sheet.BrushH);
-        Assert.Equal("Tile ######", label.Text);
         Assert.Equal("-", w.GetControl<TextBox>("M16Acts").Text);
-        Assert.False(label.IsEnabled);
         Assert.False(fields.IsEnabled);                    // greys the box, toggles and flips
         Assert.True(fields.IsVisible, "the row must stay put, not vanish and shrink the bar");
     }
@@ -729,7 +726,6 @@ public class Map16ModeTests(ITestOutputHelper log)
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(0x23, sheet.SelectedTile);
-        Assert.Contains("0023", w.GetControl<TextBlock>("M16SelLabel").Text);
         Assert.True(prio.IsChecked, "the toggle was reset by the refresh it triggered");
     }
 

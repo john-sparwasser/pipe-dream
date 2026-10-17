@@ -262,9 +262,6 @@
          themselves when disabled; a TextBlock does not, so its colour is done here — by STYLE
          rather than inline, since a local value would outrank the disabled one, and AFTER .mono
          and .dim, since the last matching style wins. -->
-    <Style Selector="TextBlock#M16SelLabel">
-      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
-    </Style>
     <Style Selector="Border.bar TextBlock:disabled">
       <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}"/>
     </Style>
@@ -981,15 +978,9 @@
                 <Path Data="{StaticResource IconFlower2}"/>
               </ToggleButton>
               <Rectangle Classes="sep"/>
-              <!-- Monospaced: proportional hex digits are different widths, so every tile the
-                   cursor crosses nudged the whole row along. .mono at the readout's own 12px —
-                   it is a readout like every other one, not a heading — with the full-strength
-                   foreground, since this one names what the whole bar acts on. -->
-              <TextBlock x:Name="M16SelLabel" Classes="mono"/>
               <!-- Either the fields or the warning, never both: an unallocated tile has nothing
-                   to show them for. -->
+                   to show them for. Which tile, and its custom block, are on the hover card. -->
               <StackPanel x:Name="M16Fields" Orientation="Horizontal" Spacing="6">
-                <Rectangle Classes="sep"/>
                 <TextBlock Classes="dim" Text="acts as"/>
                 <TextBox x:Name="M16Acts" Width="64"/>
                 <!-- The tile's custom block (GPS): a block in the project's library whose code
@@ -1028,8 +1019,12 @@
                     Padding="10,6" Margin="14" HorizontalAlignment="Right" VerticalAlignment="Bottom"
                     IsHitTestVisible="False" IsVisible="False">
               <StackPanel Spacing="2">
+                <!-- Monospaced, so the card does not change width as the pointer crosses tiles. -->
+                <TextBlock x:Name="M16TileTipId" Classes="mono"/>
                 <TextBlock x:Name="M16TileTipText" IsVisible="False" TextWrapping="Wrap" MaxWidth="360"/>
                 <TextBlock x:Name="M16ActsTipText" Classes="dim"/>
+                <TextBlock x:Name="M16BlockTipText" IsVisible="False" TextWrapping="Wrap" MaxWidth="360"
+                           Foreground="{DynamicResource AccentBrush}"/>
               </StackPanel>
             </Border>
           </Panel>

@@ -32,7 +32,7 @@ public partial class MainWindow
     /// the level's tileset changes and the window has no way to know when that happened.</summary>
     private Map16Edit? map16 => session.Map16;
 
-    private TextBlock m16SelLabel = null!, m16ActsNote = null!, m16Unallocated = null!;
+    private TextBlock m16ActsNote = null!, m16Unallocated = null!;
     private StackPanel m16Fields = null!;
     private TextBox m16Acts = null!;
     private Button m16Custom = null!;
@@ -40,7 +40,7 @@ public partial class MainWindow
     private int[] m16ActsFor = [];
     private Border m16ActsTip = null!;
 
-    private TextBlock m16ActsTipText = null!, m16TileTipText = null!;
+    private TextBlock m16ActsTipText = null!, m16TileTipText = null!, m16TileTipId = null!, m16BlockTipText = null!;
     private ToggleButton m16Priority = null!;
     private ComboBox m16Palette = null!;
     private Border m16PaletteBar = null!;
@@ -101,13 +101,14 @@ public partial class MainWindow
         session.Map16Committed += (_, _) => OnMap16Committed();
 
         // ---- Map16 tile fields, in the canvas header ----
-        m16SelLabel = this.GetControl<TextBlock>("M16SelLabel");
         m16Fields = this.GetControl<StackPanel>("M16Fields");
         m16Unallocated = this.GetControl<TextBlock>("M16Unallocated");
         m16Acts = this.GetControl<TextBox>("M16Acts");
         m16ActsTip = this.GetControl<Border>("M16ActsTip");
         m16ActsTipText = this.GetControl<TextBlock>("M16ActsTipText");
         m16TileTipText = this.GetControl<TextBlock>("M16TileTipText");
+        m16TileTipId = this.GetControl<TextBlock>("M16TileTipId");
+        m16BlockTipText = this.GetControl<TextBlock>("M16BlockTipText");
         map16Canvas.PointerMoved += (_, e) => ShowActsTip(e.KeyModifiers);
         map16Canvas.PointerExited += (_, _) => m16ActsTip.IsVisible = false;
         m16ActsNote = this.GetControl<TextBlock>("M16ActsNote");
@@ -281,12 +282,10 @@ public partial class MainWindow
 
         // Nothing selected: the row stays put, greyed and blanked out. Hiding it would take the
         // bar's height with it, and there is nothing to say about a tile that is not there.
-        m16SelLabel.IsEnabled = m16Fields.IsEnabled = tiles.Count > 0;
+        m16Fields.IsEnabled = tiles.Count > 0;
         if (tiles.Count == 0)
         {
             loadingM16Props = true;
-            m16SelLabel.Text = "Tile ######";
-            ToolTip.SetTip(m16SelLabel, null);
             m16Acts.Text = "-";
             m16ActsNote.Text = "";
             m16Custom.IsEnabled = false;
@@ -300,15 +299,6 @@ public partial class MainWindow
         }
 
         int first = tiles[0];
-        var block = tiles.Count == 1 ? m16.CustomBlock(first) : null;
-        // The project's assignment names its file; a block already on the ROM (an LM hack that
-        // came with GPS's tables) is only known by its code.
-        string? assigned = tiles.Count == 1 ? session.BlockFileOf(first) : null;
-        m16SelLabel.Text = tiles.Count > 1
-            ? $"{tiles.Count} tiles selected"
-            : assigned is not null ? $"Tile 0x{first:X4} · {assigned}"
-            : block is null ? $"Tile 0x{first:X4}" : $"Tile 0x{first:X4} · GPS block";
-        ToolTip.SetTip(m16SelLabel, block is null ? null : CustomBlockText(block));
         // A custom block is a project edit on an FG tile of pages 02-7F, as GPS has it.
         m16Custom.IsEnabled = session.HasProject && tiles.All(t => t is >= 0x200 and < 0x8000);
 
@@ -388,28 +378,34 @@ public partial class MainWindow
         m16Colors.InvalidateVisual();
     }
 
-    /// <summary>The hovered tile: what it is in this level's tileset, when the table knows, over
-    /// what it acts as, "ID - description". A custom tile has no sentence of its own, so it
-    /// borrows the one for the tile it acts as — a block set to act as 130 reads as the cement
-    /// block. Nothing when there is no tile or no table under the pointer.
+    /// <summary>The hovered tile: its number; what it is in this level's tileset, when the table
+    /// knows; what it acts as, "ID - description", when there is an acts-like table; and its custom
+    /// block. A custom tile has no sentence of its own, so it borrows the one for the tile it acts
+    /// as — a block set to act as 130 reads as the cement block. Nothing off the sheet.
     ///
     /// The card sits in the canvas's lower-right corner, out of the way; with Alt or Cmd held it
     /// moves up and to the right of the hovered tile instead, to be read while sweeping tiles.
     /// </summary>
     private void ShowActsTip(KeyModifiers mods)
     {
-        int? acts = map16 is { } m16 && map16Canvas.HoverQuad is { } h ? m16.ActsAsResolved(h.Tile) : null;
-        m16ActsTip.IsVisible = acts is not null;
-        if (acts is not { } a) return;
-        int tile = map16Canvas.HoverQuad!.Value.Tile;
+        m16ActsTip.IsVisible = map16 is not null && map16Canvas.HoverQuad is not null;
+        if (map16 is not { } m16 || map16Canvas.HoverQuad is not { } h) return;
+        int tile = h.Tile;
+        int? acts = m16.ActsAsResolved(tile);
+        m16TileTipId.Text = $"Tile 0x{tile:X4}";
         string name = Map16Tiles.Describe(tile, session.Tileset);
-        if (name.Length == 0 && a != tile) name = Map16Tiles.Describe(a, session.Tileset);
-        if (map16!.CustomBlock(tile) is { } block)
-            name = name.Length == 0 ? CustomBlockText(block) : $"{name}\n{CustomBlockText(block)}";
+        if (name.Length == 0 && acts is { } borrowed && borrowed != tile) name = Map16Tiles.Describe(borrowed, session.Tileset);
         m16TileTipText.Text = name;
         m16TileTipText.IsVisible = name.Length > 0;
-        string what = ActsAs.Describe(a);
-        m16ActsTipText.Text = what.Length == 0 ? $"{a:X3}" : $"{a:X3} - {what}";
+        m16ActsTipText.IsVisible = acts is not null;
+        if (acts is { } a)
+            m16ActsTipText.Text = ActsAs.Describe(a) is { Length: > 0 } what ? $"{a:X3} - {what}" : $"{a:X3}";
+        // The project's block names its library entry; one already on the ROM (a hack that came
+        // with GPS's tables) is only known by its code.
+        string? block = session.BlockFileOf(tile) is { } assigned ? $"Custom block: {assigned}"
+            : m16.CustomBlock(tile) is { } onRom ? CustomBlockText(onRom) : null;
+        m16BlockTipText.Text = block;
+        m16BlockTipText.IsVisible = block is not null;
         PlaceActsTip(tile, ZoomChord(mods));
     }
 

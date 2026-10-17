@@ -199,6 +199,8 @@ public class Map16PropsTests(ITestOutputHelper log)
         Assert.False(tip.IsVisible);
 
         var name = w.GetControl<TextBlock>("M16TileTipText");
+        var id = w.GetControl<TextBlock>("M16TileTipId");
+        var block = w.GetControl<TextBlock>("M16BlockTipText");
 
         w.MouseMove(sheet.TranslatePoint(new Point(4, 4), w)!.Value);      // tile 0x000: LM calls it animated water
         Dispatcher.UIThread.RunJobs();
@@ -212,6 +214,8 @@ public class Map16PropsTests(ITestOutputHelper log)
         Dispatcher.UIThread.RunJobs();
         Assert.True(name.IsVisible);
         Assert.StartsWith("An ordinary coin", name.Text);
+        Assert.Equal("Tile 0x002B", id.Text);                                // the number the header used to show
+        Assert.False(block.IsVisible);                                       // no custom block on a vanilla coin
         Assert.Equal(HorizontalAlignment.Right, tip.HorizontalAlignment);
         Assert.Equal(VerticalAlignment.Bottom, tip.VerticalAlignment);
 
