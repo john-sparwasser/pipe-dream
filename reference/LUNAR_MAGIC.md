@@ -18,6 +18,8 @@ Tooling lives in `tools/lm/`:
 | file | what it is |
 |---|---|
 | `Invoke-LunarMagic.ps1` | runs one operation, returns `{ExitCode, TimedOut, Output, AccessDenied, ChecksumWarned, Changed}` |
+| `Read-LmHeaderCombos.ps1` | opens a Level-menu dialog on a ROM copy and reads every combo box's entries with its caption (`-ListMenu` prints the menu bar) |
+| `Update-GfxSettingNames.ps1` | rewrites `src/rom/GfxSettingNames.cs` from the GFX Index in header dialog's two lists |
 
 Set `PIPEDREAM_LUNAR_MAGIC` to point at the binary; otherwise it looks in
 `C:\SMW\Projects\.resources\Lunar Magic\`.
