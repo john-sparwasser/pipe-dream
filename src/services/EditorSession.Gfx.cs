@@ -18,15 +18,16 @@ public sealed partial class EditorSession
         => Rom is { } r && Scene is { } s ? Gfx.LevelSlots(r, s.Level.Header, LevelNum) : [];
 
     /// <summary>The 16 tileset / sprite-set choices for the graphics-header dialog: the setting
-    /// number plus the GFX files it loads, straight from the ROM's own lists — the lists have
-    /// no prose names, and the files are what actually distinguishes the settings.</summary>
+    /// number, Lunar Magic's name for it (<see cref="GfxSettingNames"/>), and the GFX files it
+    /// loads, straight from the ROM's own lists — a hack may have repointed a setting's files,
+    /// and the files are what actually distinguishes the settings.</summary>
     public (IReadOnlyList<string> Layer1, IReadOnlyList<string> Sprites) GfxHeaderChoices()
     {
         if (Rom is not { } rom) return ([], []);
-        List<string> Items(int listBase) => [.. Enumerable.Range(0, 16).Select(i =>
-            $"{i:X} — GFX " + string.Join(" ", Enumerable.Range(0, 4)
+        List<string> Items(int listBase, string[] names) => [.. Enumerable.Range(0, 16).Select(i =>
+            $"{i:X} — " + (names[i].Length > 0 ? names[i] + " · " : "") + "GFX " + string.Join(" ", Enumerable.Range(0, 4)
                 .Select(s => $"{rom.Data[rom.FileOffset(listBase) + i * 4 + s]:X2}")))];
-        return (Items(Gfx.ObjectGfxList), Items(Gfx.SpriteGfxList));
+        return (Items(Gfx.ObjectGfxList, GfxSettingNames.Layer1), Items(Gfx.SpriteGfxList, GfxSettingNames.Sprites));
     }
 
     /// <summary>How a bin's current file got there, for the drawer's badge. A base file — fork or
