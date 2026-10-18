@@ -87,7 +87,9 @@ public partial class MainWindow
         paletteLayer3.IsVisible = !ow;          // layer 3's reach and the .pal files are the level's business
         paletteExport.IsVisible = !ow;
         paletteImport.IsVisible = !ow;
-        this.GetControl<StackPanel>("PaletteBgRow").IsVisible = !ow;      // colour 0 is not the overworld's
+        // The back-area row is the level header's colour 0. The overworld has no header colour:
+        // on vanilla its colour 0 is the level loader's; under Lunar Magic's table it is swatch 0.
+        this.GetControl<StackPanel>("PaletteBgRow").IsVisible = !ow;
         this.GetControl<WrapPanel>("PaletteActions").HorizontalAlignment = ow ? Avalonia.Layout.HorizontalAlignment.Right : Avalonia.Layout.HorizontalAlignment.Left;
         bool l3 = !ow && paletteLayer3.IsChecked == true;
         var all = ow ? OwPalette?.Rgba ?? new uint[256] : session.PaletteRgba;
@@ -155,9 +157,10 @@ public partial class MainWindow
              + (PaletteScopeOverworld ? "\n" + OwSwatchReach(index) : "");
     }
 
-    /// <summary>Where an overworld colour lands besides here. Most words are one table for every
-    /// submap, so an edit that recolours the whole map must say so before it is made — otherwise
-    /// it reads as a bug the first time a neighbour changes.</summary>
+    /// <summary>Where an overworld colour lands besides here. On vanilla most words are one table
+    /// for every submap, so an edit that recolours the whole map must say so before it is made —
+    /// otherwise it reads as a bug the first time a neighbour changes. Under Lunar Magic's table
+    /// every colour is the submap's own.</summary>
     private string OwSwatchReach(int index)
     {
         var all = session.OwPaletteSharers(PalSubmapIndex, index);

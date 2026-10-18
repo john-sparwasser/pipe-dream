@@ -404,6 +404,27 @@ public static class LunarMagic
         /// at $0480E0, taken the same way), or -1. It is what fills the $7FC0C0 DMA records.</summary>
         public int LmOwExAnimTickEntry => rom.ReadByte(0x0480E0) == 0x22 ? rom.ReadValue(0x0480E1, 3) : -1;
 
+        /// <summary>
+        /// SNES address of Lunar Magic's overworld palette table, or -1 for the vanilla loader.
+        /// LM's first overworld palette edit swaps the vanilla tables for 14 whole palettes,
+        /// 0x200 bytes each: submaps 0-6, then the same seven once the special world is passed.
+        /// It takes $00AD32, just after $00AD25 picks its vanilla source, with a JSL to
+        /// `TAX : LDA $1931 : AND #$0F : DEC : CLC : TXY : BPL + : ADC #7 : + XBA : ASL :
+        /// ADC #lo : TAX : LDY #$0703 : LDA #$01FF : PHB : MVN $00,bank : PLB` — all 256 colours
+        /// over the CGRAM mirror, so nothing of the level loader's survives. Seen 2026-10-18 by
+        /// diffing Dogs of War before and after one colour edit in LM 3.40.
+        /// </summary>
+        public int LmOwPaletteTable
+        {
+            get
+            {
+                if (rom.ReadByte(0x00AD32) != 0x22) return -1;
+                int h = rom.ReadValue(0x00AD33, 3);
+                if (rom.ReadByte(h + 17) != 0x69 || rom.ReadByte(h + 28) != 0x54) return -1;
+                return rom.ReadByte(h + 30) << 16 | rom.ReadValue(h + 18, 2);
+            }
+        }
+
         /// <summary>Base of Lunar Magic's OVERWORLD ExAnimation record table (3 bytes x 7 submaps,
         /// FF 00 00 = none), or -1 when the ROM does not carry the overworld hack. A separate hack
         /// with a separate table from the per-level one — see <see cref="LmOwExAnimEngine"/>.</summary>

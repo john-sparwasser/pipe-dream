@@ -148,6 +148,55 @@ public class OverworldLmTests(ITestOutputHelper log)
         }
     }
 
+    /// <summary>DogsOfWar carries Lunar Magic's overworld palettes: $00AD32 jumps to a hook that
+    /// copies one whole 0x200-byte palette per submap over CGRAM, so every colour of every row is
+    /// read from that table and nothing of the vanilla sets or the level loader shows.</summary>
+    [RomFact("DogsOfWar", "dogs_of_war.smc")]
+    public void dogs_of_war_reads_each_submaps_palette_from_lunar_magics_table()
+    {
+        var rom = Dogs;
+        int table = rom.LmOwPaletteTable;
+        log.WriteLine($"table ${table:X6}");
+        Assert.True(table >= 0, "the hook at $00AD32 should name a table");
+        var ow = new Overworld(rom);
+        for (int s = 0; s < Overworld.Submaps; s++)
+        {
+            var bgr = ow.PaletteOf(s).Bgr;
+            for (int i = 0; i < 256; i++)
+                Assert.Equal(Palette.RomWord(rom, table + s * 0x200 + i * 2), bgr[i]);
+        }
+        Assert.True(Palette.IsOverworldColor(rom, table + 6 * 0x200 + 0x1FE));
+        Assert.False(Palette.IsOverworldColor(rom, 0x00B528));          // the vanilla tables are no longer read
+
+        if (File.Exists(ReferenceRoms.Vanilla))
+            Assert.Equal(-1, Rom.Load(ReferenceRoms.Vanilla).LmOwPaletteTable);
+    }
+
+    /// <summary>Under Lunar Magic's table each submap owns all 256 of its colours: the rows the
+    /// level loader fills on vanilla, and colour 0, are editable, and an edit stays on its submap.</summary>
+    [RomFact("DogsOfWar", "dogs_of_war.smc")]
+    public void under_lunar_magics_table_every_colour_is_its_submaps_own()
+    {
+        var s = new Services.EditorSession();
+        Assert.True(s.OpenRom(ReferenceRoms.InProject("DogsOfWar", "dogs_of_war.smc")));
+        var ow = s.Overworld!;
+        int table = s.Rom!.LmOwPaletteTable;
+
+        Assert.Equal(table + 1 * 0x200 + 0x11 * 2, s.OwPaletteSource(1, 0x11));   // vanilla: level C7's
+        Assert.Equal([1], s.OwPaletteSharers(1, 0x29));                          // vanilla: everyone's
+        Assert.NotNull(s.OwPaletteSource(0, 0));
+
+        ushort other = ow.PaletteOf(1).Bgr[0x29];
+        ushort now = (ushort)(ow.PaletteOf(0).Bgr[0x29] ^ 0x1F);
+        Assert.True(s.SetOwPaletteColor(0, 0x29, now));
+        Assert.Equal(now, ow.PaletteOf(0).Bgr[0x29]);
+        Assert.Equal(other, ow.PaletteOf(1).Bgr[0x29]);
+        ushort back = (ushort)(ow.PaletteOf(0).Bgr[0] ^ 0x7C00);
+        Assert.True(s.SetOwPaletteColor(0, 0, back));
+        Assert.Equal(back, ow.PaletteOf(0).Bgr[0]);
+        Assert.Equal(2, s.OwPaletteEditCount);
+    }
+
     /// <summary>BigEye moved the Map16 table to bank $15 and grew it to two pages.</summary>
     [RomFact("BigEye", "bigeye.smc")]
     public void bigeye_reads_the_two_page_map16_table()

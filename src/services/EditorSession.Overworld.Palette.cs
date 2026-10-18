@@ -22,8 +22,8 @@ public sealed partial class EditorSession
 
     /// <summary>
     /// Change the colour word behind a submap's swatch. Every submap that loads the same word
-    /// changes with it — most of the overworld's colours are one table for all seven, and that
-    /// is the ROM's shape, not a choice made here. Same bargain as the level's
+    /// changes with it — on vanilla most of the overworld's colours are one table for all seven,
+    /// and that is the ROM's shape, not a choice made here. Same bargain as the level's
     /// <see cref="SetPaletteColor"/>: inside a stroke the history entry waits for the stroke to
     /// end, and putting the ROM's own colour back removes the edit.
     /// </summary>
@@ -39,8 +39,8 @@ public sealed partial class EditorSession
         return true;
     }
 
-    /// <summary>Drop every overworld colour edit, all submaps at once — they share most words, so
-    /// a per-submap reset would reset its neighbours anyway. One history entry.</summary>
+    /// <summary>Drop every overworld colour edit, all submaps at once — on vanilla they share most
+    /// words, so a per-submap reset would reset its neighbours anyway. One history entry.</summary>
     public bool ResetOwPalette()
     {
         if (Rom is not { } rom || rom.OwPaletteEdits.Count == 0) return false;

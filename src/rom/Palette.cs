@@ -101,9 +101,12 @@ public sealed class Palette
 
     /// <summary>The overworld's four colour loads for a submap, in the game's order. The first is
     /// the submap's own set (DATA_00AD1E picks it, DATA_00ABDF says where it starts); the other
-    /// three are one table for every submap.</summary>
+    /// three are one table for every submap. Under LM's overworld palettes it is one load of all
+    /// 256 colours from the submap's own palette (<see cref="LunarMagic.LmOwPaletteTable"/>).</summary>
     private static ColorLoad[] OverworldLoads(Rom rom, int submap, bool specialPassed)
     {
+        if (rom.LmOwPaletteTable is var table and >= 0)
+            return [new(0, table + (submap + (specialPassed ? Overworld.Submaps : 0)) * 0x200, 16, 16)];
         int set = rom.Data[rom.FileOffset(0x00AD1E) + submap];                       // DATA_00AD1E
         int setOff = rom.ReadValue(0x00ABDF + set * 2, 2);                            // DATA_00ABDF
         return [new(0x41, (specialPassed ? 0x00B732 : 0x00B3D8) + setOff, 7, 4),
@@ -116,7 +119,8 @@ public sealed class Palette
     /// The SNES address of the word a submap's CGRAM <paramref name="index"/> is loaded from, or
     /// null for a colour the overworld does not set — those are the level loader's leftovers,
     /// which belong to level C7 and not to the map. Editing an overworld colour IS writing this
-    /// word: Lunar Magic edits these tables in place (reference/OVERWORLD.md §5 table).
+    /// word: Lunar Magic edits the vanilla tables in place (reference/OVERWORLD.md §5 table) until
+    /// its first overworld palette save, and its own table after — where every colour has a word.
     /// </summary>
     public static int? OverworldSource(Rom rom, int submap, int index)
     {
@@ -128,7 +132,8 @@ public sealed class Palette
 
     /// <summary>The submaps that load their colour from <paramref name="snes"/> — all seven for
     /// the shared tables, one or two for a submap's own set (Vanilla Dome and Valley of Bowser
-    /// share theirs). Same index in each, since every submap lays its colours out alike.</summary>
+    /// share theirs), always one under Lunar Magic's table. Same index in each, since every
+    /// submap lays its colours out alike.</summary>
     public static int[] OverworldSharers(Rom rom, int index, int snes)
         => [.. Enumerable.Range(0, Overworld.Submaps).Where(s => OverworldSource(rom, s, index) == snes)];
 

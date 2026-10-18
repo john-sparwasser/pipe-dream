@@ -500,9 +500,9 @@ public partial class MainWindow
         // and Palette pages now show. Offering rows 0-1 here was the old model, and it made the
         // editor colour an LG file from CGRAM 00-03 while the drawer card beside it used 08-0B.
         => GfxIsLayer3 ? (0, Layer3.PaletteGroups)
-         // An overworld bin (0x70 + record word) draws the land, and the land's colours are
-         // rows 4-7 — the submap's own set, which is what the Overworld palette tab edits.
-         : gfxSlot >= 0x70 ? (4, 4)
+         // An overworld bin is 0x70 + record word; words 8-11 are SP4-SP1. The land draws in all
+         // of rows 0-7, not just the submap's own 4-7: LM gives each submap rows 0-3 as well.
+         : gfxSlot >= 0x70 ? (gfxSlot - 0x70 is >= 8 and <= 11 ? (8, 8) : (0, 8))
          : session.GfxBins.FirstOrDefault(b => b.BypWord == gfxSlot).Name switch
         {
             null => (0, 16),

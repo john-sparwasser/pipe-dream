@@ -167,7 +167,8 @@ internal static class RomBuilder
             if (project.Data.Overworld.EventPieces is { } owp
                 && Overworld.WriteEventPieces(rom, ProjectSession.WordsOf(Convert.FromBase64String(owp))) is { } owpErr)
                 warnings.Add("overworld: " + owpErr);
-            // Overworld colours go back where Lunar Magic keeps them: the vanilla tables, in place.
+            // Overworld colours go back where Lunar Magic keeps them, in place: the vanilla tables,
+            // or its own whole-palette table once it has saved one (LunarMagic.LmOwPaletteTable).
             foreach (var (at, bgr) in project.Data.Overworld.Palette)
             {
                 // The key is an address taken on trust from the file; a hand-edited one must not
