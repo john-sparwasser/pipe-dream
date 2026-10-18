@@ -622,7 +622,7 @@
                   <!-- One line: the submap drop-down on the Overworld tab, the actions beside it —
                        pushed right there, left on the Level tab where nothing sits before them. -->
                   <DockPanel>
-                    <StackPanel x:Name="PalSubmapRow" DockPanel.Dock="Left" Orientation="Horizontal" IsVisible="False">
+                    <StackPanel x:Name="PalSubmapRow" DockPanel.Dock="Left" Orientation="Horizontal" IsVisible="False" Margin="0,0,12,0">
                       <ComboBox x:Name="PalSubmap" Width="180" SelectedIndex="0"
                                 ToolTip.Tip="Which submap's palette to show — each builds its own from the level loader plus the overworld's overrides"/>
                       <CheckBox x:Name="PalSpecialPassed" Content="Special world passed" Margin="10,0,0,0"

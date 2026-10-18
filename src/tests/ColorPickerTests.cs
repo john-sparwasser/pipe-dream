@@ -137,6 +137,29 @@ public class ColorPickerTests(ITestOutputHelper log)
         Assert.Equal(31, panel.GetControl<Slider>("PalB").Value);
     }
 
+    /// <summary>OK confirms, and so does Enter from inside the hex box — the place a typed colour
+    /// is finished — with the typed colour already applied when it does.</summary>
+    [AvaloniaFact]
+    public void ok_and_enter_confirm_the_colour()
+    {
+        var (w, panel) = Show();
+        panel.Begin(0x0000);
+        int confirmed = 0;
+        panel.Confirmed += (_, _) => confirmed++;
+
+        panel.GetControl<Button>("PickerOk").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Assert.Equal(1, confirmed);
+
+        var hex = panel.GetControl<TextBox>("HexBox");
+        hex.Focus();
+        hex.Text = "03E0";
+        Dispatcher.UIThread.RunJobs();
+        w.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(2, confirmed);
+        Assert.Equal(0x03E0, panel.Bgr);
+    }
+
     [Theory]
     [InlineData("7C1F", 0x7C1F)]        // BGR555, the form LM and this editor's readouts use
     [InlineData("#7C1F", 0x7C1F)]

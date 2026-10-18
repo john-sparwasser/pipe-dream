@@ -110,6 +110,7 @@ public partial class MainWindow
         paletteGrid.CopyHere += (_, i) => CopySwatch(i);
         paletteBg.CopyHere += (_, _) => CopySwatch(0);
         picker.ColorChanged += (_, c) => OnPickerColor(c);
+        picker.Confirmed += (_, _) => pickerFlyout.Hide();     // the Closed handler below ends the stroke
         pickerFlyout.Content = picker;
         // The open picker IS the undo boundary, as it was in the ImGui editor: everything done
         // between opening and dismissing it is one entry, however many colours the drag crossed.

@@ -41,5 +41,10 @@
       <TextBlock x:Name="HexNote" Classes="dim" VerticalAlignment="Center"
                  Text="BGR555 or RRGGBB"/>
     </StackPanel>
+
+    <!-- The colour is applied as it is picked; OK (or Enter) just closes the popup on it, which
+         is also what ends the undo step. Clicking away still does the same. -->
+    <Button x:Name="PickerOk" Content="OK" HorizontalAlignment="Right" Padding="18,3"
+            ToolTip.Tip="Keep this colour and close (Enter)"/>
   </StackPanel>
 </UserControl>

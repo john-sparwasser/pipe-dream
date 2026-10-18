@@ -1,6 +1,8 @@
 using System.Globalization;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 
@@ -57,7 +59,20 @@ public partial class ColorPickerPanel : UserControl
         {
             if (!loading && ParseHex(hexBox.Text) is { } c) Set(c, fromHex: true);
         };
+        this.GetControl<Button>("PickerOk").Click += (_, _) => Confirmed?.Invoke(this, EventArgs.Empty);
+        // Tunnelling, so Enter confirms from anywhere in the panel — the hex box and the sliders
+        // would otherwise see it first.
+        AddHandler(KeyDownEvent, (_, e) =>
+        {
+            if (e.Key is not (Key.Enter or Key.Return)) return;
+            e.Handled = true;
+            Confirmed?.Invoke(this, EventArgs.Empty);
+        }, RoutingStrategies.Tunnel);
     }
+
+    /// <summary>OK or Enter: the colour already showing is the one to keep. The owner closes the
+    /// popup; nothing is applied here, because every pick was applied as it was made.</summary>
+    public event EventHandler? Confirmed;
 
     /// <summary>The picked colour, BGR555. Setting it does not raise <see cref="ColorChanged"/> —
     /// it is how the OWNER pushes a colour in.</summary>

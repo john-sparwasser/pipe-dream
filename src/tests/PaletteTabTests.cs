@@ -194,6 +194,33 @@ public class PaletteTabTests(ITestOutputHelper log) : IDisposable
         Assert.IsType<FlyoutPresenter>(w.picker.Parent);
     }
 
+    /// <summary>Enter in the open picker keeps the colour and closes it, which ends the picker's
+    /// stroke: the colour stays, and the whole visit is one undo step, as clicking away makes it.</summary>
+    [AvaloniaFact]
+    public void enter_in_the_picker_keeps_the_colour_and_closes_it()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var w = PaletteWindow(Vanilla);
+        var s = SessionOf(w);
+        var grid = w.GetControl<PaletteGridView>("PaletteGrid");
+        ushort was = s.PaletteBgr(0x42), now = Different(was);
+
+        ClickSwatch(w, grid, 0x42, MouseButton.Left);
+        var flyout = (Flyout)typeof(MainWindow)
+            .GetField("pickerFlyout", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(w)!;
+        Assert.True(flyout.IsOpen);
+        var hex = w.picker.GetControl<TextBox>("HexBox");
+        hex.Text = $"{now:X4}";
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(now, s.PaletteBgr(0x42));                                 // applied as it was typed
+
+        hex.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(flyout.IsOpen);
+        Assert.Equal(now, s.PaletteBgr(0x42));
+        Assert.Equal(1, s.PaletteUndoDepth);
+    }
+
     /// <summary>Click swatch <paramref name="index"/> of a grid, wherever its shape puts it.</summary>
     private static void ClickSwatch(MainWindow w, PaletteGridView grid, int index, MouseButton button,
                                     RawInputModifiers mods = RawInputModifiers.None)
