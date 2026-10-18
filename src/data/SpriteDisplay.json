@@ -368,13 +368,13 @@
     "29": {
       "name": "Koopa Kid",
       "tiles": [
-        { "x": -80, "y": 40, "tile": "0x10A", "pal": 5, "size": 8 },
-        { "x": -72, "y": 32, "tile": "0x120", "pal": 5, "size": 16 },
-        { "x": -72, "y": 16, "tile": "0x10C", "pal": 5, "size": 8 },
-        { "x": -80, "y": 24, "tile": "0x100", "pal": 5, "size": 16 }
+        { "x": -8, "y": 8, "tile": "0x10A", "pal": 5, "size": 8 },
+        { "x": 0, "y": 0, "tile": "0x120", "pal": 5, "size": 16 },
+        { "x": 0, "y": -16, "tile": "0x10C", "pal": 5, "size": 8 },
+        { "x": -8, "y": -8, "tile": "0x100", "pal": 5, "size": 16 }
       ],
       "hitbox": { "x": 1, "y": 2, "w": 14, "h": 24 },
-      "gfx": { "2": ["0x0A", "0x13"] }
+      "gfx": { "2": ["0x0A"] }
     },
     "2A": {
       "name": "Upside down Piranha Plant",
@@ -703,11 +703,11 @@
     "4F": {
       "name": "Jumping Piranha Plant",
       "tiles": [
-        { "x": 0, "y": 0, "tile": "0x0AE", "pal": 4, "size": 16 },
-        { "x": 8, "y": 16, "tile": "0x0C4", "pal": 5, "size": 8, "xflip": true },
-        { "x": 0, "y": 16, "tile": "0x0C4", "pal": 5, "size": 8 },
-        { "x": 8, "y": 8, "tile": "0x083", "pal": 5, "size": 8, "xflip": true },
-        { "x": 0, "y": 8, "tile": "0x083", "pal": 5, "size": 8 }
+        { "x": 8, "y": 0, "tile": "0x0AE", "pal": 4, "size": 16 },
+        { "x": 16, "y": 16, "tile": "0x0C4", "pal": 5, "size": 8, "xflip": true },
+        { "x": 8, "y": 16, "tile": "0x0C4", "pal": 5, "size": 8 },
+        { "x": 16, "y": 8, "tile": "0x083", "pal": 5, "size": 8, "xflip": true },
+        { "x": 8, "y": 8, "tile": "0x083", "pal": 5, "size": 8 }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
       "gfx": { "1": ["0x01"] }
@@ -715,13 +715,13 @@
     "50": {
       "name": "Jumping Piranha Plant, spit fire",
       "tiles": [
-        { "x": 0, "y": 0, "tile": "0x0AE", "pal": 4, "size": 16 },
-        { "x": 8, "y": 16, "tile": "0x0C4", "pal": 5, "size": 8, "xflip": true },
-        { "x": 0, "y": 16, "tile": "0x0C4", "pal": 5, "size": 8 },
-        { "x": 8, "y": 8, "tile": "0x083", "pal": 5, "size": 8, "xflip": true },
-        { "x": 0, "y": 8, "tile": "0x083", "pal": 5, "size": 8 },
-        { "x": -13, "y": -13, "tile": "0x02C", "pal": 4, "size": 8, "xflip": true },
-        { "x": 21, "y": -13, "tile": "0x02C", "pal": 4, "size": 8 }
+        { "x": 8, "y": 0, "tile": "0x0AE", "pal": 4, "size": 16 },
+        { "x": 16, "y": 16, "tile": "0x0C4", "pal": 5, "size": 8, "xflip": true },
+        { "x": 8, "y": 16, "tile": "0x0C4", "pal": 5, "size": 8 },
+        { "x": 16, "y": 8, "tile": "0x083", "pal": 5, "size": 8, "xflip": true },
+        { "x": 8, "y": 8, "tile": "0x083", "pal": 5, "size": 8 },
+        { "x": -5, "y": -13, "tile": "0x02C", "pal": 4, "size": 8, "xflip": true },
+        { "x": 29, "y": -13, "tile": "0x02C", "pal": 4, "size": 8 }
       ],
       "hitbox": { "x": 2, "y": 3, "w": 12, "h": 10 },
       "gfx": { "0": ["0x00"], "1": ["0x01"] }
