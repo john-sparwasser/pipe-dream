@@ -1565,7 +1565,7 @@ public class OverworldTests(ITestOutputHelper log)
         Assert.False(w.GetControl<DockPanel>("LevelPane").IsVisible);
         Assert.True(w.GetControl<DockPanel>("OverworldPane").IsVisible);
         Assert.True(w.GetControl<StackPanel>("PalSubmapRow").IsVisible);
-        Assert.False(w.GetControl<StackPanel>("PaletteBgRow").IsVisible);   // colour 0 is not the overworld's
+        Assert.False(w.GetControl<StackPanel>("PaletteBgRow").IsVisible);   // the back-area colour is the level header's
         Assert.Equal(session.Overworld!.PaletteOf(0).Rgba, grid.Colors);
         // Colours only: no brushes, no View toggles, layer 1 on, the path pictures off.
         Assert.False(w.GetControl<StackPanel>("OwBrushBar").IsVisible);
@@ -1583,8 +1583,9 @@ public class OverworldTests(ITestOutputHelper log)
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(session.Overworld!.PaletteOf(1).Rgba, grid.Colors);
         Assert.False(w.GetControl<TextBlock>("PaletteNote").IsVisible);     // nothing edited, nothing to say
-        Assert.True(grid.IsDisabled!(0x11));                // the level loader's colour: veiled, not the map's
-        Assert.False(grid.IsDisabled!(0x41));               // the submap's own set: editable
+        // Prep v32 gives every submap all 256 of its colours, as Lunar Magic does: the rows the
+        // level loader fills on vanilla are editable, and so is colour 0.
+        Assert.All(Enumerable.Range(0, 256), i => Assert.False(grid.IsDisabled!(i)));
 
         tabs.SelectedIndex = 0;
         Dispatcher.UIThread.RunJobs();
@@ -1600,12 +1601,17 @@ public class OverworldTests(ITestOutputHelper log)
     /// word: a colour from a shared table changes every submap, one from a submap's own set
     /// changes only the submaps that load that set (Vanilla Dome and Valley of Bowser share one),
     /// and a colour the level loader leaves behind is not the overworld's to edit at all. One
-    /// undo takes an edit back, and putting the ROM's own colour back removes it.
+    /// undo takes an edit back, and putting the ROM's own colour back removes it. That is a base
+    /// still on the vanilla tables — prep v31 or older, or a ROM Lunar Magic has not saved an
+    /// overworld palette into; from v32 every colour is its submap's own.
     /// </summary>
     [Fact]
     public void an_overworld_colour_edits_the_word_every_submap_that_loads_it_shares()
     {
-        if (PreppedRom.Fork() is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        if (!File.Exists(ReferenceRoms.Vanilla)) { log.WriteLine("SKIP: no ROM"); return; }
+        string p = Path.Combine(Path.GetTempPath(), $"pd-v31-{Guid.NewGuid():N}.smc");
+        File.Copy(ReferenceRoms.Vanilla, p);
+        Assert.Null(RomPrep.PrepInPlace(p, version: 31));
         var s = new Services.EditorSession();
         Assert.True(s.OpenRom(p));
         var ow = s.Overworld!;

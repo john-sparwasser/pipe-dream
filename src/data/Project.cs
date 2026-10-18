@@ -186,6 +186,7 @@ internal sealed class Project
         CopyRomIn(source, tmp, overwrite: true);
         if (RomPrep.PrepInPlace(tmp) is { } err) { File.Delete(tmp); return err; }
         File.Move(tmp, BaseRomPath, overwrite: true);
+        if (Data.BaseRom.PrepVersion < 32) MoveOwPaletteEditsIntoTable(Rom.Load(BaseRomPath));
         byte[] bytes = File.ReadAllBytes(BaseRomPath);
         Data.BaseRom.Sha256 = RomHash.HeaderlessSha256(bytes);
         Data.BaseRom.Size = bytes.Length;
@@ -193,6 +194,23 @@ internal sealed class Project
         Data.BaseRom.PrepStamp = RomPrep.StampSignature;
         Save();
         return null;
+    }
+
+    /// <summary>Prep v32 gives the overworld Lunar Magic's palette table, and from then on the
+    /// vanilla tables are not read. An edit made before it is keyed by the vanilla word it
+    /// changed, so it moves to every table word that word fed — a shared colour to all fourteen
+    /// palettes — and the map looks after the upgrade as it did before. A key that is no vanilla
+    /// word is kept as it was: the build reports one it cannot place.</summary>
+    private void MoveOwPaletteEditsIntoTable(Rom rom)
+    {
+        var moved = new Dictionary<int, int>();
+        foreach (var (at, bgr) in Data.Overworld.Palette)
+        {
+            var words = Palette.TableWordsFor(rom, at).ToList();
+            if (words.Count == 0) moved[at] = bgr;
+            foreach (int w in words) moved[w] = bgr;
+        }
+        Data.Overworld.Palette = moved;
     }
 
     /// <summary>Debug helper: drop every edit, keeping only the base-ROM pin. Sync is unhooked

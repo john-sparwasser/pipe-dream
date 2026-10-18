@@ -80,6 +80,8 @@ public static partial class RomPrep
         // V31 restamps the marker and the fourth trampoline as Lunar Magic 3.40 writes them, so
         // its Map16 save finds nothing to upgrade there; v30's 19-byte trampoline stays frozen.
         if (version >= 31) AppendV31Stamps(s);
+        // V32: LM's overworld palette hook and its table block; the table's colours are data.
+        if (version >= 32) AppendV32Stamps(s);
         return s;
     }
 
@@ -823,6 +825,31 @@ public static partial class RomPrep
     {
         s.Add((Pc(LmBlockMarker), [0x4C, 0x4D, LmBlockMarkerVersion340, 0x01]));
         s.Add((Pc(0x06F7A0), Convert.FromHexString("2008F6A50FF004A30A8002A306C9DAF00F4C02F6")));
+    }
+
+    /// <summary>
+    /// V32: Lunar Magic's overworld palettes, as its first overworld palette save installs them —
+    /// measured 2026-10-18 by `-TransferOverworld` from DogsOfWar onto a copy of a v31 base: a
+    /// `JSL` over `STY $00 : LDA $1931` at <see cref="LmOwPaletteHookSite"/> with an `RTS` behind
+    /// it, a RATS block of 0x30 holding the hook, and one of 0x1C00 holding the table. The hook is
+    /// byte-identical in DogsOfWar and that transfer bar the table's address:
+    /// `TAX : LDA $1931 : AND #$0F : DEC : CLC : TXY : BPL + : ADC #7 : + XBA : ASL : ADC #lo : TAX :
+    /// LDY #$0703 : LDA #$01FF : PHB : MVN $00,bank : PLB : SEP #$30 : RTL`, then `LM 00 01` and
+    /// FF to the end of the block. X carries the special-world flag the vanilla loader just read
+    /// at `$00AD2B` (left alone: which flag that is, is the hack's setting), so the second seven
+    /// palettes are the ones after the special world is passed. The table block's body is zeros
+    /// here; <see cref="BakeOwPaletteTable"/> fills it.
+    /// </summary>
+    private static void AppendV32Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        int table = OwPaletteTable, hook = OwPaletteHook;
+        byte lo = (byte)table, hi = (byte)(table >> 8), bank = (byte)(table >> 16);
+        byte[] code = [.. Convert.FromHexString("AAAD3119290F003A189B1003690700EB0A69"), lo, hi,
+                       .. Convert.FromHexString("AAA00307A9FF018B5400"), bank,
+                       .. Convert.FromHexString("ABE2306B4C4D0001")];
+        s.Add((OwPaletteHookTagPc, Rats([.. code, .. Enumerable.Repeat((byte)0xFF, 0x30 - code.Length)])));
+        s.Add((OwPaletteTableTagPc, Rats(new byte[OwPaletteTableSize])));
+        s.Add((Pc(LmOwPaletteHookSite), [0x22, (byte)hook, (byte)(hook >> 8), (byte)(hook >> 16), 0x60]));
     }
 
     /// <summary>

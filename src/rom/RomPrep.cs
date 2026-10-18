@@ -82,7 +82,9 @@ public static partial class RomPrep
     /// (see <see cref="AppendV30Stamps"/>);
     /// V31 claims that dispatch at Lunar Magic 3.40's version, so its Map16 save leaves the
     /// dispatch alone (see <see cref="AppendV31Stamps"/>).
-    public const int Version = 31;
+    /// V32 carries Lunar Magic's overworld palettes — a whole palette per submap — so every
+    /// overworld colour is editable, as in LM (see <see cref="AppendV32Stamps"/>).
+    public const int Version = 32;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -385,6 +387,17 @@ public static partial class RomPrep
     /// fourth trampoline with it (reference/LM_PARITY.md §2 "Map16 F9 on a plain v30 base").</summary>
     public const byte LmBlockMarkerVersion340 = 0x12;
 
+    // ---- V32: Lunar Magic's overworld palettes ----
+    /// <summary>LM's overworld palette hook takes `STY $00 : LDA $1931` here with `JSL hook`, and
+    /// the `RTS` behind it ends the vanilla loader: the hook loads all 256 colours itself.</summary>
+    public const int LmOwPaletteHookSite = 0x00AD32;
+    /// <summary>The hook's block (LM's 0x30 bytes) and the table's (14 palettes of 0x200), in
+    /// the free run of bank $13 behind v29's layer-3 upload. The table must not cross a bank:
+    /// the hook copies it with one MVN.</summary>
+    public const int OwPaletteHookTagPc = 0x9C800, OwPaletteHook = 0x13C808;
+    public const int OwPaletteTableTagPc = 0x9C900, OwPaletteTable = 0x13C908;
+    public const int OwPaletteTableSize = 2 * Overworld.Submaps * 0x200;
+
     /// <summary>`JSR resolve : RTL`, so the bank-04 hook can reach the bank-0F resolver, which is
     /// a near routine. Eight free bytes at the tail of v14's layer-3 pass.</summary>
     public const int L3ResolveThunk = 0x0FFA18;
@@ -564,7 +577,10 @@ public static partial class RomPrep
            // Map16-saved has, and what makes that save leave the dispatch alone. An older LM's
            // ROM (What The Shell 2!!, 0x11) reads false here, which only matters to Apply, and
            // Apply is only ever reached for a base of ours (the v29 note).
-           && (version < 31 || rom.ReadByte(LmBlockMarker + 2) >= LmBlockMarkerVersion340);
+           && (version < 31 || rom.ReadByte(LmBlockMarker + 2) >= LmBlockMarkerVersion340)
+           // V32: the overworld loads its colours from Lunar Magic's table — the property every
+           // ROM LM has saved an overworld palette into has (DogsOfWar).
+           && (version < 32 || rom.LmOwPaletteTable >= 0);
 
     /// <summary>Each acts-like site JSLs to its LM trampoline, in bank $06 or its $86 mirror.</summary>
     public static bool HasLmBlockDispatch(Rom rom) =>
@@ -584,6 +600,7 @@ public static partial class RomPrep
         if (version >= 6) ConvertGfxTo4bpp(rom, version);   // data, not a stamp: it allocates
         if (version >= 10) MigrateSecondaryDestinationBit(rom);  // data: depends on the records
         if (version >= 25) BakeLmFourBppFiles(rom);         // data: the files LM's 4bpp-mode code expects
+        if (version >= 32) BakeOwPaletteTable(rom);         // data: the colours the vanilla loader gives
         RatsWriter.FixChecksum(rom);
         ResetScanCaches(rom);
     }
@@ -598,6 +615,29 @@ public static partial class RomPrep
     private static void MigrateSecondaryDestinationBit(Rom rom)
     {
         for (int i = 0x100; i < 0x200; i++) rom.Data[rom.FileOffset(0x05FE00 + i)] |= 0x08;
+    }
+
+    /// <summary>
+    /// V32's data: Lunar Magic's overworld palette table, filled with exactly what the vanilla
+    /// loader puts in CGRAM for each submap — before the special world is passed, then after.
+    /// The vanilla tables stay where they were, so this reads them on a ROM whose hook is
+    /// already stamped. Installed, the hook changes no colour on screen; what it changes is
+    /// that every colour now has a word of its own to edit, rows 0-3 and colour 0 included.
+    /// LM's own first overworld palette save does the same (reference/OVERWORLD.md §4).
+    /// </summary>
+    private static void BakeOwPaletteTable(Rom rom)
+    {
+        int at = rom.FileOffset(OwPaletteTable);
+        for (int half = 0; half < 2; half++)
+            for (int s = 0; s < Overworld.Submaps; s++)
+            {
+                var bgr = Palette.LoadVanillaOverworld(rom, s, specialPassed: half == 1).Bgr;
+                for (int i = 0; i < 256; i++, at += 2)
+                {
+                    rom.Data[at] = (byte)bgr[i];
+                    rom.Data[at + 1] = (byte)(bgr[i] >> 8);
+                }
+            }
     }
 
     /// <summary>Prep a ROM file in place. The hash gate lives HERE (not in Apply) so unit

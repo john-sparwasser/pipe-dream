@@ -129,6 +129,42 @@ public class ProjectPrepTests : IDisposable
         Assert.False(p.CanUpgradeBasePrep);
     }
 
+    /// <summary>A v31 project's overworld colour edits are keyed by the vanilla words they
+    /// changed; v32 stops reading those words, so the upgrade moves each edit into Lunar Magic's
+    /// table wherever that word was loaded — a shared word into all fourteen palettes, a
+    /// submap's own set into its submaps — and every submap looks as it did, in both halves.</summary>
+    [RealRomFact]
+    public void upgrading_to_v32_moves_overworld_colour_edits_into_lunar_magics_table()
+    {
+        var p = Project.Create(Path.Combine(dir, "proj"), TestRom.RealRomPath);
+        File.Copy(TestRom.RealRomPath, p.BaseRomPath, overwrite: true);
+        Assert.Null(RomPrep.PrepInPlace(p.BaseRomPath, version: 31));
+        p.Data.BaseRom.Sha256 = RomHash.HeaderlessSha256File(p.BaseRomPath);
+        p.Data.BaseRom.PrepVersion = 31;
+
+        var v31 = Rom.Load(p.BaseRomPath);
+        int shared = Palette.OverworldSource(v31, 0, 0x29)!.Value;            // $00B528: everyone's
+        int own = Palette.OverworldSource(v31, 1, 0x41)!.Value;               // Yoshi's Island's set
+        foreach (int at in new[] { shared, own })
+            p.Data.Overworld.Palette[at] = Palette.RomWord(v31, at) ^ 0x1F;
+        foreach (var (at, bgr) in p.Data.Overworld.Palette) v31.OwPaletteEdits[at] = (ushort)bgr;
+        var before = Enumerable.Range(0, 2 * Overworld.Submaps)
+            .Select(k => Palette.LoadOverworld(v31, k % Overworld.Submaps, k >= Overworld.Submaps).Bgr).ToList();
+        p.Save();
+
+        Assert.Null(p.UpgradeBasePrep(TestRom.RealRomPath));
+        var v32 = Rom.Load(p.BaseRomPath);
+        int table = v32.LmOwPaletteTable;
+        Assert.Equal(RomPrep.OwPaletteTable, table);
+        Assert.DoesNotContain(shared, p.Data.Overworld.Palette.Keys);
+        Assert.Equal(2 * Overworld.Submaps, p.Data.Overworld.Palette.Keys.Count(k => (k - table) % 0x200 == 0x29 * 2));
+        Assert.Contains(table + 1 * 0x200 + 0x41 * 2, p.Data.Overworld.Palette.Keys);
+
+        foreach (var (at, bgr) in p.Data.Overworld.Palette) v32.OwPaletteEdits[at] = (ushort)bgr;
+        for (int k = 0; k < 2 * Overworld.Submaps; k++)
+            Assert.Equal(before[k], Palette.LoadOverworld(v32, k % Overworld.Submaps, k >= Overworld.Submaps).Bgr);
+    }
+
     /// <summary>Projects created before prep existed pinned a RAW vanilla base (PrepVersion 0).
     /// With no LM structures at all, every feature that needs them refuses — Map16 page
     /// allocation says "save it in Lunar Magic once first" — and the upgrade action used to

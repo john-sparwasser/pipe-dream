@@ -173,6 +173,22 @@ so the two bytes join into an 8x8 word (`Overworld.EventPieces`). 0xD00 cells in
   editor shows them black. Path fading borrows rows 0-3 and C-F colours 1-7 during a reveal.
   `Palette.LoadOverworld`; LM's Overworld Palette Editor agreed with it row for row on every
   submap (2026-09-06).
+- **LM's overworld palettes.** LM's editor shows all 256 colours of a submap as editable, and its
+  first overworld palette save makes them so: a `JSL` over `STY $00 : LDA $1931` at `$00AD32`
+  with an `RTS` at `$00AD36`, so the vanilla loads never run, and a hook that copies one whole
+  0x200-byte palette per submap over the CGRAM mirror with one `MVN` — `TAX : LDA $1931 : AND
+  #$0F : DEC : CLC : TXY : BPL + : ADC #7 : + XBA : ASL : ADC #table : TAX : LDY #$0703 : LDA
+  #$01FF : PHB : MVN $00,bank : PLB : SEP #$30 : RTL`, then `LM 00 01`, in a RATS block of 0x30.
+  The table is a RATS block of 0x1C00: submaps 0-6, then the same seven once the special world is
+  passed (X still holds the flag `$00AD2B` read; which flag is the hack's own setting — Dogs
+  reads `$1F00`, vanilla `$1EEA`). `LunarMagic.LmOwPaletteTable` follows the hook's operands.
+  Measured 2026-10-18 by `-TransferOverworld` from DogsOfWar onto a v31 base: the hook came out
+  byte-identical to Dogs' bar the table address. LM keeps the hook where it finds it and rewrites
+  its operands, but frees the table and allocates a new one on each save, so nothing may hold
+  the table's address across an LM save. **Prep v32** installs the same hook and table at fixed
+  addresses (`$13C808`, `$13C908`), the table filled with what the vanilla loader gives each
+  submap in both halves: Mesen showed v31 and v32 holding the same CGRAM on Yoshi's Island, the
+  hook run once, and a one-colour change to the table reaching CGRAM.
 
 ## 5. Level tiles
 
@@ -380,7 +396,8 @@ pipe-dream did on DogsOfWar until `Overworld.Tables`). What moves, and where the
 | reveal list | `$04D85D` | BigEye `$129C37`, Dogs `$10EF1D` | long operands at `$04DA73`, `$04EC8B`, `$04ED96` |
 | `$04E587` table (level-tile flags) | | BigEye `$12A07D`, Dogs `$10F848` | operand at `$04EEC8`, behind a `JSL` at `$04EEC3` that indexes it by LM's translevel |
 | star/pipe warps | 27 entries at `$048431`… | in place; **entry count** is the `LDX #$n*2` at hook+$11 behind the `JSL` at `$048509` (BigEye 0, Dogs 26) | hook operand |
-| base events `$05D608`, exit dirs `$04D678`, exit tiles `$049964`…, Koopa teleports `$048E49`, sprites `$04F625`, music `$048D8A`, no-auto-move `$04906C`, OW palettes `$00B3D8`… | | **edited in place** (Dogs changed music and 4 palette bytes there) | vanilla addresses hold |
+| base events `$05D608`, exit dirs `$04D678`, exit tiles `$049964`…, Koopa teleports `$048E49`, sprites `$04F625`, music `$048D8A`, no-auto-move `$04906C`… | | **edited in place** (Dogs changed music there) | vanilla addresses hold |
+| OW palettes `$00B3D8`, `$00B528`, `$00B57C`, `$00B5EC` | | in place until LM's first overworld palette save; then a whole palette per submap in LM's table (Dogs `$13A9B9`), the vanilla tables unread (§4) | `JSL` at `$00AD32` → hook; table address at hook+$12 (word) and hook+$1E (bank) |
 | level names `$049AC5` | | Dogs only: `JMP $04FFB1` at `$049882`/`$049AC2` — LM's names rewrite, not traced | |
 
 Also hooked and not yet traced: `$04DBB9` and `$04DCA5` (the latter replaces `INC $0F : LDA $0F`

@@ -85,12 +85,21 @@ public sealed class Palette
     /// their colours 1-7 while a tile is revealed and puts them back.
     /// </summary>
     public static Palette LoadOverworld(Rom rom, int submap, bool specialPassed = false)
+        => LoadOverworld(rom, OverworldLoads(rom, submap, specialPassed), rom.OwPaletteEdits);
+
+    /// <summary>The palette the VANILLA loader gives a submap, edits aside, whether or not the ROM
+    /// carries Lunar Magic's table — the vanilla tables stay where they were under it. It is what
+    /// prep v32 fills that table with, so installing it changes no colour on screen.</summary>
+    public static Palette LoadVanillaOverworld(Rom rom, int submap, bool specialPassed)
+        => LoadOverworld(rom, VanillaOverworldLoads(rom, submap, specialPassed), []);
+
+    private static Palette LoadOverworld(Rom rom, ColorLoad[] loads, Dictionary<int, ushort> edits)
     {
         const int introLevel = 0xC7;
         var p = Load(rom, new LevelHeader(rom.Data.AsSpan(rom.FileOffset(rom.Layer1Pointer(introLevel)), 5)));
         var cg = p.Bgr;
-        foreach (var load in OverworldLoads(rom, submap, specialPassed))
-            LoadColors(rom, cg, load, rom.OwPaletteEdits);
+        foreach (var load in loads)
+            LoadColors(rom, cg, load, edits);
         for (int i = 0; i < 256; i++) p.Rgba[i] = ToRgba(cg[i]);
         return p;
     }
@@ -104,9 +113,12 @@ public sealed class Palette
     /// three are one table for every submap. Under LM's overworld palettes it is one load of all
     /// 256 colours from the submap's own palette (<see cref="LunarMagic.LmOwPaletteTable"/>).</summary>
     private static ColorLoad[] OverworldLoads(Rom rom, int submap, bool specialPassed)
+        => rom.LmOwPaletteTable is var table and >= 0
+            ? [new(0, table + (submap + (specialPassed ? Overworld.Submaps : 0)) * 0x200, 16, 16)]
+            : VanillaOverworldLoads(rom, submap, specialPassed);
+
+    private static ColorLoad[] VanillaOverworldLoads(Rom rom, int submap, bool specialPassed)
     {
-        if (rom.LmOwPaletteTable is var table and >= 0)
-            return [new(0, table + (submap + (specialPassed ? Overworld.Submaps : 0)) * 0x200, 16, 16)];
         int set = rom.Data[rom.FileOffset(0x00AD1E) + submap];                       // DATA_00AD1E
         int setOff = rom.ReadValue(0x00ABDF + set * 2, 2);                            // DATA_00ABDF
         return [new(0x41, (specialPassed ? 0x00B732 : 0x00B3D8) + setOff, 7, 4),
@@ -136,6 +148,26 @@ public sealed class Palette
     /// submap lays its colours out alike.</summary>
     public static int[] OverworldSharers(Rom rom, int index, int snes)
         => [.. Enumerable.Range(0, Overworld.Submaps).Where(s => OverworldSource(rom, s, index) == snes)];
+
+    /// <summary>
+    /// Where a colour word of the VANILLA tables lives in Lunar Magic's table: every (submap,
+    /// colour) the vanilla loader fills from <paramref name="vanillaSnes"/>, in both halves, as
+    /// table addresses. A shared word lands in all fourteen palettes; a set only the
+    /// special-world-passed half loads lands in that half only. Empty when the ROM has no table
+    /// or the word is not one the vanilla loader reads. How an edit made before prep v32 follows
+    /// the colour it changed.
+    /// </summary>
+    public static IEnumerable<int> TableWordsFor(Rom rom, int vanillaSnes)
+    {
+        if (rom.LmOwPaletteTable is not (var table and >= 0)) yield break;
+        for (int half = 0; half < 2; half++)
+            for (int s = 0; s < Overworld.Submaps; s++)
+                foreach (var (dest, src, n, rows) in VanillaOverworldLoads(rom, s, half == 1))
+                    for (int r = 0; r < rows; r++)
+                        for (int c = 0; c < n; c++)
+                            if (src + (r * n + c) * 2 == vanillaSnes && dest + r * 16 + c is var i and < 256)
+                                yield return table + (s + half * Overworld.Submaps) * 0x200 + i * 2;
+    }
 
     /// <summary>Whether <paramref name="snes"/> is a colour word some submap loads.</summary>
     public static bool IsOverworldColor(Rom rom, int snes)

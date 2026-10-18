@@ -83,6 +83,9 @@ public class RomPrepTests
     // Magic 3.40 with nothing changed in the dispatch (LM_PARITY §2 "v31 measured ahead of itself"):
     // that measurement is of THESE bytes only while this hash holds.
     private const string GoldenPrepV31Sha256 = "41b4e7cfc13dfc0064dc01688ebce4549f18ceb3691e7a2af26f984acb41f87d";
+    // Also the hash of the base Mesen showed the same overworld CGRAM as v31 on Yoshi's Island,
+    // with the hook run once (2026-10-18): that measurement is of THESE bytes only while it holds.
+    private const string GoldenPrepV32Sha256 = "2abe991640c06cb4ab29e2a9e73f22b2e999e73e75424f884c96fbf3240f7202";
 
     private static Rom Prepped()
     {
@@ -927,11 +930,15 @@ public class RomPrepTests
             Assert.Equal(GoldenPrepV30Sha256, RomHash.HeaderlessSha256File(tmp));
 
             File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
-            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V31)
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 31));     // frozen V31 stamp list
+            Assert.Equal(GoldenPrepV31Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V32)
             string cur = RomHash.HeaderlessSha256File(tmp);
             // Spelled out rather than left to the assertion message: xunit truncates a mismatch,
             // and this hash is what the NEXT version bump has to be told.
-            Assert.True(GoldenPrepV31Sha256 == cur, $"V31 golden hash is now {cur}");
+            Assert.True(GoldenPrepV32Sha256 == cur, $"V32 golden hash is now {cur}");
         }
         finally { File.Delete(tmp); }
     }
@@ -958,6 +965,36 @@ public class RomPrepTests
         Assert.False(RomPrep.IsPrepped(v30, 31));                                      // v30 is offered the upgrade
         Assert.True(RomPrep.IsPrepped(v30, 30));
         Assert.True(RomPrep.HasLmBlockDispatch(v31));                                 // GPS reads neither changed byte
+    }
+
+    /// <summary>V32 over V31 is Lunar Magic's overworld palette install and nothing else but the
+    /// checksum balance: the JSL and RTS at $00AD32, the hook's block and the table's. The table
+    /// holds what the vanilla loader gives every submap in both halves, so no colour moves.</summary>
+    [RealRomFact]
+    public void v32_installs_lunar_magics_overworld_palettes_without_changing_a_colour()
+    {
+        var v31 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v31, 31);
+        var v32 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v32, 32);
+
+        Assert.Equal(-1, v31.LmOwPaletteTable);
+        Assert.Equal(RomPrep.OwPaletteTable, v32.LmOwPaletteTable);
+        Assert.Equal([0x22, 0x08, 0xC8, 0x13, 0x60], v32.Data[v32.FileOffset(RomPrep.LmOwPaletteHookSite)..][..5]);
+        Assert.Equal("4C4D0001", Convert.ToHexString(v32.Data.AsSpan(v32.FileOffset(RomPrep.OwPaletteHook + 0x23), 4)));   // LM's stamp
+
+        int Pc(int snes) => Rom.SnesToPc(snes);
+        var changed = Enumerable.Range(0, v31.ActualRomSize).Where(pc => v31.Data[v31.HeaderOffset + pc] != v32.Data[v32.HeaderOffset + pc])
+            .Where(pc => pc is < 0x7FDC or > 0x7FDF)
+            .Where(pc => pc < RomPrep.BalanceTagPc + 8 || pc >= RomPrep.BalanceTagPc + 8 + RomPrep.BalanceSize)
+            .Where(pc => pc is < RomPrep.OwPaletteHookTagPc or >= RomPrep.OwPaletteHookTagPc + 0x38)
+            .Where(pc => pc is < RomPrep.OwPaletteTableTagPc or >= RomPrep.OwPaletteTableTagPc + 8 + RomPrep.OwPaletteTableSize);
+        Assert.Equal(Enumerable.Range(Pc(RomPrep.LmOwPaletteHookSite), 5), changed);
+
+        for (int half = 0; half < 2; half++)
+            for (int s = 0; s < Overworld.Submaps; s++)
+                Assert.Equal(Palette.LoadOverworld(v31, s, half == 1).Bgr, Palette.LoadOverworld(v32, s, half == 1).Bgr);
+
+        Assert.True(RomPrep.IsPrepped(v32, 32));
+        Assert.False(RomPrep.IsPrepped(v31, 32));                                      // v31 is offered the upgrade
     }
 
     /// <summary>

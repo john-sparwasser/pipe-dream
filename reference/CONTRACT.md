@@ -2440,6 +2440,22 @@ on v29, v30 and v31 alike — §PREP V26's "upgrade offered" state, a separate q
 true of every ROM 3.40 has Map16-saved, false of WTS2's `11`, which only Apply sees and Apply is
 only reached for a base of ours. Golden V31 pinned.
 
+PREP V32 carries Lunar Magic's overworld palettes (`RomPrep.AppendV32Stamps`, `BakeOwPaletteTable`;
+2026-10-18), so every colour of every submap is editable, as LM's Overworld Palette Editor has it.
+Stamps: `JSL $13C808 : RTS` at `$00AD32`; LM's hook in a RATS block of 0x30 at pc `0x9C800`
+(byte-identical to DogsOfWar's and to what `-TransferOverworld` installs on a v31 base, bar the
+table address); a RATS block of 0x1C00 at pc `0x9C900` for the table, in bank `$13` so the hook's
+one `MVN` never crosses a bank. Data: the table holds `Palette.LoadVanillaOverworld` for submaps
+0-6, then 0-6 with the special world passed, so `--diff` v31 → v32 is those five bytes, the two
+blocks and the checksum balance, and no colour moves — MEASURED in Mesen on Yoshi's Island after a
+real boot: identical CGRAM to v31, the hook run once, and a one-colour change to the table reaching
+CGRAM. LM on a v32 base (`-TransferOverworld`) keeps the hook where it is and rewrites its operands,
+but frees our table and allocates its own (OVERWORLD.md §4), so the table's address is the hook's to
+say, never a constant past prep. A project upgraded from before v32 has its overworld colour edits,
+which were keyed by vanilla words, moved to every table word those fed (`Project.UpgradeBasePrep`).
+IsPrepped v32 = `LmOwPaletteTable >= 0`, true of every ROM LM has saved an overworld palette into.
+Golden V32 pinned.
+
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 
 No unified sprite→tile table exists; each sprite's look comes from its graphics routine.

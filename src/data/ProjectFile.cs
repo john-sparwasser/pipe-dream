@@ -114,7 +114,8 @@ public sealed class ProjectFile
         public Dictionary<string, Dictionary<int, int>> GfxSlots { get; set; } = [];
         /// <summary>Edited overworld colours: SNES address of the colour word → BGR555
         /// (<see cref="PipeDream.Palette.OverworldSource"/>). Keyed by address, not by submap and
-        /// index, because most of these words are shared by every submap.</summary>
+        /// index, because before prep v32 most of these words were shared by every submap; from
+        /// v32 they are words of Lunar Magic's table, one per submap and colour.</summary>
         public Dictionary<int, int> Palette { get; set; } = [];
     }
 
