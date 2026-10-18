@@ -103,8 +103,32 @@ public partial class MainWindow
         paletteGrid.FitCols = 16;
         paletteGrid.SizeChanged += (_, _) => { paletteBg.Cell = paletteGrid.Cell; paletteBg.InvalidateMeasure(); };
         paletteBg.SelectionChanged += (_, _) => { paletteGrid.Select(0); ShowPaletteColor(0); OpenPicker(); };
-        // Ctrl+click picks a colour up without opening the picker; right-click lays it down.
+        // Ctrl/Alt/Cmd+click picks a colour up without opening the picker; right-click lays it
+        // down, and Alt/Cmd+right-click blends from it to the swatch clicked.
         paletteGrid.CopyGestures = paletteBg.CopyGestures = true;
+        paletteGrid.GradientHere += (_, i) => GradientSwatches(i);
+        paletteBg.GradientHere += (_, _) => GradientSwatches(0);
+        // Avalonia opens the main menu when Alt is let go unless another KEY went down while it
+        // was held — a click does not count, so every Alt+click on a swatch left the menu bar
+        // holding the keyboard (seen in the app on Windows). Undo that, for these clicks only:
+        // Alt on its own still opens the menu. The close is posted rather than done in place, so
+        // it lands after Avalonia's own Alt-up handler whichever of the two runs first.
+        bool altSwatchClick = false;
+        AddHandler(PointerPressedEvent, (_, e) =>
+        {
+            if ((e.KeyModifiers & KeyModifiers.Alt) != 0 && e.Source is PaletteGridView { CopyGestures: true })
+                altSwatchClick = true;
+        }, RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(KeyUpEvent, (_, e) =>
+        {
+            if (e.Key is not (Key.LeftAlt or Key.RightAlt) || !altSwatchClick) return;
+            altSwatchClick = false;
+            Dispatcher.UIThread.Post(() =>
+            {
+                this.GetControl<Menu>("MainMenu").Close();
+                paletteGrid.Focus();
+            });
+        }, RoutingStrategies.Tunnel, handledEventsToo: true);
         paletteGrid.QuietSelect += (_, i) => { paletteBg.Select(-1); ShowPaletteColor(i); };
         paletteBg.QuietSelect += (_, _) => { paletteGrid.Select(0); ShowPaletteColor(0); };
         paletteGrid.CopyHere += (_, i) => CopySwatch(i);

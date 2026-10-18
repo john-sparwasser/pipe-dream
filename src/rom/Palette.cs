@@ -242,4 +242,62 @@ public sealed class Palette
     /// <summary>The same, from a packed RGBA word as <see cref="ToRgba"/> produces.</summary>
     public static ushort ToBgr555(uint rgba)
         => ToBgr555((byte)(rgba & 0xFF), (byte)((rgba >> 8) & 0xFF), (byte)((rgba >> 16) & 0xFF));
+
+    /// <summary>
+    /// <paramref name="count"/> colours from <paramref name="from"/> to <paramref name="to"/>,
+    /// both ends included and kept exactly, the ones between evenly spaced to the eye. Blended in
+    /// OKLab, a perceptual space: black to white comes out as greys that step evenly in
+    /// lightness rather than bunching at the dark end as sRGB numbers do, and green to blue
+    /// passes through a clean teal instead of the greyed middle a straight RGB blend gives.
+    /// Each colour is rounded to the nearest one the SNES can show.
+    /// </summary>
+    public static ushort[] Gradient(ushort from, ushort to, int count)
+    {
+        var g = new ushort[Math.Max(count, 0)];
+        if (count == 0) return g;
+        var (a, b) = (ToOklab(from), ToOklab(to));
+        for (int k = 0; k < count; k++)
+        {
+            if (k == 0) { g[k] = from; continue; }
+            if (k == count - 1) { g[k] = to; continue; }
+            double t = (double)k / (count - 1);
+            g[k] = FromOklab((a.L + (b.L - a.L) * t, a.A + (b.A - a.A) * t, a.B + (b.B - a.B) * t));
+        }
+        return g;
+    }
+
+    // OKLab (Björn Ottosson, 2020): linear-light RGB through an LMS cone space, cube-rooted.
+    private static (double L, double A, double B) ToOklab(ushort bgr)
+    {
+        uint c = ToRgba(bgr);
+        double r = ToLinear((c & 0xFF) / 255.0), g = ToLinear((c >> 8 & 0xFF) / 255.0), b = ToLinear((c >> 16 & 0xFF) / 255.0);
+        double l = Math.Cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+        double m = Math.Cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+        double s = Math.Cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+        return (0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+                1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+                0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s);
+    }
+
+    private static ushort FromOklab((double L, double A, double B) o)
+    {
+        double l = Math.Pow(o.L + 0.3963377774 * o.A + 0.2158037573 * o.B, 3);
+        double m = Math.Pow(o.L - 0.1055613458 * o.A - 0.0638541728 * o.B, 3);
+        double s = Math.Pow(o.L - 0.0894841775 * o.A - 1.2914855480 * o.B, 3);
+        double r = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+        double g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+        double b = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+        return ToBgr555(ToByte(r), ToByte(g), ToByte(b));
+    }
+
+    private static double ToLinear(double v) => v <= 0.04045 ? v / 12.92 : Math.Pow((v + 0.055) / 1.055, 2.4);
+
+    /// <summary>Linear light back to an sRGB byte, clamped: a blend between two colours the SNES
+    /// can show can still land a hair outside the gamut.</summary>
+    private static byte ToByte(double v)
+    {
+        v = Math.Clamp(v, 0, 1);
+        v = v <= 0.0031308 ? v * 12.92 : 1.055 * Math.Pow(v, 1 / 2.4) - 0.055;
+        return (byte)Math.Round(v * 255);
+    }
 }

@@ -85,15 +85,21 @@ public class PaletteGridView : Control
     public event EventHandler<int>? SelectionChanged;
 
     /// <summary>
-    /// The palette editor's two shortcuts. Ctrl+click selects a swatch and nothing more — it
-    /// raises <see cref="QuietSelect"/> instead of <see cref="SelectionChanged"/>, so no picker
-    /// opens. Right-click raises <see cref="CopyHere"/> on the swatch clicked: lay the selected
-    /// colour there. Control rather than Cmd on the Mac too, by request — the same key on both.
-    /// Off by default: on a paint row a quiet selection would ring a colour the brush never took.
+    /// The palette editor's shortcuts. Ctrl, Alt or Cmd + click selects a swatch and nothing more
+    /// — it raises <see cref="QuietSelect"/> instead of <see cref="SelectionChanged"/>, so no
+    /// picker opens. Right-click raises <see cref="CopyHere"/> on the swatch clicked: lay the
+    /// selected colour there. Alt or Cmd + right-click raises <see cref="GradientHere"/>: blend
+    /// from the selected colour to the clicked one across every swatch between. Control works as
+    /// Control on the Mac too, by request. Off by default: on a paint row a quiet selection would
+    /// ring a colour the brush never took.
     /// </summary>
     public bool CopyGestures { get; set; }
     public event EventHandler<int>? QuietSelect;
     public event EventHandler<int>? CopyHere;
+    public event EventHandler<int>? GradientHere;
+
+    private const KeyModifiers QuietSelectKeys = KeyModifiers.Control | KeyModifiers.Alt | KeyModifiers.Meta;
+    private const KeyModifiers GradientKeys = KeyModifiers.Alt | KeyModifiers.Meta;
 
     public PaletteGridView() => Focusable = true;
 
@@ -133,12 +139,13 @@ public class PaletteGridView : Control
         if (CopyGestures && point.Properties.IsRightButtonPressed)
         {
             // The selection stays put, so one colour can be laid on swatch after swatch.
-            CopyHere?.Invoke(this, i);
+            if ((e.KeyModifiers & GradientKeys) != 0) GradientHere?.Invoke(this, i);
+            else CopyHere?.Invoke(this, i);
             e.Handled = true;
             return;
         }
         Select(i);
-        if (CopyGestures && e.KeyModifiers.HasFlag(KeyModifiers.Control)) QuietSelect?.Invoke(this, i);
+        if (CopyGestures && (e.KeyModifiers & QuietSelectKeys) != 0) QuietSelect?.Invoke(this, i);
         else SelectionChanged?.Invoke(this, i);
     }
 

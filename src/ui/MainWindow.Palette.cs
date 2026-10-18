@@ -254,6 +254,34 @@ public partial class MainWindow
         RefreshPaletteTab();
     }
 
+    /// <summary>
+    /// Alt/Cmd+right-click: blend from the selected swatch's colour to <paramref name="index"/>'s
+    /// across every swatch between them in CGRAM order — rightward and down when the clicked one
+    /// comes later, leftward and up when it comes earlier. Both ends keep their colours; the
+    /// blend is <see cref="Palette.Gradient"/>'s. Swatches the tab cannot edit are stepped over,
+    /// keeping their place in the blend. One undo step for the lot.
+    /// </summary>
+    private void GradientSwatches(int index)
+    {
+        int from = paletteGrid.Selected;
+        if (from < 0 || Math.Abs(index - from) < 2 || OwSwatchFixed(index)) return;
+        int step = Math.Sign(index - from), n = Math.Abs(index - from) + 1;
+        var colours = PipeDream.Palette.Gradient(SwatchBgr(from), SwatchBgr(index), n);
+        bool ow = PaletteScopeOverworld;
+        session.BeginPaletteStroke();
+        for (int k = 1; k < n - 1; k++)
+        {
+            int i = from + k * step;
+            if (OwSwatchFixed(i)) continue;
+            if (ow) session.SetOwPaletteColor(PalSubmapIndex, i, colours[k]);
+            else session.SetPaletteColor(i, colours[k]);
+        }
+        session.EndPaletteStroke();
+        if (ow) RepaintOverworld();
+        AdoptSession();
+        RefreshPaletteTab();
+    }
+
     /// <summary>Redraw the overworld map and its sheet in the current colours.</summary>
     private void RepaintOverworld()
     {

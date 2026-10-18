@@ -283,6 +283,44 @@ public class PaletteTabTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(0, s.PaletteEditCount);
     }
 
+    /// <summary>
+    /// Alt or Cmd + click selects without the picker too, and Alt/Cmd + right-click fills every
+    /// swatch between the selection and the one clicked with a blend of the two: black at 0x41
+    /// and white at 0x44 put two rising greys in 0x42 and 0x43. The same blend comes out picked
+    /// from either end, both ends keep their colours, and one undo takes the whole fill back.
+    /// </summary>
+    [AvaloniaFact]
+    public void alt_right_click_fills_the_swatches_between_with_a_gradient()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var w = PaletteWindow(Vanilla);
+        var s = SessionOf(w);
+        var grid = w.GetControl<PaletteGridView>("PaletteGrid");
+        Assert.True(s.SetPaletteColor(0x41, 0x0000) | true);
+        Assert.True(s.SetPaletteColor(0x44, 0x7FFF) | true);
+        ushort was42 = s.PaletteBgr(0x42), was43 = s.PaletteBgr(0x43);
+        int depth = s.PaletteUndoDepth;
+
+        ClickSwatch(w, grid, 0x41, MouseButton.Left, RawInputModifiers.Alt);
+        Assert.Equal(0x41, grid.Selected);
+        Assert.IsNotType<FlyoutPresenter>(w.picker.Parent);
+        ClickSwatch(w, grid, 0x44, MouseButton.Right, RawInputModifiers.Alt);
+        var want = Palette.Gradient(0x0000, 0x7FFF, 4);
+        Assert.Equal([want[1], want[2]], new[] { s.PaletteBgr(0x42), s.PaletteBgr(0x43) });
+        Assert.Equal(0x0000, s.PaletteBgr(0x41));
+        Assert.Equal(0x7FFF, s.PaletteBgr(0x44));
+        Assert.Equal(depth + 1, s.PaletteUndoDepth);                           // one step for the lot
+
+        Assert.True(s.PaletteUndo());
+        Assert.Equal((was42, was43), (s.PaletteBgr(0x42), s.PaletteBgr(0x43)));
+
+        // From the other end, with Cmd: leftward, and the same greys in the same places.
+        ClickSwatch(w, grid, 0x44, MouseButton.Left, RawInputModifiers.Meta);
+        Assert.IsNotType<FlyoutPresenter>(w.picker.Parent);
+        ClickSwatch(w, grid, 0x41, MouseButton.Right, RawInputModifiers.Meta);
+        Assert.Equal([want[1], want[2]], new[] { s.PaletteBgr(0x42), s.PaletteBgr(0x43) });
+    }
+
     /// <summary>The same two gestures in the Layer 3 view, whose four-wide grid puts CGRAM 09 at
     /// row 2, column 1 — the indices are CGRAM's, so the copy lands where the swatch says.</summary>
     [AvaloniaFact]
@@ -327,6 +365,12 @@ public class PaletteTabTests(ITestOutputHelper log) : IDisposable
 
         ClickSwatch(w, grid, 0, MouseButton.Right);
         Assert.Equal(ow.PaletteOf(0).Bgr[0x41], ow.PaletteOf(0).Bgr[0]);
+
+        // ...and a gradient lands in the submap's own words, down a row and across.
+        ushort a = ow.PaletteOf(0).Bgr[0x41], b = ow.PaletteOf(0).Bgr[0x56];
+        ClickSwatch(w, grid, 0x56, MouseButton.Right, RawInputModifiers.Alt);
+        var want = Palette.Gradient(a, b, 0x56 - 0x41 + 1);
+        for (int k = 0; k < want.Length; k++) Assert.Equal(want[k], ow.PaletteOf(0).Bgr[0x41 + k]);
     }
 
     /// <summary>

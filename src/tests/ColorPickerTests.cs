@@ -137,6 +137,31 @@ public class ColorPickerTests(ITestOutputHelper log)
         Assert.Equal(31, panel.GetControl<Slider>("PalB").Value);
     }
 
+    /// <summary>
+    /// The palette gradient keeps both ends exactly and blends between them in OKLab. Black to
+    /// white is greys that get lighter at every step; green to blue keeps colour all the way
+    /// across rather than sagging to grey in the middle, as a straight RGB blend would.
+    /// </summary>
+    [Fact]
+    public void the_gradient_keeps_its_ends_and_blends_evenly_between_them()
+    {
+        var bw = Palette.Gradient(0x0000, 0x7FFF, 4);
+        Assert.Equal(0x0000, bw[0]);
+        Assert.Equal(0x7FFF, bw[3]);
+        foreach (ushort c in bw) Assert.True((c & 31) == (c >> 5 & 31) && (c & 31) == (c >> 10 & 31), $"{c:X4} is not grey");
+        Assert.True((bw[0] & 31) < (bw[1] & 31) && (bw[1] & 31) < (bw[2] & 31) && (bw[2] & 31) < (bw[3] & 31));
+        log.WriteLine(string.Join(" ", bw.Select(c => c.ToString("X4"))));
+
+        var gb = Palette.Gradient(0x03E0, 0x7C00, 5);                      // pure green to pure blue
+        log.WriteLine(string.Join(" ", gb.Select(c => c.ToString("X4"))));
+        int r = gb[2] & 31, g = gb[2] >> 5 & 31, b = gb[2] >> 10 & 31;
+        Assert.True(g >= 16 && b >= 16, $"the middle {gb[2]:X4} should be a teal");
+        Assert.True(r <= 8, $"the middle {gb[2]:X4} should not wash out");
+
+        Assert.Equal([0x1234, 0x0F0F], Palette.Gradient(0x1234, 0x0F0F, 2));
+        Assert.Empty(Palette.Gradient(0, 0x7FFF, 0));
+    }
+
     /// <summary>OK confirms, and so does Enter from inside the hex box — the place a typed colour
     /// is finished — with the typed colour already applied when it does.</summary>
     [AvaloniaFact]
