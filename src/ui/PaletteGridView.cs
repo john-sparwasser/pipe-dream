@@ -84,6 +84,17 @@ public class PaletteGridView : Control
 
     public event EventHandler<int>? SelectionChanged;
 
+    /// <summary>
+    /// The palette editor's two shortcuts. Ctrl+click selects a swatch and nothing more — it
+    /// raises <see cref="QuietSelect"/> instead of <see cref="SelectionChanged"/>, so no picker
+    /// opens. Right-click raises <see cref="CopyHere"/> on the swatch clicked: lay the selected
+    /// colour there. Control rather than Cmd on the Mac too, by request — the same key on both.
+    /// Off by default: on a paint row a quiet selection would ring a colour the brush never took.
+    /// </summary>
+    public bool CopyGestures { get; set; }
+    public event EventHandler<int>? QuietSelect;
+    public event EventHandler<int>? CopyHere;
+
     public PaletteGridView() => Focusable = true;
 
     public void Select(int index)
@@ -113,12 +124,22 @@ public class PaletteGridView : Control
         base.OnPointerPressed(e);
         if (!Selectable) return;
         Focus();
-        if (IndexAt(e.GetPosition(this)) is not { } i) return;
+        var point = e.GetCurrentPoint(this);
+        if (IndexAt(point.Position) is not { } i) return;
         // A disabled swatch takes the click and does nothing with it — moving the ring there
-        // would claim a paint colour that cannot be painted.
+        // would claim a paint colour that cannot be painted, and copying onto it would write a
+        // colour nothing stores.
         if (IsDisabled?.Invoke(i) == true) return;
+        if (CopyGestures && point.Properties.IsRightButtonPressed)
+        {
+            // The selection stays put, so one colour can be laid on swatch after swatch.
+            CopyHere?.Invoke(this, i);
+            e.Handled = true;
+            return;
+        }
         Select(i);
-        SelectionChanged?.Invoke(this, i);
+        if (CopyGestures && e.KeyModifiers.HasFlag(KeyModifiers.Control)) QuietSelect?.Invoke(this, i);
+        else SelectionChanged?.Invoke(this, i);
     }
 
     private int hoverIndex = -1;

@@ -103,6 +103,12 @@ public partial class MainWindow
         paletteGrid.FitCols = 16;
         paletteGrid.SizeChanged += (_, _) => { paletteBg.Cell = paletteGrid.Cell; paletteBg.InvalidateMeasure(); };
         paletteBg.SelectionChanged += (_, _) => { paletteGrid.Select(0); ShowPaletteColor(0); OpenPicker(); };
+        // Ctrl+click picks a colour up without opening the picker; right-click lays it down.
+        paletteGrid.CopyGestures = paletteBg.CopyGestures = true;
+        paletteGrid.QuietSelect += (_, i) => { paletteBg.Select(-1); ShowPaletteColor(i); };
+        paletteBg.QuietSelect += (_, _) => { paletteGrid.Select(0); ShowPaletteColor(0); };
+        paletteGrid.CopyHere += (_, i) => CopySwatch(i);
+        paletteBg.CopyHere += (_, _) => CopySwatch(0);
         picker.ColorChanged += (_, c) => OnPickerColor(c);
         pickerFlyout.Content = picker;
         // The open picker IS the undo boundary, as it was in the ImGui editor: everything done

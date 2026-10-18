@@ -105,8 +105,10 @@ public partial class MainWindow
         paletteExport.IsVisible = !ow;
         paletteImport.IsVisible = !ow;
         // The back-area row is the level header's colour 0. The overworld has no header colour:
-        // on vanilla its colour 0 is the level loader's; under Lunar Magic's table it is swatch 0.
+        // on vanilla its colour 0 is the level loader's; under Lunar Magic's table it is swatch 0,
+        // so the grid shows that cell there rather than leaving it to a row that is hidden.
         this.GetControl<StackPanel>("PaletteBgRow").IsVisible = !ow;
+        paletteGrid.HideFirst = !ow;
         this.GetControl<WrapPanel>("PaletteActions").HorizontalAlignment = ow ? Avalonia.Layout.HorizontalAlignment.Right : Avalonia.Layout.HorizontalAlignment.Left;
         bool l3 = !ow && paletteLayer3.IsChecked == true;
         var all = ow ? OwPalette?.Rgba ?? new uint[256] : session.PaletteRgba;
@@ -230,6 +232,25 @@ public partial class MainWindow
             bitmap.SetImages(session.Phases, session.PxW, session.PxH, canvas.Phase);
             canvas.InvalidateVisual();
         }
+        RefreshPaletteTab();
+    }
+
+    /// <summary>Right-click: the selected swatch's colour onto <paramref name="index"/>, on
+    /// whichever tab is showing, as one undo entry of its own. The selection stays where it is,
+    /// so one colour can be laid on several swatches in turn. Nothing selected, or the swatch
+    /// itself, does nothing.</summary>
+    private void CopySwatch(int index)
+    {
+        int from = paletteGrid.Selected;
+        if (from < 0 || from == index || OwSwatchFixed(index)) return;
+        ushort bgr = SwatchBgr(from);
+        if (PaletteScopeOverworld)
+        {
+            if (!session.SetOwPaletteColor(PalSubmapIndex, index, bgr)) return;
+            RepaintOverworld();
+        }
+        else if (!session.SetPaletteColor(index, bgr)) return;
+        AdoptSession();                    // every phase and sheet, as the picker's close does
         RefreshPaletteTab();
     }
 

@@ -194,6 +194,114 @@ public class PaletteTabTests(ITestOutputHelper log) : IDisposable
         Assert.IsType<FlyoutPresenter>(w.picker.Parent);
     }
 
+    /// <summary>Click swatch <paramref name="index"/> of a grid, wherever its shape puts it.</summary>
+    private static void ClickSwatch(MainWindow w, PaletteGridView grid, int index, MouseButton button,
+                                    RawInputModifiers mods = RawInputModifiers.None)
+    {
+        var at = grid.TranslatePoint(new Point(grid.HeaderSize + index % grid.Cols * grid.Cell + grid.Cell / 2,
+                                               grid.HeaderSize + index / grid.Cols * grid.Cell + grid.Cell / 2), w)!.Value;
+        w.MouseDown(at, button, mods);
+        w.MouseUp(at, button, mods);
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    private static MainWindow PaletteWindow(string rom)
+    {
+        Program.RomPath = rom;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModePalette").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        return w;
+    }
+
+    /// <summary>
+    /// Ctrl+click picks a colour up without opening the picker; right-click on another swatch
+    /// lays it down there, as one undo step, and leaves the selection where it was so the same
+    /// colour can go on swatch after swatch. Right-click with nothing selected does nothing.
+    /// </summary>
+    [AvaloniaFact]
+    public void ctrl_click_selects_a_colour_and_right_click_copies_it_onto_another()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var w = PaletteWindow(Vanilla);
+        var s = SessionOf(w);
+        var grid = w.GetControl<PaletteGridView>("PaletteGrid");
+
+        ushort was43 = s.PaletteBgr(0x43);
+        ClickSwatch(w, grid, 0x43, MouseButton.Right);                       // nothing selected yet
+        Assert.Equal(was43, s.PaletteBgr(0x43));
+
+        ClickSwatch(w, grid, 0x42, MouseButton.Left, RawInputModifiers.Control);
+        Assert.Equal(0x42, grid.Selected);
+        Assert.IsNotType<FlyoutPresenter>(w.picker.Parent);                    // no picker
+        Assert.NotEqual(s.PaletteBgr(0x42), was43);
+
+        ClickSwatch(w, grid, 0x43, MouseButton.Right);
+        Assert.Equal(s.PaletteBgr(0x42), s.PaletteBgr(0x43));
+        Assert.Equal(s.PaletteRgba[0x42], grid.Colors[0x43]);                  // the swatch shows it
+        Assert.Equal(0x42, grid.Selected);                                     // still the source
+        ClickSwatch(w, grid, 0x44, MouseButton.Right);
+        Assert.Equal(s.PaletteBgr(0x42), s.PaletteBgr(0x44));
+
+        // The background colour's own swatch takes a copy too.
+        ClickSwatch(w, w.GetControl<PaletteGridView>("PaletteBg"), 0, MouseButton.Right);
+        Assert.Equal(s.PaletteBgr(0x42), s.PaletteBgr(0));
+
+        Assert.True(s.PaletteUndo());
+        Assert.True(s.PaletteUndo());
+        Assert.True(s.PaletteUndo());
+        Assert.Equal(was43, s.PaletteBgr(0x43));
+        Assert.Equal(0, s.PaletteEditCount);
+    }
+
+    /// <summary>The same two gestures in the Layer 3 view, whose four-wide grid puts CGRAM 09 at
+    /// row 2, column 1 — the indices are CGRAM's, so the copy lands where the swatch says.</summary>
+    [AvaloniaFact]
+    public void the_copy_gestures_work_in_the_layer_3_view()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var w = PaletteWindow(Vanilla);
+        var s = SessionOf(w);
+        var grid = w.GetControl<PaletteGridView>("PaletteGrid");
+        w.GetControl<CheckBox>("PaletteLayer3").IsChecked = true;
+        Dispatcher.UIThread.RunJobs();
+
+        ClickSwatch(w, grid, 0x09, MouseButton.Left, RawInputModifiers.Control);
+        Assert.Equal(0x09, grid.Selected);
+        if (s.PaletteBgr(0x0E) == s.PaletteBgr(0x09)) Assert.True(s.SetPaletteColor(0x0E, Different(s.PaletteBgr(0x09))));
+        ClickSwatch(w, grid, 0x0E, MouseButton.Right);
+        Assert.Equal(s.PaletteBgr(0x09), s.PaletteBgr(0x0E));
+    }
+
+    /// <summary>On the Overworld tab the copy goes into the submap's own table word, so it
+    /// recolours that submap and no other; colour 0 is a swatch of the grid there, and takes a
+    /// copy like any other.</summary>
+    [AvaloniaFact]
+    public void the_copy_gestures_work_on_the_overworld_tab()
+    {
+        if (PreppedRom.Path is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        var w = PaletteWindow(p);
+        var s = SessionOf(w);
+        var grid = w.GetControl<PaletteGridView>("PaletteGrid");
+        w.GetControl<TabStrip>("PalScopeTabs").SelectedIndex = 1;
+        Dispatcher.UIThread.RunJobs();
+        var ow = s.Overworld!;
+        Assert.False(grid.HideFirst);
+
+        ushort other = ow.PaletteOf(1).Bgr[0x11];
+        ClickSwatch(w, grid, 0x41, MouseButton.Left, RawInputModifiers.Control);
+        Assert.IsNotType<FlyoutPresenter>(w.picker.Parent);
+        ClickSwatch(w, grid, 0x11, MouseButton.Right);
+        Assert.Equal(ow.PaletteOf(0).Bgr[0x41], ow.PaletteOf(0).Bgr[0x11]);
+        Assert.Equal(ow.PaletteOf(0).Rgba[0x41], grid.Colors[0x11]);
+        Assert.Equal(other, ow.PaletteOf(1).Bgr[0x11]);                       // the submap's own word
+
+        ClickSwatch(w, grid, 0, MouseButton.Right);
+        Assert.Equal(ow.PaletteOf(0).Bgr[0x41], ow.PaletteOf(0).Bgr[0]);
+    }
+
     /// <summary>
     /// "Layer 3 only" narrows the page to what a 2bpp layer-3 tile can actually name: CGRAM
     /// 00-1F, four wide so each ROW is one of the eight palette groups. Sifting for those 32 in a
