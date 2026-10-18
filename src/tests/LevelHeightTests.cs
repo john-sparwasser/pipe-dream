@@ -10,6 +10,8 @@ namespace PipeDream.Tests;
 /// </summary>
 public class LevelHeightTests(ITestOutputHelper log)
 {
+    /// <summary>The 29 March 2026 release: vanilla (unheadered) patched with
+    /// DogsOfWar/Dogs of War/dogs_of_war.bps. The sprite counts and bands below are that build's.</summary>
     private static string DogsOfWar => ReferenceRoms.InProject("DogsOfWar", "dogs_of_war.smc");
 
     /// <summary>Bands are stream plumbing like screens: the encoder emits a jump whenever one
@@ -96,7 +98,7 @@ public class LevelHeightTests(ITestOutputHelper log)
     {
         if (!File.Exists(DogsOfWar)) { log.WriteLine("SKIP: DogsOfWar not present"); return; }
         var rom = Rom.Load(DogsOfWar);
-        foreach (var (lvl, count, firstBand) in new[] { (0x109, 15, 0x18), (0x10F, 8, 0), (0x11F, 1, 5) })
+        foreach (var (lvl, count, firstBand) in new[] { (0x109, 18, 0x17), (0x10F, 8, 0), (0x122, 12, 2) })
         {
             var sd = SpriteData.Parse(rom, lvl);
             Assert.True(sd.ExtendedList);
@@ -108,8 +110,8 @@ public class LevelHeightTests(ITestOutputHelper log)
             Assert.Equal(0xFE, enc[^1]);
         }
         var s = SpriteData.Parse(rom, 0x109).Sprites[0];
-        Assert.Equal(0x18 * 32 + s.Y, s.AbsoluteY);
-        Assert.Equal((s.AbsoluteX, 0x18 * 32 + s.Y), s.Cell(vertical: false));
+        Assert.Equal(0x17 * 32 + s.Y, s.AbsoluteY);
+        Assert.Equal((s.AbsoluteX, 0x17 * 32 + s.Y), s.Cell(vertical: false));
     }
 
     /// <summary>A vanilla list stays vanilla (no bit 5, plain FF end); a sprite placed in a band

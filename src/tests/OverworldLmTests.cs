@@ -21,6 +21,9 @@ public class OverworldLmTests(ITestOutputHelper log)
         }
     }
 
+    /// <summary>The 29 March 2026 release: vanilla (unheadered) patched with
+    /// DogsOfWar/Dogs of War/dogs_of_war.bps. The addresses below are that build's; another
+    /// build of the hack moves them.</summary>
     private static Rom Dogs => Rom.Load(ReferenceRoms.InProject("DogsOfWar", "dogs_of_war.smc"));
     private static Rom BigEye => Rom.Load(ReferenceRoms.InProject("BigEye", "bigeye.smc"));
 
@@ -117,28 +120,28 @@ public class OverworldLmTests(ITestOutputHelper log)
         Assert.Equal(new Overworld.Tables(Overworld.Layer2Low, Overworld.Layer2High, Overworld.Map16Defs, Overworld.VanillaMap16Count, 0, 0), at);
     }
 
-    /// <summary>DogsOfWar moved layer 2 to bank $13 and kept the vanilla Map16 table.</summary>
+    /// <summary>DogsOfWar moved layer 2 to bank $36 and kept the vanilla Map16 table.</summary>
     [RomFact("DogsOfWar", "dogs_of_war.smc")]
     public void dogs_of_war_reads_layer_2_where_lunar_magic_put_it()
     {
         var rom = Dogs;
         var at = Overworld.Tables.Of(rom);
         log.WriteLine(at.ToString());
-        Assert.Equal(0x139F8E, at.Layer2Low);
-        Assert.Equal(0x13B2D6, at.Layer2High);
+        Assert.Equal(0x368000, at.Layer2Low);
+        Assert.Equal(0x36946B, at.Layer2High);
         Assert.Equal(Overworld.Map16Defs, at.Map16Defs);
         Assert.Equal(Overworld.VanillaMap16Count, at.Map16Count);
-        Assert.Equal(0x1496B0, at.LevelTableBlob);
+        Assert.Equal(0x138637, at.LevelTableBlob);
         Assert.Equal(0x10827A, at.Layer1HighBlob);
         var ow = new Overworld(rom);
-        Assert.Equal(26, ow.WarpCount);                                 // LM's hook counts them
+        Assert.Equal(25, ow.WarpCount);                                 // LM's hook counts them
         // LM's per-tile table numbers the tiles as the author set them, not in scan order.
         Assert.Contains(Enumerable.Range(0, 0x800), i => ow.Layer1[i] is >= 0x56 and <= 0x80 && ow.Translevels[i] > 0x40);
 
         // The streams decode to a full map that ends where LM's bytes end, not vanilla's.
         var words = Overworld.DecodeLayer2(rom, out int lowEnd, out int highEnd);
-        Assert.Equal(4936, lowEnd - rom.FileOffset(at.Layer2Low));
-        Assert.Equal(4286, highEnd - rom.FileOffset(at.Layer2High));
+        Assert.Equal(5227, lowEnd - rom.FileOffset(at.Layer2Low));
+        Assert.Equal(4572, highEnd - rom.FileOffset(at.Layer2High));
         if (File.Exists(ReferenceRoms.Vanilla))
         {
             var vanilla = Overworld.DecodeLayer2(Rom.Load(ReferenceRoms.Vanilla));

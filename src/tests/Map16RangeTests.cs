@@ -13,6 +13,9 @@ namespace PipeDream.Tests;
 /// </summary>
 public class Map16RangeTests
 {
+    /// <summary>The 29 March 2026 release: vanilla (unheadered) patched with
+    /// DogsOfWar/Dogs of War/dogs_of_war.bps. The addresses below are that build's; another
+    /// build of the hack moves them.</summary>
     private static string DowPath => ReferenceRoms.InProject("DogsOfWar", "dogs_of_war.smc");
 
     private sealed class DowFactAttribute : FactAttribute
@@ -41,14 +44,14 @@ public class Map16RangeTests
     public void dogs_of_war_resolves_page_0x10_through_range_1s_own_slot()
     {
         var rom = Rom.Load(DowPath);
-        Assert.Equal((0xAEAE, 0x1D), rom.LmMap16Slot(0));
-        Assert.Equal((0x4E5E, 0x1D), rom.LmMap16Slot(1));
+        Assert.Equal((0x7000, 0x3B), rom.LmMap16Slot(0));
+        Assert.Equal((0x4008, 0x3B), rom.LmMap16Slot(1));
 
         // def = bank:((imm + tile*8) & 0xFFFF) — the wrap is load-bearing for range 1.
-        Assert.Equal(0x1DBEAE, rom.LmMap16DefAddr(0x200));
-        Assert.Equal(0x1DCE5E, rom.LmMap16DefAddr(0x1000));
+        Assert.Equal(0x3B8000, rom.LmMap16DefAddr(0x200));
+        Assert.Equal(0x3BC008, rom.LmMap16DefAddr(0x1000));
         // Reading page 0x10 through range 0's slot (the old behaviour) landed elsewhere.
-        Assert.NotEqual(0x1DCE5E, (0x1D << 16) | ((0xAEAE + 0x1000 * 8) & 0xFFFF));
+        Assert.NotEqual(0x3BC008, (0x3B << 16) | ((0x7000 + 0x1000 * 8) & 0xFFFF));
 
         Assert.True(rom.HasMap16Range(0) && rom.HasMap16Range(1));
         Assert.Equal(0, rom.LmMap16Slot(2).Bank);           // ranges 2+ unused in this hack
@@ -88,7 +91,7 @@ public class Map16RangeTests
         // Filling range 0 to ITS ceiling is enough: nothing about range 1 is rewritten, and
         // the hack's existing page 0x10 becomes visible to the editor by itself.
         Assert.Null(rom.EnsureMap16Tiles(0x1000));
-        Assert.Equal(0x1DCE5E, rom.LmMap16DefAddr(0x1000));     // range 1's slot untouched
+        Assert.Equal(0x3BC008, rom.LmMap16DefAddr(0x1000));     // range 1's slot untouched
         Assert.True(rom.Map16TileCount > 0x1000, $"count is 0x{rom.Map16TileCount:X}");
         Assert.True(Map16.DefFileOffset(rom, 0, 0x1000) > 0);
         Assert.Equal(page10, Map16.LmExtendedDef(rom, 0x1000).Select(w => w.Raw).ToArray());
