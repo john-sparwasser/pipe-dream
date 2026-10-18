@@ -16,8 +16,10 @@ public class OverworldGfxTests(ITestOutputHelper log) : IDisposable
 
     private static Rom? Open() => PreppedRom.Fork() is { } p ? Rom.Load(p) : null;
 
-    /// <summary>The one word we repaint through: layer 2 tile 0x004, which lives in FG1's page.</summary>
-    private const int FgWord = 0x0004;
+    /// <summary>The one word we repaint through: layer 2 tile 0x004, which lives in FG1's page,
+    /// in palette row 4 — a land row the overworld sets. Rows 0-3 colours 1-7 are black from prep
+    /// v33, as Lunar Magic leaves them, so a tile drawn there reads black whatever file it is.</summary>
+    private const int FgWord = 0x1004;
 
     [Fact]
     public void prep_carries_lunar_magics_own_starting_record_for_every_submap()

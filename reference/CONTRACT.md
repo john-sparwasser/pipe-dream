@@ -2456,6 +2456,16 @@ which were keyed by vanilla words, moved to every table word those fed (`Project
 IsPrepped v32 = `LmOwPaletteTable >= 0`, true of every ROM LM has saved an overworld palette into.
 Golden V32 pinned.
 
+PREP V33 fills that table as Lunar Magic's own conversion does (`Palette.LmConvertedOverworld`;
+2026-10-18), because v32's fill — vanilla CGRAM, level C7's leftovers included — showed colours in
+rows 0-3 that LM's editor shows black. No new stamps: `--diff` v32 → v33 is the table body and the
+checksum balance. The overworld's own loads keep their words; the leftovers are `0000`; `0x86`-`0x8F`
+hold Mario's palette from `$00B2C8`, which the game re-uploads every frame. Mesen on Yoshi's Island:
+the 140 colours the overworld loads hash the same as v31's, and CGRAM `0x11` reads black. A v32
+project upgrades with no data to move (the table's address is v32's). IsPrepped v33 = the table's
+`0x86` is Mario's first colour — true of every LM table measured, false of v32's fill; an author
+who edited it reads false, which only Apply sees (the v29 note). Golden V33 pinned.
+
 ## 14. Sprite graphics via OAM capture  [IMPLEMENTED v2]
 
 No unified sprite→tile table exists; each sprite's look comes from its graphics routine.

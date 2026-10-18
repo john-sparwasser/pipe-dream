@@ -83,8 +83,10 @@ public static partial class RomPrep
     /// V31 claims that dispatch at Lunar Magic 3.40's version, so its Map16 save leaves the
     /// dispatch alone (see <see cref="AppendV31Stamps"/>).
     /// V32 carries Lunar Magic's overworld palettes — a whole palette per submap — so every
-    /// overworld colour is editable, as in LM (see <see cref="AppendV32Stamps"/>).
-    public const int Version = 32;
+    /// overworld colour is editable, as in LM (see <see cref="AppendV32Stamps"/>);
+    /// V33 fills that table as LM's own conversion does — the level loader's leftovers black,
+    /// Mario's colours at 86-8F — so the two editors show the same palette (no new stamps).
+    public const int Version = 33;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A
@@ -580,7 +582,13 @@ public static partial class RomPrep
            && (version < 31 || rom.ReadByte(LmBlockMarker + 2) >= LmBlockMarkerVersion340)
            // V32: the overworld loads its colours from Lunar Magic's table — the property every
            // ROM LM has saved an overworld palette into has (DogsOfWar).
-           && (version < 32 || rom.LmOwPaletteTable >= 0);
+           && (version < 32 || rom.LmOwPaletteTable >= 0)
+           // V33: the table holds Mario's colours where LM's conversion puts them, which v32's
+           // vanilla-CGRAM fill does not (it has the B57C row there). True of every LM table
+           // measured; an author who edited CGRAM 86 reads false, which only Apply sees, and Apply
+           // is only reached for a base of ours (the v29 note).
+           && (version < 33 || (rom.LmOwPaletteTable is var owTable and >= 0
+                                && rom.ReadValue(owTable + 0x86 * 2, 2) == rom.ReadValue(Palette.MarioPalette, 2)));
 
     /// <summary>Each acts-like site JSLs to its LM trampoline, in bank $06 or its $86 mirror.</summary>
     public static bool HasLmBlockDispatch(Rom rom) =>
@@ -600,7 +608,7 @@ public static partial class RomPrep
         if (version >= 6) ConvertGfxTo4bpp(rom, version);   // data, not a stamp: it allocates
         if (version >= 10) MigrateSecondaryDestinationBit(rom);  // data: depends on the records
         if (version >= 25) BakeLmFourBppFiles(rom);         // data: the files LM's 4bpp-mode code expects
-        if (version >= 32) BakeOwPaletteTable(rom);         // data: the colours the vanilla loader gives
+        if (version >= 32) BakeOwPaletteTable(rom, version);   // data: the submaps' colours, as LM converts them from v33
         RatsWriter.FixChecksum(rom);
         ResetScanCaches(rom);
     }
@@ -618,20 +626,22 @@ public static partial class RomPrep
     }
 
     /// <summary>
-    /// V32's data: Lunar Magic's overworld palette table, filled with exactly what the vanilla
-    /// loader puts in CGRAM for each submap — before the special world is passed, then after.
-    /// The vanilla tables stay where they were, so this reads them on a ROM whose hook is
-    /// already stamped. Installed, the hook changes no colour on screen; what it changes is
-    /// that every colour now has a word of its own to edit, rows 0-3 and colour 0 included.
-    /// LM's own first overworld palette save does the same (reference/OVERWORLD.md §4).
+    /// V32's data: Lunar Magic's overworld palette table, one palette per submap — before the
+    /// special world is passed, then after. The vanilla tables stay where they were, so this
+    /// reads them on a ROM whose hook is already stamped. V32 (frozen) filled it with exactly
+    /// what the vanilla loader leaves in CGRAM, level C7's leftovers included; V33 fills it as
+    /// LM's own first overworld palette save does (<see cref="Palette.LmConvertedOverworld"/>):
+    /// those leftovers black, as LM's editor shows them, and Mario's colours at 86-8F. Every
+    /// colour the overworld loads is the same in both (reference/OVERWORLD.md §4).
     /// </summary>
-    private static void BakeOwPaletteTable(Rom rom)
+    private static void BakeOwPaletteTable(Rom rom, int version)
     {
         int at = rom.FileOffset(OwPaletteTable);
         for (int half = 0; half < 2; half++)
             for (int s = 0; s < Overworld.Submaps; s++)
             {
-                var bgr = Palette.LoadVanillaOverworld(rom, s, specialPassed: half == 1).Bgr;
+                var bgr = version >= 33 ? Palette.LmConvertedOverworld(rom, s, specialPassed: half == 1)
+                                        : Palette.LoadVanillaOverworld(rom, s, specialPassed: half == 1).Bgr;
                 for (int i = 0; i < 256; i++, at += 2)
                 {
                     rom.Data[at] = (byte)bgr[i];

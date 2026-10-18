@@ -189,6 +189,16 @@ so the two bytes join into an 8x8 word (`Overworld.EventPieces`). 0xD00 cells in
   addresses (`$13C808`, `$13C908`), the table filled with what the vanilla loader gives each
   submap in both halves: Mesen showed v31 and v32 holding the same CGRAM on Yoshi's Island, the
   hook run once, and a one-colour change to the table reaching CGRAM.
+- **What LM's conversion writes in the table** is not that CGRAM, though: the overworld's own
+  loads where they write, `0000` everywhere else — the level loader's leftovers, which is why
+  LM's editor shows rows 0-3 colours 0-7 black — and Mario's ten colours from `$00B2C8` at
+  `0x86`-`0x8F` (the game uploads the player's palette there every frame regardless). Settled
+  2026-10-18 against the 33 distinct LM tables on this machine: QuickieWorld's table differs from
+  that rule in 3 of 3584 colours, RHR Thumbshredder's in 4, and the rest only in land colours
+  their authors recoloured. `-TransferOverworld` from a ROM without the table installs nothing,
+  so LM converts only on a palette save. **Prep v33** fills the table this way
+  (`Palette.LmConvertedOverworld`); in Mesen on Yoshi's Island the 140 colours the overworld
+  loads are unchanged from v31 and the leftovers read black.
 
 ## 5. Level tiles
 

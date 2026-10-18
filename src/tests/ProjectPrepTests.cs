@@ -160,9 +160,17 @@ public class ProjectPrepTests : IDisposable
         Assert.Equal(2 * Overworld.Submaps, p.Data.Overworld.Palette.Keys.Count(k => (k - table) % 0x200 == 0x29 * 2));
         Assert.Contains(table + 1 * 0x200 + 0x41 * 2, p.Data.Overworld.Palette.Keys);
 
+        // Every colour the overworld loads looks as it did; the level loader's leftovers are black
+        // from v33, as Lunar Magic's conversion leaves them, and 86-8F are Mario's.
         foreach (var (at, bgr) in p.Data.Overworld.Palette) v32.OwPaletteEdits[at] = (ushort)bgr;
         for (int k = 0; k < 2 * Overworld.Submaps; k++)
-            Assert.Equal(before[k], Palette.LoadOverworld(v32, k % Overworld.Submaps, k >= Overworld.Submaps).Bgr);
+        {
+            int s = k % Overworld.Submaps; bool passed = k >= Overworld.Submaps;
+            var after = Palette.LoadOverworld(v32, s, passed).Bgr;
+            for (int i = 0; i < 256; i++)
+                if (i is < 0x86 or > 0x8F && Palette.OverworldSource(v31, s, i, passed) is not null)
+                    Assert.Equal(before[k][i], after[i]);
+        }
     }
 
     /// <summary>Projects created before prep existed pinned a RAW vanilla base (PrepVersion 0).

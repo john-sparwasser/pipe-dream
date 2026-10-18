@@ -89,9 +89,31 @@ public sealed class Palette
 
     /// <summary>The palette the VANILLA loader gives a submap, edits aside, whether or not the ROM
     /// carries Lunar Magic's table — the vanilla tables stay where they were under it. It is what
-    /// prep v32 fills that table with, so installing it changes no colour on screen.</summary>
+    /// prep v32 filled that table with, level C7's leftovers and all.</summary>
     public static Palette LoadVanillaOverworld(Rom rom, int submap, bool specialPassed)
         => LoadOverworld(rom, VanillaOverworldLoads(rom, submap, specialPassed), []);
+
+    /// <summary>Where the game keeps Mario's palette, the ten colours it uploads to CGRAM 86-8F.</summary>
+    public const int MarioPalette = 0x00B2C8;
+
+    /// <summary>
+    /// A submap's palette as Lunar Magic's first overworld palette save writes it into its table:
+    /// the vanilla overworld loads where they write, 0000 everywhere else — the level loader's
+    /// leftovers, rows 0-3 colours 0-7 among them, which is why LM's editor shows those black —
+    /// and Mario's colours at 86-8F, which the game re-uploads every frame anyway. Measured against
+    /// the tables of five LM hacks (2026-10-18): QuickieWorld's differs from this in 3 of its 3584
+    /// colours and RHR Thumbshredder's in 4; Sheffy 2, Super Hark Bros and Super Riff World differ
+    /// in the land colours of rows 4-7 their authors recoloured; no colour differs in all five.
+    /// Prep v33 fills the table with it.
+    /// </summary>
+    public static ushort[] LmConvertedOverworld(Rom rom, int submap, bool specialPassed)
+    {
+        var cg = new ushort[256];
+        foreach (var load in VanillaOverworldLoads(rom, submap, specialPassed))
+            LoadColors(rom, cg, load, []);
+        for (int i = 0; i < 10; i++) cg[0x86 + i] = RomWord(rom, MarioPalette + i * 2);
+        return cg;
+    }
 
     private static Palette LoadOverworld(Rom rom, ColorLoad[] loads, Dictionary<int, ushort> edits)
     {

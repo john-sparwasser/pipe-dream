@@ -86,6 +86,7 @@ public class RomPrepTests
     // Also the hash of the base Mesen showed the same overworld CGRAM as v31 on Yoshi's Island,
     // with the hook run once (2026-10-18): that measurement is of THESE bytes only while it holds.
     private const string GoldenPrepV32Sha256 = "2abe991640c06cb4ab29e2a9e73f22b2e999e73e75424f884c96fbf3240f7202";
+    private const string GoldenPrepV33Sha256 = "8113fa144ea9361188cceaf2e9b2ccae859633b90cc6652a3d3a5f35aea690a1";
 
     private static Rom Prepped()
     {
@@ -934,11 +935,15 @@ public class RomPrepTests
             Assert.Equal(GoldenPrepV31Sha256, RomHash.HeaderlessSha256File(tmp));
 
             File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
-            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V32)
+            Assert.Null(RomPrep.PrepInPlace(tmp, version: 32));     // frozen V32 stamp list
+            Assert.Equal(GoldenPrepV32Sha256, RomHash.HeaderlessSha256File(tmp));
+
+            File.Copy(TestRom.RealRomPath, tmp, overwrite: true);
+            Assert.Null(RomPrep.PrepInPlace(tmp));                  // current (V33)
             string cur = RomHash.HeaderlessSha256File(tmp);
             // Spelled out rather than left to the assertion message: xunit truncates a mismatch,
             // and this hash is what the NEXT version bump has to be told.
-            Assert.True(GoldenPrepV32Sha256 == cur, $"V32 golden hash is now {cur}");
+            Assert.True(GoldenPrepV33Sha256 == cur, $"V33 golden hash is now {cur}");
         }
         finally { File.Delete(tmp); }
     }
@@ -995,6 +1000,41 @@ public class RomPrepTests
 
         Assert.True(RomPrep.IsPrepped(v32, 32));
         Assert.False(RomPrep.IsPrepped(v31, 32));                                      // v31 is offered the upgrade
+    }
+
+    /// <summary>V33 over V32 is the table's body and nothing else but the checksum balance: it
+    /// holds what Lunar Magic's own conversion writes — the overworld's loads where they write,
+    /// black where the level loader's leftovers were, Mario at 86-8F. Every colour the overworld
+    /// loads itself is the one v32 had, so the map draws the same.</summary>
+    [RealRomFact]
+    public void v33_fills_the_overworld_palette_table_as_lunar_magic_converts_it()
+    {
+        var v32 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v32, 32);
+        var v33 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v33, 33);
+
+        int body = RomPrep.OwPaletteTableTagPc + 8;
+        var changed = Enumerable.Range(0, v32.ActualRomSize).Where(pc => v32.Data[v32.HeaderOffset + pc] != v33.Data[v33.HeaderOffset + pc])
+            .Where(pc => pc is < 0x7FDC or > 0x7FDF)
+            .Where(pc => pc < RomPrep.BalanceTagPc + 8 || pc >= RomPrep.BalanceTagPc + 8 + RomPrep.BalanceSize);
+        Assert.All(changed, pc => Assert.InRange(pc, body, body + RomPrep.OwPaletteTableSize - 1));
+
+        var v31 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v31, 31);   // the vanilla loads, which the table hides
+        for (int k = 0; k < 2 * Overworld.Submaps; k++)
+        {
+            int s = k % Overworld.Submaps; bool passed = k >= Overworld.Submaps;
+            var lm = Palette.LoadOverworld(v33, s, passed).Bgr;
+            var was = Palette.LoadOverworld(v32, s, passed).Bgr;
+            Assert.Equal(Palette.LmConvertedOverworld(v33, s, passed), lm);
+            for (int row = 0; row < 4; row++)
+                for (int c = 1; c < 8; c++) Assert.Equal(0, lm[row * 16 + c]);   // black, as LM's editor shows them
+            for (int i = 0; i < 256; i++)
+                if (i is < 0x86 or > 0x8F && Palette.OverworldSource(v31, s, i, passed) is not null)
+                    Assert.Equal(was[i], lm[i]);                                  // the overworld's own colours stay
+        }
+
+        Assert.True(RomPrep.IsPrepped(v33, 33));
+        Assert.False(RomPrep.IsPrepped(v32, 33));                                      // v32 is offered the upgrade
+        Assert.True(RomPrep.IsPrepped(v32, 32));
     }
 
     /// <summary>
