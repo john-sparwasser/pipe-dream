@@ -11,7 +11,22 @@ public sealed partial class Overworld
 
     private readonly Dictionary<(int Tile, int Submap), uint[]> map16Px = [];
 
-    public Palette PaletteOf(int submap) => pal[submap] ??= Palette.LoadOverworld(Rom, submap);
+    /// <summary>Draw the map as it looks once the special world is passed: every submap in the
+    /// second of its two palettes. A view state, as in Lunar Magic — setting it recolours every
+    /// picture, and the colours an edit reaches are the ones showing.</summary>
+    public bool SpecialPassed
+    {
+        get => specialPassed;
+        set
+        {
+            if (specialPassed == value) return;
+            specialPassed = value;
+            InvalidatePalette();
+        }
+    }
+    private bool specialPassed;
+
+    public Palette PaletteOf(int submap) => pal[submap] ??= Palette.LoadOverworld(Rom, submap, specialPassed);
 
     private Gfx.FgTiles TilesOf(int submap) => fg[submap] ??= WithAnimatedTiles(
         Gfx.FgTiles.Load(Rom, Tileset + submap, levelAnimation: false, bypass: Rom.OwGfxBypass(submap)));

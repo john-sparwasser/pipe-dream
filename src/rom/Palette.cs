@@ -133,10 +133,11 @@ public sealed class Palette
     /// which belong to level C7 and not to the map. Editing an overworld colour IS writing this
     /// word: Lunar Magic edits the vanilla tables in place (reference/OVERWORLD.md §5 table) until
     /// its first overworld palette save, and its own table after — where every colour has a word.
+    /// <paramref name="specialPassed"/> asks after the palette once the special world is passed.
     /// </summary>
-    public static int? OverworldSource(Rom rom, int submap, int index)
+    public static int? OverworldSource(Rom rom, int submap, int index, bool specialPassed = false)
     {
-        foreach (var (dest, src, n, rows) in OverworldLoads(rom, submap, false))
+        foreach (var (dest, src, n, rows) in OverworldLoads(rom, submap, specialPassed))
             for (int r = 0; r < rows; r++)
                 if (index - (dest + r * 16) is var c && c >= 0 && c < n) return src + (r * n + c) * 2;
         return null;
@@ -146,8 +147,8 @@ public sealed class Palette
     /// the shared tables, one or two for a submap's own set (Vanilla Dome and Valley of Bowser
     /// share theirs), always one under Lunar Magic's table. Same index in each, since every
     /// submap lays its colours out alike.</summary>
-    public static int[] OverworldSharers(Rom rom, int index, int snes)
-        => [.. Enumerable.Range(0, Overworld.Submaps).Where(s => OverworldSource(rom, s, index) == snes)];
+    public static int[] OverworldSharers(Rom rom, int index, int snes, bool specialPassed = false)
+        => [.. Enumerable.Range(0, Overworld.Submaps).Where(s => OverworldSource(rom, s, index, specialPassed) == snes)];
 
     /// <summary>
     /// Where a colour word of the VANILLA tables lives in Lunar Magic's table: every (submap,
@@ -169,10 +170,12 @@ public sealed class Palette
                                 yield return table + (s + half * Overworld.Submaps) * 0x200 + i * 2;
     }
 
-    /// <summary>Whether <paramref name="snes"/> is a colour word some submap loads.</summary>
+    /// <summary>Whether <paramref name="snes"/> is a colour word some submap loads, before the
+    /// special world is passed or after.</summary>
     public static bool IsOverworldColor(Rom rom, int snes)
-        => Enumerable.Range(0, Overworld.Submaps)
-                     .Any(s => Enumerable.Range(0, 256).Any(i => OverworldSource(rom, s, i) == snes));
+        => Enumerable.Range(0, 2 * Overworld.Submaps)
+                     .Any(k => Enumerable.Range(0, 256).Any(i =>
+                         OverworldSource(rom, k % Overworld.Submaps, i, k >= Overworld.Submaps) == snes));
 
     /// <summary>The game's LoadColors ($00ACFF). A word with an entry in <paramref name="edits"/>
     /// (SNES address → BGR555) loads the edit instead of the ROM's bytes.</summary>

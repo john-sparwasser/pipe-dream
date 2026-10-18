@@ -79,8 +79,10 @@ public partial class MainWindow
         palSubmap = this.GetControl<ComboBox>("PalSubmap");
         foreach (var name in SubmapNames) palSubmap.Items.Add(name);
         palSubmap.SelectedIndex = 0;
+        palSpecialPassed = this.GetControl<CheckBox>("PalSpecialPassed");
         palScopeTabs.SelectionChanged += (_, _) => ApplyPaletteScope();
         palSubmap.SelectionChanged += (_, _) => { if (palettePanel.IsVisible) RefreshPaletteTab(); };
+        palSpecialPassed.IsCheckedChanged += (_, _) => { paletteGrid.Select(-1); RefreshPaletteTab(); };
 
         paletteGrid.IsEdited = SwatchEdited;
         paletteGrid.IsDisabled = OwSwatchFixed;

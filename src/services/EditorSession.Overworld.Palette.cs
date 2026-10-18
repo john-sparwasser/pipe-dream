@@ -7,13 +7,18 @@ namespace PipeDream.Services;
 public sealed partial class EditorSession
 {
     /// <summary>The SNES address of the colour word behind a submap's swatch, or null for one the
-    /// overworld does not set (<see cref="Palette.OverworldSource"/>).</summary>
+    /// overworld does not set (<see cref="Palette.OverworldSource"/>). In whichever of the
+    /// submap's two palettes the map is showing (<see cref="Overworld.SpecialPassed"/>).</summary>
     public int? OwPaletteSource(int submap, int index)
-        => Rom is { } r && index is >= 0 and < 256 ? Palette.OverworldSource(r, submap, index) : null;
+        => Rom is { } r && index is >= 0 and < 256
+            ? Palette.OverworldSource(r, submap, index, OwSpecialPassed) : null;
 
     /// <summary>Every submap a swatch's colour word also colours, this one included.</summary>
     public int[] OwPaletteSharers(int submap, int index)
-        => Rom is { } r && OwPaletteSource(submap, index) is { } at ? Palette.OverworldSharers(r, index, at) : [];
+        => Rom is { } r && OwPaletteSource(submap, index) is { } at
+            ? Palette.OverworldSharers(r, index, at, OwSpecialPassed) : [];
+
+    private bool OwSpecialPassed => Overworld?.SpecialPassed == true;
 
     public bool IsOwPaletteEdited(int submap, int index)
         => Rom is { } r && OwPaletteSource(submap, index) is { } at && r.OwPaletteEdits.ContainsKey(at);

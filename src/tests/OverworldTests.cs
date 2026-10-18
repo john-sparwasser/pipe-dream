@@ -1645,6 +1645,77 @@ public class OverworldTests(ITestOutputHelper log)
         Assert.Equal(0, s.OwPaletteEditCount);
     }
 
+    /// <summary>Each submap has a second palette, the one loaded once the special world is
+    /// passed: the second half of Lunar Magic's table. Showing it is a view state of the map, and
+    /// while it is on, a swatch is that palette's word — an edit there leaves the first palette
+    /// alone, and the build takes its address as an overworld colour.</summary>
+    [Fact]
+    public void the_special_world_passed_palettes_are_the_tables_second_half()
+    {
+        if (PreppedRom.Fork() is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        var s = new Services.EditorSession();
+        Assert.True(s.OpenRom(p));
+        var ow = s.Overworld!;
+        int table = s.Rom!.LmOwPaletteTable;
+        var before = ow.PaletteOf(0).Bgr.ToArray();
+
+        ow.SpecialPassed = true;
+        Assert.NotEqual(before, ow.PaletteOf(0).Bgr);                    // vanilla's autumn main map
+        Assert.Equal(Palette.LoadOverworld(s.Rom, 0, specialPassed: true).Bgr, ow.PaletteOf(0).Bgr);
+        int at = table + (1 + Overworld.Submaps) * 0x200 + 0x41 * 2;
+        Assert.Equal(at, s.OwPaletteSource(1, 0x41));
+        Assert.True(Palette.IsOverworldColor(s.Rom, at));
+
+        ushort now = (ushort)(ow.PaletteOf(1).Bgr[0x41] ^ 0x1F);
+        Assert.True(s.SetOwPaletteColor(1, 0x41, now));
+        Assert.Equal(now, ow.PaletteOf(1).Bgr[0x41]);
+        ow.SpecialPassed = false;
+        Assert.NotEqual(now, ow.PaletteOf(1).Bgr[0x41]);                 // the first palette is untouched
+        Assert.Equal(table + 1 * 0x200 + 0x41 * 2, s.OwPaletteSource(1, 0x41));
+    }
+
+    /// <summary>The Overworld tab's "Special world passed" shows each submap's second palette,
+    /// beside the map drawn in it; leaving the tab puts the map back as a new game sees it, and
+    /// coming back finds the box still ticked.</summary>
+    [AvaloniaFact]
+    public void the_palette_drawer_shows_the_special_world_passed_palette_while_ticked()
+    {
+        if (PreppedRom.Path is not { } p) { log.WriteLine("SKIP: no ROM"); return; }
+        Program.RomPath = p;
+        var w = new MainWindow();
+        w.Show();
+        Dispatcher.UIThread.RunJobs();
+        w.GetControl<ToggleButton>("ModePalette").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        var session = (Services.EditorSession)typeof(MainWindow)
+            .GetField("session", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(w)!;
+        var tabs = w.GetControl<TabStrip>("PalScopeTabs");
+        var grid = w.GetControl<PaletteGridView>("PaletteGrid");
+        var passed = w.GetControl<CheckBox>("PalSpecialPassed");
+        tabs.SelectedIndex = 1;
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(passed.IsVisible);
+        var first = session.Overworld!.PaletteOf(0).Rgba.ToArray();
+
+        passed.IsChecked = true;
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(session.Overworld!.SpecialPassed);
+        Assert.Equal(Palette.LoadOverworld(session.Rom!, 0, specialPassed: true).Rgba, grid.Colors);
+        Assert.NotEqual(first, grid.Colors);
+
+        tabs.SelectedIndex = 0;                                          // the Level tab: the map is put back
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(session.Overworld!.SpecialPassed);
+        tabs.SelectedIndex = 1;
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(passed.IsChecked);
+        Assert.True(session.Overworld!.SpecialPassed);
+
+        w.GetControl<ToggleButton>("ModeOverworld").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(session.Overworld!.SpecialPassed);                  // and so does leaving the mode
+    }
+
     /// <summary>The layer 2 streams round-trip through the encoder, and the vanilla map re-packs
     /// into the room the ROM gives it — the writer refuses a map that would not.</summary>
     [Fact]

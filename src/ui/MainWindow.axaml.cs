@@ -334,6 +334,7 @@ public partial class MainWindow : Window
                       : gfx ? Pane.Graphics : map16 ? Pane.Map16 : Pane.Level);
 
         RefreshDrawer();
+        SyncOwSpecialPassed();         // the special-world colours are the Palette mode's view only
         if (ReferenceEquals(sender, modePalette)) ApplyPaletteScope();   // its Overworld tab swaps the canvas
         if (map16)
         {

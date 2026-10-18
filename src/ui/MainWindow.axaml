@@ -625,6 +625,8 @@
                     <StackPanel x:Name="PalSubmapRow" DockPanel.Dock="Left" Orientation="Horizontal" IsVisible="False">
                       <ComboBox x:Name="PalSubmap" Width="180" SelectedIndex="0"
                                 ToolTip.Tip="Which submap's palette to show — each builds its own from the level loader plus the overworld's overrides"/>
+                      <CheckBox x:Name="PalSpecialPassed" Content="Special world passed" Margin="10,0,0,0"
+                                ToolTip.Tip="Show and edit each submap's second palette, the one the game loads once the special world is passed — the map beside draws in it too"/>
                     </StackPanel>
                     <WrapPanel x:Name="PaletteActions" ItemSpacing="8" LineSpacing="6" VerticalAlignment="Center">
                       <Button x:Name="PaletteReset" Content="Reset" Padding="10,2" Click="OnResetPalette"/>

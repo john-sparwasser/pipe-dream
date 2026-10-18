@@ -29,6 +29,7 @@ public partial class MainWindow
     private TabStrip palScopeTabs = null!;
     private ComboBox palSubmap = null!;
     private StackPanel palSubmapRow = null!;
+    private CheckBox palSpecialPassed = null!;
     private static readonly string[] SubmapNames =
         ["Main map", "Yoshi's Island", "Vanilla Dome", "Forest of Illusion", "Valley of Bowser", "Special World", "Star World"];
     private bool PaletteScopeOverworld => palScopeTabs.SelectedIndex == 1;
@@ -76,8 +77,24 @@ public partial class MainWindow
     /// otherwise picking a swatch immediately writes its own colour back as an "edit".</summary>
     private bool loadingSwatch;
 
+    /// <summary>
+    /// The map is drawn as after the special world only while the Overworld tab is showing with
+    /// "Special world passed" ticked. Leaving the tab or the mode puts it back as a new game sees
+    /// it, so no other mode paints against colours nothing on screen explains; the box keeps its
+    /// tick for the way back. Runs on every mode change and every refresh of this tab.
+    /// </summary>
+    private void SyncOwSpecialPassed()
+    {
+        if (session.Overworld is not { } ow) return;
+        bool want = modePalette.IsChecked == true && PaletteScopeOverworld && palSpecialPassed.IsChecked == true;
+        if (ow.SpecialPassed == want) return;
+        ow.SpecialPassed = want;
+        RepaintOverworld();
+    }
+
     private void RefreshPaletteTab()
     {
+        SyncOwSpecialPassed();
         // Layer 3 is 2bpp and can name eight palette groups of four, so its whole reach is CGRAM
         // 00-1F. Four wide by eight tall over that range is group-major for free — grid row g IS
         // palette group g — so nothing has to remap indices: a swatch's position in this view and
