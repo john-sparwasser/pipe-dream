@@ -221,6 +221,29 @@ public class PaletteTabTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(1, s.PaletteUndoDepth);
     }
 
+    /// <summary>The edit count and the selected swatch's readout sit at the foot of the pane, on a
+    /// line kept while blank, so picking a swatch and making the first edit move nothing: the
+    /// grid stays where it was, at the size it was.</summary>
+    [AvaloniaFact]
+    public void the_edit_count_is_below_the_grid_and_the_first_edit_moves_nothing()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var w = PaletteWindow(Vanilla);
+        var s = SessionOf(w);
+        var grid = w.GetControl<PaletteGridView>("PaletteGrid");
+        var note = w.GetControl<TextBlock>("PaletteNote");
+        var at = grid.TranslatePoint(default, w)!.Value;
+        double cell = grid.Cell;
+        Assert.Equal("", note.Text);
+        Assert.True(note.TranslatePoint(default, w)!.Value.Y > at.Y, "the edit count belongs below the grid");
+
+        ClickSwatch(w, grid, 0x42, MouseButton.Left, RawInputModifiers.Control);
+        ClickSwatch(w, grid, 0x43, MouseButton.Right);
+        Assert.Contains("edit(s)", note.Text);
+        Assert.Equal(at, grid.TranslatePoint(default, w)!.Value);
+        Assert.Equal(cell, grid.Cell);
+    }
+
     /// <summary>Click swatch <paramref name="index"/> of a grid, wherever its shape puts it.</summary>
     private static void ClickSwatch(MainWindow w, PaletteGridView grid, int index, MouseButton button,
                                     RawInputModifiers mods = RawInputModifiers.None)

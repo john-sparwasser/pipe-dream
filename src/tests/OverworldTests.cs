@@ -1582,7 +1582,7 @@ public class OverworldTests(ITestOutputHelper log)
         w.GetControl<ComboBox>("PalSubmap").SelectedIndex = 1;
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(session.Overworld!.PaletteOf(1).Rgba, grid.Colors);
-        Assert.False(w.GetControl<TextBlock>("PaletteNote").IsVisible);     // nothing edited, nothing to say
+        Assert.Equal("", w.GetControl<TextBlock>("PaletteNote").Text);      // nothing edited, nothing to say
         // Prep v32 gives every submap all 256 of its colours, as Lunar Magic does: the rows the
         // level loader fills on vanilla are editable, and so is colour 0.
         Assert.All(Enumerable.Range(0, 256), i => Assert.False(grid.IsDisabled!(i)));

@@ -618,7 +618,6 @@
               </Border>
               <Border DockPanel.Dock="Top" Padding="10,8" Background="{DynamicResource SurfaceBrush}">
                 <StackPanel Spacing="6">
-                  <TextBlock x:Name="PaletteNote" Classes="dim" TextWrapping="Wrap"/>
                   <!-- One line: the submap drop-down on the Overworld tab, the actions beside it —
                        pushed right there, left on the Level tab where nothing sits before them. -->
                   <DockPanel>
@@ -641,9 +640,6 @@
                       <CheckBox x:Name="PaletteLayer3" Content="Layer 3"
                                 IsCheckedChanged="OnPaletteLayer3Only"
                                 ToolTip.Tip="Show only CGRAM 00-1F — the 32 colours a 2bpp layer-3 tile can name, one palette group per row"/>
-                      <!-- The selected swatch's readout, after the buttons, wrapping under them when
-                           the drawer is narrow: in front, its blank slot pushed them right. -->
-                      <TextBlock x:Name="PaletteIndex" Classes="mono" VerticalAlignment="Center"/>
                     </WrapPanel>
                   </DockPanel>
                 </StackPanel>
@@ -655,6 +651,18 @@
                 <ui:PaletteGridView x:Name="PaletteBg" Cols="1" Rows="1"/>
                 <TextBlock Classes="dim" Text="Background Color" VerticalAlignment="Center"/>
               </StackPanel>
+              <!-- The selected swatch's readout and how many colours are edited, at the foot of the
+                   pane. The line is kept whether or not either has anything to say: at the top,
+                   the count pushed everything down the moment the first colour changed and the
+                   readout wrapped under the buttons the moment a swatch was picked; appearing
+                   here would still shorten the grid's room and could bring the scrollbar in,
+                   which narrows the swatches. -->
+              <Border DockPanel.Dock="Bottom" Padding="10,4" MinHeight="24" Background="{DynamicResource SurfaceBrush}">
+                <DockPanel>
+                  <TextBlock x:Name="PaletteNote" DockPanel.Dock="Right" Classes="dim" VerticalAlignment="Center"/>
+                  <TextBlock x:Name="PaletteIndex" Classes="mono" VerticalAlignment="Center"/>
+                </DockPanel>
+              </Border>
               <!-- Sideways scrolling disabled so the width is a real constraint: the grid fits it. -->
               <ScrollViewer HorizontalScrollBarVisibility="Disabled">
                 <ui:PaletteGridView x:Name="PaletteGrid" Margin="8"/>

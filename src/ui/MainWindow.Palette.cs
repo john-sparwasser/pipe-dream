@@ -119,10 +119,9 @@ public partial class MainWindow
         paletteBg.Colors = all is { Length: > 0 } pr ? [pr[0]] : [0xFF000000u];
         paletteBg.InvalidateVisual();
         // Only what the grid cannot say itself: how many colours you have moved. Nothing at all
-        // on an untouched palette — the line goes away.
+        // on an untouched palette — the line stays, blank, so nothing shifts when it fills.
         int edits = ow ? session.OwPaletteEditCount : session.PaletteEditCount;
         paletteNote.Text = edits > 0 ? $"{edits} edit(s)" : "";
-        paletteNote.IsVisible = paletteNote.Text.Length > 0;
         ShowPaletteColor(paletteGrid.Selected);
     }
 
