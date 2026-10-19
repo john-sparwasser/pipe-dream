@@ -244,6 +244,35 @@ public class PaletteTabTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(cell, grid.Cell);
     }
 
+    /// <summary>The swatch under the pointer is read out in the footer rather than a tooltip, the
+    /// selected one comes back when the pointer leaves, and none of it moves the grid.</summary>
+    [AvaloniaFact]
+    public void hovering_a_swatch_reads_it_out_in_the_footer()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var w = PaletteWindow(Vanilla);
+        var grid = w.GetControl<PaletteGridView>("PaletteGrid");
+        var index = w.GetControl<TextBlock>("PaletteIndex");
+        var color = w.GetControl<TextBlock>("PaletteColor");
+        var at = grid.TranslatePoint(default, w)!.Value;
+        double cell = grid.Cell;
+
+        ClickSwatch(w, grid, 0x42, MouseButton.Left, RawInputModifiers.Control);
+        Point Over(int i) => grid.TranslatePoint(new Point(grid.HeaderSize + i % grid.Cols * grid.Cell + grid.Cell / 2,
+                                                           grid.HeaderSize + i / grid.Cols * grid.Cell + grid.Cell / 2), w)!.Value;
+        w.MouseMove(Over(0x17));
+        Dispatcher.UIThread.RunJobs();
+        Assert.StartsWith("0x17", index.Text);
+        Assert.StartsWith("R", color.Text);
+        Assert.Null(ToolTip.GetTip(grid));
+        Assert.Equal(at, grid.TranslatePoint(default, w)!.Value);
+        Assert.Equal(cell, grid.Cell);
+
+        w.MouseMove(new Point(1, 1));
+        Dispatcher.UIThread.RunJobs();
+        Assert.StartsWith("0x42", index.Text);
+    }
+
     /// <summary>Click swatch <paramref name="index"/> of a grid, wherever its shape puts it.</summary>
     private static void ClickSwatch(MainWindow w, PaletteGridView grid, int index, MouseButton button,
                                     RawInputModifiers mods = RawInputModifiers.None)

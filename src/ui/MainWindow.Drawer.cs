@@ -70,6 +70,7 @@ public partial class MainWindow
         paletteGrid = this.GetControl<PaletteGridView>("PaletteGrid");
         paletteNote = this.GetControl<TextBlock>("PaletteNote");
         paletteIndex = this.GetControl<TextBlock>("PaletteIndex");
+        paletteColor = this.GetControl<TextBlock>("PaletteColor");
         paletteReset = this.GetControl<Button>("PaletteReset");
         paletteExport = this.GetControl<Button>("PaletteExport");
         paletteImport = this.GetControl<Button>("PaletteImport");
@@ -85,7 +86,9 @@ public partial class MainWindow
 
         paletteGrid.IsEdited = SwatchEdited;
         paletteGrid.IsDisabled = OwSwatchFixed;
-        paletteGrid.Describe = SwatchRgb;       // the hover tip is the colour; the readout below says the rest
+        // No hover tip: the footer reads out the swatch under the pointer, and the selected one
+        // when the pointer is elsewhere.
+        paletteGrid.HoverChanged += (_, i) => { paletteHover = i; ShowPaletteColor(paletteGrid.Selected); };
         paletteGrid.SelectionChanged += (_, i) => { paletteBg.Select(-1); ShowPaletteColor(i); OpenPicker(); };
         // The background colour (CGRAM 0) lives in its own swatch above the grid; selection is
         // still paletteGrid.Selected — the swatch just points it at index 0.
@@ -93,7 +96,7 @@ public partial class MainWindow
         paletteGrid.HideFirst = true;
         paletteBg.IsEdited = _ => SwatchEdited(0);
         paletteBg.IsDisabled = _ => OwSwatchFixed(0);
-        paletteBg.Describe = _ => SwatchRgb(0);
+        paletteBg.HoverChanged += (_, i) => { paletteHover = i < 0 ? -1 : 0; ShowPaletteColor(paletteGrid.Selected); };
         // The grid fits the drawer, so the drawer's width is its zoom (splitter or Alt/Cmd+wheel,
         // like every drawer sheet); the lone background swatch above it keeps the same cell size.
         paletteGrid.FitWidth = true;

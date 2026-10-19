@@ -84,6 +84,10 @@ public class PaletteGridView : Control
 
     public event EventHandler<int>? SelectionChanged;
 
+    /// <summary>The swatch under the pointer changed; -1 when it left the swatches. For a grid
+    /// that reads the hovered colour out somewhere of its own instead of in a tooltip.</summary>
+    public event EventHandler<int>? HoverChanged;
+
     /// <summary>
     /// The palette editor's shortcuts. Ctrl, Alt or Cmd + click selects a swatch and nothing more
     /// — it raises <see cref="QuietSelect"/> instead of <see cref="SelectionChanged"/>, so no
@@ -160,6 +164,7 @@ public class PaletteGridView : Control
         if (i == hoverIndex) return;
         hoverIndex = i;
         if (Describe is not null) ToolTip.SetTip(this, i >= 0 ? Describe(i) : null);
+        HoverChanged?.Invoke(this, i);
         InvalidateVisual();          // the hover ring, and the index when it is shown
     }
 
@@ -168,6 +173,7 @@ public class PaletteGridView : Control
         base.OnPointerExited(e);
         if (hoverIndex < 0) return;
         hoverIndex = -1;
+        HoverChanged?.Invoke(this, -1);
         InvalidateVisual();
     }
 

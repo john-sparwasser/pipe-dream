@@ -23,7 +23,7 @@ public partial class MainWindow
     private Button paletteReset = null!, paletteExport = null!, paletteImport = null!;
 
     private PaletteGridView paletteGrid = null!, paletteBg = null!;
-    private TextBlock paletteNote = null!, paletteIndex = null!;
+    private TextBlock paletteNote = null!, paletteIndex = null!, paletteColor = null!;
 
     /// <summary>The drawer's Level / Overworld tab, and the submap whose palette the Overworld tab shows.</summary>
     private TabStrip palScopeTabs = null!;
@@ -153,26 +153,35 @@ public partial class MainWindow
         RefreshPaletteTab();
     }
 
-    /// <summary>The readout under the swatch grid. Deliberately does NOT touch the picker: every
+    /// <summary>The swatch under the pointer, -1 when it is over none. The footer reads this one
+    /// out while it is set, and the selected one otherwise.</summary>
+    private int paletteHover = -1;
+
+    /// <summary>The readout under the swatch grid: the hovered swatch, else the selected one
+    /// (<paramref name="index"/>). Deliberately does NOT touch the picker: every
     /// commit recomposes and refreshes this tab, and pushing the colour back into an open picker
     /// would re-derive H/S/V from the quantised value, jumping the crosshair and losing the hue
     /// mid-drag. Loading the picker is <see cref="OpenPicker"/>'s job and happens once, on open.</summary>
     private void ShowPaletteColor(int index)
-        => paletteIndex.Text = index < 0 ? "" : DescribeSwatch(index);
+    {
+        int shown = paletteHover >= 0 ? paletteHover : index;
+        paletteIndex.Text = shown < 0 ? "" : DescribeSwatch(shown);
+        paletteColor.Text = shown < 0 ? "" : SwatchRgb(shown);
+    }
 
-    /// <summary>The swatch hover text, as the ImGui grid had it.</summary>
+    /// <summary>Which swatch it is, as the ImGui grid had it.</summary>
     private string DescribeSwatch(int index)
         => $"0x{index:X2} r{index >> 4} c{index & 15}  {SwatchBgr(index):X4}"
          + (SwatchEdited(index) ? "  (edited)" : "");
 
-    /// <summary>A swatch's colour, for the hover tip: the five-bit channels the picker's sliders
-    /// use, then the 24-bit hex they display as — and on the Overworld tab, who else it colours.</summary>
+    /// <summary>A swatch's colour: the five-bit channels the picker's sliders use, then the
+    /// 24-bit hex they display as — and on the Overworld tab, who else it colours.</summary>
     private string SwatchRgb(int index)
     {
         ushort bgr = SwatchBgr(index);
         uint rgba = EditorSession.Rgba(bgr);
         return $"R{bgr & 31} G{bgr >> 5 & 31} B{bgr >> 10 & 31}  #{rgba & 0xFF:X2}{rgba >> 8 & 0xFF:X2}{rgba >> 16 & 0xFF:X2}"
-             + (PaletteScopeOverworld ? "\n" + OwSwatchReach(index) : "");
+             + (PaletteScopeOverworld ? "  —  " + OwSwatchReach(index) : "");
     }
 
     /// <summary>Where an overworld colour lands besides here. On vanilla most words are one table

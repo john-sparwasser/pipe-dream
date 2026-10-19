@@ -676,10 +676,16 @@
                    readout wrapped under the buttons the moment a swatch was picked; appearing
                    here would still shorten the grid's room and could bring the scrollbar in,
                    which narrows the swatches. -->
+              <!-- The swatch the pointer is over is read out here too, in place of a tooltip, and
+                   for the same reason it is always two lines and never wraps: hovering across the
+                   grid must not resize the grid under the pointer. -->
               <Border DockPanel.Dock="Bottom" Padding="10,4" MinHeight="24" Background="{DynamicResource SurfaceBrush}">
                 <DockPanel>
-                  <TextBlock x:Name="PaletteNote" DockPanel.Dock="Right" Classes="dim" VerticalAlignment="Center"/>
-                  <TextBlock x:Name="PaletteIndex" Classes="mono" VerticalAlignment="Center"/>
+                  <TextBlock x:Name="PaletteNote" DockPanel.Dock="Right" Classes="dim" VerticalAlignment="Top"/>
+                  <StackPanel>
+                    <TextBlock x:Name="PaletteIndex" Classes="mono" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock x:Name="PaletteColor" Classes="mono" TextTrimming="CharacterEllipsis"/>
+                  </StackPanel>
                 </DockPanel>
               </Border>
               <!-- Sideways scrolling disabled so the width is a real constraint: the grid fits it. -->
@@ -1173,15 +1179,15 @@
                   <TextBlock Text="Layer 3" VerticalAlignment="Center"/>
                 </ToggleButton>
                 <Rectangle Classes="sep"/>
-              </StackPanel>
-            </DockPanel>
-          </Border>
-          <ScrollViewer x:Name="BgScroll" HorizontalScrollBarVisibility="Auto"
                 <!-- The project's saved tilemaps, for whichever layer is on screen: click one to
                      put it on this level, or keep this level's as a new one. Files are the
                      Import/Export buttons on the right; this is the library. -->
                 <Button x:Name="BgTilemaps" Content="Tilemaps ▾"
                         ToolTip.Tip="Saved tilemaps in this project — apply one here, or save this level's"/>
+              </StackPanel>
+            </DockPanel>
+          </Border>
+          <ScrollViewer x:Name="BgScroll" HorizontalScrollBarVisibility="Auto"
                         Background="{x:Static ui:UiColors.DeskPattern}">
             <ui:TilemapView x:Name="BgView" Margin="16"/>
           </ScrollViewer>
