@@ -43,11 +43,7 @@
 
       <StackPanel Grid.Column="2" Spacing="8" Width="384">
         <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" HorizontalAlignment="Left">
-          <Panel x:Name="PreviewHost" Width="384" Height="384" Focusable="True"
-                 Background="{x:Static ui:UiColors.DeskPattern}">
-            <ui:PixelImage x:Name="Preview" Stretch="True"/>
-            <Canvas x:Name="PreviewOverlay" IsHitTestVisible="False"/>
-          </Panel>
+          <ui:TileArrangeView x:Name="PreviewHost"/>
         </Border>
         <TextBlock Classes="dim" TextWrapping="Wrap"
                    Text="Click a tile to pick it, drag to move. Drag on empty space to lasso; Shift or Ctrl/Cmd-click adds. Arrows nudge (Shift: 8px), Ctrl/Cmd+A picks all. Dashed box = placement cell; earlier tiles draw in front."/>

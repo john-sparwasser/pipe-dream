@@ -30,13 +30,7 @@ public partial class SpriteTilesWindow : Window
     private int number = -1;
     private int[] files = new int[4];
     private bool loading;
-    /// <summary>A move in progress: where the press was, and each picked tile's position then.</summary>
-    private (Point At, (int I, int X, int Y)[] From)? drag;
-    /// <summary>A lasso in progress, in preview pixels; Add keeps what was already picked.</summary>
-    private (Point From, Point To, bool Add)? lasso;
 
-    // The preview: a PreviewPx-square canvas, the placement cell's top-left at Origin.
-    private const int PreviewPx = 128, OriginX = 48, OriginY = 64, PreviewScale = 3;
     private const int SheetScale = 2;
 
     public SpriteTilesWindow() => AvaloniaXamlLoader.Load(this);
@@ -206,126 +200,33 @@ public partial class SpriteTilesWindow : Window
 
     // ---- preview: pick, lasso, move ----
 
+    private TileArrangeView Preview => this.GetControl<TileArrangeView>("PreviewHost");
+
     private void WirePreview()
     {
-        var host = this.GetControl<Panel>("PreviewHost");
-        host.PointerPressed += (_, e) =>
+        var view = Preview;
+        view.Count = () => tiles.Count;
+        view.BoxOf = i => (tiles[i].X, tiles[i].Y, tiles[i].Big ? 16 : 8);
+        view.Picked = () => Picked;
+        view.Primary = () => Selected;
+        view.Pick = picked => RefreshTileList(picked);
+        view.MoveTo = moves =>
         {
-            host.Focus();                                  // arrows and Ctrl+A act on the preview
-            var p = e.GetPosition(host);
-            bool add = e.KeyModifiers.HasFlag(KeyModifiers.Shift) || e.KeyModifiers.HasFlag(KeyModifiers.Control)
-                    || e.KeyModifiers.HasFlag(KeyModifiers.Meta);
-            int hit = TileAt(p);
-            var picked = Picked;
-            if (hit < 0) { lasso = (p, p, add); return; }
-            if (add)                                       // toggle one tile in or out, no move
-            {
-                if (!picked.Remove(hit)) picked.Insert(0, hit);
-                RefreshTileList([.. picked]);
-                return;
-            }
-            // Grabbing a picked tile moves the whole pick; any other tile becomes the pick.
-            if (!picked.Contains(hit)) picked = [hit];
-            else { picked.Remove(hit); picked.Insert(0, hit); }
-            RefreshTileList([.. picked]);
-            drag = (p, picked.Select(i => (i, tiles[i].X, tiles[i].Y)).ToArray());
-        };
-        host.PointerMoved += (_, e) =>
-        {
-            var p = e.GetPosition(host);
-            if (lasso is { } l) { lasso = l with { To = p }; RedrawPreview(); return; }
-            if (drag is not { } d) return;
-            int dx = (int)Math.Round((p.X - d.At.X) / PreviewScale), dy = (int)Math.Round((p.Y - d.At.Y) / PreviewScale);
-            var (i0, x0, y0) = d.From[0];
-            if (tiles[i0].X == x0 + dx && tiles[i0].Y == y0 + dy) return;
-            foreach (var (i, x, y) in d.From) tiles[i] = tiles[i] with { X = x + dx, Y = y + dy };
+            foreach (var (i, x, y) in moves) tiles[i] = tiles[i] with { X = x, Y = y };
             Touched();
-            RefreshTileList([.. d.From.Select(f => f.I)]);
+            RefreshTileList([.. moves.Select(m => m.I)]);
         };
-        host.PointerReleased += (_, _) =>
-        {
-            drag = null;
-            if (lasso is not { } l) return;
-            lasso = null;
-            var (x0, y0, x1, y1) = LassoRect(l.From, l.To);
-            var inside = Enumerable.Range(0, tiles.Count).Where(i =>
-            {
-                var t = tiles[i]; int sz = t.Big ? 16 : 8;
-                return t.X < x1 && t.X + sz > x0 && t.Y < y1 && t.Y + sz > y0;
-            });
-            RefreshTileList([.. (l.Add ? Picked.Concat(inside) : inside)]);
-        };
-        host.KeyDown += (_, e) =>
-        {
-            bool cmd = e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta);
-            int step = e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? 8 : 1;
-            (int dx, int dy) = e.Key switch
-            {
-                Key.Left => (-step, 0), Key.Right => (step, 0), Key.Up => (0, -step), Key.Down => (0, step), _ => (0, 0),
-            };
-            if (dx != 0 || dy != 0) Nudge(dx, dy);
-            else if (cmd && e.Key == Key.A) RefreshTileList([.. Enumerable.Range(0, tiles.Count)]);
-            else if (e.Key is Key.Delete or Key.Back) DeletePicked();
-            else return;
-            e.Handled = true;
-        };
-    }
-
-    /// <summary>The front-most tile under a preview point — the earliest in the list — or -1.</summary>
-    private int TileAt(Point p)
-    {
-        int px = (int)(p.X / PreviewScale) - OriginX, py = (int)(p.Y / PreviewScale) - OriginY;
-        return tiles.FindIndex(t => px >= t.X && py >= t.Y && px < t.X + (t.Big ? 16 : 8) && py < t.Y + (t.Big ? 16 : 8));
-    }
-
-    /// <summary>A lasso's corners as a cell-relative pixel rect, x0/y0 inclusive, x1/y1 exclusive.</summary>
-    private static (int X0, int Y0, int X1, int Y1) LassoRect(Point a, Point b)
-    {
-        int ax = (int)Math.Floor(a.X / PreviewScale) - OriginX, ay = (int)Math.Floor(a.Y / PreviewScale) - OriginY;
-        int bx = (int)Math.Floor(b.X / PreviewScale) - OriginX, by = (int)Math.Floor(b.Y / PreviewScale) - OriginY;
-        return (Math.Min(ax, bx), Math.Min(ay, by), Math.Max(ax, bx) + 1, Math.Max(ay, by) + 1);
-    }
-
-    private void Nudge(int dx, int dy)
-    {
-        var picked = Picked;
-        if (picked.Count == 0) return;
-        foreach (int i in picked) tiles[i] = tiles[i] with { X = tiles[i].X + dx, Y = tiles[i].Y + dy };
-        Touched();
-        picked.Remove(Selected); picked.Insert(0, Selected);    // the primary stays primary
-        RefreshTileList([.. picked]);
+        view.Delete = DeletePicked;
+        view.Render = (w, h, ox, oy) => session.DrawSpriteTiles(tiles, files, w, h, ox, oy);
     }
 
     private void RedrawPreview()
     {
-        var img = this.GetControl<PixelImage>("Preview");
-        img.Source = LevelBitmap.FromPixels(session.DrawSpriteTiles(tiles, files, PreviewPx, PreviewPx, OriginX, OriginY), PreviewPx, PreviewPx);
-        var overlay = this.GetControl<Canvas>("PreviewOverlay");
-        overlay.Children.Clear();
-        overlay.Children.Add(Box(OriginX, OriginY, 16, PreviewScale, UiColors.Band, dashed: true));
-        foreach (int i in Picked)
-        {
-            var t = tiles[i];
-            overlay.Children.Add(Box(OriginX + t.X, OriginY + t.Y, t.Big ? 16 : 8, PreviewScale, UiColors.Selection));
-        }
-        if (lasso is { } l)
-        {
-            var (x0, y0, x1, y1) = LassoRect(l.From, l.To);
-            var r = new Rectangle { Width = (x1 - x0) * PreviewScale, Height = (y1 - y0) * PreviewScale,
-                                    Stroke = UiColors.Selection, StrokeThickness = 1, StrokeDashArray = [4, 3], Fill = UiColors.SelectionFill };
-            Canvas.SetLeft(r, (OriginX + x0) * PreviewScale); Canvas.SetTop(r, (OriginY + y0) * PreviewScale);
-            overlay.Children.Add(r);
-        }
+        Preview.Redraw();
         ShowSlots();
     }
 
-    private static Rectangle Box(int x, int y, int size, int scale, IBrush stroke, bool dashed = false)
-    {
-        var r = new Rectangle { Width = size * scale, Height = size * scale, Stroke = stroke, StrokeThickness = dashed ? 1 : 2 };
-        if (dashed) r.StrokeDashArray = [4, 3];
-        Canvas.SetLeft(r, x * scale); Canvas.SetTop(r, y * scale);
-        return r;
-    }
+    private static Rectangle Box(int x, int y, int size, int scale, IBrush stroke) => TileArrangeView.Box(x, y, size, scale, stroke);
 
     // ---- the SP sheet: pick a tile ----
 
