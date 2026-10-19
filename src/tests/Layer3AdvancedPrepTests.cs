@@ -48,7 +48,7 @@ public class Layer3AdvancedPrepTests(ITestOutputHelper log)
     private static Cpu65816 RunOpt(Rom rom)
     {
         var cpu = new Cpu65816(rom);
-        cpu.Ram7E[0xFE] = Level + 1;
+        cpu.Ram7E[0x010B] = Level;
         cpu.PresetWidths(m8: true, x8: true);
         cpu.CallLong(RomPrep.L3Opt, 2_000_000);
         return cpu;
@@ -115,7 +115,7 @@ public class Layer3AdvancedPrepTests(ITestOutputHelper log)
         PutAdvanced(rom, fo, new Layer3.Advanced(CgAdSub: true, Subscreen: true,
                                                  FixScrollSync: false, 0, 0, 0, 0));
         var cpu = new Cpu65816(rom);
-        cpu.Ram7E[0xFE] = Level + 1;
+        cpu.Ram7E[0x010B] = Level;
         cpu.Ram7E[0x40] = 0x00;
         cpu.Ram7E[0x0D9D] = 0x00; cpu.Ram7E[0x0D9E] = 0x00;
         cpu.PresetWidths(m8: true, x8: true);
@@ -127,7 +127,7 @@ public class Layer3AdvancedPrepTests(ITestOutputHelper log)
         var (rom2, fo2) = Prepped();
         PutAdvanced(rom2, fo2, new Layer3.Advanced(false, false, false, 0, 0, 0, 0));
         var cpu2 = new Cpu65816(rom2);
-        cpu2.Ram7E[0xFE] = Level + 1;
+        cpu2.Ram7E[0x010B] = Level;
         cpu2.Ram7E[0x40] = 0xFF;
         cpu2.PresetWidths(m8: true, x8: true);
         cpu2.CallLong(RomPrep.L3Opt, 2_000_000);
@@ -270,7 +270,7 @@ public class Layer3AdvancedPrepTests(ITestOutputHelper log)
             var (rom, fo) = Prepped();
             if (on) PutAdvanced(rom, fo, new Layer3.Advanced(true, true, true, 8, 8, 3, 0x100));
             var cpu = new Cpu65816(rom);
-            cpu.Ram7E[0xFE] = Level + 1;
+            cpu.Ram7E[0x010B] = Level;
             cpu.Ram7E[0x00] = 0x2A;                                       // mode*3, as $009FC0 left it
             cpu.PresetWidths(m8: true, x8: true);
             cpu.CallLong(RomPrep.L3Opt, 2_000_000);
@@ -293,7 +293,7 @@ public class Layer3AdvancedPrepTests(ITestOutputHelper log)
         var (rom, fo) = Prepped();
         PutAdvanced(rom, fo, new Layer3.Advanced(false, false, false, VScroll: 0, HScroll: 2, 0, 0));
         var cpu = new Cpu65816(rom);
-        cpu.Ram7E[0xFE] = Level + 1;
+        cpu.Ram7E[0x010B] = Level;
         cpu.Ram7E[0x13D5] = 1;                                            // what $00A012 leaves
         cpu.PresetWidths(m8: true, x8: true);
         cpu.CallLong(RomPrep.L3Opt, 2_000_000);
@@ -303,7 +303,7 @@ public class Layer3AdvancedPrepTests(ITestOutputHelper log)
         // to set, and overriding it everywhere would move layer 3 on levels that never asked.
         var (rom2, _) = Prepped();
         var cpu2 = new Cpu65816(rom2);
-        cpu2.Ram7E[0xFE] = Level + 1;
+        cpu2.Ram7E[0x010B] = Level;
         cpu2.Ram7E[0x13D5] = 1;
         cpu2.PresetWidths(m8: true, x8: true);
         cpu2.CallLong(RomPrep.L3Opt, 2_000_000);
@@ -319,13 +319,38 @@ public class Layer3AdvancedPrepTests(ITestOutputHelper log)
         foreach (int option in (int[])[0, 1, 2, 3])
         {
             var cpu = new Cpu65816(rom);
-            cpu.Ram7E[0xFE] = Level + 1;
+            cpu.Ram7E[0x010B] = Level;
             cpu.Ram7E[0x1BE3] = (byte)option;
             cpu.PresetWidths(m8: true, x8: true);
             cpu.CallLong(RomPrep.L3Opt, 2_000_000);
             // A = option - 1, which is what the displaced BEQ at $00A023 reads (X = option and
             // the Z it branches on both come from the TAX/INX this cannot observe).
             Assert.Equal((option - 1) & 0xFF, cpu.Acc & 0xFF);
+        }
+    }
+
+    /// <summary>
+    /// The seat runs after LM's fade-in hook at `$00A5BF` has done `STZ $FE`, so the level must
+    /// come from `$010B`. Through v33 the reader took it from `$FE`, computed level -1 and read
+    /// the bytes before the table, the RATS tag's "TR" among them: `$145E` came out `$55`, the
+    /// group on with an auto-scroll, and in every level layer 3 — the status bar too — slid
+    /// down the screen. Measured in Mesen on a v33 base: `$145E` = `$55`, `$1460` = `$0B`.
+    /// </summary>
+    [RealRomFact]
+    public void the_reader_names_the_level_by_010b_because_fe_is_already_cleared()
+    {
+        foreach (int version in (int[])[33, RomPrep.Version])
+        {
+            var rom = Rom.Load(TestRom.RealRomPath);
+            RomPrep.Apply(rom, version);                                  // level 5 has no advanced settings
+            var cpu = new Cpu65816(rom);
+            cpu.Ram7E[0x010B] = Level;
+            cpu.Ram7E[0xFE] = 0; cpu.Ram7E[0xFF] = 0;                     // what $00A5BF leaves
+            cpu.PresetWidths(m8: true, x8: true);
+            cpu.CallLong(RomPrep.L3Opt, 2_000_000);
+            log.WriteLine($"v{version}: $145E = {Word(cpu, 0x145E):X4}");
+            if (version == 33) Assert.Equal(1, cpu.Ram7E[0x145E] & 1);   // the bug, pinned
+            else Assert.Equal(0, Word(cpu, 0x145E));
         }
     }
 }

@@ -82,6 +82,8 @@ public static partial class RomPrep
         if (version >= 31) AppendV31Stamps(s);
         // V32: LM's overworld palette hook and its table block; the table's colours are data.
         if (version >= 32) AppendV32Stamps(s);
+        // V34 restamps v16's advanced-layer-3 reader to name the level by $010B, not $FE.
+        if (version >= 34) AppendV34Stamps(s);
         return s;
     }
 
@@ -850,6 +852,19 @@ public static partial class RomPrep
         s.Add((OwPaletteHookTagPc, Rats([.. code, .. Enumerable.Repeat((byte)0xFF, 0x30 - code.Length)])));
         s.Add((OwPaletteTableTagPc, Rats(new byte[OwPaletteTableSize])));
         s.Add((Pc(LmOwPaletteHookSite), [0x22, (byte)hook, (byte)(hook >> 8), (byte)(hook >> 16), 0x60]));
+    }
+
+    /// <summary>
+    /// V34: the advanced layer-3 reader reads the level being loaded from `$010B`. Since v24 the
+    /// `$FE` it used is already cleared when the `$00A01F` seat runs, so every level read the
+    /// table's RATS tag as its settings and scrolled layer 3, status bar included (see
+    /// <see cref="EmitL3AdvRead"/>). Only the reader is restamped; v16's block stays frozen.
+    /// </summary>
+    private static void AppendV34Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        var a = new Asm(L3AdvRead);
+        EmitL3AdvRead(a, 34);
+        s.Add((Pc(L3AdvRead), a.Bytes()));
     }
 
     /// <summary>

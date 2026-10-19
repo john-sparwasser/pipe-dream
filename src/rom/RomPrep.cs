@@ -86,7 +86,10 @@ public static partial class RomPrep
     /// overworld colour is editable, as in LM (see <see cref="AppendV32Stamps"/>);
     /// V33 fills that table as LM's own conversion does — the level loader's leftovers black,
     /// Mario's colours at 86-8F — so the two editors show the same palette (no new stamps).
-    public const int Version = 33;
+    /// V34 points the advanced layer-3 reader at `$010B`: from v24 the `$FE` it read was already
+    /// cleared, and every level scrolled layer 3 — the status bar with it (see
+    /// <see cref="AppendV34Stamps"/>).
+    public const int Version = 34;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A

@@ -1573,8 +1573,11 @@ Still not located: "Make tides act as", and LM's mirror of the priority flag.
 **The advanced group is PORTED — prep v16  [CONFIRMED in Mesen, 2026-09-01]**, in
 three pieces, each in a seat that already existed:
 
-  reader     `$0FFD80` in LM's own block. Builds the record pointer from `$FE` (LM reads its own
-             `$7FC006` cache, which we do not keep) and from `LDY #$17` on is LM's opening
+  reader     `$0FFD80` in LM's own block. Builds the record pointer from the level being loaded
+             (LM reads its own `$7FC006` cache, which we do not keep): `$FE` through v33, `$010B`
+             from v34 — v24's `$00A5BF` hook clears `$FE` before this seat runs, so v24-v33 read
+             level -1, the table's RATS tag, and scrolled layer 3 (status bar included) in every
+             level [MEASURED in Mesen, 2026-10-19]. From `LDY #$17` on it is LM's opening
              instruction for instruction — which is what `HasLmLayer3Advanced` scans for, so a
              prepped base answers that probe like an LM-saved one. `$0FFE82` is LM's nibble-pair
              helper, byte for byte. Runs on EVERY armed load, so the four RAM variables always

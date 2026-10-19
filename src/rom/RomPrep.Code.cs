@@ -1091,7 +1091,7 @@ public static partial class RomPrep
         EmitL3Scroll(a);
         EmitL3KindTab(a);
         EmitL3Auto(a);
-        EmitL3AdvRead(a);
+        EmitL3AdvRead(a, 16);
         EmitL3SpeedTab(a);
         EmitL3AdvPair(a);
         return a.Bytes();
@@ -1330,17 +1330,24 @@ public static partial class RomPrep
 
     /// <summary>$0FFDB0: the nibble reader — the record's nine spare high nibbles into
     /// $7FC01A-$7FC01C and $145E, LM's opening idiom instruction for instruction.</summary>
-    private static void EmitL3AdvRead(Asm a)
+    private static void EmitL3AdvRead(Asm a, int version)
     {
         // ---- The reader. Near-called from the engine seat; 8-bit M/X in and out ----
         // LM loads the record pointer from its own $7FC006 cache, which we do not keep, so this
-        // builds it from $FE (armed level + 1) the way the layer-3 GFX pass does. From the
-        // `LDY #$17` on it is LM's opening instruction for instruction, which is what the
-        // capability probe scans for.
+        // builds it from the level being loaded. From the `LDY #$17` on it is LM's opening
+        // instruction for instruction, which is what the capability probe scans for.
         a.PadTo(L3AdvRead)
-         .Rep(0x30)
-         .LdaDp(0xFE).DecA()
-         .Asl().Asl().Asl().Asl().Asl()                  // level * 0x20
+         .Rep(0x30);
+        // V16 took the level from $FE (armed level + 1) the way the layer-3 GFX pass does. From
+        // v24 that is wrong here: LM's fade-in hook at $00A5BF runs earlier in the load and ends
+        // `STZ $FE`, so the reader computed level -1 and read the 32 bytes before the table —
+        // ending in its RATS tag, whose "TR" set $145E to $55: the group on, layer 3 auto-scrolling
+        // in every level, the status bar sliding down the screen with it. MEASURED in Mesen on a
+        // v33 base. V34 reads $010B, the level word L3Map keys on for the same reason; three bytes
+        // either way, so nothing after it moves.
+        if (version >= 34) a.LdaAbs(0x010B);
+        else a.LdaDp(0xFE).DecA();
+        a.Asl().Asl().Asl().Asl().Asl()                  // level * 0x20
          .Clc().AdcImm16(GfxBypassRecords & 0xFFFF)
          .StaDp(0x8A)
          .Sep(0x30)
