@@ -105,6 +105,29 @@ Each phase ends shippable.
 - Tests (Asar): a sprite's INIT/MAIN land in the table; tweakers land; a disabled/unslotted
   sprite does not; per-level overrides global; size table matches counts. **Mesen**: a custom
   sprite placed in level 105 runs (its MAIN writes a marker byte), 3/3.
+- **Status (2026-10-19): global sprites done; per-level, shooters and generators next.**
+  `data/spritedriver/` (`main.asm`, `defines.asm`), `data/SpriteInsert.cs`,
+  `RomBuilder.InsertSprites`, `tests/SpriteInsertTests.cs`. What the vanilla code at each hook
+  turned out to be, read with `--disasm` on a v34 base:
+  - `$02A846` is Lunar Magic's record step on a prepped base (`JML $1E9185`: `INX : INY : INY`,
+    then a BPL that rebases `$CE` past `$80`), fixed at 3 bytes — nothing in the game read the
+    size table before the driver. Ours steps by the table and chains to LM's code past those
+    three bytes (or to `$02A82E` on SMW's own loader).
+  - `$02A94B`/`$02A963` store `byte0 AND #$0D` into a position-high byte (`$14E0` vertical,
+    `$14D4` from LM's horizontal path, whose caller then ANDs A with 1): the extra bits would
+    land in the position. Ours keeps bit 0 there and the extra bits in `!extra_bits`.
+  - `$02A9C9` is the spawn's `JSL $07F7D2` (clear the slot, then SMW's tweakers by `$9E`);
+    `$07F785` is that clear's tail, where the custom state is cleared with it.
+  - `$0187A7` is sprite 9B's INIT stub (via `$0182B3`); it moves to a copy at `$01FFF0`, and
+    `$0187A7` becomes the "give this slot its custom tables" call spawning sprites make.
+  - Custom INIT/MAIN are entered through `JML [$00]` from a JSL, and come back to bank 01 through
+    the RTS at `$0185C2`.
+  Measured in Mesen on level 105 (walk left, enter): INIT stored `$11` and the placement's
+  first extra byte `$AB`, MAIN counted exactly 60 in 60 frames — 3/3; the level's own sprites
+  still load and live walking right. Testing this found an existing bug, fixed separately: the
+  build wrote a level's sprites unsorted, and the loader never reaches a record placed left of
+  an earlier one. Not yet: the `CARRIABLE`/`KICKED`… status entry points, `VERG` checks, the
+  silver-POW coin path reading SMW's table by the custom number.
 
 ### 3. Sprites window and the level editor
 - ASM ▸ Custom sprites…: rows by slot (number, name, type, acts-like), New…, Import (file or

@@ -139,6 +139,22 @@ internal static class RomBuilder
         return null;
     }
 
+    /// <summary>The project's custom sprites and our driver, after the blocks and before the
+    /// patches, so a patch can hook what the driver installed (reference/PIXI_PORT.md). The driver
+    /// takes over hooks prep put there (Lunar Magic's record step at $02A846, which it chains to),
+    /// so its bytes are not checked against prep's; patches after it are. Returns a build failure,
+    /// or null.</summary>
+    private static string? InsertSprites(Rom rom, Project project, List<PatchInsert.Owned> owned, List<string> warnings)
+    {
+        if (project.Data.SpriteSlots.Count == 0) return null;
+        if (!Asar.Available) { warnings.Add("custom sprites skipped (Asar library not found)"); return null; }
+        var r = SpriteInsert.Insert(rom, project.Data);
+        if (!r.Ok) return "build failed: custom sprites: " + string.Join("; ", r.Errors);
+        warnings.AddRange(r.Warnings.Select(w => "custom sprites: " + w));
+        owned.AddRange(r.Written.Select(b => new PatchInsert.Owned("the custom sprite driver", Rom.SnesToPc(b.Snes), b.Length)));
+        return null;
+    }
+
     /// <summary>
     /// The project's enabled patches, in list order, right after the blocks: their freespace is
     /// RATS-tagged before the build allocates anything, so the build steps around it, and the
@@ -178,6 +194,7 @@ internal static class RomBuilder
             var warnings = new List<string>();
             var owned = PrepOwned(project);
             if (InsertGps(rom, project, owned, warnings) is { } gpsErr) return (gpsErr, null);
+            if (InsertSprites(rom, project, owned, warnings) is { } spriteErr) return (spriteErr, null);
             if (ApplyPatches(rom, project, owned, warnings) is { } patchErr) return (patchErr, null);
             if (ReplayMap16(rom, project.Data) is { } err) return (err, null);
             ReplayEntrances(rom, project.Data);
@@ -277,7 +294,22 @@ internal static class RomBuilder
                 // LM's size table (CONTRACT §11): a record's length is per (extra bits, number), and
                 // the game reads the table, so every sprite carrying extra bytes registers its size.
                 // Two placements of one sprite with different lengths cannot both be right.
-                foreach (var g in sd.Sprites.Where(s => s.ExtraBytes is not null).GroupBy(s => (s.Extra, s.Number)))
+                // A custom sprite's length is its config's, already in the table (InsertSprites):
+                // a placement carrying another count is resized to it, or the loader would read the
+                // rest of the list out of step.
+                for (int i = 0; i < sd.Sprites.Count; i++)
+                {
+                    var s = sd.Sprites[i];
+                    if (s.Extra < 2 || !project.Data.SpriteSlots.ContainsKey($"{s.Number:X2}")) continue;
+                    int want = rom.SpriteEntrySize(s.Extra, s.Number) - 3, have = s.ExtraBytes?.Length ?? 0;
+                    if (want == have) continue;
+                    warnings.Add($"level {key}: custom sprite {s.Number:X2} placed with {have} extra byte(s); its config says {want}, so it gets {want}");
+                    var bytes = new byte[want];
+                    s.ExtraBytes?.AsSpan(0, Math.Min(want, have)).CopyTo(bytes);
+                    sd.Sprites[i] = s with { ExtraBytes = want > 0 ? bytes : null };
+                }
+                foreach (var g in sd.Sprites.Where(s => s.ExtraBytes is not null && !(s.Extra >= 2 && project.Data.SpriteSlots.ContainsKey($"{s.Number:X2}")))
+                                            .GroupBy(s => (s.Extra, s.Number)))
                 {
                     int size = 3 + g.Max(s => s.ExtraBytes!.Length);
                     if (g.Select(s => s.ExtraBytes!.Length).Distinct().Count() > 1)
