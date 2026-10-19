@@ -820,7 +820,7 @@ public partial class MainWindow
             CornerRadius = new CornerRadius(5),
             // Same thickness selected or not: a thicker border relays the card and the whole
             // list jiggles as the selection moves. Colour and fill carry the state instead.
-            BorderThickness = new Thickness(2),
+            BorderThickness = new Thickness(1),
             BorderBrush = open ? UiColors.Accent : this.FindResource("BorderBrush") as IBrush,
             // Transparent, never null: a null background is not hit-testable, so the card
             // would take no clicks except on the controls inside it.
