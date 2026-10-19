@@ -105,7 +105,21 @@ Each phase ends shippable.
 - Tests (Asar): a sprite's INIT/MAIN land in the table; tweakers land; a disabled/unslotted
   sprite does not; per-level overrides global; size table matches counts. **Mesen**: a custom
   sprite placed in level 105 runs (its MAIN writes a marker byte), 3/3.
-- **Status (2026-10-19): global sprites done; per-level, shooters and generators next.**
+- **Status (2026-10-19): done** — global sprites, per-level B0-BF, shooters and generators.
+  Per-level sprites use a layout of our own, not PIXI's (the header says none): the table is
+  the 0x100 global entries then 16 per level that has its own, and `LevelBlocks` (a word per
+  level, keyed by `$010B`) gives a level's block less B0's offset, so every lookup is base +
+  number × 16 (`EntryOf`). With any per-level sprite, B0-BF records are 4 extra bytes in every
+  level, as PIXI has them: the size table is per number, not per level. Custom shooters and
+  generators branch off at `$02A866`, SMW's first test of the number, before it would read
+  D0-D9 as its own generators or DA-DF as shells: a shooter keeps its number (C0-CF) in `$1783`
+  where SMW's are 1-2, and runs from `$02B395` with its timer counted down as SMW's are (PIXI's
+  shooters test and set it, never count it); a generator keeps D0-DF in `$18B9` where SMW's are
+  1-F, and runs from `$02AFFE` unless sprites are frozen. `$02B3AB` could not be the shooter
+  hook: the `JSL $0086DF` after it reads its own return address as the table.
+  Measured in Mesen, 3/3 each, on level 105: level 105's own B0 ran where a global B0 also
+  exists; a custom shooter C0 and a generator D0 each ran MAIN 60 times in 60 frames.
+- Global sprites, first pass:
   `data/spritedriver/` (`main.asm`, `defines.asm`), `data/SpriteInsert.cs`,
   `RomBuilder.InsertSprites`, `tests/SpriteInsertTests.cs`. What the vanilla code at each hook
   turned out to be, read with `--disasm` on a v34 base:

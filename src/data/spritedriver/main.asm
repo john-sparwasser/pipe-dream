@@ -42,6 +42,24 @@ org $02A963
 ; The spawn's JSL to the table setup: for a custom sprite, its own tables after SMW's.
 org $02A9C9
     JSL Spawn
+; The first test of a record's number (CMP #$E7 : BCC), before SMW sorts it into scroll sprites,
+; generators (CB-D9), shooters (C9-CA) and the rest: a custom C0-CF is a shooter, D0-DF a
+; generator, whatever SMW would have made of the number.
+org $02A866
+    JML Kind
+; The shooter spawn's `LDA $04 : SEC : SBC #$C8` (then STA $1783,x): a custom shooter keeps its
+; number there. Kind hands it over with bit 7 clear, which no SMW shooter (C9, CA) has.
+org $02ABA0
+    JML ShooterNumber
+    NOP
+; The shooter run's `DEC : JSL $0086DF`, by $1783,x: a custom one (C0-CF) runs its MAIN.
+org $02B3AB
+    JML ShooterRun
+    NOP
+; The generator run's `LDA $18B9 : BEQ`: a custom one (D0-DF; SMW's are 1-F) runs its MAIN.
+org $02AFFE
+    JML GeneratorRun
+    NOP
 
 ; ---- Slot setup ----
 ; The end of $07F722, which every spawn runs through to clear a slot: clear the custom state too,
@@ -217,14 +235,7 @@ SetTables:
     REP #$10
     TXY
     LDA !new_sprite_num,x
-    REP #$20
-    AND #$00FF
-    ASL
-    ASL
-    ASL
-    ASL
-    TAX
-    SEP #$20
+    JSR EntryOf
     LDA.l SpriteTable+1,x
     STA.w $009E,y
     LDA.l SpriteTable+2,x
@@ -308,19 +319,24 @@ Status:
     JML $0185C2
 
 ; Enter the sprite's INIT or MAIN with JML [$00], X = the slot, so its RTL comes back to the JSL
-; that called these.
+; that called these. CallMainOf runs a number's MAIN without a slot: shooters and generators.
 CallInit:
     PHX
-    JSR EntryIndex
+    LDA !new_sprite_num,x
+    JSR EntryOf
     LDA.l SpriteTable+8,x
     STA $00
     LDA.l SpriteTable+9,x
     STA $01
     LDA.l SpriteTable+10,x
     BRA CallEntry
+CallMainOf:
+    PHX
+    BRA +
 CallMain:
     PHX
-    JSR EntryIndex
+    LDA !new_sprite_num,x
++   JSR EntryOf
     LDA.l SpriteTable+11,x
     STA $00
     LDA.l SpriteTable+12,x
@@ -332,15 +348,108 @@ CallEntry:
     PLX
     JML [$0000]
 
-; X = the slot's table entry offset (16-bit X on return).
-EntryIndex:
-    LDA !new_sprite_num,x
+; A = a sprite number (8-bit). X = its table entry's offset, 16-bit X and 8-bit A on return: a
+; per-level number (B0-BF) in a level that has its own sprites reads that level's block, which
+; LevelBlocks gives already less B0's offset, so both cases are base + number * 16.
+EntryOf:
     REP #$30
     AND #$00FF
     ASL
     ASL
     ASL
     ASL
+    PHA
+    CMP #$0B00
+    BCC .global
+    CMP #$0C00
+    BCS .global
+    LDA $010B                   ; the level being played
+    AND #$01FF
+    ASL
     TAX
+    LDA.l LevelBlocks,x
+    BRA .add
+.global
+    LDA #$0000
+.add
+    CLC
+    ADC $01,s
+    TAX
+    PLA
     SEP #$20
     RTS
+
+; ---- Shooters and generators ----
+
+; A = the record's number, Y at its second byte, X counts records.
+Kind:
+    PHA
+    DEY
+    LDA [$CE],y
+    INY
+    AND #$08
+    BEQ .vanilla
+    LDA $01,s
+    CMP #$C0
+    BCC .vanilla
+    CMP #$E0
+    BCS .vanilla
+    CMP #$D0
+    BCS .generator
+    PLA
+    AND #$7F                    ; ShooterNumber's sign that this one is custom
+    JML $02A8D8                 ; SMW's shooter spawn: JSR $AB78 : BRA
+.generator
+    PLA
+    STA $18B9
+    STZ $1938,x                 ; as SMW leaves a generator's record: not marked loaded
+    JML $02A846                 ; on to the next record
+.vanilla
+    PLA
+    CMP #$E7
+    BCC +
+    JML $02A86A
++   JML $02A88C
+
+ShooterNumber:
+    LDA $04
+    BMI +                       ; SMW's own: C9 or CA
+    ORA #$80
+    JML $02ABA5                 ; STA $1783,x
++   SEC
+    SBC #$C8
+    JML $02ABA5
+
+; A = $1783,x (not 0), X = the shooter slot. A custom shooter's timer counts down every other
+; frame as SMW's do (PIXI's shooters test it and set it, and leave the counting to the driver).
+ShooterRun:
+    CMP #$C0
+    BCS .custom
+    LDY $17AB,x
+    BEQ +
+    JML $02B39A
++   JML $02B3A4
+.custom
+    LDY $17AB,x
+    BEQ +
+    PHA
+    LDA $13
+    LSR
+    BCC ++
+    DEC $17AB,x
+++  PLA
++   JSL CallMainOf
+    JML $02B3A7                 ; on to the next shooter
+
+GeneratorRun:
+    LDA $18B9
+    BEQ .none
+    CMP #$D0
+    BCS .custom
+    JML $02B003
+.custom
+    LDY $9D                     ; not while sprites are frozen, as SMW's
+    BNE .none
+    JSL CallMainOf
+.none
+    JML $02B02A                 ; an RTS in bank 02

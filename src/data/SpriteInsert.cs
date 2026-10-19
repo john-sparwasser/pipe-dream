@@ -30,23 +30,38 @@ public static partial class SpriteInsert
         var written = new List<Asar.WrittenBlock>();
         Result Fail(string e) => new(false, [e], [.. warnings], [.. written]);
 
-        var slots = Slots(data, warnings);
-        if (slots.Count == 0) return new(true, [], [.. warnings], []);
+        var (slots, perLevel) = Slots(data, warnings);
+        if (slots.Count == 0 && perLevel.Count == 0) return new(true, [], [.. warnings], []);
         if (ForeignDriver(rom) is { } foreign) return Fail(foreign);
         if (LoaderStep(rom, out int lmStep) is { } loader) return Fail(loader);
 
         var configs = new Dictionary<string, PixiConfig>();
-        foreach (string name in slots.Values.Distinct())
+        var names = slots.Values.Concat(perLevel.Values.SelectMany(l => l.Values)).Distinct().ToList();
+        foreach (string name in names)
         {
             try { configs[name] = PixiConfig.Parse(data.Sprites[name].Config); }
             catch (FormatException e) { return Fail($"sprite {name}: config: {e.Message}"); }
         }
         // Custom placements have extra bits 2 (custom) or 3 (custom with the extra bit), and the
-        // loader steps each record by the table's length for those.
+        // loader steps each record by the table's length for those. A record's length is per
+        // number in every level, so with per-level sprites B0-BF are all 4 extra bytes, as PIXI has
+        // them, and a per-level sprite cannot ask for more.
         foreach (var (n, name) in slots)
         {
             rom.SetSpriteEntrySize(2, n, 3 + configs[name].ExtraBytes);
             rom.SetSpriteEntrySize(3, n, 3 + configs[name].ExtraBytesSet);
+        }
+        if (perLevel.Count > 0)
+        {
+            foreach (var (level, numbers) in perLevel)
+                foreach (var (n, name) in numbers)
+                    if (Math.Max(configs[name].ExtraBytes, configs[name].ExtraBytesSet) > PerLevelExtraBytes)
+                        return Fail($"sprite {name} in level {level:X3}'s slot {n:X2}: a per-level sprite has at most {PerLevelExtraBytes} extra bytes");
+            for (int n = 0xB0; n <= 0xBF; n++)
+            {
+                rom.SetSpriteEntrySize(2, n, 3 + PerLevelExtraBytes);
+                rom.SetSpriteEntrySize(3, n, 3 + PerLevelExtraBytes);
+            }
         }
 
         var mem = new Dictionary<string, byte[]>();
@@ -54,7 +69,7 @@ public static partial class SpriteInsert
         Put("defines.asm", Driver("defines.asm"));
         foreach (var (path, text) in data.PixiFiles) Put(path, text);
 
-        var sources = slots.Values.Distinct().Where(n => configs[n].Type != 0).ToDictionary(n => n, n => data.Sprites[n]);
+        var sources = names.Where(n => configs[n].Type != 0).ToDictionary(n => n, n => data.Sprites[n]);
         var routines = InsertRoutines(rom, data.PixiFiles, sources.Values, mem, written, out string? routineError);
         if (routineError is not null) return Fail(routineError);
         Put("routines.asm", string.Concat(routines.Select(r => $"macro {r.Key}()\n    JSL ${r.Value:X6}\nendmacro\n")));
@@ -72,10 +87,11 @@ public static partial class SpriteInsert
             if (!r.Ok) return Fail($"sprite {name}: " + string.Join("; ", Local(r.Errors)));
             warnings.AddRange(Local(r.Warnings).Select(w => $"sprite {name}: {w}"));
             written.AddRange(r.Blocks);
+            // A shooter or generator only runs MAIN; its INIT, if it prints one, is kept anyway.
             int? init = Entry(r, "INIT"), main = Entry(r, "MAIN");
-            if (init is null || main is null)
-                return Fail($"sprite {name}: no {(init is null ? "INIT" : "MAIN")} — the sprite must print it (print \"INIT \",pc)");
-            entries[name] = (init.Value, main.Value);
+            if (main is null || init is null && entry.Kind == "sprite")
+                return Fail($"sprite {name}: no {(main is null ? "MAIN" : "INIT")} — the sprite must print it (print \"MAIN \",pc)");
+            entries[name] = (init ?? EmptyEntry, main.Value);
         }
 
         Put("main.asm", Driver("main.asm"));
@@ -86,7 +102,10 @@ public static partial class SpriteInsert
             incsrc "main.asm"
             freedata
             SpriteTable:
-            {Table(rom, slots, configs, entries)}
+            {Table(rom, slots, perLevel, configs, entries)}
+            freedata
+            LevelBlocks:
+            {LevelBlocks(perLevel)}
             """);
         var d = Asar.Patch(rom, Path.Combine(VirtualDir, "_driver.asm"), mem);
         if (!d.Ok) return Fail("the sprite driver: " + string.Join("; ", Local(d.Errors)));
@@ -94,23 +113,27 @@ public static partial class SpriteInsert
         return new(true, [], [.. warnings], [.. written]);
     }
 
-    /// <summary>The global slots to insert, number → sprite. Per-level slots, shooters and
-    /// generators are not inserted yet; a slot naming a sprite the library lacks is skipped. Each
-    /// is said once in the warnings.</summary>
-    private static SortedDictionary<int, string> Slots(ProjectFile data, List<string> warnings)
+    /// <summary>Extra bytes every B0-BF record carries once a project has per-level sprites.</summary>
+    private const int PerLevelExtraBytes = 4;
+
+    /// <summary>The slots to insert: global number → sprite, and level → (B0-BF → sprite). A slot
+    /// naming a sprite the library lacks, or holding the wrong kind, is skipped with a warning.</summary>
+    private static (SortedDictionary<int, string> Global, SortedDictionary<int, SortedDictionary<int, string>> PerLevel)
+        Slots(ProjectFile data, List<string> warnings)
     {
-        var slots = new SortedDictionary<int, string>();
-        int perLevel = 0, others = 0;
+        var global = new SortedDictionary<int, string>();
+        var perLevel = new SortedDictionary<int, SortedDictionary<int, string>>();
         foreach (var (slot, name) in data.SpriteSlots)
         {
-            if (slot.Contains(':')) { perLevel++; continue; }
-            if (PixiImport.SlotKind(slot) != "sprite") { others++; continue; }
-            if (!data.Sprites.ContainsKey(name)) { warnings.Add($"slot {slot} names {name}, which is not in the project"); continue; }
-            slots[Convert.ToInt32(slot, 16)] = name;
+            if (!data.Sprites.TryGetValue(name, out var s)) { warnings.Add($"slot {slot} names {name}, which is not in the project"); continue; }
+            if (PixiImport.SlotKind(slot) is not { } kind || kind != s.Kind) { warnings.Add($"slot {slot} cannot hold {name}, a {s.Kind}"); continue; }
+            int colon = slot.IndexOf(':');
+            if (colon < 0) { global[Convert.ToInt32(slot, 16)] = name; continue; }
+            int level = Convert.ToInt32(slot[..colon], 16);
+            if (!perLevel.TryGetValue(level, out var numbers)) perLevel[level] = numbers = [];
+            numbers[Convert.ToInt32(slot[(colon + 1)..], 16)] = name;
         }
-        if (perLevel > 0) warnings.Add($"{perLevel} per-level sprite slot(s) not inserted (not supported yet)");
-        if (others > 0) warnings.Add($"{others} shooter/generator slot(s) not inserted (not supported yet)");
-        return slots;
+        return (global, perLevel);
     }
 
     /// <summary>A base that already carries PIXI (or our driver) has its own table and hooks;
@@ -196,33 +219,51 @@ public static partial class SpriteInsert
         return r.Labels.FirstOrDefault(l => l.Key.Equals(name, StringComparison.OrdinalIgnoreCase)) is { Key: not null } l ? l.Value : null;
     }
 
-    /// <summary>The 0x100 table entries as db lines. A number with no sprite is a tweak of itself
-    /// with SMW's own tweakers, so a stray custom placement acts as the vanilla sprite would.</summary>
-    private static string Table(Rom rom, SortedDictionary<int, string> slots, Dictionary<string, PixiConfig> configs,
-                                Dictionary<string, (int Init, int Main)> entries)
+    /// <summary>The table as db lines: 0x100 global entries, then 0x10 (B0-BF) per level with
+    /// per-level sprites, in level order. A number with no sprite is a tweak of itself with SMW's
+    /// own tweakers, so a stray custom placement acts as the vanilla sprite would. A per-level
+    /// number a level does not fill falls back to the global entry.</summary>
+    private static string Table(Rom rom, SortedDictionary<int, string> slots, SortedDictionary<int, SortedDictionary<int, string>> perLevel,
+                                Dictionary<string, PixiConfig> configs, Dictionary<string, (int Init, int Main)> entries)
     {
         var sb = new StringBuilder();
-        for (int n = 0; n < 0x100; n++)
-        {
-            byte[] e;
-            if (slots.TryGetValue(n, out var name))
-            {
-                var c = configs[name];
-                var (init, main) = entries.TryGetValue(name, out var p) ? p : (EmptyEntry, EmptyEntry);
-                e = [(byte)c.Type, (byte)c.ActLike, .. c.Tweak, (byte)init, (byte)(init >> 8), (byte)(init >> 16),
-                     (byte)main, (byte)(main >> 8), (byte)(main >> 16), c.Prop1, c.Prop2];
-            }
-            else
-            {
-                e = new byte[16];
-                e[1] = (byte)n;
-                if (n < VanillaSprites)
-                    for (int t = 0; t < 6; t++) e[2 + t] = rom.ReadByte(VanillaTweakers[t] + n);
-                e[8] = e[11] = EmptyEntry & 0xFF; e[9] = e[12] = EmptyEntry >> 8 & 0xFF; e[10] = e[13] = EmptyEntry >> 16;
-            }
-            sb.Append("db ").AppendJoin(',', e.Select(b => $"${b:X2}")).Append($" ; {n:X2}\n");
-        }
+        for (int n = 0; n < 0x100; n++) sb.Append(EntryLine(rom, n, slots.GetValueOrDefault(n), configs, entries));
+        foreach (var (level, numbers) in perLevel)
+            for (int n = 0xB0; n <= 0xBF; n++)
+                sb.Append(EntryLine(rom, n, numbers.GetValueOrDefault(n) ?? slots.GetValueOrDefault(n), configs, entries, $"level {level:X3}"));
         return sb.ToString();
+    }
+
+    /// <summary>Per level, where its block starts, less B0's offset within a block (0 = none), so
+    /// the driver adds number * 16 as it does for the global table.</summary>
+    private static string LevelBlocks(SortedDictionary<int, SortedDictionary<int, string>> perLevel)
+    {
+        var at = new int[0x200];
+        int k = 0;
+        foreach (int level in perLevel.Keys) at[level] = 0x1000 + k++ * 0x100 - 0xB00;
+        return string.Join('\n', at.Chunk(16).Select(row => "dw " + string.Join(',', row.Select(v => $"${v:X4}"))));
+    }
+
+    private static string EntryLine(Rom rom, int n, string? name, Dictionary<string, PixiConfig> configs,
+                                    Dictionary<string, (int Init, int Main)> entries, string? note = null)
+    {
+        byte[] e;
+        if (name is not null)
+        {
+            var c = configs[name];
+            var (init, main) = entries.TryGetValue(name, out var p) ? p : (EmptyEntry, EmptyEntry);
+            e = [(byte)c.Type, (byte)c.ActLike, .. c.Tweak, (byte)init, (byte)(init >> 8), (byte)(init >> 16),
+                 (byte)main, (byte)(main >> 8), (byte)(main >> 16), c.Prop1, c.Prop2];
+        }
+        else
+        {
+            e = new byte[16];
+            e[1] = (byte)n;
+            if (n < VanillaSprites)
+                for (int t = 0; t < 6; t++) e[2 + t] = rom.ReadByte(VanillaTweakers[t] + n);
+            e[8] = e[11] = EmptyEntry & 0xFF; e[9] = e[12] = EmptyEntry >> 8 & 0xFF; e[10] = e[13] = EmptyEntry >> 16;
+        }
+        return $"db {string.Join(',', e.Select(b => $"${b:X2}"))} ; {(note is null ? "" : note + " ")}{n:X2}\n";
     }
 
     /// <summary>SMW's sprite numbers, 00-C8, and its six tweaker tables ($07F7A0 reads them).</summary>

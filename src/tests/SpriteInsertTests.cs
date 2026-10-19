@@ -30,7 +30,8 @@ public class SpriteInsertTests : IDisposable
 
     /// <summary>A project with <see cref="Probe"/> in slot 1A, placed once in level 105 near the
     /// start as a custom sprite (extra bits 2) with extra bytes AB CD, built.</summary>
-    internal static (string Status, Rom? Built) Build(string dir, string source = Probe, int extraBytes = 2, Dictionary<string, string>? pixiFiles = null)
+    internal static (string Status, Rom? Built) Build(string dir, string source = Probe, int extraBytes = 2, Dictionary<string, string>? pixiFiles = null,
+                                                       Action<ProjectFile, Services.SpriteEdit, SpriteData>? more = null)
     {
         var p = Project.Create(Path.Combine(dir, "proj"), TestRom.RealRomPath);
         var config = new PixiConfig { ActLike = 0x36, AsmFile = "probe.asm", ExtraBytes = extraBytes, ExtraBytesSet = 0 };
@@ -44,6 +45,7 @@ public class SpriteInsertTests : IDisposable
         var edit = new Services.SpriteEdit(sd, null, false);
         Assert.True(edit.Place(0x1A, 12, 22));
         Assert.True(edit.SetData(sd.Sprites.Count - 1, 0x1A, 2, [0xAB, 0xCD]));
+        more?.Invoke(p.Data, edit, sd);
         var st = p.Data.Level(0x105);
         st.Objects = LevelParser.Parse(baseRom, 0x105).Objects.Select(ProjectFile.ObjectDto.From).ToList();
         st.SpriteMemory = sd.SpriteMemory; st.Buoyancy = sd.Buoyancy;
@@ -114,6 +116,55 @@ public class SpriteInsertTests : IDisposable
         Assert.Equal(thing, r.ReadValue(init + 5, 3));                     // the same copy, twice
         Assert.Equal(0x22, r.ReadByte(thing));                             // which JSLs Other
         Assert.Equal([0xA9, 0xA5, 0x6B], r.Data.AsSpan(r.FileOffset(r.ReadValue(thing + 1, 3)), 3).ToArray());
+    }
+
+    /// <summary>Adds the sprite <paramref name="name"/> of <paramref name="kind"/> in
+    /// <paramref name="slot"/>, whose code stores <paramref name="mark"/> at $0F61 (INIT, or MAIN
+    /// for shooters and generators, which only run MAIN) and counts frames at $0F62.</summary>
+    internal static void Add(ProjectFile d, string name, string kind, string slot, int mark, int extraBytes = 0)
+    {
+        var config = new PixiConfig { Type = kind == "sprite" ? 1 : 2, ActLike = 0x36, AsmFile = name + ".asm", ExtraBytes = extraBytes };
+        string body = kind == "sprite"
+            ? $"print \"INIT \",pc\n    LDA #${mark:X2}\n    STA $0F61\n    RTL\nprint \"MAIN \",pc\n    RTL\n"
+            : $"print \"MAIN \",pc\n    LDA #${mark:X2}\n    STA $0F61\n    INC $0F62\n    RTL\n";
+        d.Sprites[name] = new ProjectFile.SpriteEntry { Kind = kind, Config = config.ToJson(), Source = body };
+        d.SpriteSlots[slot] = name;
+    }
+
+    /// <summary>A level's own B0 wins over the global B0 there, and B0-BF records are 4 extra
+    /// bytes long once any level has its own sprites.</summary>
+    [AsarRomFact]
+    public void a_levels_own_sprite_takes_its_slot_there()
+    {
+        var (status, rom) = Build(dir, more: (d, edit, sd) =>
+        {
+            Add(d, "everywhere", "sprite", "B0", 0x33);
+            Add(d, "here", "sprite", "105:B0", 0x22, extraBytes: 1);
+            Assert.True(edit.Place(0xB0, 14, 22));
+            Assert.True(edit.SetData(sd.Sprites.Count - 1, 0xB0, 2, [1, 2, 3, 4]));
+        });
+        Assert.True(rom is not null, status);
+        var r = rom!;
+        Assert.Equal(7, r.SpriteEntrySize(2, 0xB0));
+        Assert.Equal(7, r.SpriteEntrySize(3, 0xBF));
+        int table = r.ReadValue(0x02FFEE, 3);
+        int InitOf(int entry) => r.ReadByte(r.ReadValue(entry + 8, 3) + 1);          // the LDA #mark operand
+        Assert.Equal(0x33, InitOf(table + 0xB0 * 0x10));                             // global B0
+        int blocks = LevelBlocksOf(r);
+        int level105 = r.ReadValue(blocks + 0x105 * 2, 2);
+        Assert.NotEqual(0, level105);
+        Assert.Equal(0x22, InitOf(table + level105 + 0xB0 * 0x10));                  // 105's own B0
+        Assert.Equal(0, r.ReadValue(blocks + 0x106 * 2, 2));                          // 106 has none
+    }
+
+    /// <summary>The driver's LevelBlocks: the label is not in the ROM, so it is found as the
+    /// operand of the one LDA long,X in EntryOf after `LDA $010B : AND #$01FF : ASL : TAX`.</summary>
+    private static int LevelBlocksOf(Rom r)
+    {
+        byte[] pattern = [0xAD, 0x0B, 0x01, 0x29, 0xFF, 0x01, 0x0A, 0xAA, 0xBF];
+        int at = r.Data.AsSpan().IndexOf(pattern);
+        Assert.True(at >= 0, "EntryOf not found");
+        return r.Data[at + 9] | r.Data[at + 10] << 8 | r.Data[at + 11] << 16;
     }
 
     [AsarRomFact]

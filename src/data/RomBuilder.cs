@@ -45,6 +45,10 @@ internal static class RomBuilder
         return null;
     }
 
+    /// <summary>A placement the custom sprite driver runs: extra bits 2 or 3 (the custom bit), on a
+    /// number with a sprite in its global slot or this level's own (B0-BF).</summary>
+    private static bool IsCustom(ProjectFile data, int level, Sprite s)
+        => s.Extra >= 2 && (data.SpriteSlots.ContainsKey($"{s.Number:X2}") || data.SpriteSlots.ContainsKey($"{level:X3}:{s.Number:X2}"));
     /// <summary>Whether a project's level key names a real level.</summary>
     private static bool IsLevelKey(string key, out int level)
     {
@@ -300,7 +304,7 @@ internal static class RomBuilder
                 for (int i = 0; i < sd.Sprites.Count; i++)
                 {
                     var s = sd.Sprites[i];
-                    if (s.Extra < 2 || !project.Data.SpriteSlots.ContainsKey($"{s.Number:X2}")) continue;
+                    if (!IsCustom(project.Data, level, s)) continue;
                     int want = rom.SpriteEntrySize(s.Extra, s.Number) - 3, have = s.ExtraBytes?.Length ?? 0;
                     if (want == have) continue;
                     warnings.Add($"level {key}: custom sprite {s.Number:X2} placed with {have} extra byte(s); its config says {want}, so it gets {want}");
@@ -308,7 +312,7 @@ internal static class RomBuilder
                     s.ExtraBytes?.AsSpan(0, Math.Min(want, have)).CopyTo(bytes);
                     sd.Sprites[i] = s with { ExtraBytes = want > 0 ? bytes : null };
                 }
-                foreach (var g in sd.Sprites.Where(s => s.ExtraBytes is not null && !(s.Extra >= 2 && project.Data.SpriteSlots.ContainsKey($"{s.Number:X2}")))
+                foreach (var g in sd.Sprites.Where(s => s.ExtraBytes is not null && !IsCustom(project.Data, level, s))
                                             .GroupBy(s => (s.Extra, s.Number)))
                 {
                     int size = 3 + g.Max(s => s.ExtraBytes!.Length);
