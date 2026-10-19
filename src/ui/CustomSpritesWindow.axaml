@@ -1,0 +1,77 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PipeDream.Ui.CustomSpritesWindow"
+        Title="Custom sprites" Width="760" Height="540"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+
+  <Window.Styles>
+    <Style Selector="TextBlock.dim">
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+    <Style Selector="TextBlock.mono">
+      <Setter Property="FontFamily" Value="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="TextBlock.note">
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+  </Window.Styles>
+
+  <DockPanel Margin="14">
+    <!-- The Custom blocks window's bar, plus a sprite's slots: a sprite in no slot stays in the
+         project and is not inserted. -->
+    <StackPanel DockPanel.Dock="Top" Spacing="8">
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Button Content="New…" Click="OnNew" ToolTip.Tip="Adds a sprite of the kind beside it, from the template"/>
+        <ComboBox x:Name="KindBox" SelectedIndex="0" MinWidth="110"
+                  ToolTip.Tip="What New… makes: a sprite (slots 00-BF), a shooter (C0-CF) or a generator (D0-DF)">
+          <ComboBoxItem Content="sprite"/>
+          <ComboBoxItem Content="shooter"/>
+          <ComboBoxItem Content="generator"/>
+        </ComboBox>
+        <Button Content="Import…" Click="OnImport"
+                ToolTip.Tip="Adds .json or .cfg sprites from disk, each with its ASM and what that includes"/>
+        <Button Content="Import PIXI folder…" Click="OnImportFolder"
+                ToolTip.Tip="Adds every sprite PIXI's list.txt names, in its slots, with routines/ and ExtraDefines/"/>
+        <Button x:Name="RemoveButton" Content="Remove" Click="OnRemove" IsEnabled="False"/>
+      </StackPanel>
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Button x:Name="SlotsButton" Content="Slots…" Click="OnSlots" IsEnabled="False"
+                ToolTip.Tip="Which numbers run this sprite: 1A for every level, 105:B0 for one level's own"/>
+        <Button x:Name="EditButton" Content="Edit ASM" Click="OnEdit" IsEnabled="False"/>
+        <Button x:Name="ConfigButton" Content="Edit config" Click="OnConfig" IsEnabled="False"
+                ToolTip.Tip="The sprite's PIXI JSON: tweakers, acts-like, extra bytes, how Lunar Magic lists it"/>
+        <Button x:Name="OpenButton" Click="OnOpen" IsEnabled="False"
+                ToolTip.Tip="Open the ASM in your text editor (File ▸ Preferences); saving there updates the project"/>
+      </StackPanel>
+    </StackPanel>
+
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right"
+                Spacing="8" Margin="0,12,0,0">
+      <TextBlock x:Name="Hint" Classes="dim" TextWrapping="Wrap" MaxWidth="640"/>
+      <Button Content="Close" Click="OnClose" IsCancel="True"/>
+    </StackPanel>
+
+    <ListBox x:Name="List" Margin="0,10,0,0" SelectionChanged="OnSelect" DoubleTapped="OnEdit">
+      <ListBox.ItemTemplate>
+        <DataTemplate>
+          <!-- name, kind, slots, the first name Lunar Magic lists it under -->
+          <Grid ColumnDefinitions="180,70,140,*" ColumnSpacing="8">
+            <TextBlock Text="{Binding Name}" Classes="mono" TextTrimming="CharacterEllipsis"/>
+            <TextBlock Grid.Column="1" Text="{Binding Kind}" Classes="note"/>
+            <TextBlock Grid.Column="2" Text="{Binding Slots}" Classes="mono" TextTrimming="CharacterEllipsis"
+                       ToolTip.Tip="{Binding Slots}"/>
+            <TextBlock Grid.Column="3" Text="{Binding Description}" Classes="dim" TextTrimming="CharacterEllipsis"
+                       ToolTip.Tip="{Binding Description}"/>
+          </Grid>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+  </DockPanel>
+</Window>

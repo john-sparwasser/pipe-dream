@@ -119,6 +119,40 @@ public sealed partial class EditorSession
         return Report2(Dirty($"{name} in slot {key}"));
     }
 
+    /// <summary>
+    /// Give a sprite exactly the slots in <paramref name="list"/> ("1A, 105:B0", commas or spaces):
+    /// slots it had and the list leaves out are emptied, the listed ones taken (from any sprite in
+    /// them). Nothing changes when one listed slot is not a slot or does not suit the sprite.
+    /// </summary>
+    public string SetCustomSpriteSlots(string name, string list)
+    {
+        if (Project is null) return Report2("no project open");
+        if (FindSprite(name) is not { } s) return Report2($"{name} is not in the project");
+        var wanted = new List<string>();
+        foreach (string raw in list.Split([',', ' ', ';'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (PixiImport.NormalSlot(raw) is not { } key) return Report2($"\"{raw}\" is not a sprite slot (00-DF, or level:B0-BF)");
+            if (PixiImport.SlotKind(key) != s.Kind) return Report2($"slot {key} holds a {PixiImport.SlotKind(key)}, and {name} is a {s.Kind}");
+            wanted.Add(key);
+        }
+        var slots = Project.Data.SpriteSlots;
+        var before = slots.Where(p => p.Value == name).Select(p => p.Key).Order().ToList();
+        if (before.SequenceEqual(wanted.Distinct().Order())) return Status;
+        foreach (string old in before) slots.Remove(old);
+        foreach (string key in wanted) slots[key] = name;
+        return Report2(Dirty(wanted.Count == 0 ? $"{name} is in no slot" : $"{name} in slot(s) {string.Join(", ", wanted.Distinct().Order())}"));
+    }
+
+    /// <summary>Open a sprite's ASM in the user's text editor, as a block's opens: a temp copy,
+    /// saves read back on the next <see cref="Tick"/>.</summary>
+    public string OpenCustomSpriteExternally(string name)
+    {
+        if (Project is null) return Report2("no project open");
+        if (CustomSpriteSource(name) is not { } asm) return Report2($"{name} is not in the project");
+        // The temp file is named for the sprite; one from a subfolder ("sub/thing") gets no folder.
+        return OpenExternally("sprite:" + name, name.Replace('/', '_') + ".asm", asm, text => SetCustomSpriteSource(name, text));
+    }
+
     /// <summary>Take a sprite, its files and its slots out of the project.</summary>
     public string DeleteCustomSprite(string name)
     {

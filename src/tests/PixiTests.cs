@@ -1,3 +1,4 @@
+using Avalonia.Controls;
 using Xunit;
 
 namespace PipeDream.Tests;
@@ -244,5 +245,50 @@ public class PixiTests
         Assert.Equal("deleted thing", s.DeleteCustomSprite("thing"));
         Assert.DoesNotContain(s.CustomSprites, r => r.Slots.Contains("00"));        // its slots went with it
         Assert.Equal("slot 1A emptied", s.SetSpriteSlot("1A", null));
+    }
+
+    [Fact]
+    public void a_sprites_slots_are_set_as_a_list()
+    {
+        string dir = Directory.CreateTempSubdirectory("pipedream-proj-").FullName;
+        var s = new Services.EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), ReferenceRoms.Vanilla), s.Status);
+        s.NewCustomSprite("Hopper", "sprite", out _);
+        s.NewCustomSprite("Gun", "shooter", out _);
+
+        Assert.Equal("Hopper in slot(s) 105:B0, 1A", s.SetCustomSpriteSlots("Hopper", "1a, 105:b0"));
+        Assert.Equal(["105:B0", "1A"], s.CustomSprites.Single(r => r.Name == "Hopper").Slots);
+        Assert.Equal("Hopper in slot(s) 1B", s.SetCustomSpriteSlots("Hopper", "1B"));     // the others are let go
+        Assert.Equal(["1B"], s.CustomSprites.Single(r => r.Name == "Hopper").Slots);
+        Assert.Equal("slot C0 holds a shooter, and Hopper is a sprite", s.SetCustomSpriteSlots("Hopper", "1B C0"));
+        Assert.Equal(["1B"], s.CustomSprites.Single(r => r.Name == "Hopper").Slots);       // refused whole
+        Assert.Equal("Gun in slot(s) C0", s.SetCustomSpriteSlots("Gun", "C0"));
+        Assert.Equal("Hopper is in no slot", s.SetCustomSpriteSlots("Hopper", ""));
+    }
+
+    /// <summary>The Custom sprites window lists the library with kinds and slots, and the
+    /// buttons that act on one sprite wait for a selection.</summary>
+    [Avalonia.Headless.XUnit.AvaloniaFact]
+    public void the_custom_sprites_window_lists_the_library()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla)) return;
+        string dir = Directory.CreateTempSubdirectory("pipedream-proj-").FullName;
+        var s = new Services.EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), ReferenceRoms.Vanilla), s.Status);
+        s.ImportPixiFolder(PixiFolder());
+
+        var w = new Ui.CustomSpritesWindow(s);
+        w.Show();
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        var list = w.GetControl<ListBox>("List");
+        var rows = ((System.Collections.IEnumerable)list.ItemsSource!).Cast<Ui.CustomSpritesWindow.Row>().ToList();
+        Assert.Equal([new("bullets", "shooter", "C0", "bullets (extra bit clear)"),
+                      new("thing", "sprite", "00, 01", "Thing"),
+                      new("walker", "sprite", "105:B0", "walker (extra bit clear)")], rows);
+        Assert.False(w.GetControl<Button>("SlotsButton").IsEnabled);
+        list.SelectedIndex = 1;
+        Assert.True(w.GetControl<Button>("SlotsButton").IsEnabled);
+        Assert.True(w.GetControl<Button>("ConfigButton").IsEnabled);
+        w.Close();
     }
 }

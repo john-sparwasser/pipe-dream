@@ -239,6 +239,15 @@ public partial class MainWindow
         UpdateTitle();                               // every change dirties the project
     }
 
+    /// <summary>ASM ▸ Custom sprites: the project's PIXI-style sprites — new, import (a sprite or
+    /// a PIXI folder), slots, edit, remove.</summary>
+    private async void OnCustomSprites(object? sender, RoutedEventArgs e)
+    {
+        if (!session.HasProject) return;
+        await new CustomSpritesWindow(session).ShowDialog(this);
+        UpdateTitle();                               // every change dirties the project
+    }
+
     private void OnUpgradePrep(object? sender, RoutedEventArgs e)
     {
         session.UpgradeBasePrep();
