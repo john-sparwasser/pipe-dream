@@ -118,7 +118,7 @@ internal static class RomBuilder
     /// blocks before anything else allocates, and the acts-like table is then the project's to
     /// write (ReplayMap16, next), block tiles included. Without the Asar library the blocks are
     /// skipped with a warning. Returns a build failure, or null.</summary>
-    private static string? InsertGps(Rom rom, Project project, List<string> warnings)
+    private static string? InsertGps(Rom rom, Project project, List<PatchInsert.Owned> owned, List<string> warnings)
     {
         // No driver and nothing assigned: the project has never had blocks. A driver with no
         // tiles still runs, so blocks taken off every tile are cleaned off the ROM.
@@ -135,8 +135,38 @@ internal static class RomBuilder
         catch (FormatException e) { return "build failed: custom blocks: " + e.Message; }
         if (!r.Ok) return "build failed: custom blocks: " + string.Join("; ", r.Errors);
         warnings.AddRange(r.Warnings.Select(w => "custom blocks: " + w));
+        owned.AddRange((r.Written ?? []).Select(b => new PatchInsert.Owned("the custom block driver", Rom.SnesToPc(b.Snes), b.Length)));
         return null;
     }
+
+    /// <summary>
+    /// The project's enabled patches, in list order, right after the blocks: their freespace is
+    /// RATS-tagged before the build allocates anything, so the build steps around it, and the
+    /// editor's own data is written after them, so a patch cannot quietly undo an edit made here.
+    /// A patch writing over bytes Pipe Dream's prep, the block driver or an earlier patch wrote is
+    /// a warning, not a failure (reference/PATCHES.md). Returns a build failure, or null.
+    /// </summary>
+    private static string? ApplyPatches(Rom rom, Project project, List<PatchInsert.Owned> owned, List<string> warnings)
+    {
+        var on = project.Data.Patches.Where(p => p.Enabled).ToList();
+        if (on.Count == 0) return null;
+        if (!Asar.Available) { warnings.Add($"{on.Count} patch(es) skipped (Asar library not found)"); return null; }
+        foreach (var p in on)
+        {
+            var r = PatchInsert.Apply(rom, p);
+            if (!r.Ok) return $"build failed: patch {p.Name}: " + string.Join("; ", r.Errors);
+            warnings.AddRange(r.Warnings.Concat(PatchInsert.Overlaps(owned, r.Written)).Select(w => $"patch {p.Name}: " + w));
+            owned.AddRange(r.Written.Select(b => new PatchInsert.Owned($"patch {p.Name}", Rom.SnesToPc(b.Snes), b.Length)));
+        }
+        return null;
+    }
+
+    /// <summary>The bytes prep stamped into the base, which a patch should not need to touch.
+    /// None on a base used as provided (prep version 0): nothing of ours is in it.</summary>
+    private static List<PatchInsert.Owned> PrepOwned(Project project)
+        => project.Data.BaseRom.PrepVersion is var v and > 0
+            ? [.. RomPrep.StampedRanges(v).Select(r => new PatchInsert.Owned("Pipe Dream's ROM hooks", Rom.SnesToPc(r.Snes), r.Length))]
+            : [];
 
     /// <summary>Build build\&lt;name&gt;.smc from the project. Returns a status line
     /// (including per-level warnings for LM-gated features on a vanilla base).</summary>
@@ -146,7 +176,9 @@ internal static class RomBuilder
         {
             var rom = Rom.Load(project.BaseRomPath);
             var warnings = new List<string>();
-            if (InsertGps(rom, project, warnings) is { } gpsErr) return (gpsErr, null);
+            var owned = PrepOwned(project);
+            if (InsertGps(rom, project, owned, warnings) is { } gpsErr) return (gpsErr, null);
+            if (ApplyPatches(rom, project, owned, warnings) is { } patchErr) return (patchErr, null);
             if (ReplayMap16(rom, project.Data) is { } err) return (err, null);
             ReplayEntrances(rom, project.Data);
             WriteGfx(rom, project.Data, warnings);

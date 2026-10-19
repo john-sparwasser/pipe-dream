@@ -30,7 +30,8 @@ namespace PipeDream;
 /// </summary>
 public static class GpsInsert
 {
-    public sealed record Result(bool Ok, string[] Errors, string[] Warnings, IReadOnlyList<Inserted> Blocks);
+    public sealed record Result(bool Ok, string[] Errors, string[] Warnings, IReadOnlyList<Inserted> Blocks,
+                                Asar.WrittenBlock[]? Written = null);
 
     /// <summary>One tile's block: its file, code address, and the block's prints (the first is
     /// its description; @pswitch= and the like follow, as gps.exe reads them).</summary>
@@ -100,7 +101,7 @@ public static class GpsInsert
             int i = files.IndexOf(kv.Value);
             return new Inserted(kv.Key, kv.Value, addrs[i], prints[i]);
         }).ToList();
-        return new Result(true, [], r.Warnings, inserted);
+        return new Result(true, [], r.Warnings, inserted, r.Blocks);
     }
 
     /// <summary>Pipe Dream's own block driver (data/blockdriver: main.asm, defines.asm), as the

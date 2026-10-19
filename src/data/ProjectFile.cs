@@ -60,6 +60,23 @@ public sealed class ProjectFile
     /// shared routines as imported from a GPS folder — path ("main.asm", "defines.asm", "routines/x.asm") → source.</summary>
     public Dictionary<string, string> GpsFiles { get; set; } = new();
 
+    /// <summary>The project's Asar patches, in the order the build applies them
+    /// (reference/PATCHES.md). In the .pdp so sharing the file shares them; a disabled patch is
+    /// kept and not applied.</summary>
+    public List<PatchEntry> Patches { get; set; } = new();
+
+    public sealed class PatchEntry
+    {
+        /// <summary>"name.asm": letters, digits, _ and -, as a block's.</summary>
+        public string Name { get; set; } = "";
+        public bool Enabled { get; set; } = true;
+        public string Source { get; set; } = "";
+        /// <summary>What the patch includes (incsrc and incbin): path relative to the patch →
+        /// the file's bytes, base64 in the .pdp. Each patch's own, so two patches can each ship
+        /// a defines.asm.</summary>
+        public Dictionary<string, byte[]> Files { get; set; } = new();
+    }
+
     /// <summary>LM ExAnimation (reference/EXANIMATION.md): the encoded record per level (key =
     /// level hex, value = ExAnimation.Encode hex, alt-file index in its header) and the global
     /// list's. Source files 60-63 live in <see cref="Gfx"/> under their ids.</summary>
