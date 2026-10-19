@@ -269,7 +269,11 @@ internal static class RomBuilder
                 // Sprites: relocatable only when LM's per-level bank table exists; a vanilla
                 // base reads bank $07 fixed, so there it's overwrite-in-place-if-it-fits.
                 var sd = new SpriteData { SpriteMemory = state.SpriteMemory, Buoyancy = state.Buoyancy };
-                sd.Sprites.AddRange(state.Sprites.Select(s => s.ToSprite()));
+                // In the order the game reads them: its loader walks the list until a record lies
+                // past the screen it is loading ($02A842), so one placed left of an earlier record
+                // would never spawn. The editor appends; Lunar Magic sorts on save, and so do we.
+                // Stable, so sprites on one column keep the order they were placed in.
+                sd.Sprites.AddRange(state.Sprites.Select(s => s.ToSprite()).OrderBy(s => s.Band).ThenBy(s => s.Screen).ThenBy(s => s.XNibble));
                 // LM's size table (CONTRACT §11): a record's length is per (extra bits, number), and
                 // the game reads the table, so every sprite carrying extra bytes registers its size.
                 // Two placements of one sprite with different lengths cannot both be right.
