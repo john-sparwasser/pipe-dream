@@ -61,6 +61,7 @@ public partial class MainWindow : Window
         // One method per surface, in the order the surfaces depend on each other: the header
         // and gutter first, then each canvas mode, then what spans them. Every control is a
         // field, so a mode's method is where to look for how its controls are wired.
+        WireTitleBar();
         WireChrome();
         WireLevel();
         WireBackground();
@@ -98,6 +99,41 @@ public partial class MainWindow : Window
                 is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)
             Opened += OnFirstOpened;
     }
+
+    private TextBlock titleText = null!;
+
+    /// <summary>
+    /// On Windows the menu moves up into the title bar: the window's content is extended over the
+    /// caption, and the system still draws the minimize/maximize/close buttons (so Windows 11's
+    /// snap layouts, double-click to maximize and edge resizing all stay the system's). The
+    /// name the caption showed moves into the bar beside the menu. Not on the Mac, whose traffic
+    /// lights sit on the left where the menu would go, nor on Linux, where support depends on
+    /// the window manager — both keep the system title bar with the menu under it.
+    /// </summary>
+    private void WireTitleBar()
+    {
+        titleText = this.GetControl<TextBlock>("TitleText");
+        if (!OperatingSystem.IsWindows()) return;
+        ExtendClientAreaToDecorationsHint = true;
+        ExtendClientAreaChromeHints = Avalonia.Platform.ExtendClientAreaChromeHints.PreferSystemChrome;
+        ExtendClientAreaTitleBarHeightHint = TitleBarHeight;
+        this.GetControl<DockPanel>("TitleBar").Height = TitleBarHeight;
+        this.GetControl<Image>("TitleIcon").IsVisible = true;
+        this.GetControl<Border>("CaptionButtonsSpace").Width = CaptionButtonsWidth;
+        titleText.IsVisible = true;
+        // Maximized, Windows hangs the window a frame's width past every screen edge; with the
+        // content up in the caption, that cut the top off the menu (seen in the app). Inset the
+        // content by what is off screen.
+        var root = (Control)Content!;
+        PropertyChanged += (_, e) =>
+        {
+            if (e.Property == OffScreenMarginProperty || e.Property == WindowStateProperty)
+                root.Margin = WindowState == WindowState.Maximized ? OffScreenMargin : default;
+        };
+    }
+
+    /// <summary>Windows 11's caption: 32 tall, three buttons of 46 across.</summary>
+    private const double TitleBarHeight = 32, CaptionButtonsWidth = 3 * 46;
 
     /// <summary>The header, gutter and mode switch: what every mode below hangs off.</summary>
     private void WireChrome()
@@ -292,11 +328,16 @@ public partial class MainWindow : Window
         ShowLevel(levelNum);
     }
 
+    /// <summary>The window's name — the taskbar's and Alt+Tab's, and the title bar's own copy of
+    /// it where the menu has moved up into the bar.</summary>
     private void UpdateTitle()
-        => Title = (session.ProjectName is { } name
+    {
+        Title = (session.ProjectName is { } name
             ? $"pipe-dream — {name}{(session.HasUnsavedWork ? " *" : "")}"
             : session.RomFileName is { } file ? $"pipe-dream — {file} (no project)"
             : "pipe-dream") + (Program.DevMode ? "  [dev]" : "");
+        titleText.Text = Title;
+    }
 
     private double composeMs;
 

@@ -293,7 +293,18 @@
 
   <DockPanel>
 
-    <Menu x:Name="MainMenu" DockPanel.Dock="Top">
+    <!-- The title bar. On Windows the window's content runs up into it (WireTitleBar), so the
+         menu sits where the caption was, beside the app icon, with the window's name in the
+         space left over and room on the right for the system's own minimize/maximize/close.
+         No Background on this row or the name: unpainted, they are not hit by the pointer, and
+         that is what lets the system drag the window by them. The window's own SurfaceBrush
+         shows through — the menu's colour, so the bar is one colour edge to edge. Elsewhere it
+         is just the menu, under the system's title bar as before. -->
+    <DockPanel x:Name="TitleBar" DockPanel.Dock="Top">
+      <Image x:Name="TitleIcon" DockPanel.Dock="Left" Source="/assets/pipe-icon-64.png"
+             Width="16" Height="16" Margin="10,0,2,0" IsVisible="False" IsHitTestVisible="False"/>
+      <Border x:Name="CaptionButtonsSpace" DockPanel.Dock="Right" Width="0"/>
+    <Menu x:Name="MainMenu" DockPanel.Dock="Left">
       <MenuItem Header="_File">
         <!-- HotKey, not InputGesture: an InputGesture is a caption Avalonia never wires up, and for
              years these were captions. A HotKey registers the key on the window and fires the item —
@@ -363,6 +374,9 @@
         <MenuItem Header="Third-party _licences…" Click="OnLicenses"/>
       </MenuItem>
     </Menu>
+      <TextBlock x:Name="TitleText" Classes="dim" VerticalAlignment="Center" HorizontalAlignment="Center"
+                 TextTrimming="CharacterEllipsis" IsVisible="False" IsHitTestVisible="False"/>
+    </DockPanel>
 
     <!-- Header: canvas-mode toggle + per-mode controls. Groups are separated by a rule and the
          controls inside share one height, so the row reads left to right as three groups rather
