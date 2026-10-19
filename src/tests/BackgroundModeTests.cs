@@ -202,13 +202,12 @@ public class BackgroundModeTests(ITestOutputHelper log)
     }
 
     [AvaloniaFact]
-    public void layer_2_points_at_the_level_canvas_when_the_level_puts_objects_there()
+    public void layer_2_is_empty_when_the_level_puts_objects_there()
     {
         if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
         var w = Open(0x009, layer3: false);
 
         Assert.Equal(0, View(w).Cols);
-        Assert.Contains("object stream", w.GetControl<TextBlock>("BgNote").Text);
     }
 
     [AvaloniaFact]
@@ -221,20 +220,17 @@ public class BackgroundModeTests(ITestOutputHelper log)
         Assert.Equal(Layer3.Rows, View(w).Rows);
         Assert.Equal(8, View(w).CellPx);
         Assert.Equal(Layer3.TileCount / 16, Sheet(w).Rows);
-        Assert.Contains("Tileset specific", w.GetControl<TextBlock>("BgNote").Text);
         Assert.Contains("Layer 3 tiles", w.GetControl<TextBlock>("BgDrawerTitle").Text);
     }
 
     [AvaloniaFact]
-    public void a_level_with_no_layer_3_says_where_to_turn_one_on()
+    public void a_level_with_no_layer_3_offers_the_button_that_turns_one_on()
     {
         if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
         var w = Open(0x105, layer3: true);
 
         Assert.Equal(0, View(w).Cols);
-        // A dead end that names no way out is the same as no message at all — and the way out
-        // is the button next to it, which is the point of having moved the setting here.
-        Assert.Contains("Layer 3 Options", w.GetControl<TextBlock>("BgNote").Text);
+        // An empty pane is not a dead end: the way out is the bar's own Layer 3 Options button.
         Assert.True(w.GetControl<Button>("BgOptions").IsVisible);
     }
 
@@ -259,7 +255,6 @@ public class BackgroundModeTests(ITestOutputHelper log)
         Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(Layer3.Cols, View(w).Cols);
-        Assert.Contains("Tileset specific", w.GetControl<TextBlock>("BgNote").Text);
     }
 
     /// <summary>
@@ -446,14 +441,15 @@ public class BackgroundModeTests(ITestOutputHelper log)
 
         Assert.True(w.GetControl<Border>("BgPaletteBar").IsVisible);
         Assert.Equal(Layer3.PaletteColors, colors.Cols);
-        Assert.True(w.GetControl<ComboBox>("BgPalRow").IsEnabled);
+        Assert.True(w.GetControl<ComboBox>("BgPalRow").IsVisible);
         Assert.True(w.GetControl<Button>("BgEditPal").IsVisible);
 
         Click(w, "BgLayer2");
         Assert.Equal(16, colors.Cols);
         // A BG Map16 tile carries its palette in its own definition, so a live picker here would
-        // promise an edit this mode cannot make.
-        Assert.False(w.GetControl<ComboBox>("BgPalRow").IsEnabled);
+        // promise an edit this mode cannot make. The picker goes; the swatches and Edit stay.
+        Assert.False(w.GetControl<ComboBox>("BgPalRow").IsVisible);
+        Assert.True(w.GetControl<Button>("BgEditPal").IsVisible);
     }
 
     /// <summary>

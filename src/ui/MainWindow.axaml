@@ -889,8 +889,8 @@
            there is FOUR colours, not sixteen, and a sixteen-wide strip would show twelve
            swatches the layer can never draw. On Layer 3 the picker is live — a tilemap word
            carries its own palette group, so choosing one here is choosing what the next stamp
-           paints with. On Layer 2 it is inert for the Map16 reason: a BG tile carries its
-           palette inside its own definition. -->
+           paints with. On Layer 2 it is hidden for the Map16 reason: a BG tile carries its
+           palette inside its own definition, so there is nothing to pick. -->
       <Border x:Name="BgPaletteBar" DockPanel.Dock="Bottom" Classes="panel bar" IsVisible="False"
               BorderThickness="0,1,0,0" Padding="10,6">
         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -1155,12 +1155,6 @@
               <!-- Painting is saved with the project like every other level edit, so these two
                    are about FILES, and having only one of them read as "a tilemap can only come
                    from a file". -->
-              <!-- The project's saved tilemaps, for whichever layer is on screen: click one to put
-                   it on this level, or keep this level's as a new one. Files are the two buttons
-                   beside it; this is the library. -->
-              <Button x:Name="BgTilemaps" DockPanel.Dock="Right" Content="Tilemaps ▾"
-                      VerticalAlignment="Center" Margin="0,0,6,0"
-                      ToolTip.Tip="Saved tilemaps in this project — apply one here, or save this level's"/>
               <Button x:Name="BgExportMap" DockPanel.Dock="Right" Content="Export…"
                       VerticalAlignment="Center" IsVisible="False" Margin="0,0,6,0"
                       Click="OnExportLayer3Tilemap"
@@ -1180,11 +1174,14 @@
                 </ToggleButton>
                 <Rectangle Classes="sep"/>
               </StackPanel>
-              <TextBlock x:Name="BgNote" Classes="dim" VerticalAlignment="Center"
-                         TextTrimming="CharacterEllipsis" Margin="6,0,10,0"/>
             </DockPanel>
           </Border>
           <ScrollViewer x:Name="BgScroll" HorizontalScrollBarVisibility="Auto"
+                <!-- The project's saved tilemaps, for whichever layer is on screen: click one to
+                     put it on this level, or keep this level's as a new one. Files are the
+                     Import/Export buttons on the right; this is the library. -->
+                <Button x:Name="BgTilemaps" Content="Tilemaps ▾"
+                        ToolTip.Tip="Saved tilemaps in this project — apply one here, or save this level's"/>
                         Background="{x:Static ui:UiColors.DeskPattern}">
             <ui:TilemapView x:Name="BgView" Margin="16"/>
           </ScrollViewer>

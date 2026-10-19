@@ -28,7 +28,7 @@ public partial class MainWindow
     /// <summary>What a stamp writes: a BG Map16 tile on layer 2, a whole BG3 word on layer 3
     /// (palette group 2 by default — the eyedropper is how any other one is picked up).</summary>
     private int bgBrush = 0x100, bgBrushL3 = 2 << 10;
-    private TextBlock bgNote = null!, bgDrawerTitle = null!;
+    private TextBlock bgDrawerTitle = null!;
     private Border bgPaletteBar = null!;
     private Button bgApplyPal = null!, bgEditPal = null!;
     private ComboBox bgPalRow = null!;
@@ -55,10 +55,9 @@ public partial class MainWindow
         // there would stack a handler per refresh. The handlers look the layer up instead.
         bgView.Painted += (_, c) => BgPaint(c.Col, c.Row);
         bgView.StrokeEnded += (_, _) => BgStrokeEnded();
-        bgView.SelectionChanged += (_, _) => RefreshBgNote();
+        bgView.SelectionChanged += (_, _) => RefreshBgPalette();
         bgView.SelectionDragged += (_, d) => BgSelectionDragged(d);
         bgSheet.Picked += (_, c) => BgBrushPicked(c.Col, c.Row);
-        bgNote = this.GetControl<TextBlock>("BgNote");
         bgDrawerTitle = this.GetControl<TextBlock>("BgDrawerTitle");
         bgPaletteBar = this.GetControl<Border>("BgPaletteBar");
         bgApplyPal = this.GetControl<Button>("BgApplyPal");
@@ -97,8 +96,8 @@ public partial class MainWindow
     /// Map16 tiles it can address in the drawer.
     ///
     /// Layer 2 shows something only when this level's layer 2 IS a background image. When it is
-    /// an object stream the pane says so and points at the Level canvas — the same division LM
-    /// draws, and the reason its own Background editor is empty on those levels.
+    /// an object stream the pane is empty — the same division LM draws, and the reason its own
+    /// Background editor is empty on those levels.
     /// </summary>
     private void RefreshBg()
     {
@@ -111,35 +110,23 @@ public partial class MainWindow
         bgView.Backdrop = session.PaletteRgba is { Length: > 0 } pal ? pal[0] : 0xFF000000u;
         bgSheet.Backdrop = bgView.Backdrop;
 
-        if (!session.HasLevel) { EmptyBg(""); return; }
+        if (!session.HasLevel) { EmptyBg(); return; }
         if (layer3) ShowBgLayer3();
         else ShowBgLayer2(canvas.Phase);
     }
 
-    /// <summary>Nothing to paint: both grids collapse and the note says why.</summary>
-    private void EmptyBg(string note)
+    /// <summary>Nothing to paint: both grids collapse.</summary>
+    private void EmptyBg()
     {
         bgView.CellAt = null; bgView.Reshape(0, 0, 16);
         bgSheet.CellAt = null; bgSheet.Reshape(0, 0, 16);
-        bgNoteBase = note; RefreshBgNote();
+        RefreshBgPalette();
     }
 
     /// <summary>Layer 3 on the canvas and its 8x8 tiles in the drawer, drawn in the brush's palette group.</summary>
     private void ShowBgLayer3()
     {
-        int opt = session.Layer3Option;
-        if (session.Layer3Map is not { } map)
-        {
-            // Two different empty states, and saying which one it is IS the fix: "no layer 3"
-            // alone left no way to tell a level that never asked for one from a level whose
-            // mode has no tilemap to give it (vanilla's table covers modes 0-14, §12b).
-            EmptyBg(opt != 0
-                ? $"{Layer3.OptionNames[opt]}, but level mode {session.Header?.LevelMode} has no tilemap for it"
-                : session.Layer3TilemapImported
-                    ? "a tilemap is imported, but this level's option is Blank Layer 3"
-                    : "no layer 3 — give this level one with Layer 3 Options");
-            return;
-        }
+        if (session.Layer3Map is not { } map) { EmptyBg(); return; }
         var palCounts = Layer3PaletteCounts(map);
         SeedBgBrushPalette(map, palCounts);
         bgView.CellAt = map.At;
@@ -153,18 +140,7 @@ public partial class MainWindow
         bgSheet.CellPixels = session.Layer3CellPixels;
         bgSheet.Selected = bgBrushL3 & 0x3FF;
         bgSheet.Reshape(SheetCols, Layer3.TileCount / SheetCols, 8);
-
-        bgNoteBase = $"{Layer3.Cols}x{Layer3.Rows} tiles — {Layer3.OptionNames[opt]}"
-                   + $", palettes {Layer3PalettesInUse(palCounts)}"
-                   // "Did my painting stick?" is answered here, because the fork is invisible
-                   // otherwise: until the first stroke this level is LOOKING AT a tilemap
-                   // every level of its mode shares, and after it the level owns one. The bar
-                   // is narrow and ellipsises, so the sentence goes in the tip below.
-                   + (session.Layer3TilemapImported ? ", own tilemap" : ", shared")
-                   + (session.Layer3Advanced is { } a3
-                      ? $", scroll {Layer3.VScrollNames[a3.VScroll]}/{Layer3.HScrollNames[a3.HScroll]}"
-                      : "");
-        RefreshBgNote();
+        RefreshBgPalette();
     }
 
     /// <summary>The layer-2 background on the canvas and the BG Map16 tiles in the drawer, at phase <paramref name="ph"/>.</summary>
@@ -172,7 +148,7 @@ public partial class MainWindow
     {
         if (session.BgMap is not { } bg)
         {
-            EmptyBg("this level's layer 2 is an object stream — edit it on the Level canvas");
+            EmptyBg();
             return;
         }
         bgView.CellAt = bg.At;
@@ -183,21 +159,14 @@ public partial class MainWindow
         bgSheet.CellPixels = t => session.BgCellPixels(t, ph);
         bgSheet.Selected = session.BgPaintable(bgBrush) & 0x1FF;   // the ring is on the tile that will LAND
         bgSheet.Reshape(SheetCols, EditorSession.BgSheetTiles / SheetCols, 16);
-
-        bgNoteBase = $"{EditorSession.BgCols}x{EditorSession.BgRows} tiles — two screens, repeats"
-                   + (session.BgTilemapEdited ? ", edited" : "")
-                   // Which page the drawer's tiles land on. Only ONE on a base without the
-                   // custom-background hook: a tile from the other page paints as this page's.
-                   + (session.BgFixedPage is { } fixedPage
-                      ? $", page {fixedPage:X2} only (upgrade the base for both)" : ", pages 80-81");
-        RefreshBgNote();
+        RefreshBgPalette();
     }
 
     /// <summary>
-    /// Which palette groups the level's tilemap ACTUALLY names, for the note. An imported map
-    /// is somebody else's file and the answer is not guessable from the level: this one turned
-    /// out to be group 3 alone, and nothing on screen said so. Cells the map never wrote (-1)
-    /// are not counted — they are the blank the build pads with, not a choice.
+    /// How many cells of the level's tilemap name each palette group, for seeding the brush. An
+    /// imported map is somebody else's file and the answer is not guessable from the level.
+    /// Cells the map never wrote (-1) are not counted — they are the blank the build pads with,
+    /// not a choice.
     /// </summary>
     private static int[] Layer3PaletteCounts(TilemapEdit map)
     {
@@ -206,12 +175,6 @@ public partial class MainWindow
             for (int c = 0; c < map.Cols; c++)
                 if (map.At(c, r) is >= 0 and var w) counts[Layer3.PaletteOf(w)]++;
         return counts;
-    }
-
-    private static string Layer3PalettesInUse(int[] counts)
-    {
-        var used = Enumerable.Range(0, counts.Length).Where(g => counts[g] > 0).ToArray();
-        return used.Length == 0 ? "none" : string.Join("/", used);
     }
 
     /// <summary>
@@ -237,33 +200,12 @@ public partial class MainWindow
     /// <summary>The drawer sheets are sixteen tiles to a row, as every other sheet here is.</summary>
     private const int SheetCols = 16;
 
-    /// <summary>What the note says apart from the lasso. Kept so a lasso DRAG can update the
-    /// note without going back through RefreshBg, which would recompose the whole grid on every
-    /// cell the cursor crosses.</summary>
-    private string bgNoteBase = "";
-
-    private void RefreshBgNote()
-    {
-        // The tip carries what the ellipsised note cannot, and it is the question people arrive
-        // with: painting a layer 3 needs no Save button of its own — the strokes ride the
-        // project like every other level edit, and the ROM gets them at the next build.
-        ToolTip.SetTip(bgNote, bgLayer3.IsChecked != true ? null
-            : session.Layer3TilemapImported
-                ? "This level has a layer-3 tilemap of its own. Painting it is saved with the "
-                + "project (Ctrl+S) and written into the ROM when you build (F4)."
-                : "This level is still showing the tilemap every level of its mode shares. The "
-                + "first stroke gives it one of its own, so painting cannot disturb the others.");
-        bgNote.Text = bgNoteBase
-                    + (bgView.Selection is { } s ? $"  —  {s.W}x{s.H} selected, right-click to stamp" : "");
-        // Every exit from RefreshBg lands here, and so does a lasso drag — which is what the
-        // Apply button's label reads, so the gutter has to follow both.
-        RefreshBgPalette();
-    }
-
     /// <summary>
     /// The Background gutter palette. Layer 3 is 2bpp, so this shows FOUR colours — the whole
     /// point of giving the mode its own strip rather than reusing the sixteen-wide one, which
-    /// would show twelve swatches the layer cannot draw and invite picking one.
+    /// would show twelve swatches the layer cannot draw and invite picking one. Every exit from
+    /// RefreshBg lands here, and so does a lasso drag — which is what the Apply button's label
+    /// reads, so the gutter has to follow both.
     ///
     /// On layer 3 the picker is live: a tilemap word carries its own palette group, so this is
     /// what the next stamp writes into bits 10-12. On layer 2 it is inert and shows the BRUSH
@@ -281,7 +223,7 @@ public partial class MainWindow
         loadingBgPalRow = true;
         bgPalRow.SelectedIndex = layer3 ? group : -1;
         loadingBgPalRow = false;
-        bgPalRow.IsEnabled = layer3;
+        bgPalRow.IsVisible = layer3;
 
         var colors = new uint[count];
         if (group >= 0 && pal.Length >= at + count)
