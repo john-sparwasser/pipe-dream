@@ -274,6 +274,48 @@ public class GpsInsertTests
         Assert.Null(GpsInsert.Description("db $42\n; print \"commented out\"\nRTL\n"));
     }
 
+    /// <summary>
+    /// A block pack whose blocks incsrc their own settings, as the key blocks do KeyBlkDef.txt:
+    /// gps.exe assembles in the folder, where those files simply are, so the import has to carry
+    /// them — the settings file and what it includes in turn — or the build fails with "file not
+    /// found" and every define they make. A shared .asm the block includes is in the folder even
+    /// though no tile runs it.
+    /// </summary>
+    [AsarFact]
+    public void a_blocks_own_include_files_come_with_the_import_and_assemble()
+    {
+        string src = Folder("200 pack/keyed.asm\n");
+        Directory.CreateDirectory(Path.Combine(src, "blocks", "pack"));
+        Directory.CreateDirectory(Path.Combine(src, "blocks", "common"));
+        File.WriteAllText(Path.Combine(src, "blocks", "pack", "Def.txt"), "!sfx = $01\nincsrc \"More.txt\"\n");
+        File.WriteAllText(Path.Combine(src, "blocks", "pack", "More.txt"), "!port = $1DFC\n");
+        File.WriteAllText(Path.Combine(src, "blocks", "common", "shared.asm"), "macro shared_set()\n\tLDA #$02 : STA $19\nendmacro\n");
+        File.WriteAllText(Path.Combine(src, "blocks", "pack", "keyed.asm"), """
+            incsrc Def.txt ; settings, as KeyBlkDef.txt
+            incsrc "../common/shared.asm"
+            db $42
+            JMP Ret : JMP Above : JMP Ret
+            JMP Ret : JMP Ret : JMP Ret : JMP Ret
+            JMP Ret : JMP Ret : JMP Ret
+            Above:
+                LDA #!sfx : STA !port
+                %shared_set()
+            Ret:
+                RTL
+            """);
+
+        Assert.Null(GpsInsert.Import(src, out var list, out var files, out var library));
+        Assert.Contains("blocks/pack/Def.txt", files.Keys);
+        Assert.Contains("blocks/pack/More.txt", files.Keys);                            // included by an include
+        Assert.DoesNotContain("blocks/common/shared.asm", files.Keys);                  // a library file already
+        Assert.Contains("common/shared.asm", library.Keys);
+
+        var rom = LmSaved();
+        var r = GpsInsert.Insert(rom, files, library, list.ToDictionary(kv => kv.Key, kv => kv.Value.File));
+        Assert.True(r.Ok, string.Join("\n", r.Errors));
+        Assert.Equal(["Mario above"], GpsBlocks.Read(rom)!.Blocks[0x200].HandledContacts);
+    }
+
     [Fact]
     public void import_reads_the_assembly_only_and_a_bad_folder_hands_nothing_over()
     {
@@ -293,6 +335,27 @@ public class GpsInsertTests
             GpsInsert.Import(Folder("200 above.asm\n201 missing.asm\n"), out list, out files, out library));
         Assert.Empty(list); Assert.Empty(files); Assert.Empty(library);
         Assert.Equal("list.txt line 1: block id out of bounds", GpsInsert.Import(Folder("1FF above.asm\n"), out _, out _, out _));
+    }
+
+    /// <summary>A project that read its gps/ folder before includes were carried has the blocks
+    /// but not the files they incsrc; opening it fills those in from the folder, once.</summary>
+    [Fact]
+    public void opening_a_project_fills_in_the_include_files_its_blocks_were_missing()
+    {
+        string dir = Directory.CreateTempSubdirectory("pipedream-proj-").FullName, rom = Path.Combine(dir, "base.sfc");
+        File.WriteAllBytes(rom, LmSaved().Data);
+        var p = Project.Create(Path.Combine(dir, "proj"), rom);
+        p.Data.GpsFiles["main.asm"] = MainAsm;                                          // read before the fix:
+        p.Data.BlockLibrary["keys/k.asm"] = "incsrc \"KeyBlkDef.txt\"\nRTL\n";           // the block, no settings
+        p.Save();
+        Directory.CreateDirectory(Path.Combine(p.GpsFolder, "blocks", "keys"));
+        File.WriteAllText(Path.Combine(p.GpsFolder, "blocks", "keys", "KeyBlkDef.txt"), "!custom_type = 1\n");
+
+        var opened = Project.Open(p.FilePath);
+        Assert.Equal("!custom_type = 1\n", opened.Data.GpsFiles["blocks/keys/KeyBlkDef.txt"]);
+        Assert.True(opened.Dirty);
+        opened.Save();
+        Assert.False(Project.Open(p.FilePath).Dirty);                                    // nothing left to fill
     }
 
     /// <summary>A project from before the library kept its import in gps/ beside the .pdp; opening

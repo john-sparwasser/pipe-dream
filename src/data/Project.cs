@@ -92,6 +92,12 @@ internal sealed class Project
             foreach (var (name, asm) in blocks) data.BlockLibrary.TryAdd(name, asm);
             p.MarkDirty();
         }
+        // Before the build carried them, that read kept the blocks but not the files they
+        // incsrc (KeyBlkDef.txt), and the build failed on them. Fill those in from the folder
+        // still beside the project; nothing to do once they are there.
+        if (Directory.Exists(p.GpsFolder) && data.GpsFiles.Count > 0)
+            foreach (var (rel, text) in GpsInsert.BlockIncludes(p.GpsFolder, data.BlockLibrary))
+                if (data.GpsFiles.TryAdd("blocks/" + rel, text)) p.MarkDirty();
         return p;
     }
 

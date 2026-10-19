@@ -71,7 +71,9 @@ public static class GpsInsert
         if (routines.Count > MaxRoutines) return Fail($"More than {MaxRoutines} routines in routines/");
 
         string gpsDir = VirtualDir, root = Path.Combine(gpsDir, "__pipedream_gps.asm");
-        var mem = gpsFiles.Concat(files.Select(f => KeyValuePair.Create("blocks/" + f, library[f])))
+        // Every library block is in the folder, not just the ones a tile runs: a block may incsrc
+        // another (a pack's shared code), which is a file to find even when no tile runs it.
+        var mem = gpsFiles.Concat(library.Select(kv => KeyValuePair.Create("blocks/" + kv.Key, kv.Value)))
             .ToDictionary(kv => Path.Combine(gpsDir, kv.Key), kv => Encoding.UTF8.GetBytes(kv.Value));
         foreach (var (name, bytes) in new Dictionary<string, byte[]>
         {
@@ -158,16 +160,46 @@ public static class GpsInsert
     }
 
     /// <summary>A GPS folder's assembly as the project keeps it: main.asm, defines.asm and
-    /// everything under routines/ by relative path, and blocks/*.asm by their path under blocks/.
-    /// Forward slashes, so a .pdp reads the same on every OS.</summary>
+    /// everything under routines/ by relative path, blocks/*.asm by their path under blocks/, and
+    /// the other text files under blocks/ those blocks include (<see cref="BlockIncludes"/>), as
+    /// "blocks/…" beside the driver. Forward slashes, so a .pdp reads the same on every OS.</summary>
     internal static (Dictionary<string, string> GpsFiles, Dictionary<string, string> Blocks) ReadFolder(string dir)
     {
         var files = new Dictionary<string, string>();
         foreach (var f in new[] { "main.asm", "defines.asm" })
             if (File.Exists(Path.Combine(dir, f))) files[f] = File.ReadAllText(Path.Combine(dir, f));
         foreach (var (rel, text) in Tree(dir, "routines", "*")) files["routines/" + rel] = text;
-        return (files, Tree(dir, "blocks", "*.asm").ToDictionary());
+        var blocks = Tree(dir, "blocks", "*.asm").ToDictionary();
+        foreach (var (rel, text) in BlockIncludes(dir, blocks)) files["blocks/" + rel] = text;
+        return (files, blocks);
     }
+
+    /// <summary>
+    /// The text files under blocks/ that the blocks pull in with incsrc and that are not blocks
+    /// themselves — a key-block pack's KeyBlkDef.txt, say — by path under blocks/, following
+    /// includes of includes. gps.exe assembles in the folder, where they simply are; the build
+    /// assembles from memory, so they have to be carried, or the block fails with "file not
+    /// found" and every define the file made. A path that leaves blocks/ is the driver's
+    /// (defines.asm, kept already); incbin's binary files are not carried.
+    /// </summary>
+    internal static IEnumerable<(string Rel, string Text)> BlockIncludes(string dir, IReadOnlyDictionary<string, string> blocks)
+    {
+        string root = Path.GetFullPath(Path.Combine(dir, "blocks"));
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var work = new Queue<(string Name, string Text)>(blocks.Select(kv => (kv.Key, kv.Value)));
+        while (work.TryDequeue(out var file))
+            foreach (Match m in Incsrc.Matches(file.Text))
+            {
+                string full = Path.GetFullPath(Path.Combine(root, Path.GetDirectoryName(file.Name) ?? "", m.Groups[1].Value.Trim()));
+                string rel = Path.GetRelativePath(root, full).Replace('\\', '/');
+                if (rel.StartsWith("..") || blocks.ContainsKey(rel) || !File.Exists(full) || !seen.Add(rel)) continue;
+                string text = File.ReadAllText(full);
+                work.Enqueue((rel, text));
+                yield return (rel, text);
+            }
+    }
+
+    private static readonly Regex Incsrc = new(@"^[ \t]*incsrc[ \t]+""?([^""\r\n;]+)""?", RegexOptions.Multiline | RegexOptions.IgnoreCase);
 
     private static IEnumerable<(string Rel, string Text)> Tree(string dir, string sub, string pattern)
     {
