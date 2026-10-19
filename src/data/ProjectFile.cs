@@ -77,6 +77,33 @@ public sealed class ProjectFile
         public Dictionary<string, byte[]> Files { get; set; } = new();
     }
 
+    /// <summary>The custom sprites the project has (reference/PIXI_PORT.md): name → the sprite's
+    /// config, ASM and included files. A sprite in no slot (<see cref="SpriteSlots"/>) stays here
+    /// and is not inserted.</summary>
+    public Dictionary<string, SpriteEntry> Sprites { get; set; } = new();
+
+    /// <summary>Which sprite runs in which slot: "1A" (global, 00-DF) or "105:B0" (level 105's
+    /// B0-BF) → a name in <see cref="Sprites"/>. What PIXI reads from list.txt; one sprite may
+    /// sit in several slots.</summary>
+    public Dictionary<string, string> SpriteSlots { get; set; } = new();
+
+    /// <summary>What every sprite assembles with, as imported from a PIXI folder: path
+    /// ("routines/GetDrawInfo.asm", "ExtraDefines/x.asm", "sprites/_header.asm") → source.
+    /// The user's own files: Pipe Dream ships none of PIXI's (it is GPL).</summary>
+    public Dictionary<string, string> PixiFiles { get; set; } = new();
+
+    public sealed class SpriteEntry
+    {
+        /// <summary>"sprite", "shooter" or "generator": which slots it can take (00-BF, C0-CF,
+        /// D0-DF) and which folder's _header.asm it assembles with.</summary>
+        public string Kind { get; set; } = "sprite";
+        /// <summary>PIXI's JSON (<see cref="PixiConfig"/>); a .cfg is converted at import.</summary>
+        public string Config { get; set; } = "";
+        public string Source { get; set; } = "";
+        /// <summary>What the ASM includes: path relative to it → bytes, as a patch's.</summary>
+        public Dictionary<string, byte[]> Files { get; set; } = new();
+    }
+
     /// <summary>LM ExAnimation (reference/EXANIMATION.md): the encoded record per level (key =
     /// level hex, value = ExAnimation.Encode hex, alt-file index in its header) and the global
     /// list's. Source files 60-63 live in <see cref="Gfx"/> under their ids.</summary>

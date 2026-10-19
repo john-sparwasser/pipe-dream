@@ -83,6 +83,15 @@ Each phase ends shippable.
   list, new, import, set config, set source, delete, assign slot — each returning a status.
 - Tests: CFG → JSON for every field; JSON round trip byte-identical on PIXI's own examples;
   folder import (list.txt with per-level lines, shooters, generators, includes).
+- **Status (2026-10-19): done.** `data/PixiConfig.cs` (parse, write, `FromCfg`; the tweaker
+  fields are a table of PIXI's names and bits), `data/PixiImport.cs` (slots, one sprite, a
+  folder), `ProjectFile.Sprites`/`SpriteSlots`/`PixiFiles`, `services/EditorSession.CustomSprites.cs`,
+  `tests/PixiTests.cs`. The round trip is ours, not PIXI's: written JSON reads back and writes
+  again byte for byte, laid out as PIXI's example (two-space indent, every key); a file from
+  elsewhere is normalised to that layout on import, keys we do not model dropped. A sprite keeps
+  its file's name ("sub/thing" from a subfolder); a shooter sharing a sprite's name becomes
+  "name (shooter)". A .cfg gets the two "(extra bit clear/set)" list entries PIXI shows it under.
+  Cluster, extended and the misc sections of list.txt are skipped with a count.
 
 ### 2. Our driver and the build step
 - `data/spritedriver/`: hooks, tables and the `STSD` header for normal sprites, per-level
