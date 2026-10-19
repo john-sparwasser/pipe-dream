@@ -15,12 +15,14 @@ public sealed class SpriteOverlay
     private SpriteOverlay((Sprite, List<SpriteRender.Oam>?)[] items, byte[][]? sp, bool vert, bool pixi)
     { this.items = items; this.sp = sp; this.vert = vert; this.pixi = pixi; }
 
-    public static SpriteOverlay Build(Rom rom, SpriteData sprites, LevelHeader h, int level)
+    /// <param name="customSprites">The project inserts custom sprites at build (our driver, not in
+    /// the base), so extra bits 2/3 mean a custom sprite even on a base without PIXI's hook.</param>
+    public static SpriteOverlay Build(Rom rom, SpriteData sprites, LevelHeader h, int level, bool customSprites = false)
     {
         byte[][]? sp = null;
         try { sp = SpriteRender.LoadSpTiles(rom, h, level); } catch { }
         bool vert = rom.IsVerticalMode(h.LevelMode);
-        bool pixi = rom.HasPixiSpriteHook;
+        bool pixi = rom.HasPixiSpriteHook || customSprites;
         var items = new (Sprite, List<SpriteRender.Oam>?)[sprites.Sprites.Count];
         for (int i = 0; i < items.Length; i++)
         {

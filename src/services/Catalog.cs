@@ -28,7 +28,12 @@ public sealed class CatalogItem
     public int W { get; init; } = 1;
     public int H { get; init; } = 1;
 
-    public string Label => $"{Number:X2}  {Name}";
+    /// <summary>A custom sprite's placement (reference/PIXI_PORT.md): extra bits 2, or 3 with LM's
+    /// extra bit, and the extra bytes its Lunar Magic list entry gives it. 0 and null for SMW's own.</summary>
+    public int Extra { get; init; }
+    public byte[]? ExtraBytes { get; init; }
+
+    public string Label => Extra >= 2 ? $"{Number:X2}  {Name}  · custom" : $"{Number:X2}  {Name}";
 }
 
 /// <summary>

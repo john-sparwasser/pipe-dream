@@ -59,7 +59,8 @@ public partial class MainWindow
         SpawnOverlay? overlay = null;
         if (on && session.Rom is { } r && session.HasLevel)
         {
-            var thumbs = session.SpriteCatalog().Items.ToDictionary(i => i.Number, i => i.Thumb);
+            // SMW's own sprites only: a custom one shares its number, and spawns are vanilla.
+            var thumbs = session.SpriteCatalog().Items.Where(i => i.Extra < 2).ToDictionary(i => i.Number, i => i.Thumb);
             overlay = new SpawnOverlay(
                 tile => Map16Tiles.SpawnOf(tile) ?? (r.ActsAs(tile) is var a && a != tile ? Map16Tiles.SpawnOf(a) : null),
                 n => thumbs.GetValueOrDefault(n));

@@ -148,6 +148,10 @@ public class LevelView : Control
     /// <summary>Sprite number armed from the catalog, or -1. Right-click places it.</summary>
     public int CatalogSprite { get; set; } = -1;
 
+    /// <summary>The armed sprite's extra bits and bytes: a custom sprite's list entry gives them;
+    /// (0, null) is SMW's own, sized by the size table.</summary>
+    public (int Extra, byte[]? Bytes) CatalogSpriteData { get; set; }
+
     /// <summary>Object number armed from the Objects catalog, or -1. Right-click places it
     /// INSTEAD of stamping the tile brush; arming one is explicit, so it wins.</summary>
     public int CatalogObject { get; set; } = -1;
@@ -408,7 +412,9 @@ public class LevelView : Control
             // Same rule as objects: right-click places, Ctrl+right duplicates.
             bool did = Hotkeys.Command(e.KeyModifiers) && sp.Selection.Count > 0
                      ? sp.DuplicateSelected(cell.X, cell.Y)
-                     : CatalogSprite >= 0 && sp.Place(CatalogSprite, cell.X, cell.Y);
+                     : CatalogSprite >= 0 && (CatalogSpriteData.Extra >= 2
+                         ? sp.Place(CatalogSprite, cell.X, cell.Y, CatalogSpriteData.Extra, CatalogSpriteData.Bytes)
+                         : sp.Place(CatalogSprite, cell.X, cell.Y));
             if (did) SpritesChanged?.Invoke(this, EventArgs.Empty);
         }
         else if (props.IsLeftButtonPressed)

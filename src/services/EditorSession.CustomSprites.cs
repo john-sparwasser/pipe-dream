@@ -40,8 +40,7 @@ public sealed partial class EditorSession
         catch (FormatException e) { return Report2($"{name}: config not saved: {e.Message}"); }
         if (s.Config == json) return Status;
         s.Config = json;
-        Project.MarkDirty();
-        return Report2($"{name} config saved");
+        return Report2(Dirty($"{name} config saved"));
     }
 
     /// <summary>A sprite's ASM, or null.</summary>
@@ -98,7 +97,7 @@ public sealed partial class EditorSession
         foreach (var (name, entry) in f!.Sprites) d.Sprites[name] = entry;
         foreach (var (slot, name) in f.Slots) d.SpriteSlots[slot] = name;
         foreach (var (path, text) in f.Files) d.PixiFiles[path] = text;
-        Project.MarkDirty();
+        Dirty("");
         string status = $"imported {f.Sprites.Count} sprite(s) into {f.Slots.Count} slot(s), {f.Files.Count} shared file(s)";
         if (f.Problems.Count > 0) status += "; " + string.Join("; ", f.Problems);
         return Report2(status);
@@ -163,9 +162,49 @@ public sealed partial class EditorSession
         return Report2(Dirty($"deleted {name}"));
     }
 
+    /// <summary>
+    /// The custom sprites this level can place, for the Sprites catalog: every Lunar Magic list
+    /// entry (the config's Collection) of each sprite in a global slot or this level's own B0-BF,
+    /// as the number with the custom extra bits (3 for an entry with the extra bit) and the entry's
+    /// extra bytes, as many as the config gives that extra bit. A sprite with no entries is listed
+    /// once under its name. A level's own sprite hides the global one in its slot, as in the game.
+    /// </summary>
+    private IEnumerable<CatalogItem> CustomSpriteCatalog()
+    {
+        if (Project is null) return [];
+        var slots = new SortedDictionary<int, string>();
+        foreach (var (slot, name) in Project.Data.SpriteSlots.Where(s => !s.Key.Contains(':')))
+            slots[Convert.ToInt32(slot, 16)] = name;
+        string level = $"{LevelNum:X3}:";
+        foreach (var (slot, name) in Project.Data.SpriteSlots.Where(s => s.Key.StartsWith(level)))
+            slots[Convert.ToInt32(slot[level.Length..], 16)] = name;
+        bool perLevel = Project.Data.SpriteSlots.Keys.Any(k => k.Contains(':'));
+        var items = new List<CatalogItem>();
+        foreach (var (n, name) in slots)
+        {
+            if (FindSprite(name) is not { Kind: "sprite" } s) continue;
+            PixiConfig c;
+            try { c = PixiConfig.Parse(s.Config); }
+            catch (FormatException) { continue; }
+            var entries = c.Collection.Count > 0 ? c.Collection : [new PixiConfig.CollectionEntry { Name = name }];
+            foreach (var e in entries)
+            {
+                // With per-level sprites in the project, every B0-BF record is 4 extra bytes (SpriteInsert).
+                int count = n is >= 0xB0 and <= 0xBF && perLevel ? 4 : e.ExtraBit ? c.ExtraBytesSet : c.ExtraBytes;
+                items.Add(new CatalogItem
+                {
+                    Number = n, Name = e.Name.Length > 0 ? e.Name : name,
+                    Extra = e.ExtraBit ? 3 : 2, ExtraBytes = count > 0 ? e.Bytes[..Math.Min(count, 12)] : null,
+                });
+            }
+        }
+        return items;
+    }
+
     private ProjectFile.SpriteEntry? FindSprite(string name) => Project?.Data.Sprites.GetValueOrDefault(name);
 
-    private string Dirty(string status) { Project!.MarkDirty(); return status; }
+    /// <summary>Mark the project edited, and drop the sprite catalog: it lists the library.</summary>
+    private string Dirty(string status) { Project!.MarkDirty(); spriteCatalog = null; return status; }
 
     private string AddSprite(string name, ProjectFile.SpriteEntry entry, out string? made)
     {

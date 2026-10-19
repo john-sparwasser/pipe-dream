@@ -291,4 +291,40 @@ public class PixiTests
         Assert.True(w.GetControl<Button>("ConfigButton").IsEnabled);
         w.Close();
     }
+
+    /// <summary>The Sprites catalog offers each slotted custom sprite under its Lunar Magic list
+    /// names, with the custom extra bits (3 for an extra-bit entry) and the entry's extra bytes,
+    /// and placing one keeps them. A level's own B0 shows only in that level.</summary>
+    [Fact]
+    public void the_sprite_catalog_offers_custom_sprites_by_their_list_names()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla)) return;
+        string dir = Directory.CreateTempSubdirectory("pipedream-proj-").FullName;
+        var s = new Services.EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), ReferenceRoms.Vanilla), s.Status);
+        var c = PixiConfig.Parse(Json);                                   // two extra bytes clear, four set
+        c.Collection.Add(new PixiConfig.CollectionEntry { Name = "Thing, fast", ExtraBit = true, Bytes = [1, 2, 3, 4, 5, 0, 0, 0, 0, 0, 0, 0] });
+        s.NewCustomSprite("thing", "sprite", out _);
+        s.SetCustomSpriteConfig("thing", c.ToJson());
+        s.SetCustomSpriteSlots("thing", "1A");
+        s.NewCustomSprite("local", "sprite", out _);
+        s.SetCustomSpriteSlots("local", "106:B0");
+        s.ShowLevel(0x105);
+
+        var custom = s.SpriteCatalog().Items.Where(i => i.Extra >= 2).ToList();
+        Assert.Equal(["1A  Thing  · custom", "1A  Thing, fast  · custom"], custom.Select(i => i.Label));
+        Assert.Equal(2, custom[0].Extra);
+        Assert.Equal([7, 9], custom[0].ExtraBytes);
+        Assert.Equal(3, custom[1].Extra);
+        Assert.Equal([1, 2, 3, 4], custom[1].ExtraBytes);
+        Assert.Contains(s.SpriteCatalog().Items, i => i.Number == 0x1A && i.Extra == 0);   // SMW's 1A is still there
+
+        Assert.True(s.Sprites!.Place(0x1A, 20, 10, custom[1].Extra, custom[1].ExtraBytes));
+        var placed = s.Sprites.Sprites.Sprites[^1];
+        Assert.Equal((0x1A, 3), (placed.Number, placed.Extra));
+        Assert.Equal([1, 2, 3, 4], placed.ExtraBytes);
+
+        s.ShowLevel(0x106);
+        Assert.Contains(s.SpriteCatalog().Items, i => i.Number == 0xB0 && i.Extra == 2);
+    }
 }

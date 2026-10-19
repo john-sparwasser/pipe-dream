@@ -87,6 +87,15 @@ public sealed class SpriteEdit(SpriteData sprites, SpriteOverlay? overlay, bool 
         return Commit();
     }
 
+    /// <summary>Place a sprite with its extra bits and bytes given: a custom sprite from the
+    /// catalog, whose list entry says what they are.</summary>
+    public bool Place(int number, int cx, int cy, int extra, byte[]? extraBytes)
+    {
+        Snapshot();
+        Sprites.Sprites.Add(At(number, extra, cx, cy, vertical, extraBytes is { Length: > 0 } ? [.. extraBytes] : null));
+        return Commit();
+    }
+
     /// <summary>Rewrite what one sprite IS — number, extra bits, extra bytes — keeping its cell.
     /// LM's "insert manually" fields; the size table follows at build time.</summary>
     public bool SetData(int i, int number, int extra, byte[]? extraBytes)

@@ -11,6 +11,7 @@ namespace PipeDream.Ui;
 /// </summary>
 public sealed class CatalogRow(CatalogItem item)
 {
+    public CatalogItem Item => item;
     public int Number => item.Number;
     public string Label => item.Label;
     public bool Loaded => item.Loaded;

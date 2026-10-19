@@ -158,6 +158,7 @@ public partial class MainWindow
         {
             if (spriteList.SelectedItem is not CatalogRow it) { canvas.CatalogSprite = -1; return; }
             canvas.CatalogSprite = it.Number;
+            canvas.CatalogSpriteData = (it.Item.Extra, it.Item.ExtraBytes);
         };
         objectList.SelectionChanged += (_, _) =>
         {
@@ -267,12 +268,16 @@ public partial class MainWindow
     {
         if (spriteCatalog is null) return;
         int armed = canvas.CatalogSprite;
+        var armedData = canvas.CatalogSpriteData;
+        string? armedLabel = (spriteList.SelectedItem as CatalogRow)?.Label;
         spriteList.ItemsSource = loadedOnly.IsChecked == true
             ? spriteCatalog.Where(i => i.Loaded).ToList() : spriteCatalog;
-        // Re-select whatever was armed, so toggling the filter does not silently unarm it.
+        // Re-select whatever was armed, so toggling the filter does not silently unarm it. A
+        // custom sprite shares its number with SMW's, so the label tells them apart.
         spriteList.SelectedItem = spriteList.ItemsSource!.Cast<CatalogRow>()
-                                            .FirstOrDefault(i => i.Number == armed);
+                                            .FirstOrDefault(i => i.Number == armed && (armedLabel is null || i.Label == armedLabel));
         canvas.CatalogSprite = armed;
+        canvas.CatalogSpriteData = armedData;
     }
 
     /// <summary>Object thumbnails come from running the object engine once per object number,

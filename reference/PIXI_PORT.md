@@ -149,6 +149,17 @@ Each phase ends shippable.
 - The Sprites catalog lists the project's custom sprites by their `Collection` names; placing
   one sets the extra bit and the collection's extra bytes; the overlay draws its `Displays`
   instead of the red X.
+- **Status (2026-10-19): done but the drawing.** `ui/CustomSpritesWindow` (ASM ▸ Custom
+  sprites…): New (sprite, shooter or generator), Import of .json/.cfg or a PIXI folder, Slots…
+  as a list ("1A, 105:B0"), Edit ASM, Edit config (the JSON, in the block editor, until phase
+  4), Open in the text editor, Remove. The Sprites catalog adds one item per Collection entry of
+  each sprite in a global slot or the level's own B0-BF, labelled "· custom", carrying extra
+  bits 2 (3 with the extra bit) and the entry's bytes; placing it keeps them. A custom sprite
+  shares its number with SMW's, so the drawer re-arms by label and the spawn overlay's
+  thumbnails keep to SMW's. The level overlay draws a custom placement as the custom-sprite box
+  whenever the project has custom sprites (the base never has our driver, so `HasPixiSpriteHook`
+  alone said "vanilla sprite" and emulated the wrong one). Drawing `Displays` waits on open
+  question 1.
 
 ### 4. The sprite editor
 - Extract `SpriteTilesWindow`'s preview, tile list and sheet into a shared control.

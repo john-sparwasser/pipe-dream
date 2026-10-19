@@ -709,7 +709,7 @@ public sealed partial class EditorSession
     {
         if (Rom is null || Scene is null) return ([], []);
         if (spriteCatalog is null)
-            spriteCatalog = Catalog.Sprites(Rom, Scene, LevelNum, out spriteFiles);
+            spriteCatalog = [.. Catalog.Sprites(Rom, Scene, LevelNum, out spriteFiles), .. CustomSpriteCatalog()];
         return (spriteCatalog, spriteFiles);
     }
 
