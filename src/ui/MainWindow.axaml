@@ -587,9 +587,6 @@
             <!-- Object catalog: thumbnails are composed from the cells each object really
                  writes in THIS tileset, so an irregular object looks like itself. -->
             <DockPanel x:Name="ObjectPanel" IsVisible="False">
-              <Border DockPanel.Dock="Top" Padding="10,8" Background="{DynamicResource SurfaceBrush}">
-                <TextBlock x:Name="ObjectHint" Classes="dim" TextWrapping="Wrap"/>
-              </Border>
               <ListBox x:Name="ObjectList" Classes="catalog" Background="Transparent" BorderThickness="0">
                 <ListBox.ItemTemplate>
                   <DataTemplate>

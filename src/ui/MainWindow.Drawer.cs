@@ -25,7 +25,7 @@ public partial class MainWindow
 
     private ListBox spriteList = null!, objectList = null!;
     private CheckBox loadedOnly = null!;
-    private TextBlock spFilesLabel = null!, objectHint = null!;
+    private TextBlock spFilesLabel = null!;
 
     /// <summary>The left drawer: the Tiles bank and lasso, the sprite/object tabs, the Palette pane, and the pane sizing.</summary>
     private void WireDrawer()
@@ -62,7 +62,6 @@ public partial class MainWindow
         objectList = this.GetControl<ListBox>("ObjectList");
         loadedOnly = this.GetControl<CheckBox>("LoadedOnly");
         spFilesLabel = this.GetControl<TextBlock>("SpFiles");
-        objectHint = this.GetControl<TextBlock>("ObjectHint");
 
         palettePanel = this.GetControl<DockPanel>("PalettePanel");
         paletteLayer3 = this.GetControl<CheckBox>("PaletteLayer3");
@@ -279,15 +278,11 @@ public partial class MainWindow
     private void EnsureObjectCatalog()
     {
         if (objectCatalog is not null && objectCatalogTileset == session.Tileset) return;
-        var sw = System.Diagnostics.Stopwatch.StartNew();
         var items = session.ObjectCatalog();
         if (items.Count == 0) return;
         objectCatalog = CatalogRow.Wrap(items);
         objectCatalogTileset = session.Tileset;
         objectList.ItemsSource = objectCatalog;
-        objectHint.Text = $"tileset {objectCatalogTileset} — {objectCatalog.Count} objects, "
-                        + $"ready in {sw.Elapsed.TotalMilliseconds:F0}ms. "
-                        + "Select one, then right-click the level to place it.";
     }
 
     private List<CatalogRow>? spriteCatalog, objectCatalog;
