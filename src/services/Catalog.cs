@@ -60,7 +60,7 @@ public static class Catalog
         {
             spFiles = SpriteRender.ResolveSpFiles(rom, scene.Level.Header, levelNum);
             var sp = SpriteRender.LoadSpTiles(rom, scene.Level.Header, levelNum);
-            const int cell = 32;
+            const int cell = ThumbSize;
             foreach (int num in SpriteDisplay.Numbers)
             {
                 uint[]? thumb = null;
@@ -84,6 +84,18 @@ public static class Catalog
         }
         catch { /* a level whose sprite GFX will not decode still gets a usable name list */ }
         return items;
+    }
+
+    public const int ThumbSize = 32;
+
+    /// <summary>A custom sprite's thumbnail: one of its config's displays, placed in the cell as a
+    /// vanilla sprite's capture is; null without a display or a palette.</summary>
+    public static uint[]? CustomThumb(PixiConfig c, PixiConfig.Display? d, byte[][] tiles, Palette? pal)
+    {
+        if (d is null || pal is null) return null;
+        var thumb = new uint[ThumbSize * ThumbSize];
+        SpriteRender.Draw(thumb, ThumbSize, ThumbSize, SpriteMap16.Oam(d, c.Map16, 8, 16), tiles, pal);
+        return thumb;
     }
 
     /// <summary>

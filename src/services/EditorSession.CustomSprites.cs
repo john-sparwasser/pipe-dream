@@ -171,40 +171,65 @@ public sealed partial class EditorSession
     /// </summary>
     private IEnumerable<CatalogItem> CustomSpriteCatalog()
     {
-        if (Project is null) return [];
-        var slots = new SortedDictionary<int, string>();
-        foreach (var (slot, name) in Project.Data.SpriteSlots.Where(s => !s.Key.Contains(':')))
-            slots[Convert.ToInt32(slot, 16)] = name;
-        string level = $"{LevelNum:X3}:";
-        foreach (var (slot, name) in Project.Data.SpriteSlots.Where(s => s.Key.StartsWith(level)))
-            slots[Convert.ToInt32(slot[level.Length..], 16)] = name;
+        if (Project is null || Rom is null || Scene is null) return [];
         bool perLevel = Project.Data.SpriteSlots.Keys.Any(k => k.Contains(':'));
+        var tiles = SpriteRender.LoadMap16Tiles(Rom, SpriteRender.ResolveSpFiles(Rom, Scene.Level.Header, LevelNum));
         var items = new List<CatalogItem>();
-        foreach (var (n, name) in slots)
+        foreach (var (n, (name, kind, c)) in LevelCustomSprites())
         {
-            if (FindSprite(name) is not { Kind: "sprite" } s) continue;
-            PixiConfig c;
-            try { c = PixiConfig.Parse(s.Config); }
-            catch (FormatException) { continue; }
+            if (kind != "sprite") continue;
             var entries = c.Collection.Count > 0 ? c.Collection : [new PixiConfig.CollectionEntry { Name = name }];
             foreach (var e in entries)
             {
                 // With per-level sprites in the project, every B0-BF record is 4 extra bytes (SpriteInsert).
                 int count = n is >= 0xB0 and <= 0xBF && perLevel ? 4 : e.ExtraBit ? c.ExtraBytesSet : c.ExtraBytes;
+                var bytes = count > 0 ? e.Bytes[..Math.Min(count, 12)] : null;
                 items.Add(new CatalogItem
                 {
                     Number = n, Name = e.Name.Length > 0 ? e.Name : name,
-                    Extra = e.ExtraBit ? 3 : 2, ExtraBytes = count > 0 ? e.Bytes[..Math.Min(count, 12)] : null,
+                    Extra = e.ExtraBit ? 3 : 2, ExtraBytes = bytes,
+                    Thumb = Catalog.CustomThumb(c, SpriteMap16.Pick(c, e.ExtraBit, bytes, 0, 0), tiles, Scene.Palettes[0]),
+                    Size = Catalog.ThumbSize,
                 });
             }
         }
         return items;
     }
 
+    /// <summary>The custom sprites this level runs, by number: each global slot, then the level's
+    /// own B0-BF, which hide the global one in their slot, as in the game. Sprites whose config does
+    /// not parse are left out.</summary>
+    private SortedDictionary<int, (string Name, string Kind, PixiConfig Config)> LevelCustomSprites()
+    {
+        var found = new SortedDictionary<int, (string, string, PixiConfig)>();
+        if (Project is null) return found;
+        string level = $"{LevelNum:X3}:";
+        foreach (var (slot, name) in Project.Data.SpriteSlots.Where(s => !s.Key.Contains(':'))
+                                     .Concat(Project.Data.SpriteSlots.Where(s => s.Key.StartsWith(level))))
+        {
+            if (FindSprite(name) is not { } s) continue;
+            try { found[Convert.ToInt32(slot[(slot.IndexOf(':') + 1)..], 16)] = (name, s.Kind, PixiConfig.Parse(s.Config)); }
+            catch (FormatException) { }
+        }
+        return found;
+    }
+
+    /// <summary>The configs the level overlay draws custom placements from, by number; null when the
+    /// project inserts no custom sprites, so extra bits 2/3 stay whatever the base makes them.</summary>
+    private IReadOnlyDictionary<int, PixiConfig>? LevelCustomConfigs()
+        => Project?.Data.SpriteSlots.Count > 0 ? LevelCustomSprites().ToDictionary(p => p.Key, p => p.Value.Config) : null;
+
     private ProjectFile.SpriteEntry? FindSprite(string name) => Project?.Data.Sprites.GetValueOrDefault(name);
 
-    /// <summary>Mark the project edited, and drop the sprite catalog: it lists the library.</summary>
-    private string Dirty(string status) { Project!.MarkDirty(); spriteCatalog = null; return status; }
+    /// <summary>Mark the project edited, drop the sprite catalog, which lists the library, and redraw
+    /// the level's sprites, whose custom ones draw from it.</summary>
+    private string Dirty(string status)
+    {
+        Project!.MarkDirty();
+        spriteCatalog = null;
+        if (Sprites is not null) RefreshSprites();
+        return status;
+    }
 
     private string AddSprite(string name, ProjectFile.SpriteEntry entry, out string? made)
     {

@@ -15,23 +15,33 @@ public sealed class SpriteOverlay
     private SpriteOverlay((Sprite, List<SpriteRender.Oam>?)[] items, byte[][]? sp, bool vert, bool pixi)
     { this.items = items; this.sp = sp; this.vert = vert; this.pixi = pixi; }
 
-    /// <param name="customSprites">The project inserts custom sprites at build (our driver, not in
-    /// the base), so extra bits 2/3 mean a custom sprite even on a base without PIXI's hook.</param>
-    public static SpriteOverlay Build(Rom rom, SpriteData sprites, LevelHeader h, int level, bool customSprites = false)
+    /// <param name="custom">The configs of the custom sprites this level can place, by number, when
+    /// the project inserts custom sprites at build (our driver, not in the base): extra bits 2/3
+    /// then mean a custom sprite even on a base without PIXI's hook, drawn from its Displays.</param>
+    public static SpriteOverlay Build(Rom rom, SpriteData sprites, LevelHeader h, int level,
+                                      IReadOnlyDictionary<int, PixiConfig>? custom = null)
     {
         byte[][]? sp = null;
-        try { sp = SpriteRender.LoadSpTiles(rom, h, level); } catch { }
+        try { sp = SpriteRender.LoadMap16Tiles(rom, SpriteRender.ResolveSpFiles(rom, h, level)); } catch { }
         bool vert = rom.IsVerticalMode(h.LevelMode);
-        bool pixi = rom.HasPixiSpriteHook || customSprites;
+        bool pixi = rom.HasPixiSpriteHook || custom is not null;
         var items = new (Sprite, List<SpriteRender.Oam>?)[sprites.Sprites.Count];
         for (int i = 0; i < items.Length; i++)
         {
             var s = sprites.Sprites[i];
             var (cx, cy) = s.Cell(vert);
             List<SpriteRender.Oam>? oam = null;
-            // PIXI custom sprites (extra bits 2/3) stay null: their editor look is defined
-            // by LM's .ssc/.dsc metadata, which we don't read — Draw shows a red-X box.
-            if (sp is not null && !s.IsScrollCommand && !(pixi && s.Extra >= 2))
+            // A custom sprite (extra bits 2/3) draws its config's display, as Lunar Magic does. One
+            // with no config here (a base's own PIXI sprites, whose look is in LM's .ssc, which we
+            // don't read) stays null, and Draw shows a red-X box.
+            if (pixi && s.Extra >= 2 && !s.IsScrollCommand)
+            {
+                if (custom?.GetValueOrDefault(s.Number) is { } c
+                    && SpriteMap16.Pick(c, (s.Extra & 1) != 0, s.ExtraBytes, cx, cy) is { } d
+                    && SpriteMap16.Oam(d, c.Map16, cx * 16, cy * 16) is { Count: > 0 } drawn)
+                    oam = drawn;
+            }
+            else if (sp is not null && !s.IsScrollCommand)
             {
                 if (s.Extra < 2 && SpriteDisplay.TryGet(s.Number, out var rel))
                     oam = rel.Select(o => o with { X = o.X + cx * 16, Y = o.Y + cy * 16 }).ToList();
@@ -48,7 +58,7 @@ public sealed class SpriteOverlay
     public SpriteOverlay WithReloadedTiles(Rom rom, LevelHeader h, int level)
     {
         byte[][]? sp2 = null;
-        try { sp2 = SpriteRender.LoadSpTiles(rom, h, level); } catch { }
+        try { sp2 = SpriteRender.LoadMap16Tiles(rom, SpriteRender.ResolveSpFiles(rom, h, level)); } catch { }
         return new SpriteOverlay(items, sp2, vert, pixi);
     }
 

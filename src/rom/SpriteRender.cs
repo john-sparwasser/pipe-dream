@@ -252,6 +252,21 @@ public static class SpriteRender
         return tiles;
     }
 
+    /// <summary>SP1-SP4's tiles then GFX33's first 256, the 8x8 tiles sprite Map16 numbers 0x000-0x2FF.</summary>
+    public static byte[][] LoadMap16Tiles(Rom rom, int[] files)
+    {
+        var sp = LoadSpTiles(rom, files);
+        var tiles = new byte[0x300][];
+        sp.CopyTo(tiles, 0);
+        if (Gfx.Cached(rom, 0x33) is { } an1)
+        {
+            int bpp = Gfx.FileBpp(rom, 0x33), tb = Gfx.TileBytes(bpp);
+            for (int t = 0; t < 0x100 && t * tb + tb <= an1.Length; t++)
+                tiles[0x200 + t] = Gfx.DecodeTile(an1, t * tb, bpp);
+        }
+        return tiles;
+    }
+
     /// <summary>Draw one captured OAM list onto the canvas.</summary>
     public static void Draw(uint[] img, int W, int H, List<Oam> oam, byte[][] sp, Palette pal)
     {
@@ -266,7 +281,9 @@ public static class SpriteRender
                     // 16x16 sprites use tiles T, T+1, T+16, T+17 with flips swapping quadrants.
                     int qx = (e.Attr & 0x40) != 0 ? cells - 1 - tx : tx;
                     int qy = (e.Attr & 0x80) != 0 ? cells - 1 - ty : ty;
-                    var px = sp[(e.Tile + qx + qy * 16) & 0x1FF];
+                    // Tiles from 0x200 are past SP1-SP4: GFX33's, which only sprite Map16 draws (8x8).
+                    int ti = e.Tile >= 0x200 ? e.Tile : (e.Tile + qx + qy * 16) & 0x1FF;
+                    var px = ti < sp.Length ? sp[ti] : null;
                     if (px is null) continue;
                     int baseColor = 0x80 + ((e.Attr >> 1) & 7) * 16;
                     for (int y = 0; y < 8; y++)

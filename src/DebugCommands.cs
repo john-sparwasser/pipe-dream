@@ -40,6 +40,8 @@ static class DebugCommands
         ("--pixitrace",         PixiTrace),
         ("--sprites",           DumpSprites),
         ("--tilepng",           TilePng),
+        ("--lmspritemap16",     LmSpriteMap16),
+        ("--spritemap16png",    SpriteMap16Png),
         ("--map16def",          Map16Def),
         ("--layer3",            Layer3Png),
         // --owgfx <rom> : each submap's graphics files, as the drawer shows them — the parity read
@@ -745,6 +747,43 @@ static class DebugCommands
             string eb = s.ExtraBytes is null ? "" : " eb=" + Convert.ToHexString(s.ExtraBytes);
             Console.WriteLine($"  #{s.Number:X2} extra{s.Extra} scr{s.Screen:X2} x{s.XNibble} y{s.Y:X2}{eb}  -> {how}");
         }
+        return 0;
+    }
+
+    // --lmspritemap16 <Lunar Magic.exe> <out.bin> : take Lunar Magic's default sprite Map16 out of
+    // its executable — how src/data/SpriteMap16.bin was made (from Lunar Magic 3.40).
+    public static int LmSpriteMap16(string[] args, int i)
+    {
+        if (SpriteMap16.FindInLunarMagic(File.ReadAllBytes(args[i + 1])) is not { } table)
+        {
+            Console.WriteLine("no sprite Map16 table found");
+            return 1;
+        }
+        File.WriteAllBytes(args[i + 2], table);
+        Console.WriteLine($"wrote {args[i + 2]}: {table.Length / 8:X} tiles");
+        return 0;
+    }
+
+    // --spritemap16png <rom> <levelHex> <out.png> : every sprite Map16 tile, 16 to a row, in the
+    // level's sprite GFX and palettes (debug — for checking the table against Lunar Magic's).
+    public static int SpriteMap16Png(string[] args, int i)
+    {
+        var rom = Rom.Load(args[i + 1]);
+        int lvl = Convert.ToInt32(args[i + 2], 16);
+        var h = LevelParser.Parse(rom, lvl).Header;
+        var tiles = SpriteRender.LoadMap16Tiles(rom, SpriteRender.ResolveSpFiles(rom, h, lvl));
+        var pal = Palette.Load(rom, h, lvl);
+        const int W = 16 * 18, H = SpriteMap16.Count / 16 * 18;
+        var img = new uint[W * H];
+        Array.Fill(img, 0xFF404040);
+        var d = new PixiConfig.Display();
+        for (int n = 0; n < SpriteMap16.Count; n++)
+        {
+            d.Tiles = [new PixiConfig.Tile(0, 0, n)];
+            SpriteRender.Draw(img, W, H, SpriteMap16.Oam(d, [], n % 16 * 18 + 1, n / 16 * 18 + 1), tiles, pal);
+        }
+        Png.Write(args[i + 3], img, W, H);
+        Console.WriteLine($"wrote {args[i + 3]}");
         return 0;
     }
 

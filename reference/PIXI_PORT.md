@@ -149,7 +149,7 @@ Each phase ends shippable.
 - The Sprites catalog lists the project's custom sprites by their `Collection` names; placing
   one sets the extra bit and the collection's extra bytes; the overlay draws its `Displays`
   instead of the red X.
-- **Status (2026-10-19): done but the drawing.** `ui/CustomSpritesWindow` (ASM ▸ Custom
+- **Status (2026-10-19): done.** `ui/CustomSpritesWindow` (ASM ▸ Custom
   sprites…): New (sprite, shooter or generator), Import of .json/.cfg or a PIXI folder, Slots…
   as a list ("1A, 105:B0"), Edit ASM, Edit config (the JSON, in the block editor, until phase
   4), Open in the text editor, Remove. The Sprites catalog adds one item per Collection entry of
@@ -158,8 +158,15 @@ Each phase ends shippable.
   shares its number with SMW's, so the drawer re-arms by label and the spawn overlay's
   thumbnails keep to SMW's. The level overlay draws a custom placement as the custom-sprite box
   whenever the project has custom sprites (the base never has our driver, so `HasPixiSpriteHook`
-  alone said "vanilla sprite" and emulated the wrong one). Drawing `Displays` waits on open
-  question 1.
+  alone said "vanilla sprite" and emulated the wrong one).
+- **Drawing (2026-10-19): done.** `rom/SpriteMap16`: a placement shows its config's display
+  for its extra bit and position nibbles (or, with `ExByte`, the display whose `Index` extra
+  byte holds `Value`), else the first for its extra bit, else the first; a text display, or a
+  sprite with no config (a base's own PIXI sprites), keeps the box. Each Map16 tile is four
+  8x8 tiles drawn by `SpriteRender.Draw` from `LoadMap16Tiles` (SP1-SP4, then GFX33). The
+  catalog's custom entries get the same as thumbnails, and an edit to a config or slot redraws
+  the level's sprites. Not yet: `GFXInfo` (a display's own GFX files; the level's are used)
+  and translucency.
 
 ### 4. The sprite editor
 - Extract `SpriteTilesWindow`'s preview, tile list and sheet into a shared control.
@@ -176,10 +183,15 @@ Each phase ends shippable.
 
 ## Open questions
 
-1. **Lunar Magic's own sprite Map16.** Display tiles below `0x300` are LM's built-in sprite
-   Map16 (PIXI's example uses tile `459`); the sprite's own `Map16` only covers `0x300-0x3FF`.
-   To draw those we need LM's default `.s16` contents — capture from LM, or derive from our
-   `SpriteDisplay.json`? Must be settled before phase 3 draws Displays.
+1. **Lunar Magic's own sprite Map16 — settled (2026-10-19).** Display tiles are numbered in
+   LM's sprite Map16, `0x000-0x3FF`, which the sprite's own `Map16` replaces from `0x300`. Real
+   configs mostly use LM's (`0x030` green shell, `0x006`/`0x007`, ...). The table sits
+   uncompressed in `Lunar Magic.exe`, 0x400 tiles × 8 bytes, found by its first tiles;
+   `--lmspritemap16 <Lunar Magic.exe> <out>` wrote `src/data/SpriteMap16.bin` from LM 3.40. (LM
+   3.21's, as PIXI's CFG Editor++ embeds it in an `LM16` export, differs in two tiles, 16F and
+   21B, and stops at 0x2FF.) Tile words are FG Map16's layout, YXPCCCTT TTTTTTTT; 8x8 tiles
+   `0x000-0x1FF` are SP1-SP4 and `0x200-0x2FF` GFX33 (Yoshi is `0x080-0x0A3`).
+   `--spritemap16png <rom> <level> <out>` draws the whole table.
 2. **Clean-room boundary.** The driver is written from this file's format facts. Anyone
    writing it should not have PIXI's `main.asm` open; the facts above are what to work from,
    and gaps go to Mesen or the SMW disassembly, not to PIXI's source.

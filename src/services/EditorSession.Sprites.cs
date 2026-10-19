@@ -33,7 +33,7 @@ public sealed partial class EditorSession
     private void DrawSprites(SpriteData sprites)
     {
         if (Rom is null || Scene is null) return;
-        var overlay = SpriteOverlay.Build(Rom, sprites, Scene.Level.Header, LevelNum, customSprites: Project?.Data.SpriteSlots.Count > 0);
+        var overlay = SpriteOverlay.Build(Rom, sprites, Scene.Level.Header, LevelNum, LevelCustomConfigs());
         Scene.Overlay = overlay;
         if (Sprites is not null) Sprites.Overlay = overlay;
         if (showSprites) Scene.RedrawOverlay();
