@@ -62,10 +62,15 @@ Each phase ends shippable.
   and patches share one editor. Internal to `ui/`.
 - Tests: list, toggle, reorder, remove; the editor counts problems; the architecture test
   (UI reaches the project only through `EditorSession`).
+- **Status (2026-10-19): done**, with phase 3's external editor brought forward so the window's
+  Open button works. `ui/PatchesWindow`, ASM ▸ Patches… (`OnPatches`). `BlockEditWindow` kept its
+  name and gained a `(title, text, save)` constructor; the block one delegates to it. The external
+  editor round trip (`OpenExternally`) is shared, keyed `block:`/`patch:` so a block and a patch of
+  the same name do not collide.
 
 ### 3. Includes and external editing
 - Edit / add / remove a patch's included files from the window.
-- Open in external editor, edits pulled back on `Tick`, as blocks.
+- ~~Open in external editor, edits pulled back on `Tick`, as blocks.~~ Done in phase 2.
 
 ## Open questions
 

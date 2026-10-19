@@ -9,9 +9,10 @@ using PipeDream.Services;
 
 namespace PipeDream.Ui;
 
-/// <summary>One library block's ASM, opened from the Blocks window's Edit: AvaloniaEdit with line
-/// numbers, <see cref="Highlighting"/>'s colours and red squiggles under syntax errors. Save writes it back into the project; Cancel,
-/// Esc and closing the window drop the edit.</summary>
+/// <summary>One file of ASM — a library block from the Blocks window, or a patch from the Patches
+/// window: AvaloniaEdit with line numbers, <see cref="Highlighting"/>'s colours and red squiggles
+/// under syntax errors. Save writes it back into the project; Cancel, Esc and closing the window
+/// drop the edit.</summary>
 public partial class BlockEditWindow : Window
 {
     /// <summary>Asar's syntax colours, from ui/Asar.xshd; read once.</summary>
@@ -25,26 +26,30 @@ public partial class BlockEditWindow : Window
         return HighlightingLoader.Load(r, HighlightingManager.Instance);
     }
 
-    private readonly EditorSession session = null!;
-    private readonly string name = "";
+    private readonly Action<string> save = _ => { };
     private TextEditor editor = null!;
     /// <summary>The syntax squiggles (<see cref="AsmLint"/>); a hint, so Save is never blocked by them.</summary>
     internal LintSquiggles Lint { get; private set; } = null!;
 
     public BlockEditWindow() => AvaloniaXamlLoader.Load(this);
 
-    internal BlockEditWindow(EditorSession session, string name) : this()
+    /// <summary>A library block's ASM.</summary>
+    internal BlockEditWindow(EditorSession session, string name)
+        : this(name, session.BlockSource(name) ?? "", asm => session.SetBlockSource(name, asm)) { }
+
+    /// <summary><paramref name="text"/> under <paramref name="title"/>; Save hands the edit to
+    /// <paramref name="save"/>.</summary>
+    internal BlockEditWindow(string title, string text, Action<string> save) : this()
     {
-        this.session = session;
-        this.name = name;
-        Title = name;
+        this.save = save;
+        Title = title;
         editor = this.GetControl<TextEditor>("Editor");
         editor.SyntaxHighlighting = Highlighting;
         editor.Options.ConvertTabsToSpaces = false;
         editor.Options.HighlightCurrentLine = true;
         foreach (var m in editor.TextArea.LeftMargins.OfType<AvaloniaEdit.Editing.LineNumberMargin>())
             m.Margin = new Avalonia.Thickness(6, 0, 10, 0);                   // air between the numbers and the code
-        editor.Text = session.BlockSource(name) ?? "";
+        editor.Text = text;
         var problems = this.GetControl<TextBlock>("Problems");
         Lint = new LintSquiggles(editor);
         void Count()
@@ -61,7 +66,7 @@ public partial class BlockEditWindow : Window
 
     private void OnSave(object? sender, RoutedEventArgs e)
     {
-        session.SetBlockSource(name, editor.Text ?? "");
+        save(editor.Text ?? "");
         Close();
     }
 

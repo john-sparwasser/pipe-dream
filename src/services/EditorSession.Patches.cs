@@ -48,6 +48,15 @@ public sealed partial class EditorSession
         return Report2(status);
     }
 
+    /// <summary>Open a patch in the user's text editor, as a block opens
+    /// (<see cref="OpenBlockExternally"/>): a temp copy, saves read back on the next <see cref="Tick"/>.</summary>
+    public string OpenPatchExternally(string name)
+    {
+        if (Project is null) return Report2("no project open");
+        if (PatchSource(name) is not { } asm) return Report2($"{name} is not in the project");
+        return OpenExternally("patch:" + name, name, asm, text => SetPatchSource(name, text));
+    }
+
     /// <summary>Turn a patch on or off. Off keeps it in the project and out of the build.</summary>
     public string SetPatchEnabled(string name, bool enabled)
     {

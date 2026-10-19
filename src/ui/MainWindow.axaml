@@ -366,9 +366,11 @@
         <MenuItem x:Name="Layer3PreviewItem" Header="Layer _3 preview" Click="OnToggleLayer3Preview"
                   ToolTip.Tip="Draw this level's layer 3 on the level canvas — behind the level, or in front when the header gives it priority"/>
       </MenuItem>
-      <!-- Assembly the build inserts into the ROM: custom blocks today (reference/GPS_PORT.md). -->
+      <!-- Assembly the build inserts into the ROM: custom blocks (reference/GPS_PORT.md) and
+           patches (reference/PATCHES.md). -->
       <MenuItem Header="_ASM">
         <MenuItem Header="Custom _blocks…" Click="OnBlocks"/>
+        <MenuItem Header="_Patches…" Click="OnPatches"/>
       </MenuItem>
       <!-- Only in a - -dev launch (the F5 profile): shortcuts for testing, never shipped UI. -->
       <MenuItem x:Name="DebugMenu" Header="De_bug" IsVisible="False">

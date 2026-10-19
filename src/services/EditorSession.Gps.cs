@@ -106,9 +106,9 @@ public sealed partial class EditorSession
         SaveConfig();
     }
 
-    /// <summary>A block open in the external editor: the temp copy it edits, and when that copy
-    /// was last read back.</summary>
-    private sealed record ExternalBlock(Project Project, string Name, string Path, DateTime Read);
+    /// <summary>A block or patch open in the external editor: the temp copy it edits, when that
+    /// copy was last read back, and where a save there goes.</summary>
+    private sealed record ExternalBlock(Project Project, string Key, string Path, DateTime Read, Action<string> Save);
     private readonly Dictionary<string, ExternalBlock> external = new();
 
     /// <summary>Open a library block in the user's text editor. The block lives in the .pdp, so the
@@ -119,13 +119,21 @@ public sealed partial class EditorSession
         if (Project is null) return Report2("no project open");
         if (BlocksLockedReason is { } locked) return Report2(locked);
         if (BlockSource(name) is not { } asm) return Report2($"{name} is not in the library");
+        return OpenExternally("block:" + name, name, asm, text => SetBlockSource(name, text));
+    }
+
+    /// <summary>Hand <paramref name="asm"/> to the user's text editor as a temp file named
+    /// <paramref name="name"/>; a save there goes to <paramref name="save"/> on the next
+    /// <see cref="Tick"/>. <paramref name="key"/> tells a block from a patch of the same name.</summary>
+    private string OpenExternally(string key, string name, string asm, Action<string> save)
+    {
         string? editor = Config.TextEditorPath;
         if (editor is not null && !File.Exists(editor) && !Directory.Exists(editor))
             return Report2($"text editor not found at {editor} — File → Preferences");
-        string path = external.TryGetValue(name, out var open) && open.Project == Project ? open.Path
-            : Path.Combine(Directory.CreateTempSubdirectory("pipedream-block-").FullName, name);
-        if (!Guard("write the block for the editor", () => File.WriteAllText(path, asm), path)) return Status;
-        external[name] = new ExternalBlock(Project, name, path, File.GetLastWriteTimeUtc(path));
+        string path = external.TryGetValue(key, out var open) && open.Project == Project ? open.Path
+            : Path.Combine(Directory.CreateTempSubdirectory("pipedream-asm-").FullName, name);
+        if (!Guard("write the file for the editor", () => File.WriteAllText(path, asm), path)) return Status;
+        external[key] = new ExternalBlock(Project!, key, path, File.GetLastWriteTimeUtc(path), save);
         try
         {
             System.Diagnostics.Process.Start(editor is null
@@ -138,17 +146,17 @@ public sealed partial class EditorSession
         return Report2($"opened {name} in {TextEditorName ?? "the default editor"}; saving there updates the project");
     }
 
-    /// <summary>Read back every externally open block whose copy was saved since the last look.</summary>
-    // ponytail: a stat per open block per frame; a FileSystemWatcher if anyone opens hundreds
+    /// <summary>Read back every externally open block or patch whose copy was saved since the last look.</summary>
+    // ponytail: a stat per open file per frame; a FileSystemWatcher if anyone opens hundreds
     private void PullExternalEdits()
     {
         foreach (var b in external.Values.ToList())
         {
-            if (b.Project != Project) { external.Remove(b.Name); continue; }
+            if (b.Project != Project) { external.Remove(b.Key); continue; }
             if (!File.Exists(b.Path) || File.GetLastWriteTimeUtc(b.Path) is var t && t == b.Read) continue;
-            external[b.Name] = b with { Read = t };
-            try { SetBlockSource(b.Name, File.ReadAllText(b.Path)); }
-            catch (IOException) { external[b.Name] = b; }                    // mid-save: next tick
+            external[b.Key] = b with { Read = t };
+            try { b.Save(File.ReadAllText(b.Path)); }
+            catch (IOException) { external[b.Key] = b; }                     // mid-save: next tick
         }
     }
 

@@ -1,3 +1,4 @@
+using Avalonia.Controls;
 using Xunit;
 
 namespace PipeDream.Tests;
@@ -196,5 +197,49 @@ public class PatchTests
         Assert.Equal("deleted fast.asm", s.DeletePatch("fast.asm"));
         Assert.Equal("fast.asm is not in the project", s.DeletePatch("fast.asm"));
         Assert.Equal(["retry_v1_2.asm"], s.Patches.Select(r => r.Name));
+    }
+
+    /// <summary>The Patches window lists the patches in build order; a row's checkbox turns one
+    /// off, Move up / Move down reorder with the ends disabled, and the editor saves into the patch.</summary>
+    [Avalonia.Headless.XUnit.AvaloniaFact]
+    public void the_patches_window_toggles_reorders_and_edits()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla)) return;
+        string dir = Directory.CreateTempSubdirectory("pipedream-proj-").FullName;
+        var s = new Services.EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), ReferenceRoms.Vanilla), s.Status);
+        s.NewPatch("first", out _);
+        s.NewPatch("second", out _);
+        s.SetPatchSource("second.asm", "; Second one\n");
+        var click = new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent);
+
+        var w = new Ui.PatchesWindow(s);
+        w.Show();
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        var list = w.GetControl<Avalonia.Controls.ListBox>("List");
+        List<Ui.PatchesWindow.Row> Rows() => [.. ((System.Collections.IEnumerable)list.ItemsSource!).Cast<Ui.PatchesWindow.Row>()];
+        Assert.Equal([new("first.asm", true, null, ""), new("second.asm", true, "Second one", "")], Rows());
+        Assert.False(w.GetControl<Avalonia.Controls.Button>("UpButton").IsEnabled);    // nothing selected
+
+        var box = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(list)
+            .OfType<Avalonia.Controls.CheckBox>().First(b => b.DataContext is Ui.PatchesWindow.Row { Name: "first.asm" });
+        box.IsChecked = false;
+        box.RaiseEvent(click);
+        Assert.False(s.Patches[0].Enabled);
+        Assert.Equal("first.asm disabled", w.GetControl<Avalonia.Controls.TextBlock>("Hint").Text);
+
+        list.SelectedIndex = 1;
+        Assert.True(w.GetControl<Avalonia.Controls.Button>("UpButton").IsEnabled);
+        Assert.False(w.GetControl<Avalonia.Controls.Button>("DownButton").IsEnabled);  // already last
+        w.GetControl<Avalonia.Controls.Button>("UpButton").RaiseEvent(click);
+        Assert.Equal(["second.asm", "first.asm"], s.Patches.Select(p => p.Name));
+        Assert.Equal("second.asm", ((Ui.PatchesWindow.Row)list.SelectedItem!).Name);   // the selection follows it
+
+        var edit = new Ui.BlockEditWindow("first.asm", s.PatchSource("first.asm")!, asm => s.SetPatchSource("first.asm", asm));
+        Assert.Equal("first.asm", edit.Title);
+        edit.GetControl<AvaloniaEdit.TextEditor>("Editor").Text = "; edited";
+        edit.GetControl<Avalonia.Controls.Button>("Save").RaiseEvent(click);
+        Assert.Equal("; edited", s.PatchSource("first.asm"));
+        w.Close();
     }
 }

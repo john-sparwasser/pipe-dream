@@ -230,6 +230,15 @@ public partial class MainWindow
         UpdateTitle();                               // assignments dirty the project
     }
 
+    /// <summary>ASM ▸ Patches: the project's Asar patches — new, import, edit, remove, turn on or
+    /// off, and reorder.</summary>
+    private async void OnPatches(object? sender, RoutedEventArgs e)
+    {
+        if (!session.HasProject) return;
+        await new PatchesWindow(session).ShowDialog(this);
+        UpdateTitle();                               // every change dirties the project
+    }
+
     private void OnUpgradePrep(object? sender, RoutedEventArgs e)
     {
         session.UpgradeBasePrep();
