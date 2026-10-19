@@ -24,7 +24,7 @@ public partial class MainWindow
     private StackPanel animGfx = null!, animBody = null!;
     private TextBlock animTitle = null!, animListTitle = null!;
     private Button animDelete = null!, animReassign = null!, animEmptyAdd = null!;
-    private CheckBox animAdvanced = null!;
+    private ToggleButton animAdvanced = null!;
     private StackPanel animPreviewBody = null!;
     private ToggleButton animLevelBtn = null!, animGlobalBtn = null!, animOverworldBtn = null!;
     private StackPanel animSubmapRow = null!;
@@ -69,7 +69,7 @@ public partial class MainWindow
             RefreshAnim();
         };
         animFile = this.GetControl<ComboBox>("AnimFile");
-        animAdvanced = this.GetControl<CheckBox>("AnimAdvanced");
+        animAdvanced = this.GetControl<ToggleButton>("AnimAdvanced");
         animAdvanced.IsCheckedChanged += (_, _) => RefreshAnim();
         animPalRow = this.GetControl<ComboBox>("AnimPalRow");
         for (int i = 0; i < 16; i++) animPalRow.Items.Add($"{i}");   // all sixteen: a destination can be sprite VRAM too

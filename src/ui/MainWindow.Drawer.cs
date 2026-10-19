@@ -36,7 +36,7 @@ public partial class MainWindow
             palette.InvalidateVisual();
         };
 
-        var pagesBox = this.GetControl<CheckBox>("PagesBox");
+        var pagesBox = this.GetControl<ToggleButton>("PagesBox");
         pagesBox.IsCheckedChanged += (_, _) =>
         {
             palette.ShowPages = pagesBox.IsChecked == true;

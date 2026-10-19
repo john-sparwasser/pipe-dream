@@ -116,6 +116,13 @@
       <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
     </Style>
 
+    <!-- Every bar's floor: a 28px row, 6px above and below it, and the 1px rule. Here rather than
+         on each bar, so an empty bar or one that pads differently (a TabStrip header) cannot come
+         out a pixel short of its neighbours. -->
+    <Style Selector="Border.bar">
+      <Setter Property="MinHeight" Value="41"/>
+    </Style>
+
     <!-- One height for everything that sits in a toolbar row. Buttons, combos and text boxes
          all have different intrinsic heights, so a row of them lands on three different
          baselines unless they are pinned to one. 28px is what the mode toggles come out at. -->
@@ -526,11 +533,12 @@
                     <ComboBoxItem Content="3 FG"/>
                     <ComboBoxItem Content="4 BG"/>
                   </ComboBox>
-                  <CheckBox x:Name="PagesBox" VerticalAlignment="Center"
-                            ToolTip.Tip="Pages — outline and number each Map16 page">
-                    <Path Data="{StaticResource IconStickyNote}" Stroke="{DynamicResource TextBrush}" StrokeThickness="1.5"
-                          StrokeLineCap="Round" StrokeJoin="Round" Width="14" Height="14" Stretch="Uniform"/>
-                  </CheckBox>
+                  <!-- A toggle button, not a checkbox: Fluent's checkbox has a 32px floor that
+                       made this footer taller than every other bar. -->
+                  <ToggleButton x:Name="PagesBox" MinWidth="34"
+                                ToolTip.Tip="Pages — outline and number each Map16 page">
+                    <Path Data="{StaticResource IconStickyNote}"/>
+                  </ToggleButton>
                   <TextBlock x:Name="SelLabel" Classes="mono" Margin="4,0,0,0"
                              VerticalAlignment="Center"/>
                 </StackPanel>
@@ -606,7 +614,7 @@
               <!-- Whose colours: the level's CGRAM, or the overworld's per-submap palettes — Lunar
                    Magic's Overworld Palette Editor with its submap drop-down. The canvas beside
                    the drawer follows the tab, so the colours are read against what they colour. -->
-              <Border DockPanel.Dock="Top" Classes="panel bar" BorderThickness="0,0,0,1" Padding="10,0" MinHeight="40">
+              <Border DockPanel.Dock="Top" Classes="panel bar" BorderThickness="0,0,0,1" Padding="10,0">
                 <TabStrip x:Name="PalScopeTabs" Classes="tabs" Background="Transparent" Padding="0" VerticalAlignment="Center">
                   <TabStrip.ItemsPanel>
                     <ItemsPanelTemplate>
@@ -911,7 +919,7 @@
                object stream format, so the whole editor works on it unchanged — this only says
                which one is active. -->
           <Border x:Name="LevelEditorBar" DockPanel.Dock="Top" Classes="panel bar"
-                  BorderThickness="0,0,0,1" Padding="10,6" MinHeight="40">
+                  BorderThickness="0,0,0,1" Padding="10,6">
             <StackPanel Orientation="Horizontal" Spacing="6">
               <ToggleButton x:Name="LayerOne" Classes="mode" IsChecked="True" Click="OnEditLayer"
                             ToolTip.Tip="Edit layer 1's objects — the level itself">
@@ -979,11 +987,11 @@
              drawer, both sitting under the mode bar, so switching between the two modes does not
              move the furniture. -->
         <DockPanel x:Name="Map16Pane" IsVisible="False">
-          <!-- What the selected tile IS, over the canvas it is selected on. MinHeight so the
+          <!-- What the selected tile IS, over the canvas it is selected on. The bar's MinHeight so the
                strip does not collapse when an unallocated tile hides the row — the drawer's
                header takes its height from this one. -->
           <Border x:Name="Map16EditorBar" DockPanel.Dock="Top" Classes="panel bar"
-                  BorderThickness="0,0,0,1" Padding="10,6" MinHeight="40">
+                  BorderThickness="0,0,0,1" Padding="10,6">
             <StackPanel Orientation="Horizontal" Spacing="6">
               <!-- The grain comes first because it decides what everything after it means. -->
               <ToggleButton x:Name="Grain16" IsChecked="True" MinWidth="52" Content="16x16"
@@ -1072,7 +1080,7 @@
             </DockPanel>
           </Border>
           <Border x:Name="AnimEditorBar" DockPanel.Dock="Top" Classes="panel bar"
-                  BorderThickness="0,0,0,1" Padding="10,6" MinHeight="40">
+                  BorderThickness="0,0,0,1" Padding="10,6">
             <StackPanel Orientation="Horizontal" Spacing="6">
               <!-- Which list the timeline edits: the level's own slots or the global list that
                    runs in every level. Same toggle grammar as the Level pane's layer buttons. -->
@@ -1113,8 +1121,10 @@
                 <ComboBoxItem Content="file 60"/><ComboBoxItem Content="file 61"/>
                 <ComboBoxItem Content="file 62"/><ComboBoxItem Content="file 63"/>
               </ComboBox>
-              <CheckBox x:Name="AnimAdvanced" Content="Advanced" Margin="8,0,0,0"
-                        ToolTip.Tip="Show every slot type and trigger the engine supports"/>
+              <!-- A toggle button for the M16Priority reason: a checkbox's 32px floor makes the bar
+                   taller than every other mode's. -->
+              <ToggleButton x:Name="AnimAdvanced" Content="Advanced" Margin="8,0,0,0"
+                            ToolTip.Tip="Show every slot type and trigger the engine supports"/>
               <TextBlock x:Name="AnimTitle" Classes="dim" VerticalAlignment="Center" Margin="12,0,0,0"/>
             </StackPanel>
           </Border>
@@ -1135,7 +1145,7 @@
              is edited on the Level canvas, which is the same split Lunar Magic draws. -->
         <DockPanel x:Name="BgPane" IsVisible="False" Background="{DynamicResource VoidBrush}">
           <Border x:Name="BgEditorBar" DockPanel.Dock="Top" Classes="panel bar"
-                  BorderThickness="0,0,0,1" Padding="10,6" MinHeight="40">
+                  BorderThickness="0,0,0,1" Padding="10,6">
             <!-- The settings button belongs to Layer 3 alone, so it is hidden on Layer 2 rather
                  than disabled: a control that can never apply to what is on screen is noise. -->
             <DockPanel>
@@ -1185,7 +1195,7 @@
              paths, the level tiles' settings, event reveals, or the pipe/star/exit links. -->
         <DockPanel x:Name="OverworldPane" IsVisible="False" Background="{DynamicResource VoidBrush}">
           <Border x:Name="OwEditorBar" DockPanel.Dock="Top" Classes="panel bar"
-                  BorderThickness="0,0,0,1" Padding="10,6" MinHeight="40">
+                  BorderThickness="0,0,0,1" Padding="10,6">
             <DockPanel>
               <!-- Layer 2's brush: which palette row the drawer's 8x8 tile paints in, and its
                    flips. Shown for the Tiles tab; the other tabs edit layer 1 tables, not words. -->
