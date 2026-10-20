@@ -76,10 +76,7 @@ public static partial class SpriteInsert
             LevelBlocks:
             {LevelBlocks(perLevel)}
             freedata
-            ClusterTable:
-            {LongTable(listed.GetValueOrDefault("cluster"), n => listedEntries[n].Main)}
-            ExtendedTable:
-            {LongTable(listed.GetValueOrDefault("extended"), n => listedEntries[n].Main)}
+            {string.Concat(PixiImport.AsmOnlyKinds.Select(k => $"{PixiImport.PixiName(k)}Table:\n{LongTable(listed.GetValueOrDefault(k), n => listedEntries[n].Main)}"))}
             ExtendedCapeTable:
             {LongTable(listed.GetValueOrDefault("extended"), n => listedEntries[n].Cape)}
             """);
@@ -90,7 +87,7 @@ public static partial class SpriteInsert
     }
 
     /// <summary>The slots to insert: global number → sprite, level → (B0-BF → sprite), and per
-    /// ASM-only kind (cluster, extended) its list number → sprite. A slot naming a sprite the
+    /// ASM-only kind (cluster, extended, smoke…) its list number → sprite. A slot naming a sprite the
     /// library lacks, or holding the wrong kind, is skipped with a warning.</summary>
     private static (SortedDictionary<int, string> Global, SortedDictionary<int, SortedDictionary<int, string>> PerLevel,
                     Dictionary<string, SortedDictionary<int, string>> Listed)
@@ -178,7 +175,7 @@ public static partial class SpriteInsert
     }
 
     /// <summary>
-    /// Assemble each cluster and extended sprite as the others are, with its folder's _header.asm,
+    /// Assemble each ASM-only sprite as the others are, with its folder's _header.asm,
     /// into <paramref name="entries"/>: its MAIN, which it must print, and for an extended sprite
     /// the CAPE it may (its cape contact; without one the cape passes through it). Returns an
     /// error naming the sprite, or null.

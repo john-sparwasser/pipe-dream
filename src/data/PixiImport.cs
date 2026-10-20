@@ -2,9 +2,9 @@ namespace PipeDream;
 
 /// <summary>
 /// Reading custom sprites in from disk (reference/PIXI_PORT.md, phase 1): one .json or .cfg with
-/// its ASM, or a whole PIXI folder — list.txt's SPRITE:, CLUSTER: and EXTENDED: sections into
-/// slots, each listed sprite into the library, and the files every sprite assembles with
-/// (routines/, asm/ExtraDefines/, each folder's _header.asm). What it reads is the user's own copy;
+/// its ASM, or a whole PIXI folder — list.txt's SPRITE: section and the ASM-only ones (CLUSTER:,
+/// SMOKE:…) into slots, each listed sprite into the library, and the files every sprite assembles
+/// with (routines/, asm/ExtraDefines/, each folder's _header.asm). What it reads is the user's own copy;
 /// nothing of PIXI's ships with us.
 /// </summary>
 internal static class PixiImport
@@ -15,19 +15,33 @@ internal static class PixiImport
                                 Dictionary<string, string> Files, List<string> Problems);
 
     /// <summary>Kinds that are ASM alone, numbered in a list of their own ("cluster 01"): no config,
-    /// so not in Lunar Magic's lists or the Sprites catalog.</summary>
-    public static readonly string[] AsmOnlyKinds = ["cluster", "extended"];
+    /// so not in Lunar Magic's lists or the Sprites catalog. Each is its list.txt section's name in
+    /// lower case (MINOREXTENDED:).</summary>
+    public static readonly string[] AsmOnlyKinds = ["cluster", "extended", "minorextended", "bounce", "smoke", "spinningcoin", "score"];
 
     /// <summary>Whether a kind has a config (sprites, shooters, generators) rather than ASM alone.</summary>
     public static bool HasConfig(string kind) => !AsmOnlyKinds.Contains(kind);
 
+    /// <summary>How many list numbers an ASM-only kind has. A custom one's number in the game is its
+    /// list number plus SMW's own count; cluster and smoke numbers keep bit 7 for a flag, so theirs
+    /// stop short of it, and the rest stop at the driver's 0x80-entry tables.</summary>
+    public static int ListLength(string kind) => kind switch { "cluster" => 0x80 - 0x09, "smoke" => 0x80 - 0x06, _ => 0x80 };
+
+    /// <summary>An ASM-only kind as PIXI's defines spell it (!MinorExtendedOffset), which also names
+    /// the driver's table for it (MinorExtendedTable).</summary>
+    public static string PixiName(string kind) => kind switch
+    {
+        "minorextended" => "MinorExtended", "spinningcoin" => "SpinningCoin", _ => char.ToUpperInvariant(kind[0]) + kind[1..],
+    };
+
     /// <summary>The kind of sprite a slot holds, or null for a slot that is not one: global 00-BF
     /// sprites, C0-CF shooters, D0-DF generators (PIXI runs nothing custom from E0); per-level
-    /// "LLL:NN" only B0-BF of levels 000-1FF; "cluster NN" and "extended NN", 00-7F.</summary>
+    /// "LLL:NN" only B0-BF of levels 000-1FF; "cluster NN", "smoke NN"… within the kind's
+    /// <see cref="ListLength"/>.</summary>
     public static string? SlotKind(string slot)
     {
         if (slot.Split(' ', StringSplitOptions.RemoveEmptyEntries) is [var k, var num] && AsmOnlyKinds.Contains(k.ToLowerInvariant()))
-            return int.TryParse(num, System.Globalization.NumberStyles.HexNumber, null, out int i) && i is >= 0 and < 0x80 ? k.ToLowerInvariant() : null;
+            return int.TryParse(num, System.Globalization.NumberStyles.HexNumber, null, out int i) && i >= 0 && i < ListLength(k.ToLowerInvariant()) ? k.ToLowerInvariant() : null;
         int colon = slot.IndexOf(':');
         if (!int.TryParse(slot[(colon + 1)..], System.Globalization.NumberStyles.HexNumber, null, out int n)) return null;
         if (colon >= 0)
@@ -50,7 +64,9 @@ internal static class PixiImport
     /// <summary>The folder PIXI reads a kind's sprites (and its _header.asm) from.</summary>
     public static string FolderOf(string kind) => kind switch
     {
-        "shooter" => "shooters", "generator" => "generators", "cluster" => "cluster", "extended" => "extended", _ => "sprites",
+        "shooter" => "shooters", "generator" => "generators", "cluster" => "cluster", "extended" => "extended",
+        _ when AsmOnlyKinds.Contains(kind) => "misc_sprites/" + kind,
+        _ => "sprites",
     };
 
     /// <summary>
@@ -76,7 +92,7 @@ internal static class PixiImport
         return entry;
     }
 
-    /// <summary>A cluster or extended sprite: its .asm and what that includes, no config.</summary>
+    /// <summary>An ASM-only sprite (cluster, smoke…): its .asm and what that includes, no config.</summary>
     private static ProjectFile.SpriteEntry ReadAsm(string asm, string kind, out List<string> missing)
     {
         missing = [];
@@ -105,7 +121,7 @@ internal static class PixiImport
             string line = (raw.IndexOf(';') is int sc and >= 0 ? raw[..sc] : raw).Trim();
             if (line.Length == 0) continue;
             if (line.EndsWith(':')) { section = line; continue; }
-            string? asmKind = section switch { "CLUSTER:" => "cluster", "EXTENDED:" => "extended", _ => null };
+            string? asmKind = AsmOnlyKinds.FirstOrDefault(k => section.Equals(k + ":", StringComparison.OrdinalIgnoreCase));
             if (section != "SPRITE:" && asmKind is null) { skipped++; continue; }
             var parts = line.Split((char[]?)null, 2, StringSplitOptions.RemoveEmptyEntries);
             // A trailing "display"/"nodisplay" (PIXI 1.43, .cfg only) is about LM's lists: dropped.
@@ -130,7 +146,7 @@ internal static class PixiImport
             }
             result.Slots[slot] = name;
         }
-        if (skipped > 0) result.Problems.Add($"{skipped} minor sprite(s) skipped (minor extended, bounce, smoke, spinning coin, score): Pipe Dream does not insert those yet");
+        if (skipped > 0) result.Problems.Add($"{skipped} line(s) skipped under sections that are not PIXI's");
         ReadShared(dir, result.Files);
         return result;
     }

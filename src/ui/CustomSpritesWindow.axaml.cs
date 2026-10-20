@@ -110,7 +110,7 @@ public partial class CustomSpritesWindow : Window
     private async void OnSlots(object? sender, RoutedEventArgs e)
     {
         if (list.SelectedItem is not Row row) return;
-        var ask = new TextPromptWindow(row.Kind is "cluster" or "extended" ? $"Slots for {row.Name} — e.g. {row.Kind} 01 (empty: none)" : $"Slots for {row.Name} — e.g. 1A, 105:B0 (empty: none)", row.Slots == "no slot" ? "" : row.Slots);
+        var ask = new TextPromptWindow(!PixiImport.HasConfig(row.Kind) ? $"Slots for {row.Name} — e.g. {row.Kind} 01 (empty: none)" : $"Slots for {row.Name} — e.g. 1A, 105:B0 (empty: none)", row.Slots == "no slot" ? "" : row.Slots);
         await ask.ShowDialog(this);
         if (ask.Result is not { } slots) return;
         hint.Text = session.SetCustomSpriteSlots(row.Name, slots);

@@ -221,7 +221,32 @@ public class SpriteInsertTests : IDisposable
         Assert.Equal(0xCA, OperandAt(cape, 0));
     }
 
-    /// <summary>A table ClusterRun, ExtendedRun or ExtendedCape reads (the <paramref name="nth"/>
+    /// <summary>One sprite of each minor kind, at list numbers 00-04 in turn: each MAIN lands in its
+    /// kind's table at its number, and the five loops are hooked.</summary>
+    [AsarRomFact]
+    public void minor_sprites_land_in_their_tables()
+    {
+        (string Kind, int Offset)[] kinds = [("minorextended", 0x0C), ("bounce", 0x08), ("smoke", 0x06), ("spinningcoin", 0x02), ("score", 0x16)];
+        var (status, rom) = Build(dir, more: (d, _, _) =>
+        {
+            for (int i = 0; i < kinds.Length; i++)
+            {
+                d.Sprites[kinds[i].Kind] = new() { Kind = kinds[i].Kind, Source = $"print \"MAIN \",pc\n    LDA #${0xA0 + i:X2}\n    RTL\n" };
+                d.SpriteSlots[$"{kinds[i].Kind} {i:X2}"] = kinds[i].Kind;
+            }
+        });
+        Assert.True(rom is not null, status);
+        var r = rom!;
+        foreach (int at in (int[])[0x028B69, 0x02904D, 0x0296C0, 0x0299D7, 0x02ADBD]) Assert.Equal(0x5C, r.ReadByte(at));   // JML
+        for (int i = 0; i < kinds.Length; i++)
+        {
+            int table = TableOf(r, [0xE9, (byte)kinds[i].Offset, 0x48, 0xA9], 0);
+            Assert.Equal(0xA0 + i, r.ReadByte(r.ReadValue(table + i * 3, 3) + 1));
+            if (i > 0) Assert.Equal(0, r.ReadValue(table, 3));                            // 00 is empty
+        }
+    }
+
+    /// <summary>A table one of the driver's run routines (ClusterRun, SmokeRun…) reads (the <paramref name="nth"/>
     /// one after `SBC #offset : PHA`), from its `LDA #bank : LDY #high : STY $04 : LDY #low`.</summary>
     private static int TableOf(Rom r, byte[] pattern, int nth)
     {

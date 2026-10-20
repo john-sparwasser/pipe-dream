@@ -67,15 +67,17 @@ public sealed partial class EditorSession
     }
 
     /// <summary>Add one sprite from disk: a .json or .cfg, the ASM it names and what that includes
-    /// (a cluster or extended sprite: its .asm). Its kind comes from the folder it sits in, as
-    /// PIXI's would (shooters/, generators/, cluster/, extended/).</summary>
+    /// (an ASM-only sprite: its .asm). Its kind comes from the folder it sits in, as PIXI's would
+    /// (shooters/, generators/, cluster/, extended/, misc_sprites/smoke/…).</summary>
     public string ImportCustomSpriteFile(string path, out string? made)
     {
         made = null;
         string folder = Path.GetFileName(Path.GetDirectoryName(path) ?? "").ToLowerInvariant();
         string kind = folder switch
         {
-            "shooters" => "shooter", "generators" => "generator", "cluster" => "cluster", "extended" => "extended", _ => "sprite",
+            "shooters" => "shooter", "generators" => "generator",
+            _ when PixiImport.AsmOnlyKinds.Contains(folder) => folder,
+            _ => "sprite",
         };
         ProjectFile.SpriteEntry? entry = null;
         List<string> missing = [];
@@ -113,11 +115,11 @@ public sealed partial class EditorSession
 
     /// <summary>Put a sprite in a slot ("1A", "105:B0", "cluster 01"), or empty the slot with a null
     /// name. The slot must suit the sprite: 00-BF a sprite, C0-CF a shooter, D0-DF a generator,
-    /// "cluster NN" a cluster sprite, "extended NN" an extended one.</summary>
+    /// "cluster NN" a cluster sprite, "smoke NN" a smoke one, and so on.</summary>
     public string SetSpriteSlot(string slot, string? name)
     {
         if (Project is null) return Report2("no project open");
-        if (PixiImport.NormalSlot(slot) is not { } key) return Report2($"\"{slot}\" is not a sprite slot (00-DF, level:B0-BF, cluster 00-7F or extended 00-7F)");
+        if (PixiImport.NormalSlot(slot) is not { } key) return Report2($"\"{slot}\" is not a sprite slot (00-DF, level:B0-BF, or a kind and its list number: cluster 01, smoke 00…)");
         if (name is null)
             return Report2(Project.Data.SpriteSlots.Remove(key) ? Dirty($"slot {key} emptied") : $"slot {key} was empty");
         if (FindSprite(name) is not { } s) return Report2($"{name} is not in the project");
@@ -139,7 +141,7 @@ public sealed partial class EditorSession
         var wanted = new List<string>();
         foreach (string raw in list.Split([',', ' ', ';'], StringSplitOptions.RemoveEmptyEntries))
         {
-            if (PixiImport.NormalSlot(raw) is not { } key) return Report2($"\"{raw}\" is not a sprite slot (00-DF, level:B0-BF, cluster 00-7F or extended 00-7F)");
+            if (PixiImport.NormalSlot(raw) is not { } key) return Report2($"\"{raw}\" is not a sprite slot (00-DF, level:B0-BF, or a kind and its list number: cluster 01, smoke 00…)");
             if (PixiImport.SlotKind(key) != s.Kind) return Report2($"slot {key} holds a {PixiImport.SlotKind(key)}, and {name} is a {s.Kind}");
             wanted.Add(key);
         }
@@ -254,13 +256,14 @@ public sealed partial class EditorSession
     }
 
     /// <summary>A sprite that does nothing yet: the two entry points PIXI's format asks for, as
-    /// prints. A shooter or generator has only MAIN that matters, but INIT is still read; a cluster
-    /// or extended sprite has MAIN alone.</summary>
+    /// prints. A shooter or generator has only MAIN that matters, but INIT is still read; an
+    /// ASM-only sprite has MAIN alone.</summary>
     internal static string SpriteTemplate(string name, string kind) => !PixiImport.HasConfig(kind) ? $"""
         ; {name}
         ;
         ; A custom {kind} sprite. MAIN runs every frame with X (and Y) the slot and the data bank set
-        ; to its own, and ends in RTL. Its number is its list number plus !{(kind == "cluster" ? "Cluster" : "Extended")}Offset.{(kind == "extended" ? "\n; A CAPE entry, if printed, runs while the cape spins; without one the cape passes through it." : "")}
+        ; to its own, frozen or not ($9D), and ends in RTL. Its number is its list number plus
+        ; !{PixiImport.PixiName(kind)}Offset.{(kind == "extended" ? "\n; A CAPE entry, if printed, runs while the cape spins; without one the cape passes through it." : "")}
 
         print "MAIN ",pc
             RTL

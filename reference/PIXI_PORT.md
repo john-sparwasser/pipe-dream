@@ -247,8 +247,7 @@ Each phase ends shippable.
   cluster 02 in cluster slot 3 and extended 00 in extended slot 5; the cluster MAIN ran 121
   times and the extended 119 in 120 frames (the extended loop runs before the spawn that frame),
   with the data bank `$90` and the slot in Y (cluster) and X (extended). The cape path is in the
-  table test only. The minor kinds (minor extended, bounce, smoke, spinning coin, score) are
-  still skipped at import, with a count.
+  table test only. (The minor kinds came next; see below.)
   Defines checked against PIXI's own defines file (`asm/sa1def.asm`, read for names and values
   only): `!ExtendedSize` is `$08` (`!ExSprSize`+1 — spawning keeps off slots 8-9, Mario's
   fireballs), cluster speed tables are `!cluster_misc_1e52`… by address, `!Bank8` is `$80`.
@@ -257,6 +256,32 @@ Each phase ends shippable.
   store A as the number, so the caller adds the offset. Since PIXI 1.41 its `!1938` is the
   remapped `$7FAF00` and disabling the remap is an error; ours keeps SMW's `$1938` until the
   remap is done.
+- **Minor extended, bounce, smoke, spinning coin and score sprites (2026-10-19): done.** As
+  cluster and extended: ASM alone, MAIN only, slotted as `minorextended NN`, `bounce NN`,
+  `smoke NN`, `spinningcoin NN`, `score NN` (the kind is its list.txt section's name, lower
+  case), imported from those sections out of `misc_sprites/<kind>/` with its `_header.asm`.
+  PIXI's README names the sections and folders and nothing more: not the entry points, the
+  registers or how the number is stored, so the interface is the cluster one, and the offsets
+  are SMW's counts (above). Every place SMW reads the five number tables (`$17F0`, `$1699`,
+  `$17C0`, `$17D0`, `$16E1`) was listed by scanning for each read; all but one per kind look
+  for a free slot or compare with a fixed number, and the one is each kind's dispatch, hooked
+  at its `LDA number,X : BEQ`:
+  - minor extended `$028B69` (12 entries in SMW's jump table, matching `$0C`);
+  - bounce `$02904D`, the top of the dispatch the bounce/smoke loop JSRs; a custom one's
+    timer `$16C5` counts down first, as the dispatch does for SMW's;
+  - smoke `$0296C0`, whose next instruction drops bit 7 (a flag), so a custom smoke number
+    is masked the same way and its list stops at `7F - $06` (cluster's, for its extra bit,
+    at `7F - $09`; the rest have 0x80);
+  - spinning coin `$0299D7` and score `$02ADBD`, loops that JSR to SMW's one routine each
+    (score's reads its tables by number).
+  Each runs MAIN through `CallLong`, every frame, frozen or not (SMW's check `$9D`
+  themselves), with X = Y = the slot and the data bank its code's; minor extended also sets
+  `$1698` to the slot as SMW's loop does. The table loads are a `%call_listed()` macro now,
+  cluster and extended included (same bytes). Measured in Mesen, 3/3 each, in the level the
+  probe's walk left reaches: a number written into a slot of each kind ran its MAIN 60 times
+  in 60 frames with X the slot and the data bank `$90`; SMW's own smoke 01, score 01 and
+  spinning coin 01 written the same way ran their own code and emptied their slots. The probe
+  must wait for the level's message box (`$1426`) to close: while it is open no sprite runs.
 
 ## Open questions
 

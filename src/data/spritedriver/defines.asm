@@ -201,6 +201,87 @@ endmacro
 !extended_timer = $176F
 !extended_behind = $1779
 
+; ---- Minor extended, bounce, smoke, spinning coin and score sprites ----
+; A custom one's number is its list number plus its kind's offset, SMW's own count of that kind
+; (a smoke number's bit 7 is a flag, as SMW's are). The sizes are slot counts.
+!MinorExtendedOffset = $0C
+!MinorExtendedSize = $0C
+!BounceOffset = $08
+!BounceSize = $04
+!SmokeOffset = $06
+!SmokeSize = $04
+!SpinningCoinOffset = $02
+!SpinningCoinSize = $04
+!ScoreOffset = $16
+!ScoreSize = $06
+
+!minor_extended_num = $17F0
+!minor_extended_y_low = $17FC
+!minor_extended_x_low = $1808
+!minor_extended_y_high = $1814
+!minor_extended_x_high = $18EA
+!minor_extended_y_speed = $1820
+!minor_extended_x_speed = $182C
+!minor_extended_y_fraction = $1838
+!minor_extended_x_fraction = $1844
+!minor_extended_timer = $1850
+!minor_extended_table_1 = $1938
+!minor_extended_table_2 = $1944
+!minor_extended_table_3 = $1950
+
+!bounce_num = $1699
+!bounce_init = $169D
+!bounce_y_low = $16A1
+!bounce_x_low = $16A5
+!bounce_y_high = $16A9
+!bounce_x_high = $16AD
+!bounce_y_speed = $16B1
+!bounce_x_speed = $16B5
+!bounce_x_bits = $16B9
+!bounce_y_bits = $16BD
+!bounce_map16_tile = $16C1
+!bounce_map16_low = $16C1
+!bounce_timer = $16C5
+!bounce_table = $16C9
+!bounce_table_1 = $16C9
+!bounce_properties = $1901
+!bounce_map16_high = $1968
+!bounce_table_2 = $1968
+!bounce_table_3 = $196C
+!bounce_table_4 = $1970
+
+!smoke_num = $17C0
+!smoke_y_low = $17C4
+!smoke_x_low = $17C8
+!smoke_timer = $17CC
+!smoke_table_1 = $195C
+!smoke_table_2 = $1960
+!smoke_table_3 = $1964
+!smoke_y_high = $1960
+!smoke_x_high = $1964
+
+!spinning_coin_num = $17D0
+!spinning_coin_y_low = $17D4
+!spinning_coin_y_speed = $17D8
+!spinning_coin_y_bits = $17DC
+!spinning_coin_x_low = $17E0
+!spinning_coin_layer = $17E4
+!spinning_coin_y_high = $17E8
+!spinning_coin_x_high = $17EC
+!spinning_coin_table_1 = $1974
+!spinning_coin_table_2 = $1978
+!spinning_coin_table_3 = $197C
+
+!score_num = $16E1
+!score_y_low = $16E7
+!score_x_low = $16ED
+!score_x_high = $16F3
+!score_y_high = $16F9
+!score_y_speed = $16FF
+!score_layer = $1705
+!score_table_1 = $1980
+!score_table_2 = $1986
+
 ; ---- Shooters (8 slots) ----
 !shoot_num = $1783
 !shoot_y_low = $178B

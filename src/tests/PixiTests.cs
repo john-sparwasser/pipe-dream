@@ -139,15 +139,22 @@ public class PixiTests
         Assert.Equal("105:B0", PixiImport.NormalSlot("105:b0"));
         Assert.Equal("0A", PixiImport.NormalSlot(" a "));
         Assert.Null(PixiImport.NormalSlot("zz"));
-        // Cluster and extended sprites are numbered in lists of their own.
+        // The ASM-only kinds are numbered in lists of their own; cluster and smoke numbers keep
+        // bit 7 for a flag, so their lists stop short of it.
         Assert.Equal("cluster", PixiImport.SlotKind("cluster 00"));
         Assert.Equal("extended", PixiImport.SlotKind("Extended 7F"));
         Assert.Null(PixiImport.SlotKind("cluster 80"));
+        Assert.Null(PixiImport.SlotKind("cluster 77"));
+        Assert.Equal("cluster", PixiImport.SlotKind("cluster 76"));
+        Assert.Equal("minorextended", PixiImport.SlotKind("MinorExtended 7F"));
+        Assert.Null(PixiImport.SlotKind("smoke 7A"));
+        Assert.Equal("score 05", PixiImport.NormalSlot("SCORE 5"));
         Assert.Equal("extended 0A", PixiImport.NormalSlot(" EXTENDED  a "));
     }
 
     /// <summary>A PIXI folder with a json and a cfg sprite, a per-level line, a shooter, a cluster
-    /// and an extended sprite, a smoke sprite (not inserted yet), a broken line and the shared files.</summary>
+    /// and an extended sprite, a smoke sprite, a section PIXI does not have, a broken line and the
+    /// shared files.</summary>
     private static string PixiFolder()
     {
         string dir = Directory.CreateTempSubdirectory("pipedream-pixi-").FullName;
@@ -170,6 +177,8 @@ public class PixiTests
             03 hammer.asm
             SMOKE:
             00 puff.asm
+            CONFETTI:
+            00 nope.asm
             SPRITE:
             02 gone.json
             """);
@@ -187,6 +196,8 @@ public class PixiTests
         Put("cluster/sparkle.asm", "print \"MAIN \",pc\nRTL\n");
         Put("cluster/_header.asm", "; cluster header\n");
         Put("extended/hammer.asm", "print \"MAIN \",pc\nRTL\n");
+        Put("misc_sprites/smoke/puff.asm", "print \"MAIN \",pc\nRTL\n");
+        Put("misc_sprites/smoke/_header.asm", "; smoke header\n");
         return dir;
     }
 
@@ -195,7 +206,8 @@ public class PixiTests
     {
         var f = PixiImport.ReadFolder(PixiFolder());
 
-        Assert.Equal(["bullets", "hammer", "sparkle", "thing", "walker"], f.Sprites.Keys.Order());
+        Assert.Equal(["bullets", "hammer", "puff", "sparkle", "thing", "walker"], f.Sprites.Keys.Order());
+        Assert.Equal("smoke", f.Sprites["puff"].Kind);
         Assert.Equal("shooter", f.Sprites["bullets"].Kind);
         Assert.Equal("cluster", f.Sprites["sparkle"].Kind);
         Assert.Equal("", f.Sprites["sparkle"].Config);                       // ASM alone
@@ -203,15 +215,15 @@ public class PixiTests
         Assert.Equal("db 1,2,3\n", System.Text.Encoding.UTF8.GetString(f.Sprites["thing"].Files["thing_tables.asm"]));
         Assert.Equal(new Dictionary<string, string>
         {
-            ["00"] = "thing", ["01"] = "thing", ["105:B0"] = "walker", ["C0"] = "bullets", ["cluster 00"] = "sparkle", ["extended 03"] = "hammer",
+            ["00"] = "thing", ["01"] = "thing", ["105:B0"] = "walker", ["C0"] = "bullets", ["cluster 00"] = "sparkle", ["extended 03"] = "hammer", ["smoke 00"] = "puff",
         }, f.Slots);
         // Stored as JSON, whatever it came in as.
         Assert.Equal(["walker (extra bit clear)", "walker (extra bit set)"], PixiConfig.Parse(f.Sprites["walker"].Config).Collection.Select(c => c.Name));
-        Assert.Equal(["cluster/_header.asm", "ExtraDefines/mine.asm", "routines/GetDrawInfo.asm", "routines/Spawn/Smoke.asm", "sprites/_header.asm"], f.Files.Keys.Order());
+        Assert.Equal(["cluster/_header.asm", "ExtraDefines/mine.asm", "misc_sprites/smoke/_header.asm", "routines/GetDrawInfo.asm", "routines/Spawn/Smoke.asm", "sprites/_header.asm"], f.Files.Keys.Order());
 
         Assert.Contains(f.Problems, p => p.Contains("line 6") && p.Contains("zz nope.json"));
         Assert.Contains(f.Problems, p => p.StartsWith("sprites/gone.json:"));
-        Assert.Contains(f.Problems, p => p.StartsWith("1 minor sprite(s) skipped"));
+        Assert.Contains(f.Problems, p => p.StartsWith("1 line(s) skipped under sections that are not PIXI's"));
     }
 
     [Fact]
@@ -245,7 +257,7 @@ public class PixiTests
         Assert.Contains("print \"MAIN \",pc", s.CustomSpriteSource("Hopper"));
         Assert.Equal("Hopper in slot 1A", s.SetSpriteSlot("1a", "Hopper"));
         Assert.Equal("slot C0 holds a shooter, and Hopper is a sprite", s.SetSpriteSlot("C0", "Hopper"));
-        Assert.Equal("\"E0\" is not a sprite slot (00-DF, level:B0-BF, cluster 00-7F or extended 00-7F)", s.SetSpriteSlot("E0", "Hopper"));
+        Assert.Equal("\"E0\" is not a sprite slot (00-DF, level:B0-BF, or a kind and its list number: cluster 01, smoke 00…)", s.SetSpriteSlot("E0", "Hopper"));
         var row = s.CustomSprites[0];
         Assert.Equal(("Hopper", "sprite", 0x36, "Hopper"), (row.Name, row.Kind, row.ActLike, row.Description));
         Assert.Equal(["1A"], row.Slots);
@@ -256,8 +268,8 @@ public class PixiTests
         Assert.Equal("Hopper config saved", s.SetCustomSpriteConfig("Hopper", c.ToJson()));
         Assert.Equal(0x0F, s.CustomSprites[0].ActLike);
 
-        Assert.StartsWith("imported 5 sprite(s) into 6 slot(s), 5 shared file(s); ", s.ImportPixiFolder(PixiFolder()));
-        Assert.Equal(6, s.CustomSprites.Count);                              // Hopper and the folder's five
+        Assert.StartsWith("imported 6 sprite(s) into 7 slot(s), 6 shared file(s); ", s.ImportPixiFolder(PixiFolder()));
+        Assert.Equal(7, s.CustomSprites.Count);                              // Hopper and the folder's six
         Assert.Equal("that folder has no list.txt — pick PIXI's own folder", s.ImportPixiFolder(dir));
 
         Assert.Equal("deleted thing", s.DeleteCustomSprite("thing"));
@@ -302,6 +314,7 @@ public class PixiTests
         var rows = ((System.Collections.IEnumerable)list.ItemsSource!).Cast<Ui.CustomSpritesWindow.Row>().ToList();
         Assert.Equal([new("bullets", "shooter", "C0", "bullets (extra bit clear)"),
                       new("hammer", "extended", "extended 03", ""),
+                      new("puff", "smoke", "smoke 00", ""),
                       new("sparkle", "cluster", "cluster 00", ""),
                       new("thing", "sprite", "00, 01", "Thing"),
                       new("walker", "sprite", "105:B0", "walker (extra bit clear)")], rows);
@@ -309,7 +322,7 @@ public class PixiTests
         list.SelectedIndex = 1;
         Assert.True(w.GetControl<Button>("SlotsButton").IsEnabled);
         Assert.False(w.GetControl<Button>("ConfigButton").IsEnabled);         // an extended sprite has no config
-        list.SelectedIndex = 3;
+        list.SelectedIndex = 4;
         Assert.True(w.GetControl<Button>("ConfigButton").IsEnabled);
         w.Close();
     }

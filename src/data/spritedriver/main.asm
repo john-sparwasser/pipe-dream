@@ -82,6 +82,31 @@ org $029636
     NOP
     NOP
 
+; ---- Minor extended, bounce, smoke, spinning coin and score sprites ----
+; The same for the minor kinds: each loop's `LDA number,X : BEQ` sends a number from the kind's
+; offset up to its table. Every other read of these numbers looks for a free slot or compares
+; with one of SMW's; only the dispatches below index by it.
+; The minor extended loop's (then STX $1698 and a JSR to SMW's dispatch).
+org $028B69
+    JML MinorExtendedRun
+    NOP
+; The bounce dispatch's, at its top (it is a JSR from the loop that runs smoke too).
+org $02904D
+    JML BounceRun
+    NOP
+; The smoke dispatch's, at its top (then AND #$7F: bit 7 is a flag).
+org $0296C0
+    JML SmokeRun
+    NOP
+; The spinning coin loop's (then a JSR to SMW's one kind).
+org $0299D7
+    JML SpinningCoinRun
+    NOP
+; The score loop's (then a JSR to SMW's, which reads its tables by number).
+org $02ADBD
+    JML ScoreRun
+    NOP
+
 ; ---- Slot setup ----
 ; The end of $07F722, which every spawn runs through to clear a slot: clear the custom state too,
 ; so a slot a custom sprite left is a vanilla one again.
@@ -535,6 +560,20 @@ GeneratorRun:
 
 ; ---- Cluster and extended sprites ----
 
+; A = a list number (the custom number less its kind's offset): run what <table> holds for it,
+; through CallLong.
+macro call_listed(table)
+    PHA
+    LDA.b #<table>>>16
+    LDY.b #<table>>>8
+    STY $04
+    LDY.b #<table>
+    STY $03
+    STA $05
+    PLA
+    JSL CallLong
+endmacro
+
 ; X = the cluster slot. Bit 7 of a custom number is its extra bit, so it is not the number.
 ClusterRun:
     LDA $1892,x
@@ -545,15 +584,7 @@ ClusterRun:
     JML $02F81A                 ; SMW's: JSR to its dispatch, then the next slot
 .custom
     SBC #!ClusterOffset         ; carry set
-    PHA
-    LDA.b #ClusterTable>>16
-    LDY.b #ClusterTable>>8
-    STY $04
-    LDY.b #ClusterTable
-    STY $03
-    STA $05
-    PLA
-    JSL CallLong
+    %call_listed(ClusterTable)
 .next
     JML $02F81D
 
@@ -573,15 +604,7 @@ ExtendedRun:
     DEC $176F,x
 +   SEC
     SBC #!ExtendedOffset
-    PHA
-    LDA.b #ExtendedTable>>16
-    LDY.b #ExtendedTable>>8
-    STY $04
-    LDY.b #ExtendedTable
-    STY $03
-    STA $05
-    PLA
-    JSL CallLong
+    %call_listed(ExtendedTable)
     JML $029B15
 
 ; X = the extended slot, while the cape spins. SMW's own (02 up) go through its contact check;
@@ -596,16 +619,81 @@ ExtendedCape:
 +   JML $02963D                 ; SMW's: clipping, contact, a puff of smoke
 .custom
     SBC #!ExtendedOffset        ; carry set
-    PHA
-    LDA.b #ExtendedCapeTable>>16
-    LDY.b #ExtendedCapeTable>>8
-    STY $04
-    LDY.b #ExtendedCapeTable
-    STY $03
-    STA $05
-    PLA
-    JSL CallLong
+    %call_listed(ExtendedCapeTable)
     JML $029653
+
+; ---- Minor extended, bounce, smoke, spinning coin and score sprites ----
+; X = the slot in each. SMW's own run as before; a custom one runs its MAIN, frozen or not, and
+; only bounce sprites have a timer the loop counts down for them.
+
+MinorExtendedRun:
+    LDA $17F0,x
+    BEQ .next
+    CMP #!MinorExtendedOffset
+    BCS .custom
+    JML $028B6E                 ; SMW's: STX $1698, JSR to its dispatch
+.custom
+    STX $1698                   ; the slot being run, as SMW's dispatch has it
+    SBC #!MinorExtendedOffset   ; carry set
+    %call_listed(MinorExtendedTable)
+.next
+    JML $028B74                 ; the next slot
+
+; A custom one's timer ($16C5) counts down as SMW's do.
+BounceRun:
+    LDA $1699,x
+    BNE +
+    JML $02904C                 ; an RTS: the slot is empty
++   CMP #!BounceOffset
+    BCS .custom
+    JML $029052                 ; SMW's: its timer, then its dispatch
+.custom
+    LDY $9D
+    BNE +
+    LDY $16C5,x
+    BEQ +
+    DEC $16C5,x
++   SEC
+    SBC #!BounceOffset
+    %call_listed(BounceTable)
+    JML $02904C
+
+SmokeRun:
+    LDA $17C0,x
+    BEQ .none
+    AND #$7F
+    CMP #!SmokeOffset
+    BCS .custom
+    JML $0296C7                 ; SMW's dispatch
+.custom
+    SBC #!SmokeOffset           ; carry set
+    %call_listed(SmokeTable)
+.none
+    JML $0296D7                 ; an RTS
+
+SpinningCoinRun:
+    LDA $17D0,x
+    BEQ .next
+    CMP #!SpinningCoinOffset
+    BCS .custom
+    JML $0299DC                 ; SMW's: JSR to it
+.custom
+    SBC #!SpinningCoinOffset    ; carry set
+    %call_listed(SpinningCoinTable)
+.next
+    JML $0299DF                 ; the next slot
+
+ScoreRun:
+    LDA $16E1,x
+    BEQ .next
+    CMP #!ScoreOffset
+    BCS .custom
+    JML $02ADC2                 ; SMW's: JSR to it
+.custom
+    SBC #!ScoreOffset           ; carry set
+    %call_listed(ScoreTable)
+.next
+    JML $02ADC5                 ; the next slot
 
 ; $03-$05 = a table of longs (0: none), A = an index into it (0-7F), X = the slot. Runs the code
 ; there with Y = X and the data bank set to its bank, as cluster sprites expect, and returns carry

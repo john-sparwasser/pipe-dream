@@ -18,8 +18,8 @@ namespace PipeDream;
 /// <item><b>.s16</b>: sprite Map16 from tile 0x400: each sprite's own tiles (0x300 up in its
 /// config) in slot order, its displays renumbered to match.</item>
 /// </list>
-/// Only global slots of sprites with a config: Lunar Magic's lists are not per level, and cluster
-/// and extended sprites are not placed in a level.
+/// Only global slots of sprites with a config: Lunar Magic's lists are not per level, and the
+/// ASM-only kinds (cluster, smoke…) are not placed in a level.
 /// </summary>
 public static class SpriteAuxFiles
 {

@@ -30,25 +30,30 @@
       <StackPanel Orientation="Horizontal" Spacing="8">
         <Button Content="New…" Click="OnNew" ToolTip.Tip="Adds a sprite of the kind beside it, from the template"/>
         <ComboBox x:Name="KindBox" SelectedIndex="0" MinWidth="110"
-                  ToolTip.Tip="What New… makes: a sprite (slots 00-BF), a shooter (C0-CF), a generator (D0-DF), or a cluster or extended sprite (lists of their own, cluster 00-7F, extended 00-7F)">
+                  ToolTip.Tip="What New… makes: a sprite (slots 00-BF), a shooter (C0-CF), a generator (D0-DF), or an ASM-only kind numbered in a list of its own (cluster 00, smoke 00…)">
           <ComboBoxItem Content="sprite"/>
           <ComboBoxItem Content="shooter"/>
           <ComboBoxItem Content="generator"/>
           <ComboBoxItem Content="cluster"/>
           <ComboBoxItem Content="extended"/>
+          <ComboBoxItem Content="minorextended"/>
+          <ComboBoxItem Content="bounce"/>
+          <ComboBoxItem Content="smoke"/>
+          <ComboBoxItem Content="spinningcoin"/>
+          <ComboBoxItem Content="score"/>
         </ComboBox>
         <Button Content="Import…" Click="OnImport"
-                ToolTip.Tip="Adds .json or .cfg sprites from disk, each with its ASM and what that includes; a cluster or extended sprite is its .asm, from a cluster/ or extended/ folder"/>
+                ToolTip.Tip="Adds .json or .cfg sprites from disk, each with its ASM and what that includes; an ASM-only sprite is its .asm, from its kind's folder (cluster/, misc_sprites/smoke/…)"/>
         <Button Content="Import PIXI folder…" Click="OnImportFolder"
                 ToolTip.Tip="Adds every sprite PIXI's list.txt names, in its slots, with routines/ and ExtraDefines/"/>
         <Button x:Name="RemoveButton" Content="Remove" Click="OnRemove" IsEnabled="False"/>
       </StackPanel>
       <StackPanel Orientation="Horizontal" Spacing="8">
         <Button x:Name="SlotsButton" Content="Slots…" Click="OnSlots" IsEnabled="False"
-                ToolTip.Tip="Which numbers run this sprite: 1A for every level, 105:B0 for one level's own, cluster 01 or extended 00 for those kinds"/>
+                ToolTip.Tip="Which numbers run this sprite: 1A for every level, 105:B0 for one level's own, cluster 01, smoke 00… for the ASM-only kinds"/>
         <Button x:Name="EditButton" Content="Edit ASM" Click="OnEdit" IsEnabled="False"/>
         <Button x:Name="ConfigButton" Content="Edit config" Click="OnConfig" IsEnabled="False"
-                ToolTip.Tip="The sprite's PIXI JSON: tweakers, acts-like, extra bytes, how Lunar Magic lists it (cluster and extended sprites have none)"/>
+                ToolTip.Tip="The sprite's PIXI JSON: tweakers, acts-like, extra bytes, how Lunar Magic lists it (ASM-only sprites have none)"/>
         <Button x:Name="OpenButton" Click="OnOpen" IsEnabled="False"
                 ToolTip.Tip="Open the ASM in your text editor (File ▸ Preferences); saving there updates the project"/>
       </StackPanel>

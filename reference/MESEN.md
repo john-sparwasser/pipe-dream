@@ -106,6 +106,16 @@ values agree.
   written `0x7E0100`. `emu.memType.snesWorkRam` takes WRAM-relative offsets (`0x0100`).
   Both agree; writes via `emu.write` land.
 - Available and working: `emu.setInput`, `emu.getState`, `snesSaveRam`, `snesVideoRam`.
+- `emu.addMemoryCallback(fn, emu.callbackType.exec, addr)` counts executions of `addr` (the
+  form with an end address, cpu type and memory type works too) [MEASURED 2026-10-19]. Use it
+  to find where a probe's code stops being reached.
+- **A message box stops the level.** Once in a level (`$14`), `$7E:1426` can be non-zero for a
+  while: the frame counter `$13` still ticks, but no sprite code runs (the whole of `$00A2E6`'s
+  sprite pass is skipped). A probe that counts sprite code waits until `$1426` and `$13D4`
+  (pause) have both been 0 for a stretch, pressing A meanwhile, as `T.bootToLevel` does
+  [MEASURED 2026-10-19].
+- WRAM comes up random, so a counter the ROM increments is read as a difference from a
+  baseline taken in the run, never as an absolute value.
 
 ## SMW game modes ($7E:0100)
 
