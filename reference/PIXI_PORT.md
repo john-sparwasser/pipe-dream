@@ -152,7 +152,7 @@ Each phase ends shippable.
 - **Status (2026-10-19): done.** `ui/CustomSpritesWindow` (ASM ▸ Custom
   sprites…): New (sprite, shooter or generator), Import of .json/.cfg or a PIXI folder, Slots…
   as a list ("1A, 105:B0"), Edit ASM, Edit config (the JSON, in the block editor, until phase
-  4), Open in the text editor, Remove. The Sprites catalog adds one item per Collection entry of
+  4 below), Open in the text editor, Remove. The Sprites catalog adds one item per Collection entry of
   each sprite in a global slot or the level's own B0-BF, labelled "· custom", carrying extra
   bits 2 (3 with the extra bit) and the entry's bytes; placing it keeps them. A custom sprite
   shares its number with SMW's, so the drawer re-arms by label and the spawn overlay's
@@ -175,6 +175,16 @@ Each phase ends shippable.
   extension byte) edited as Map16 tiles at pixel offsets; the sprite's own Map16 tiles with a
   four-quadrant editor (tile, palette, flips); the Collection list.
 - Tests: editing each field writes the JSON PIXI's parser reads back the same.
+- **Status (2026-10-19): done.** `ui/SpriteConfigWindow` (Custom sprites ▸ Edit config) edits
+  a working copy of the config; Save writes it as JSON, JSON… shows that text with the edits
+  in it and takes back a hand edit PIXI can read, and a config PIXI cannot read still opens as
+  text. Tabs: Sprite (type, acts-like, property bytes, extra-byte counts, the six tweaker
+  bytes as `TweakFields`' check boxes and numbers), Look (the displays and how one is picked;
+  each display's tiles arranged on `TileArrangeView`, the preview `SpriteTilesWindow` now
+  shares, and picked off the whole sprite Map16 on a `TileSheetView`), Own tiles (from 0x300:
+  each quarter's 8x8 tile, palette and flips, picked off SP1-SP4 and GFX33; four clicks build
+  a tile), List (the `Collection` entries). Save is on while the config's JSON differs from the
+  saved one. Not yet: `GFXInfo`.
 
 ### 5. Parity and the rest
 - Status entry points, the 255-sprites-per-level remap, Lunar Magic's aux files on build.

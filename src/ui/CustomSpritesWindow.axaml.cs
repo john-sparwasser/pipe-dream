@@ -9,8 +9,8 @@ namespace PipeDream.Ui;
 /// <summary>
 /// The project's custom sprites (reference/PIXI_PORT.md): the library and the slots each sprite
 /// runs in. New adds one from the template, Import adds .json/.cfg sprites or a whole PIXI folder,
-/// Slots… says which numbers run it, Edit ASM and Edit config open <see cref="BlockEditWindow"/>
-/// on the ASM or the PIXI JSON, Open hands the ASM to the user's text editor, Remove deletes it.
+/// Slots… says which numbers run it, Edit ASM opens <see cref="BlockEditWindow"/> on the ASM and
+/// Edit config <see cref="SpriteConfigWindow"/> on the PIXI config, Open hands the ASM to the user's text editor, Remove deletes it.
 /// </summary>
 public partial class CustomSpritesWindow : Window
 {
@@ -124,11 +124,17 @@ public partial class CustomSpritesWindow : Window
 
     private void OnEdit(object? sender, Avalonia.Input.TappedEventArgs e) => OnEdit(sender, (RoutedEventArgs)e);
 
-    /// <summary>The config as text until the sprite editor exists (PIXI_PORT phase 4). A config
-    /// PIXI could not read is refused, and the hint says why.</summary>
+    /// <summary>The config in <see cref="SpriteConfigWindow"/>; one PIXI could not read opens as
+    /// text, to fix by hand. A text edit PIXI could not read is refused, and the hint says why.</summary>
     private async void OnConfig(object? sender, RoutedEventArgs e)
     {
         if (Selected is not { } name) return;
+        if (session.CustomSpriteModel(name) is { } model)
+        {
+            await new SpriteConfigWindow(session, name, model).ShowDialog(this);
+            Refresh(name);
+            return;
+        }
         string? status = null;
         await new BlockEditWindow(name + " config", session.CustomSpriteConfig(name) ?? "",
                                   json => status = session.SetCustomSpriteConfig(name, json)).ShowDialog(this);

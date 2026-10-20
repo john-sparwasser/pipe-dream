@@ -1,0 +1,196 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="clr-namespace:PipeDream.Ui"
+        x:Class="PipeDream.Ui.SpriteConfigWindow"
+        Title="Custom sprite" Width="1180" Height="800" CanResize="True"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+
+  <Window.Styles>
+    <Style Selector="TextBlock.dim">
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="TextBlock.head">
+      <Setter Property="FontWeight" Value="Bold"/>
+      <Setter Property="Margin" Value="0,0,0,4"/>
+    </Style>
+    <Style Selector="ListBox.mono, TextBox.mono">
+      <Setter Property="FontFamily" Value="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"/>
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+    <Style Selector="Border.group">
+      <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="3"/>
+      <Setter Property="Padding" Value="10,8"/>
+      <Setter Property="Margin" Value="0,0,10,10"/>
+      <Setter Property="Width" Value="350"/>
+    </Style>
+  </Window.Styles>
+
+  <DockPanel Margin="12">
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+      <TextBlock x:Name="Status" Classes="dim" Margin="0,0,12,0" TextWrapping="Wrap" MaxWidth="700"/>
+      <Button Content="JSON…" Click="OnJson" ToolTip.Tip="The config as PIXI's JSON text, edits included"/>
+      <Button x:Name="SaveButton" Content="Save" Click="OnSave" IsEnabled="False"
+              ToolTip.Tip="Write the config to the project; the level and the catalog redraw with it"/>
+      <Button Content="Close" Click="OnClose" IsCancel="True"/>
+    </StackPanel>
+
+    <TabControl x:Name="Tabs">
+      <!-- What the sprite table gets, and the extra bytes a placement carries. -->
+      <TabItem Header="Sprite">
+        <ScrollViewer>
+          <StackPanel Spacing="10" Margin="0,8,0,0">
+            <Grid ColumnDefinitions="Auto,220,24,Auto,90,24,Auto,90" RowDefinitions="Auto,Auto" RowSpacing="8" ColumnSpacing="8">
+              <TextBlock Classes="dim" Text="type"/>
+              <ComboBox x:Name="TypeBox" Grid.Column="1" HorizontalAlignment="Stretch"
+                        ToolTip.Tip="A tweak changes an SMW sprite's tables only; a custom sprite runs its ASM; a shooter or generator runs from C0-DF">
+                <ComboBoxItem Content="0 · tweak an SMW sprite"/>
+                <ComboBoxItem Content="1 · custom sprite"/>
+                <ComboBoxItem Content="2 · shooter or generator"/>
+              </ComboBox>
+              <TextBlock Classes="dim" Grid.Column="3" Text="acts like"/>
+              <TextBox x:Name="ActLike" Grid.Column="4" Classes="mono" ToolTip.Tip="The SMW sprite whose tables and behaviour it starts from (hex)"/>
+              <TextBlock Classes="dim" Grid.Row="1" Text="extra property bytes"/>
+              <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                <TextBox x:Name="Prop1" Width="60" Classes="mono" ToolTip.Tip="Extra property byte 1 (hex): the ASM reads it"/>
+                <TextBox x:Name="Prop2" Width="60" Classes="mono" ToolTip.Tip="Extra property byte 2 (hex): the ASM reads it"/>
+              </StackPanel>
+              <TextBlock Classes="dim" Grid.Row="1" Grid.Column="3" Text="extra bytes"/>
+              <NumericUpDown x:Name="ExtraBytes" Grid.Row="1" Grid.Column="4" Minimum="0" Maximum="12" FormatString="0"
+                             ToolTip.Tip="How many extra bytes a placement carries with the extra bit clear"/>
+              <TextBlock Classes="dim" Grid.Row="1" Grid.Column="6" Text="with extra bit"/>
+              <NumericUpDown x:Name="ExtraBytesSet" Grid.Row="1" Grid.Column="7" Minimum="0" Maximum="12" FormatString="0"
+                             ToolTip.Tip="How many extra bytes a placement carries with the extra bit set"/>
+            </Grid>
+            <!-- The six tweaker bytes, a box each, filled from PixiConfig.TweakFields. -->
+            <WrapPanel x:Name="Tweakers"/>
+          </StackPanel>
+        </ScrollViewer>
+      </TabItem>
+
+      <!-- How Lunar Magic draws a placement: Map16 tiles at pixel offsets, per display. -->
+      <TabItem Header="Look">
+        <Grid ColumnDefinitions="260,12,Auto,12,*" Margin="0,8,0,0">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="6" Margin="0,0,0,6">
+              <TextBlock Classes="dim" Text="pick a display by"/>
+              <ComboBox x:Name="DisplayBy" Width="140"
+                        ToolTip.Tip="Lunar Magic shows the display for a placement's position nibbles, or for one extension byte's value">
+                <ComboBoxItem Content="position"/>
+                <ComboBoxItem Content="extension byte"/>
+              </ComboBox>
+            </StackPanel>
+            <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,6,0,0">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <Button Content="Add" Click="OnAddDisplay" ToolTip.Tip="A new display — a copy of the selected one"/>
+                <Button Content="Remove" Click="OnRemoveDisplay"/>
+              </StackPanel>
+              <TextBox x:Name="DisplayDescription" Watermark="description"/>
+              <CheckBox x:Name="DisplayExtraBit" Content="for the extra bit set"/>
+              <Grid ColumnDefinitions="Auto,80,12,Auto,80" ColumnSpacing="6">
+                <TextBlock x:Name="DisplayXLabel" Classes="dim" Text="x"/>
+                <NumericUpDown x:Name="DisplayX" Grid.Column="1" Minimum="0" Maximum="255" FormatString="0"/>
+                <TextBlock x:Name="DisplayYLabel" Classes="dim" Grid.Column="3" Text="y"/>
+                <NumericUpDown x:Name="DisplayY" Grid.Column="4" Minimum="0" Maximum="255" FormatString="0"/>
+              </Grid>
+              <CheckBox x:Name="DisplayUseText" Content="show text instead of tiles"/>
+              <TextBox x:Name="DisplayText" Watermark="text"/>
+            </StackPanel>
+            <ListBox x:Name="Displays"/>
+          </DockPanel>
+
+          <StackPanel Grid.Column="2" Spacing="8" Width="384">
+            <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" HorizontalAlignment="Left">
+              <ui:TileArrangeView x:Name="DisplayPreview"/>
+            </Border>
+            <TextBlock Classes="dim" TextWrapping="Wrap"
+                       Text="Click a tile to pick it, drag to move. Drag on empty space to lasso; Shift or Ctrl/Cmd-click adds. Arrows nudge (Shift: 8px). Dashed box = placement cell; earlier tiles draw in front."/>
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <Button Content="Add" Click="OnAddTile" ToolTip.Tip="A new tile — a copy of the selected one, else at the cell"/>
+              <Button Content="Delete" Click="OnDeleteTile"/>
+              <Button Content="▲" Click="OnTileUp" ToolTip.Tip="Earlier: draws in front"/>
+              <Button Content="▼" Click="OnTileDown" ToolTip.Tip="Later: draws behind"/>
+            </StackPanel>
+            <ListBox x:Name="DisplayTiles" Classes="mono" Height="170" SelectionMode="Multiple"/>
+            <Grid ColumnDefinitions="Auto,100,12,Auto,100" RowDefinitions="Auto,Auto" RowSpacing="6" ColumnSpacing="6">
+              <TextBlock Classes="dim" Text="x"/>
+              <NumericUpDown x:Name="TileX" Grid.Column="1" Minimum="-128" Maximum="127" FormatString="0"/>
+              <TextBlock Classes="dim" Grid.Column="3" Text="y"/>
+              <NumericUpDown x:Name="TileY" Grid.Column="4" Minimum="-128" Maximum="127" FormatString="0"/>
+              <TextBlock Classes="dim" Grid.Row="1" Text="tile"/>
+              <TextBox x:Name="TileNumber" Grid.Row="1" Grid.Column="1" Classes="mono" ToolTip.Tip="Sprite Map16 tile (hex): 000-2FF Lunar Magic's, 300-3FF the sprite's own"/>
+              <CheckBox x:Name="TileTranslucent" Grid.Row="1" Grid.Column="3" Grid.ColumnSpan="2" Content="translucent"/>
+            </Grid>
+          </StackPanel>
+
+          <DockPanel Grid.Column="4">
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,6">
+              <TextBlock Classes="dim" Text="Sprite Map16 — click to give the picked tile, or to add one"/>
+              <TextBlock x:Name="Map16Readout" Classes="dim"/>
+            </StackPanel>
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+              <ui:TileSheetView x:Name="Map16Sheet" CellPx="16" Scale="2"/>
+            </ScrollViewer>
+          </DockPanel>
+        </Grid>
+      </TabItem>
+
+      <!-- The sprite's own Map16 tiles, 300 up: four 8x8 tiles each. -->
+      <TabItem Header="Own tiles">
+        <Grid ColumnDefinitions="220,12,300,12,*" Margin="0,8,0,0">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="6" Margin="0,6,0,0">
+              <Button Content="Add" Click="OnAddOwn" ToolTip.Tip="The next tile, a copy of the selected one"/>
+              <Button Content="Remove last" Click="OnRemoveOwn"/>
+            </StackPanel>
+            <ListBox x:Name="OwnTiles" Classes="mono"/>
+          </DockPanel>
+
+          <StackPanel Grid.Column="2" Spacing="8">
+            <TextBlock Classes="dim" TextWrapping="Wrap" Text="Pick a quarter, then click an 8x8 tile on the sheet to give it to that quarter."/>
+            <ListBox x:Name="Quarters" Classes="mono"/>
+            <Grid ColumnDefinitions="Auto,90,12,Auto,90" RowDefinitions="Auto,Auto" RowSpacing="6" ColumnSpacing="6">
+              <TextBlock Classes="dim" Text="tile"/>
+              <TextBox x:Name="QuarterTile" Grid.Column="1" Classes="mono" ToolTip.Tip="8x8 tile (hex): 000-1FF SP1-SP4, 200-2FF GFX33"/>
+              <TextBlock Classes="dim" Grid.Column="3" Text="palette"/>
+              <NumericUpDown x:Name="QuarterPal" Grid.Column="4" Minimum="0" Maximum="7" FormatString="0"/>
+              <CheckBox x:Name="QuarterXFlip" Grid.Row="1" Grid.ColumnSpan="2" Content="x flip"/>
+              <CheckBox x:Name="QuarterYFlip" Grid.Row="1" Grid.Column="3" Grid.ColumnSpan="2" Content="y flip"/>
+            </Grid>
+          </StackPanel>
+
+          <DockPanel Grid.Column="4">
+            <TextBlock x:Name="GfxReadout" DockPanel.Dock="Top" Classes="dim" Margin="0,0,0,6" Text="8x8 tiles: SP1-SP4, then GFX33"/>
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+              <ui:TileSheetView x:Name="GfxSheet" CellPx="8" Scale="3"/>
+            </ScrollViewer>
+          </DockPanel>
+        </Grid>
+      </TabItem>
+
+      <!-- Lunar Magic's sprite list: what the Sprites catalog offers, and what a placement gets. -->
+      <TabItem Header="List">
+        <Grid ColumnDefinitions="360,12,*" Margin="0,8,0,0">
+          <DockPanel>
+            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="6" Margin="0,6,0,0">
+              <Button Content="Add" Click="OnAddEntry" ToolTip.Tip="A new entry — a copy of the selected one"/>
+              <Button Content="Remove" Click="OnRemoveEntry"/>
+            </StackPanel>
+            <ListBox x:Name="Entries"/>
+          </DockPanel>
+          <StackPanel Grid.Column="2" Spacing="8" MaxWidth="520" HorizontalAlignment="Left">
+            <TextBlock Classes="dim" TextWrapping="Wrap"
+                       Text="Each entry is one line in the Sprites catalog: a name, the extra bit, and the extra bytes a placement starts with — as many as the Sprite tab says for that extra bit."/>
+            <TextBox x:Name="EntryName" Watermark="name"/>
+            <CheckBox x:Name="EntryExtraBit" Content="extra bit set"/>
+            <TextBox x:Name="EntryBytes" Classes="mono" Watermark="extra bytes, hex: 00 01 02 …"/>
+          </StackPanel>
+        </Grid>
+      </TabItem>
+    </TabControl>
+  </DockPanel>
+</Window>
