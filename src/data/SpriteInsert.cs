@@ -47,11 +47,15 @@ public static partial class SpriteInsert
         var mem = new Dictionary<string, byte[]>();
         void Put(string path, string text) => mem[Path.Combine(VirtualDir, path)] = Encoding.UTF8.GetBytes(text);
         Put("defines.asm", Driver("defines.asm"));
-        foreach (var (path, text) in data.PixiFiles) Put(path, text);
+        // Our own routines stand in for any the project has not imported; an imported one wins,
+        // since it is the one the user's sprites were written against.
+        var files = BuiltinRoutines();
+        foreach (var (path, text) in data.PixiFiles) files[path] = text;
+        foreach (var (path, text) in files) Put(path, text);
 
         var sources = names.Where(n => configs[n].Type != 0).ToDictionary(n => n, n => data.Sprites[n]);
         var listedNames = listed.Values.SelectMany(l => l.Values).Distinct().ToList();
-        var routines = InsertRoutines(rom, data.PixiFiles, sources.Values.Concat(listedNames.Select(n => data.Sprites[n])), mem, written, out string? routineError);
+        var routines = InsertRoutines(rom, files, sources.Values.Concat(listedNames.Select(n => data.Sprites[n])), mem, written, out string? routineError);
         if (routineError is not null) return Fail(routineError);
         Put("routines.asm", string.Concat(routines.Select(r => $"macro {r.Key}()\n    JSL ${r.Value:X6}\nendmacro\n")));
 
@@ -245,19 +249,41 @@ public static partial class SpriteInsert
         IEnumerable<ProjectFile.SpriteEntry> sprites, Dictionary<string, byte[]> mem, List<Asar.WrittenBlock> written, out string? error)
     {
         error = null;
-        var byName = files.Keys.Where(p => p.StartsWith("routines/") && p.EndsWith(".asm", StringComparison.OrdinalIgnoreCase))
-                               .ToDictionary(p => p["routines/".Length..^4].Replace("/", ""), p => p);
+        var byName = RoutinesByName(files);
         var used = new SortedSet<string>(StringComparer.Ordinal);
         var todo = new Stack<string>(sprites.SelectMany(s => s.Files.Values.Select(b => Encoding.UTF8.GetString(b)).Append(s.Source)));
         while (todo.TryPop(out var text))
             foreach (Match m in MacroCall().Matches(text))
                 if (byName.ContainsKey(m.Groups[1].Value) && used.Add(m.Groups[1].Value)) todo.Push(files[byName[m.Groups[1].Value]]);
         if (used.Count == 0) return [];
+        return AssembleRoutines(rom, files, byName, used, mem, written, out error);
+    }
 
+    /// <summary>Every routine in <paramref name="files"/> onto <paramref name="rom"/>, nothing else:
+    /// name → address. What PixiRoutineTests runs ours and PIXI's from.</summary>
+    internal static Dictionary<string, int> AssembleRoutines(Rom rom, Dictionary<string, string> files, out string? error)
+    {
+        var mem = new Dictionary<string, byte[]> { [Path.Combine(VirtualDir, "defines.asm")] = Encoding.UTF8.GetBytes(Driver("defines.asm")) };
+        foreach (var (path, text) in files) mem[Path.Combine(VirtualDir, path)] = Encoding.UTF8.GetBytes(text);
+        var byName = RoutinesByName(files);
+        return AssembleRoutines(rom, files, byName, byName.Keys, mem, [], out error);
+    }
+
+    private static Dictionary<string, string> RoutinesByName(Dictionary<string, string> files)
+        => files.Keys.Where(p => p.StartsWith("routines/") && p.EndsWith(".asm", StringComparison.OrdinalIgnoreCase))
+                     .ToDictionary(p => p["routines/".Length..^4].Replace("/", ""), p => p);
+
+    private static Dictionary<string, int> AssembleRoutines(Rom rom, Dictionary<string, string> files, Dictionary<string, string> byName,
+        IEnumerable<string> used, Dictionary<string, byte[]> mem, List<Asar.WrittenBlock> written, out string? error)
+    {
+        error = null;
         var src = new StringBuilder("incsrc \"defines.asm\"\n");
         foreach (string extra in ExtraDefines(files)) src.Append($"incsrc \"{extra}\"\n");
         foreach (string r in used) src.Append($"macro {r}()\n    JSL PixiRoutine_{r}\nendmacro\n");
-        foreach (string r in used) src.Append($"freecode\nPixiRoutine_{r}:\nincsrc \"{byName[r]}\"\n");
+        // Inside a macro of its own: PIXI's routines use macro labels (?+, ?loop), which Asar
+        // refuses anywhere else.
+        foreach (string r in used)
+            src.Append($"macro PixiRoutineBody_{r}()\nincsrc \"{byName[r]}\"\nendmacro\nfreecode\nPixiRoutine_{r}:\n%PixiRoutineBody_{r}()\n");
         mem[Path.Combine(VirtualDir, "_routines.asm")] = Encoding.UTF8.GetBytes(src.ToString());
         var res = Asar.Patch(rom, Path.Combine(VirtualDir, "_routines.asm"), mem);
         if (!res.Ok) { error = "shared routines: " + string.Join("; ", Local(res.Errors)); return []; }
@@ -373,6 +399,13 @@ public static partial class SpriteInsert
         using var s = typeof(SpriteInsert).Assembly.GetManifestResourceStream("spritedriver/" + name)!;
         return new StreamReader(s).ReadToEnd();
     }
+
+    /// <summary>The shared routines Pipe Dream ships (data/spritedriver/routines, MIT, written from
+    /// SMW's code and reference/PIXI_ROUTINES.md), keyed as an imported PIXI folder's would be.</summary>
+    internal static Dictionary<string, string> BuiltinRoutines()
+        => typeof(SpriteInsert).Assembly.GetManifestResourceNames()
+               .Where(n => n.StartsWith("spritedriver/routines/"))
+               .ToDictionary(n => n["spritedriver/".Length..], n => Driver(n["spritedriver/".Length..]));
 
     private static string[] Local(string[] messages)
     {

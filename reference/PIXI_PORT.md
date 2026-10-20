@@ -15,7 +15,7 @@ this file is the plan and its decision log.
 | Which kinds first? | **The SPRITE: section**: normal `00-BF`, per-level `B0-BF`, shooters `C0-CF`, generators `D0-DF` | These are what a level places and what the config describes. Cluster, extended and the misc kinds are ASM-only with MAIN-only pointer tables, and come in a later phase. |
 | CFG or JSON? | **JSON only.** A `.cfg` converts at import into the JSON PIXI's CFG Editor would write | One format, one editor. The CFG's six lines map onto JSON fields one to one (below); CFG export can come later if anyone needs it. |
 | How is a sprite's look edited? | **As Map16 tiles, natively**: 16×16 tiles at pixel offsets, as PIXI's JSON and Lunar Magic hold it, with a quadrant editor for the sprite's own Map16 tiles | The JSON round-trips exactly. The window shares its preview, sheet and tile list with Debug ▸ Sprite tiles by extracting them into one control both windows use. |
-| Routines? | **Ours are not shipped either** (PIXI's are GPL). A sprite calling `%SubOffScreen()` etc. assembles once the routine is in the project: imported from a PIXI folder (the user's own copy, stored in the project as user data) or written in the app | The same position GPS blocks were in. Writing MIT versions of the handful every sprite uses (`GetDrawInfo`, `SubOffScreen`, `Aiming`…) from SMW's own behaviour is a candidate phase, not a prerequisite. |
+| Routines? | **PIXI's are not shipped** (they are GPL). **Ours are (2026-10-20):** MIT versions of all 27 of PIXI 1.2.x's, clean room, used for any routine the project has not imported; one imported from a PIXI folder (the user's own copy, stored in the project) still wins | Until then this was the position GPS blocks are in. How ours were written and checked against PIXI's is under phase 5 and in `PIXI_ROUTINES.md`. |
 
 ## What PIXI does, which is what we have to do
 
@@ -190,7 +190,7 @@ Each phase ends shippable.
 - Status entry points, the 255-sprites-per-level remap, Lunar Magic's aux files on build (all
   done; see below).
 - Cluster, extended, minor extended, bounce, smoke, spinning coin, score.
-- MIT versions of the commonest routines, if importing PIXI's proves a hurdle.
+- MIT versions of the routines (done; see below).
 - **Status entry points (2026-10-19): done.** A sprite may print `CARRIABLE` (status 09),
   `KICKED` (0A), `CARRIED` (0B), `MOUTH` (07) and `GOAL` (0C), as PIXI's README has them; the
   printed code then runs in that status in place of SMW's, entered with the data bank set to its
@@ -304,6 +304,27 @@ Each phase ends shippable.
   sprite pushed two screens off was erased by its own off-screen check and its entry went from
   1 to 0, so it can come back. Asar here assembles `BNE $02A846` (an absolute operand) as an
   offset of `$46`; branch to a label, or JML.
+- **Shared routines of our own (2026-10-20): done.** All 27 of PIXI 1.2.x's routines, MIT, in
+  `data/spritedriver/routines/`, and its `sa1def.asm` macros (`BES`, `BEC`, `Between`, `debugmsg`,
+  the two `define_*`) in `defines.asm`; not `invoke_snes`/`invoke_sa1`, which are SA-1 only. Clean
+  room, as the driver: a separate pass read PIXI's routines and wrote their observable behaviour
+  into `reference/PIXI_ROUTINES.md` (no code); ours were written from that and SMW's own code,
+  tables from SMW's ROM at assembly time (`read1()`) or from a formula (`Aiming`'s 1/√k). A build
+  uses ours for any routine the project has not imported; an imported one still wins.
+  `PixiRoutineTests` runs each of ours against PIXI's (read from a project of the user's at test
+  time, never shipped) from 2000 random states, on the same vanilla ROM in `Cpu65816`, and compares
+  every register, flag, the stack and all of RAM; it was run over 12 seeds. Where it disagreed with
+  the contracts, PIXI was measured black-box and ours matched to it, except one PIXI bug kept out on
+  purpose (`ExtendedHurt` leaves DB 0 for SMW's `$02A469`): the list is at the end of
+  `PIXI_ROUTINES.md`. In Mesen, 3/3 each, a real sprite (TestRom's FlyingQuestionBlock: GetDrawInfo,
+  SubOffScreen, SubHorzPos, SpawnSprite, `%BEC`) built once with ours and once with PIXI's
+  routines: alive, at the same position after 120 frames, the same 4 tiles in OAM.
+  Found on the way: PIXI's routines use macro labels (`?+`), which Asar takes only inside a macro,
+  so an imported PIXI 1.2.x routine set had never assembled; each routine is now included inside a
+  macro of its own. `Cpu65816` gained the CPU's multiplier/divider, the PPU's signed multiply and
+  the stack-relative ALU forms, all of which the routines use.
+  Not done: the newer PIXI's routines in subfolders (`Spawn/`, `Bounce/`, `Score/`… that the minor
+  kinds' `_header.asm` call), SA-1.
 
 ## Open questions
 

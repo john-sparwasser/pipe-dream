@@ -246,6 +246,44 @@ public class SpriteInsertTests : IDisposable
         }
     }
 
+    /// <summary>A sprite calling PIXI's routines builds with no PIXI folder in the project: ours
+    /// stand in, and only the ones it calls go in. A project's own copy of one still wins.</summary>
+    [AsarRomFact]
+    public void a_sprite_calling_pixis_routines_builds_with_ours()
+    {
+        string source = Probe.Replace("    LDA #$11\n", "    %GetDrawInfo()\n    %SubOffScreen()\n    LDA #$11\n");
+        var (status, rom) = Build(dir, source);
+        Assert.True(rom is not null, status);
+        int init = rom!.ReadValue(rom.ReadValue(0x02FFEE, 3) + 0x1A * 0x10 + 8, 3);
+        Assert.Equal(0x22, rom.ReadByte(init));                                        // JSL GetDrawInfo
+        Assert.Equal(0x22, rom.ReadByte(init + 4));                                    // JSL SubOffScreen
+        Assert.Equal(0x9E, rom.ReadByte(rom.ReadValue(init + 1, 3)));                  // ours: STZ $186C,x
+
+        var (mine, withMine) = Build(Path.Combine(dir, "own"), source,
+            pixiFiles: new() { ["routines/GetDrawInfo.asm"] = "    LDA #$5A\n    RTL\n" });
+        Assert.True(withMine is not null, mine);
+        int own = withMine!.ReadValue(withMine.ReadValue(0x02FFEE, 3) + 0x1A * 0x10 + 8, 3);
+        Assert.Equal([0xA9, 0x5A], withMine.Data.AsSpan(withMine.FileOffset(withMine.ReadValue(own + 1, 3)), 2).ToArray());
+    }
+
+    /// <summary>PIXI's own macros a sprite may call (its sa1def.asm's), ours: the extra bit's
+    /// branches, the range check, the table defines.</summary>
+    [AsarRomFact]
+    public void pixis_macros_assemble_as_documented()
+    {
+        string source = Probe.Replace("    LDA #$11\n",
+            "    %BEC(+)\n    NOP\n+   %BES(+)\n    NOP\n+   %Between(#$10, +)\n    NOP\n+   %debugmsg(\"here\")\n" +
+            "    %define_sprite_table(probe_table, $1234, $5678)\n    LDA !probe_table\n    LDA #$11\n");
+        var (status, rom) = Build(dir, source);
+        Assert.True(rom is not null, status);
+        int init = rom!.ReadValue(rom.ReadValue(0x02FFEE, 3) + 0x1A * 0x10 + 8, 3);
+        byte[] lde = [0xBF, 0x10, 0xAB, 0x7F, 0x29, 0x04];                                  // LDA !extra_bits,x : AND #$04
+        byte[] expected = [.. lde, 0xF0, 0x01, 0xEA, .. lde, 0xD0, 0x01, 0xEA,             // BEQ/BNE over a NOP
+                           0x18, 0x69, 0x10, 0xC9, 0x20, 0xB0, 0x01, 0xEA,                   // CLC : ADC #$10 : CMP #$20 : BCS
+                           0xAD, 0x34, 0x12, 0xA9, 0x11];                                    // LDA $1234 : LDA #$11
+        Assert.Equal(expected, rom.Data.AsSpan(rom.FileOffset(init), expected.Length).ToArray());
+    }
+
     /// <summary>The level's load table moves to $7FAF00 for 255 sprites a level, as PIXI's does:
     /// no code in banks 01-03 addresses $1938 any more, each place that did calls the driver, and
     /// Lunar Magic is told the limit is 255.</summary>

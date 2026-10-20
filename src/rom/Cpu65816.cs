@@ -22,6 +22,10 @@ public sealed class Cpu65816(Rom rom)
         if (bank == 0x7E) return Ram7E[addr];
         if (bank == 0x7F) return Ram7F[addr];
         if (addr < 0x2000 && (bank < 0x40 || (bank >= 0x80 && bank < 0xC0))) return Ram7E[addr];
+        if (addr is >= 0x4214 and <= 0x4217 && (bank < 0x40 || (bank >= 0x80 && bank < 0xC0)))
+            return (byte)((addr < 0x4216 ? quotient : product) >> (addr & 1) * 8);
+        if (addr is >= 0x2134 and <= 0x2136 && (bank < 0x40 || (bank >= 0x80 && bank < 0xC0)))
+            return (byte)(m7Product >> (addr - 0x2134) * 8);
         if (addr >= 0x8000 || bank >= 0x40)
         {
             int fo = rom.FileOffset(((bank & 0x7F) << 16) | (addr | 0x8000));
@@ -125,8 +129,27 @@ public sealed class Cpu65816(Rom rom)
         if (bank == 0x7E) Ram7E[addr] = v;
         else if (bank == 0x7F) Ram7F[addr] = v;
         else if (addr < 0x2000 && (bank < 0x40 || (bank >= 0x80 && bank < 0xC0))) Ram7E[addr] = v;
+        else if (bank < 0x40 || (bank >= 0x80 && bank < 0xC0))
+            switch (addr)                                       // the CPU's multiplier and divider
+            {
+                case 0x4202: mulA = v; break;
+                case 0x4203: product = mulA * v; break;
+                case 0x4204: dividend = (dividend & 0xFF00) | v; break;
+                case 0x4205: dividend = (dividend & 0x00FF) | (v << 8); break;
+                case 0x4206:                                    // by 0: quotient $FFFF, remainder the dividend
+                    quotient = v == 0 ? 0xFFFF : dividend / v;
+                    product = v == 0 ? dividend : dividend % v;
+                    break;
+                case 0x211B: m7a = (short)(v << 8 | m7Latch); m7Latch = v; break;   // the PPU's signed multiplier
+                case 0x211C: m7Product = m7a * (sbyte)v; m7Latch = v; break;
+            }
         // everything else (PPU/DMA/etc.) ignored
     }
+
+    // $4216/$4217 hold the last product, or the remainder after a division; $4214/$4215 the quotient.
+    private int mulA = 0xFF, product, dividend = 0xFFFF, quotient;
+    // $2134-$2136: Mode 7 matrix A (written low then high, through a latch) times $211C's signed byte.
+    private int m7a, m7Latch, m7Product;
 
     private int Read16(int bank, int addr) => Read(bank, addr) | (Read(bank, addr + 1) << 8);
     private int Read24(int bank, int addr) => Read16(bank, addr) | (Read(bank, addr + 2) << 16);
@@ -199,6 +222,19 @@ public sealed class Cpu65816(Rom rom)
     /// <summary>The accumulator after a call, 16-bit view — for hijacks that return a value.</summary>
     public int Acc => A;
 
+    /// <summary>Every register after a call, for comparing two routines that should behave alike.
+    /// PBR says how it came back: $FF from the JSL frame, else through a caller's frame.</summary>
+    public (int A, int X, int Y, int P, int SP, int DBR, int PBR) Registers => (A, X, Y, P, SP, DBR, PBR);
+
+    /// <summary>Preset the status flags a call is entered with (widths included).</summary>
+    public void PresetP(int p) => P = p;
+
+    /// <summary>Push return frames for callers above the routine — each a JSR's two bytes of
+    /// $FFFE — so a routine that drops its own frame and returns to its caller's caller (SMW's
+    /// GetDrawInfo off screen) ends at $FFFF too, in its own bank. See <see cref="CallLong"/>'s
+    /// <c>anyBank</c>.</summary>
+    public void PresetCallerFrames(int count) { for (int i = 0; i < count; i++) Push16(0xFFFE); }
+
     /// <summary>Preset the data bank register. Bank-1 sprite code runs with DBR=1 in-game
     /// (PHK/PLB in the sprite loop); absolute table reads (SprTilemap etc.) depend on it.</summary>
     public void PresetDbr(int b) => DBR = b & 0xFF;
@@ -220,8 +256,10 @@ public sealed class Cpu65816(Rom rom)
         throw new InvalidOperationException("emulation overran instruction budget");
     }
 
-    /// <summary>Run a JSL to <paramref name="entrySnes"/> until its top-level RTL. Throws on overrun.</summary>
-    public void CallLong(int entrySnes, int maxInstructions = 30_000_000)
+    /// <summary>Run a JSL to <paramref name="entrySnes"/> until its top-level RTL — or, with
+    /// <paramref name="anyBank"/>, until any return lands on $FFFF (a caller frame of
+    /// <see cref="PresetCallerFrames"/>). Throws on overrun.</summary>
+    public void CallLong(int entrySnes, int maxInstructions = 30_000_000, bool anyBank = false)
     {
         PBR = (entrySnes >> 16) & 0xFF; PC = entrySnes & 0xFFFF;
         Push(0xFF);                                         // fake JSL frame: RTL restores PBR=$FF
@@ -229,7 +267,7 @@ public sealed class Cpu65816(Rom rom)
         long budget = maxInstructions;
         while (--budget > 0)
         {
-            if (PC == 0xFFFF && PBR == 0xFF) return;
+            if (PC == 0xFFFF && (PBR == 0xFF || anyBank)) return;
             Step();
         }
         throw new InvalidOperationException("emulation overran instruction budget");
@@ -297,6 +335,13 @@ public sealed class Cpu65816(Rom rom)
             case 0x7F: Adc(Load(7, m), m); break; case 0x71: Adc(Load(9, m), m); break;
             case 0x67: Adc(Load(10, m), m); break; case 0x77: Adc(Load(11, m), m); break;
             case 0x72: Adc(Load(8, m), m); break;
+            // stack-relative, sr,S and (sr,S),Y, for the rest of the ALU
+            case 0x63: Adc(Load(13, m), m); break; case 0x73: Adc(Load(14, m), m); break;
+            case 0xE3: Sbc(Load(13, m), m); break; case 0xF3: Sbc(Load(14, m), m); break;
+            case 0x23: AndM(Load(13, m), m); break; case 0x33: AndM(Load(14, m), m); break;
+            case 0x13: OraM(Load(14, m), m); break;
+            case 0x43: EorM(Load(13, m), m); break; case 0x53: EorM(Load(14, m), m); break;
+            case 0xC3: Cmp(A & m, Load(13, m), m); break; case 0xD3: Cmp(A & m, Load(14, m), m); break;
             case 0xE9: Sbc(m == 0xFF ? Fetch() : Fetch16(), m); break;
             case 0xE5: Sbc(Load(0, m), m); break; case 0xF5: Sbc(Load(1, m), m); break;
             case 0xED: Sbc(Load(3, m), m); break; case 0xFD: Sbc(Load(4, m), m); break;

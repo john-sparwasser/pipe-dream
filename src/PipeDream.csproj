@@ -69,6 +69,7 @@
     <AvaloniaResource Include="..\assets\fonts\*.ttf" Link="assets/fonts/%(Filename)%(Extension)" />
     <EmbeddedResource Include="data\blockdriver\*.asm" LogicalName="blockdriver/%(Filename)%(Extension)" />
     <EmbeddedResource Include="data\spritedriver\*.asm" LogicalName="spritedriver/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="data\spritedriver\routines\*.asm" LogicalName="spritedriver/routines/%(Filename)%(Extension)" />
     <!-- Help ▸ Third-party licences: the one-file binary carries the texts its libraries require. -->
     <EmbeddedResource Include="..\assets\licenses\*.txt" LogicalName="licenses/%(Filename)%(Extension)" />
     <!-- The window icon, which is a runtime resource rather than the exe's. -->

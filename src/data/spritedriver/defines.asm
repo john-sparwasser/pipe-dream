@@ -42,6 +42,49 @@ macro LDE()
     AND #$04
 endmacro
 
+; The rest of the macros a PIXI sprite may call (reference/PIXI_ROUTINES.md, "sa1def.asm
+; macros"; ours, written from that). BES/BEC: branch if the extra bit is set/clear, A = $04/$00.
+macro BES(label)
+    %LDE()
+    BNE <label>
+endmacro
+
+macro BEC(label)
+    %LDE()
+    BEQ <label>
+endmacro
+
+; Fall through when -x <= A < x (signed), else branch; A is left + x, C set on the branch.
+macro Between(x, label)
+    CLC
+    ADC <x>
+    CMP <x>*2
+    BCS <label>
+endmacro
+
+; With !__debug = 1, print where it was assembled.
+macro debugmsg(msg)
+    if not(defined("__debug"))
+        !__debug = 0
+    endif
+    if !__debug == 1
+        print "$", hex(pc), " <msg>"
+    endif
+endmacro
+
+; Define !name as a table's address, its SA-1 one on an SA-1 ROM (Pipe Dream builds none).
+macro define_sprite_table(name, addr, addr_sa1)
+    if !SA1
+        !<name> = <addr_sa1>
+    else
+        !<name> = <addr>
+    endif
+endmacro
+
+macro define_base2_address(name, addr)
+    !<name> = <addr>+!Base2
+endmacro
+
 ; ---- SMW's sprite tables, by address ----
 !9E = $9E
 !AA = $AA
