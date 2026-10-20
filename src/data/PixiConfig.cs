@@ -110,8 +110,9 @@ public sealed class PixiConfig
             }
             for (int i = 0; i < 6; i++)
                 if (j.TryGetProperty(TweakFields[i].Key, out var t)) c.Tweak[i] = ReadTweak(t, TweakFields[i].Fields);
+            // Not base64 is no tiles, as PIXI reads it: real configs carry junk there ("Cape Shell").
             try { c.Map16 = j.TryGetProperty("Map16", out var m) ? Convert.FromBase64String(m.GetString() ?? "") : []; }
-            catch (FormatException) { throw new FormatException("Map16 is not base64"); }
+            catch (FormatException) { c.Map16 = []; }
             c.Map16 = c.Map16[..(c.Map16.Length / 8 * 8)];
             c.DisplayByExtraByte = j.TryGetProperty("DisplayType", out var dt) && dt.GetString() switch
             {

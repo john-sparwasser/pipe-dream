@@ -200,6 +200,32 @@ Each phase ends shippable.
   `STSD` header's status pointer stays `$FFFFFF`, since a tool reading it would expect PIXI's
   layout. Measured in Mesen on level 105, 3/3: a sprite whose INIT sets status 09 ran
   `CARRIABLE` 120 times in 120 frames with the data bank at its code's ($90), and not MAIN.
+- **Lunar Magic's aux files (2026-10-19): done.** `data/SpriteAuxFiles`: every build writes
+  `<name>.ssc`, `.mwt`, `.mw2` and `.s16` beside `build/<name>.smc` from the global slots'
+  configs (a build without any removes the last build's). Formats from Lunar Magic 3.40's help
+  (`Lunar Magic.chm`: "Custom Tooltips for Sprites", "Custom Collections of Sprites", "Custom
+  Map16 for Sprites"), then compared with PIXI 1.43's own output for two real sets on this
+  machine: Tempest's two JSON sprites came out **byte-identical** in all four files; QLDC2023's
+  31 JSON sprites identical in `.mwt`, `.s16` and every tile line, with two differences that are
+  PIXI bugs we do not copy: PIXI writes a description's line break raw into the `.ssc` (ending
+  the line mid-text), where we write LM's `\n` escape, and it fills extra bytes past a
+  Collection entry's four from stale memory (`.mw2` held the bytes of "tra", "By", "Ext"), where
+  we write the entry's. Facts the help leaves out, as PIXI writes them:
+  - `.ssc` fields are **space**-separated (the help says tab; LM reads both), lines end CRLF;
+    `.mwt` is tab-separated, CRLF, the number only on a sprite's first entry.
+  - TYPE is Y nibble, X nibble, then `20`/`30` (extra bit clear/set) + 0 description, 2 tiles,
+    8 GFX files; by extension byte, the byte's number counting the three record bytes
+    (`Index` + 3), two hex digits of value, then the same. Tile numbers and GFX files in hex.
+  - `.mw2` records are `70|extra<<2|1, 70, number, bytes…` — every one flags "next group", so
+    each Collection entry is its own list item — after a `00` header, ending `FF`.
+  - `.s16` starts at sprite tile 0x400 and is 0x10 pages (PIXI's size; LM saves 0x38). Each
+    sprite's own tiles go in slot order and its display tiles from 0x300 are renumbered there.
+  - PIXI writes nothing for a `.cfg` sprite; ours are JSON by then, so a converted one is listed
+    under its two "(extra bit clear/set)" entries.
+  Not done: appending a base's own aux files (a project copies only the ROM), the overworld's
+  `.sscov`/`.s16ov`, extmod. Not yet opened in Lunar Magic itself. Found on the way: a config
+  whose `Map16` is not base64 (QLDC2023's CapeShell says "Cape Shell") was refused at import;
+  it now reads as no tiles, as PIXI does.
 
 ## Open questions
 

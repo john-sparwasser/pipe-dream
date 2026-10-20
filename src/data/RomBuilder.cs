@@ -181,6 +181,20 @@ internal static class RomBuilder
         return null;
     }
 
+    /// <summary>Lunar Magic's custom sprite files beside the built ROM, so it lists and draws the
+    /// project's sprites (SpriteAuxFiles). A build without them removes the last build's, which
+    /// would show sprites that are no longer in the ROM.</summary>
+    private static void WriteSpriteAuxFiles(ProjectFile data, string outPath)
+    {
+        var files = SpriteAuxFiles.Make(data);
+        foreach (string ext in SpriteAuxFiles.Extensions)
+        {
+            string path = Path.ChangeExtension(outPath, ext);
+            if (files.TryGetValue(ext, out var bytes)) File.WriteAllBytes(path, bytes);
+            else File.Delete(path);
+        }
+    }
+
     /// <summary>The bytes prep stamped into the base, which a patch should not need to touch.
     /// None on a base used as provided (prep version 0): nothing of ours is in it.</summary>
     private static List<PatchInsert.Owned> PrepOwned(Project project)
@@ -359,6 +373,7 @@ internal static class RomBuilder
             Directory.CreateDirectory(Path.Combine(project.Folder, "build"));
             string outPath = Path.Combine(project.Folder, "build", project.Name + ".smc");
             RatsWriter.SaveAs(rom, outPath);   // fixes the checksum before writing
+            WriteSpriteAuxFiles(project.Data, outPath);
             string status = $"built {Path.GetFileName(outPath)} ({project.Data.Levels.Count} level(s))"
                           + (warnings.Count > 0 ? "  —  " + string.Join("; ", warnings) : "");
             return (status, outPath);
