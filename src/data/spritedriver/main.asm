@@ -6,7 +6,8 @@
 ;   !SizeTable  Lunar Magic's sprite size table (0x400 bytes, record length per extra bits/number)
 ;   !LmStep     where $02A846 jumped before (Lunar Magic's own record step), or 0 on a vanilla loader
 ; and holds SpriteTable: 0x100 entries of 0x10 bytes — type, acts-like, the six tweaker bytes,
-; INIT and MAIN (long), the two extra property bytes.
+; INIT and MAIN (long), the two extra property bytes — and StatusTable, laid out the same, each
+; entry the sprite's status entry points (see StatusSlot).
 ;
 ; A sprite is custom when its level data sets extra bit $08; its number is then the table's, and
 ; $9E holds its acts-like so SMW's own code treats it as that sprite wherever we do not step in.
@@ -22,7 +23,7 @@ org $02FFE2
     db $FF,$FF,$FF,$FF
     dl SpriteTable
     dl $FFFFFF,$FFFFFF,$FFFFFF,$FFFFFF   ; per-level tables, then three unused
-    dl $FFFFFF                  ; extra status pointers: not kept
+    dl $FFFFFF                  ; extra status pointers: none in PIXI's layout (ours are StatusTable)
 
 ; ---- The level loader ----
 ; $02A846 steps Y from one record's second byte to the next record: 3 bytes in SMW, so a record
@@ -293,8 +294,9 @@ Main:
     JSL CallMain
     JML $0185C2
 
-; Statuses other than INIT and MAIN run SMW's code for the acts-like, unless the second extra
-; property byte says otherwise: bit 7 runs MAIN in their place, bit 6 runs MAIN before them.
+; Statuses other than INIT and MAIN run the sprite's own code for the status where it printed
+; one (CARRIABLE, KICKED, CARRIED, MOUTH, GOAL), else SMW's code for the acts-like. The second
+; extra property byte overrides both: bit 7 runs MAIN in their place, bit 6 runs MAIN first.
 Status:
     LDA !extra_bits,x
     AND #$08
@@ -307,8 +309,10 @@ Status:
     LDA !extra_prop_2,x
     BMI .mainOnly
     AND #$40
-    BEQ .vanilla
+    BEQ +
     JSL CallMain
++   JSL CallStatus
+    BCS .done
 .vanilla
     LDA $14C8,x
     BNE +
@@ -316,7 +320,62 @@ Status:
 +   JML $01812C
 .mainOnly
     JSL CallMain
+.done
     JML $0185C2
+
+; X = the slot. Runs the sprite's own code for its status ($14C8, read again: MAIN may have just
+; changed it) with the data bank set to the code's, and returns carry set; carry clear when it
+; has none.
+CallStatus:
+    LDA $14C8,x
+    CMP #$10
+    BCS .none
+    PHX
+    TAX
+    LDA.l StatusSlot,x
+    PLX
+    CMP #$FF
+    BEQ .none
+    STA $00
+    STZ $01
+    PHB
+    PHX
+    LDA !new_sprite_num,x
+    JSR EntryOf
+    REP #$21
+    TXA
+    ADC $00
+    TAX
+    SEP #$20
+    LDA.l StatusTable+2,x
+    BEQ .noCode                 ; bank 00: no code for this status
+    STA $02
+    PHA
+    PLB
+    REP #$20
+    LDA.l StatusTable,x
+    STA $00
+    SEP #$30
+    PLX
+    JSL .enter
+    PLB
+    SEC
+    RTL
+.enter
+    JML [$0000]
+.noCode
+    SEP #$10
+    PLX
+    PLB
+.none
+    CLC
+    RTL
+
+; Status → where its pointer sits in a StatusTable entry ($FF: the status has none). An entry is
+; CARRIABLE (09), KICKED (0A), CARRIED (0B), MOUTH (07), GOAL (0C), a long each, then a pad byte,
+; so it is 16 bytes and EntryOf finds it as it finds the sprite's SpriteTable entry.
+StatusSlot:
+    db $FF,$FF,$FF,$FF,$FF,$FF,$FF,$09,$FF,$00,$03,$06,$0C,$FF,$FF,$FF
 
 ; Enter the sprite's INIT or MAIN with JML [$00], X = the slot, so its RTL comes back to the JSL
 ; that called these. CallMainOf runs a number's MAIN without a slot: shooters and generators.

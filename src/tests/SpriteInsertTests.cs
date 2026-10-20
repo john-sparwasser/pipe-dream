@@ -167,6 +167,34 @@ public class SpriteInsertTests : IDisposable
         return r.Data[at + 9] | r.Data[at + 10] << 8 | r.Data[at + 11] << 16;
     }
 
+    /// <summary>A status entry point the sprite prints lands in its StatusTable entry, at the
+    /// place the driver's StatusSlot gives its status; one it does not print stays 0.</summary>
+    [AsarRomFact]
+    public void the_status_entry_points_a_sprite_prints_land_in_the_status_table()
+    {
+        string source = Probe + "\nprint \"KICKED \",pc\n    LDA #$0A\n    RTL\nprint \"MOUTH \",pc\n    LDA #$07\n    RTL\n";
+        var (status, rom) = Build(dir, source);
+        Assert.True(rom is not null, status);
+        var r = rom!;
+        int e = StatusTableOf(r) + 0x1A * 0x10;
+        Assert.Equal(0, r.ReadValue(e, 3));                                 // CARRIABLE: none
+        Assert.Equal([0xA9, 0x0A], r.Data.AsSpan(r.FileOffset(r.ReadValue(e + 3, 3)), 2).ToArray());   // KICKED
+        Assert.Equal(0, r.ReadValue(e + 6, 3));                             // CARRIED: none
+        Assert.Equal([0xA9, 0x07], r.Data.AsSpan(r.FileOffset(r.ReadValue(e + 9, 3)), 2).ToArray());   // MOUTH
+        Assert.Equal(0, r.ReadValue(e + 12, 3));                            // GOAL: none
+        Assert.Equal(0, r.ReadValue(StatusTableOf(r) + 0x0F * 0x10 + 3, 3));   // an empty number has none
+    }
+
+    /// <summary>The driver's StatusTable, found as LevelBlocks is: the operand of CallStatus's
+    /// `ADC $00 : TAX : SEP #$20 : LDA StatusTable+2,x`.</summary>
+    private static int StatusTableOf(Rom r)
+    {
+        byte[] pattern = [0x65, 0x00, 0xAA, 0xE2, 0x20, 0xBF];
+        int at = r.Data.AsSpan().IndexOf(pattern);
+        Assert.True(at >= 0, "CallStatus not found");
+        return (r.Data[at + 6] | r.Data[at + 7] << 8 | r.Data[at + 8] << 16) - 2;
+    }
+
     [AsarRomFact]
     public void a_sprite_that_does_not_assemble_fails_the_build_by_name()
     {

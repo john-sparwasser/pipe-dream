@@ -190,6 +190,16 @@ Each phase ends shippable.
 - Status entry points, the 255-sprites-per-level remap, Lunar Magic's aux files on build.
 - Cluster, extended, minor extended, bounce, smoke, spinning coin, score.
 - MIT versions of the commonest routines, if importing PIXI's proves a hurdle.
+- **Status entry points (2026-10-19): done.** A sprite may print `CARRIABLE` (status 09),
+  `KICKED` (0A), `CARRIED` (0B), `MOUTH` (07) and `GOAL` (0C), as PIXI's README has them; the
+  printed code then runs in that status in place of SMW's, entered with the data bank set to its
+  own, and a status it does not print runs SMW's code as before. The second extra property
+  byte still overrides: bit 7 runs MAIN instead, bit 6 runs MAIN first (then the sprite's entry
+  or SMW's). The pointers are a `StatusTable` of our own, laid out as the sprite table (five
+  longs and a pad byte per entry, per-level blocks included) so `EntryOf` finds both; the
+  `STSD` header's status pointer stays `$FFFFFF`, since a tool reading it would expect PIXI's
+  layout. Measured in Mesen on level 105, 3/3: a sprite whose INIT sets status 09 ran
+  `CARRIABLE` 120 times in 120 frames with the data bank at its code's ($90), and not MAIN.
 
 ## Open questions
 

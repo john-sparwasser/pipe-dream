@@ -74,7 +74,7 @@ public static partial class SpriteInsert
         if (routineError is not null) return Fail(routineError);
         Put("routines.asm", string.Concat(routines.Select(r => $"macro {r.Key}()\n    JSL ${r.Value:X6}\nendmacro\n")));
 
-        var entries = new Dictionary<string, (int Init, int Main)>();
+        var entries = new Dictionary<string, (int Init, int Main, int[] Status)>();
         int i = 0;
         foreach (var (name, entry) in sources)
         {
@@ -91,7 +91,7 @@ public static partial class SpriteInsert
             int? init = Entry(r, "INIT"), main = Entry(r, "MAIN");
             if (main is null || init is null && entry.Kind == "sprite")
                 return Fail($"sprite {name}: no {(main is null ? "MAIN" : "INIT")} — the sprite must print it (print \"MAIN \",pc)");
-            entries[name] = (init ?? EmptyEntry, main.Value);
+            entries[name] = (init ?? EmptyEntry, main.Value, [.. StatusEntries.Select(s => Entry(r, s) ?? 0)]);
         }
 
         Put("main.asm", Driver("main.asm"));
@@ -103,6 +103,9 @@ public static partial class SpriteInsert
             freedata
             SpriteTable:
             {Table(rom, slots, perLevel, configs, entries)}
+            freedata
+            StatusTable:
+            {StatusTable(slots, perLevel, entries)}
             freedata
             LevelBlocks:
             {LevelBlocks(perLevel)}
@@ -224,13 +227,34 @@ public static partial class SpriteInsert
     /// own tweakers, so a stray custom placement acts as the vanilla sprite would. A per-level
     /// number a level does not fill falls back to the global entry.</summary>
     private static string Table(Rom rom, SortedDictionary<int, string> slots, SortedDictionary<int, SortedDictionary<int, string>> perLevel,
-                                Dictionary<string, PixiConfig> configs, Dictionary<string, (int Init, int Main)> entries)
+                                Dictionary<string, PixiConfig> configs, Dictionary<string, (int Init, int Main, int[] Status)> entries)
     {
         var sb = new StringBuilder();
         for (int n = 0; n < 0x100; n++) sb.Append(EntryLine(rom, n, slots.GetValueOrDefault(n), configs, entries));
         foreach (var (level, numbers) in perLevel)
             for (int n = 0xB0; n <= 0xBF; n++)
                 sb.Append(EntryLine(rom, n, numbers.GetValueOrDefault(n) ?? slots.GetValueOrDefault(n), configs, entries, $"level {level:X3}"));
+        return sb.ToString();
+    }
+
+    /// <summary>The status entry points a sprite may print, in StatusTable's order (the driver's
+    /// StatusSlot): states 09, 0A, 0B, 07 and 0C, which then run its code in place of SMW's.</summary>
+    private static readonly string[] StatusEntries = ["CARRIABLE", "KICKED", "CARRIED", "MOUTH", "GOAL"];
+
+    /// <summary>StatusTable as db lines, laid out as the sprite table: per entry the five status
+    /// entry points (0 where the sprite has none), then a pad byte.</summary>
+    private static string StatusTable(SortedDictionary<int, string> slots, SortedDictionary<int, SortedDictionary<int, string>> perLevel,
+                                      Dictionary<string, (int Init, int Main, int[] Status)> entries)
+    {
+        string Line(string? name)
+        {
+            int[] s = name is not null && entries.TryGetValue(name, out var e) ? e.Status : new int[StatusEntries.Length];
+            return "db " + string.Join(',', s.SelectMany(p => new[] { p & 0xFF, p >> 8 & 0xFF, p >> 16 }).Append(0).Select(b => $"${b:X2}")) + "\n";
+        }
+        var sb = new StringBuilder();
+        for (int n = 0; n < 0x100; n++) sb.Append(Line(slots.GetValueOrDefault(n)));
+        foreach (var (_, numbers) in perLevel)
+            for (int n = 0xB0; n <= 0xBF; n++) sb.Append(Line(numbers.GetValueOrDefault(n) ?? slots.GetValueOrDefault(n)));
         return sb.ToString();
     }
 
@@ -245,13 +269,13 @@ public static partial class SpriteInsert
     }
 
     private static string EntryLine(Rom rom, int n, string? name, Dictionary<string, PixiConfig> configs,
-                                    Dictionary<string, (int Init, int Main)> entries, string? note = null)
+                                    Dictionary<string, (int Init, int Main, int[] Status)> entries, string? note = null)
     {
         byte[] e;
         if (name is not null)
         {
             var c = configs[name];
-            var (init, main) = entries.TryGetValue(name, out var p) ? p : (EmptyEntry, EmptyEntry);
+            var (init, main, _) = entries.TryGetValue(name, out var p) ? p : (EmptyEntry, EmptyEntry, []);
             e = [(byte)c.Type, (byte)c.ActLike, .. c.Tweak, (byte)init, (byte)(init >> 8), (byte)(init >> 16),
                  (byte)main, (byte)(main >> 8), (byte)(main >> 16), c.Prop1, c.Prop2];
         }
