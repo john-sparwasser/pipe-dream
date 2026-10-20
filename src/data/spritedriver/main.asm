@@ -62,6 +62,54 @@ org $02AFFE
     JML GeneratorRun
     NOP
 
+; ---- The load table: 255 sprites a level ----
+; SMW marks each level sprite list record it has spawned in $1938, one byte per record by its
+; index ($161A,x), so a sprite that leaves the screen is not spawned twice. That table is 128
+; bytes, so a 129th record writes past it. PIXI moves it to $7FAF00 with room for 255 (index FF
+; is "not from the level"), and !1938 means $7FAF00 to every sprite since PIXI 1.2.15, so ours
+; does too. These are every place SMW or Lunar Magic's loader reads or writes $1938, found by
+; scanning a built ROM for each instruction that addresses it (the hits in bank 0D are data).
+; None of these places is long-addressable with Y, so each calls a routine.
+org $02A856                     ; the loader: LDA $1938,x : BNE next : STX $02 : INC $1938,x
+    JML LoadedCheck
+    NOP #6
+org $02ABF2                     ; level load clears it (LDX #$7F : STZ $1938,x : DEX : BPL)
+    JSL LoadedClearAll
+    NOP #4
+org $02A8BB                     ; a generator's record is never marked: STZ $1938,x : BRA
+    JML LoadedGenerator
+org $02A936                     ; no free slot, so the record may spawn later: LDX $02 : STZ $1938,x
+    JSL LoadedClearRecord
+    NOP
+org $02FAE6                     ; LDX $0FBC,y : STZ $1938,x
+    JSL LoadedClearFBC
+    NOP #2
+; A sprite gone for good (or killed in a way it may come back) frees its record:
+; `LDA #$00 : STA $1938,y` with Y its $161A,x (or a shooter's $17B3,x).
+org $01AC9C
+    JSL LoadedClearY
+    NOP
+org $02AB99
+    JSL LoadedClearY
+    NOP
+org $02D088
+    JSL LoadedClearY
+    NOP
+org $02FF15
+    JSL LoadedClearY
+    NOP
+org $038712
+    JSL LoadedClearY
+    NOP
+org $03B8BA
+    JSL LoadedClearY
+    NOP
+; Lunar Magic warns about a level with more than 128 sprites unless bit 0 here is clear (its help,
+; "Custom Sprite List Sizes": "0x801E0 PC", which counts the copier header). Every PIXI ROM on
+; this machine has it clear.
+org $0FFFE0
+    db read1($0FFFE0)&$FE
+
 ; ---- Cluster and extended sprites ----
 ; A number from !ClusterOffset / !ExtendedOffset up (past SMW's own) is a custom one, run from
 ; ClusterTable / ExtendedTable by its list number. SMW reads the number as an index nowhere else
@@ -506,7 +554,8 @@ Kind:
 .generator
     PLA
     STA $18B9
-    STZ $1938,x                 ; as SMW leaves a generator's record: not marked loaded
+    LDA #$00                    ; as SMW leaves a generator's record: not marked loaded
+    STA !1938,x
     JML $02A846                 ; on to the next record
 .vanilla
     PLA
@@ -737,4 +786,70 @@ CallLong:
     PLB
 .out
     CLC
+    RTL
+
+; ---- The load table: 255 sprites a level ----
+; Each leaves the registers (and flags) the code after its hook reads as the instructions it
+; replaces did. A, X and Y are 8-bit at every site.
+
+; X = the record's index: on to the next record if it was spawned already, else mark it and spawn.
+LoadedCheck:
+    LDA !1938,x
+    BEQ +
+    JML $02A846
++   INC
+    STA !1938,x
+    DEC
+    STX $02
+    JML $02A860
+
+; X ends $FF with N set, as SMW's loop leaves it.
+LoadedClearAll:
+    PHA
+    LDX #$00
+    LDA #$00
+-   STA !1938,x
+    INX
+    BNE -
+    PLA
+    LDX #$FF
+    RTL
+
+LoadedGenerator:
+    PHP
+    PHA
+    LDA #$00
+    STA !1938,x
+    PLA
+    PLP
+    JML $02A89A
+
+LoadedClearRecord:
+    LDX $02
+    PHP
+    PHA
+    LDA #$00
+    STA !1938,x
+    PLA
+    PLP
+    RTL
+
+LoadedClearFBC:
+    LDX $0FBC,y
+    PHP
+    PHA
+    LDA #$00
+    STA !1938,x
+    PLA
+    PLP
+    RTL
+
+; Y = the record's index. A = 0 after, as SMW's LDA #$00 left it.
+LoadedClearY:
+    PHX
+    TYX
+    LDA #$00
+    STA !1938,x
+    PLX
+    LDA #$00
     RTL

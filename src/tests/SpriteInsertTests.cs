@@ -246,6 +246,29 @@ public class SpriteInsertTests : IDisposable
         }
     }
 
+    /// <summary>The level's load table moves to $7FAF00 for 255 sprites a level, as PIXI's does:
+    /// no code in banks 01-03 addresses $1938 any more, each place that did calls the driver, and
+    /// Lunar Magic is told the limit is 255.</summary>
+    [AsarRomFact]
+    public void the_load_table_moves_out_of_1938()
+    {
+        var (status, rom) = Build(dir);
+        Assert.True(rom is not null, status);
+        var r = rom!;
+        byte[] absolute = [0xAD, 0xBD, 0xB9, 0x8D, 0x9D, 0x99, 0x9C, 0x9E, 0xFE, 0xDE, 0xEE, 0xCE, 0x1C, 0x0C];
+        var left = new List<string>();
+        for (int at = r.FileOffset(0x018000); at < r.FileOffset(0x03FFFF); at++)
+            if (r.Data[at + 1] == 0x38 && r.Data[at + 2] == 0x19 && absolute.Contains(r.Data[at])) left.Add($"{at:X}");
+        Assert.Empty(left);
+        foreach (int at in (int[])[0x02A856, 0x02A8BB, 0x02ABF2, 0x02A936, 0x02FAE6, 0x01AC9C, 0x02AB99, 0x02D088, 0x02FF15, 0x038712, 0x03B8BA])
+        {
+            Assert.Contains(r.ReadByte(at), (byte[])[0x22, 0x5C]);                      // JSL, or JML
+            int to = r.ReadValue(at + 1, 3);
+            Assert.True(r.Data.AsSpan(r.FileOffset(to), 0x20).IndexOf([(byte)0x00, (byte)0xAF, (byte)0x7F]) >= 0, $"${at:X6} → ${to:X6} does not reach $7FAF00");
+        }
+        Assert.Equal(Rom.Load(TestRom.RealRomPath).ReadByte(0x0FFFE0) & 0xFE, r.ReadByte(0x0FFFE0));
+    }
+
     /// <summary>A table one of the driver's run routines (ClusterRun, SmokeRun…) reads (the <paramref name="nth"/>
     /// one after `SBC #offset : PHA`), from its `LDA #bank : LDY #high : STY $04 : LDY #low`.</summary>
     private static int TableOf(Rom r, byte[] pattern, int nth)

@@ -187,7 +187,8 @@ Each phase ends shippable.
   saved one. Not yet: `GFXInfo`.
 
 ### 5. Parity and the rest
-- Status entry points, the 255-sprites-per-level remap, Lunar Magic's aux files on build.
+- Status entry points, the 255-sprites-per-level remap, Lunar Magic's aux files on build (all
+  done; see below).
 - Cluster, extended, minor extended, bounce, smoke, spinning coin, score.
 - MIT versions of the commonest routines, if importing PIXI's proves a hurdle.
 - **Status entry points (2026-10-19): done.** A sprite may print `CARRIABLE` (status 09),
@@ -254,8 +255,7 @@ Each phase ends shippable.
   The same file gives the minor kinds' offsets for later: minor extended `$0C`, bounce `$08`,
   smoke `$06`, spinning coin `$02`, score `$16`; its spawn routines (`routines/Spawn/*Generic`)
   store A as the number, so the caller adds the offset. Since PIXI 1.41 its `!1938` is the
-  remapped `$7FAF00` and disabling the remap is an error; ours keeps SMW's `$1938` until the
-  remap is done.
+  remapped `$7FAF00` and disabling the remap is an error; ours is too (the remap, below).
 - **Minor extended, bounce, smoke, spinning coin and score sprites (2026-10-19): done.** As
   cluster and extended: ASM alone, MAIN only, slotted as `minorextended NN`, `bounce NN`,
   `smoke NN`, `spinningcoin NN`, `score NN` (the kind is its list.txt section's name, lower
@@ -282,6 +282,28 @@ Each phase ends shippable.
   in 60 frames with X the slot and the data bank `$90`; SMW's own smoke 01, score 01 and
   spinning coin 01 written the same way ran their own code and emptied their slots. The probe
   must wait for the level's message box (`$1426`) to close: while it is open no sprite runs.
+- **255 sprites a level (2026-10-20): done.** SMW's load table `$1938` (a byte per level sprite
+  list record, by its index `$161A,x`: spawned, so not again) is 128 bytes, so a 129th record
+  wrote into the screen exits at `$19B8`. As PIXI has it since 1.2.15 (its changelog and
+  `asm/sa1def.asm`, names only): the table is `$7FAF00`, 256 bytes, `!1938` means it, and index FF
+  stays "not from the level". Every instruction addressing `$1938` was found by scanning a built
+  ROM for each absolute opcode with that operand (no long ones exist; the three hits in bank 0D
+  are tile data; Lunar Magic's bank-1E loader never touches it and jumps back only to
+  `$02A846`/`$02A84B`/`$02A856`). Nine sites, each now calling the driver ("The load table" in
+  `main.asm`): the loader's test-and-mark `$02A856`; the level-load clear `$02ABF2` (64 bytes in
+  SMW, 128 after Lunar Magic's `$02ABF3 = $7F`, 256 now); a generator's record left unmarked
+  `$02A8BB` (and the driver's custom-generator branch); no free slot `$02A936`; `$02FAE6` by
+  `$0FBC,y`; and the six `LDA #$00 : STA $1938,y` that free a record (`$01AC9C` the off-screen
+  erase, `$02AB99` a shooter's, `$02D088`, `$02FF15`, `$038712`, `$03B8BA`). The editor never
+  capped a level at 128. Lunar Magic is told the limit is 255 by clearing bit 0 of `$0FFFE0`:
+  its help ("Custom Sprite List Sizes") says "0x801E0 PC", and Lunar Magic's PC offsets count the
+  copier header (its `0x7750C` is the `$0EF30C` size-table pointer); every PIXI ROM on this
+  machine has `$FE` there, an LM-saved hack without PIXI `$FF`. Measured in Mesen, 3/3 each, on
+  level 105: the probe sprite spawned with its entry marked, both as record 00 and as record 8C
+  (140, after 140 generator records); nothing wrote `$7E1938-$7E19B7` after boot; and a level
+  sprite pushed two screens off was erased by its own off-screen check and its entry went from
+  1 to 0, so it can come back. Asar here assembles `BNE $02A846` (an absolute operand) as an
+  offset of `$46`; branch to a label, or JML.
 
 ## Open questions
 

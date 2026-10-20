@@ -17,10 +17,12 @@
 !GenStart = $D0
 !SprSize = $0C
 !EXLEVEL = 1
-; The 255-sprites-per-level remap is not part of the driver, so the load table is SMW's own.
-!Disable255SpritesPerLevel = 1
-!1938 = $1938
-!sprite_load_table = $1938
+; The level's load table, moved for 255 sprites a level as PIXI moves it (main.asm, "The load
+; table"); $7E1938 is free.
+!Disable255SpritesPerLevel = 0
+!1938 = $7FAF00
+!7FAF00 = $7FAF00
+!sprite_load_table = $7FAF00
 
 ; ---- What the driver keeps per sprite slot (12 bytes each) ----
 !extra_bits = $7FAB10           ; the level data's extra bits ($04 the extra bit, $08 custom)
