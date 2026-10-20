@@ -866,6 +866,18 @@ public partial class MainWindow : Window
 
     private DispatcherTimer? animate;
 
+    /// <summary>A running DispatcherTimer is held by the dispatcher, and its Tick holds this
+    /// window — so a window closed with its clocks still ticking is never freed, along with its
+    /// session and phase images. The app never noticed (closing the window ends it); the test
+    /// suite, which opens a window per test, grew by gigabytes until allocations failed.</summary>
+    protected override void OnClosed(EventArgs e)
+    {
+        animate?.Stop();
+        animPreview?.Stop();
+        owEditLinger?.Stop();
+        base.OnClosed(e);
+    }
+
     /// <summary>Step the overworld's animated tiles by the eight game frames a tick stands for
     /// (140 ms is eight frames near enough), while the map is the canvas showing — the sparkles,
     /// the water and the lava run as the game runs them. Stopping parks them on Lunar Magic's
