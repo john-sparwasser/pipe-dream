@@ -21,8 +21,9 @@ public sealed partial class EditorSession
             return Project.Data.Sprites.OrderBy(s => s.Key, StringComparer.OrdinalIgnoreCase).Select(s =>
             {
                 var (actLike, description) = (0, "");
-                try { var c = PixiConfig.Parse(s.Value.Config); (actLike, description) = (c.ActLike, c.Collection.FirstOrDefault()?.Name ?? ""); }
-                catch (FormatException e) { description = "config: " + e.Message; }
+                if (PixiImport.HasConfig(s.Value.Kind))
+                    try { var c = PixiConfig.Parse(s.Value.Config); (actLike, description) = (c.ActLike, c.Collection.FirstOrDefault()?.Name ?? ""); }
+                    catch (FormatException e) { description = "config: " + e.Message; }
                 return new CustomSpriteInfo(s.Key, s.Value.Kind, slots.GetValueOrDefault(s.Key) ?? [], actLike, description);
             }).ToList();
         }
@@ -54,21 +55,28 @@ public sealed partial class EditorSession
         Project.MarkDirty();
     }
 
-    /// <summary>Add a sprite of <paramref name="kind"/> from the template, in no slot yet.</summary>
+    /// <summary>Add a sprite of <paramref name="kind"/> from the template, in no slot yet. A cluster
+    /// or extended sprite is ASM alone.</summary>
     public string NewCustomSprite(string name, string kind, out string? made)
     {
+        if (!PixiImport.HasConfig(kind))
+            return AddSprite(name, new ProjectFile.SpriteEntry { Kind = kind, Source = SpriteTemplate(name.Trim(), kind) }, out made);
         var config = new PixiConfig { Type = kind == "sprite" ? 1 : 2, AsmFile = name.Trim() + ".asm" };
         config.Collection.Add(new PixiConfig.CollectionEntry { Name = name.Trim() });
         return AddSprite(name, new ProjectFile.SpriteEntry { Kind = kind, Config = config.ToJson(), Source = SpriteTemplate(name.Trim(), kind) }, out made);
     }
 
-    /// <summary>Add one sprite from disk: a .json or .cfg, the ASM it names and what that includes.
-    /// Its kind comes from the folder it sits in, as PIXI's would (shooters/, generators/).</summary>
+    /// <summary>Add one sprite from disk: a .json or .cfg, the ASM it names and what that includes
+    /// (a cluster or extended sprite: its .asm). Its kind comes from the folder it sits in, as
+    /// PIXI's would (shooters/, generators/, cluster/, extended/).</summary>
     public string ImportCustomSpriteFile(string path, out string? made)
     {
         made = null;
         string folder = Path.GetFileName(Path.GetDirectoryName(path) ?? "").ToLowerInvariant();
-        string kind = folder switch { "shooters" => "shooter", "generators" => "generator", _ => "sprite" };
+        string kind = folder switch
+        {
+            "shooters" => "shooter", "generators" => "generator", "cluster" => "cluster", "extended" => "extended", _ => "sprite",
+        };
         ProjectFile.SpriteEntry? entry = null;
         List<string> missing = [];
         try
@@ -103,12 +111,13 @@ public sealed partial class EditorSession
         return Report2(status);
     }
 
-    /// <summary>Put a sprite in a slot ("1A", "105:B0"), or empty the slot with a null name. The
-    /// slot must suit the sprite: 00-BF a sprite, C0-CF a shooter, D0-DF a generator.</summary>
+    /// <summary>Put a sprite in a slot ("1A", "105:B0", "cluster 01"), or empty the slot with a null
+    /// name. The slot must suit the sprite: 00-BF a sprite, C0-CF a shooter, D0-DF a generator,
+    /// "cluster NN" a cluster sprite, "extended NN" an extended one.</summary>
     public string SetSpriteSlot(string slot, string? name)
     {
         if (Project is null) return Report2("no project open");
-        if (PixiImport.NormalSlot(slot) is not { } key) return Report2($"\"{slot}\" is not a sprite slot (00-DF, or level:B0-BF)");
+        if (PixiImport.NormalSlot(slot) is not { } key) return Report2($"\"{slot}\" is not a sprite slot (00-DF, level:B0-BF, cluster 00-7F or extended 00-7F)");
         if (name is null)
             return Report2(Project.Data.SpriteSlots.Remove(key) ? Dirty($"slot {key} emptied") : $"slot {key} was empty");
         if (FindSprite(name) is not { } s) return Report2($"{name} is not in the project");
@@ -130,7 +139,7 @@ public sealed partial class EditorSession
         var wanted = new List<string>();
         foreach (string raw in list.Split([',', ' ', ';'], StringSplitOptions.RemoveEmptyEntries))
         {
-            if (PixiImport.NormalSlot(raw) is not { } key) return Report2($"\"{raw}\" is not a sprite slot (00-DF, or level:B0-BF)");
+            if (PixiImport.NormalSlot(raw) is not { } key) return Report2($"\"{raw}\" is not a sprite slot (00-DF, level:B0-BF, cluster 00-7F or extended 00-7F)");
             if (PixiImport.SlotKind(key) != s.Kind) return Report2($"slot {key} holds a {PixiImport.SlotKind(key)}, and {name} is a {s.Kind}");
             wanted.Add(key);
         }
@@ -204,7 +213,7 @@ public sealed partial class EditorSession
         var found = new SortedDictionary<int, (string, string, PixiConfig)>();
         if (Project is null) return found;
         string level = $"{LevelNum:X3}:";
-        foreach (var (slot, name) in Project.Data.SpriteSlots.Where(s => !s.Key.Contains(':'))
+        foreach (var (slot, name) in Project.Data.SpriteSlots.Where(s => !s.Key.Contains(':') && PixiImport.SlotKind(s.Key) is { } k && PixiImport.HasConfig(k))
                                      .Concat(Project.Data.SpriteSlots.Where(s => s.Key.StartsWith(level))))
         {
             if (FindSprite(name) is not { } s) continue;
@@ -245,8 +254,18 @@ public sealed partial class EditorSession
     }
 
     /// <summary>A sprite that does nothing yet: the two entry points PIXI's format asks for, as
-    /// prints. A shooter or generator has only MAIN that matters, but INIT is still read.</summary>
-    internal static string SpriteTemplate(string name, string kind) => $"""
+    /// prints. A shooter or generator has only MAIN that matters, but INIT is still read; a cluster
+    /// or extended sprite has MAIN alone.</summary>
+    internal static string SpriteTemplate(string name, string kind) => !PixiImport.HasConfig(kind) ? $"""
+        ; {name}
+        ;
+        ; A custom {kind} sprite. MAIN runs every frame with X (and Y) the slot and the data bank set
+        ; to its own, and ends in RTL. Its number is its list number plus !{(kind == "cluster" ? "Cluster" : "Extended")}Offset.{(kind == "extended" ? "\n; A CAPE entry, if printed, runs while the cape spins; without one the cape passes through it." : "")}
+
+        print "MAIN ",pc
+            RTL
+
+        """ : $"""
         ; {name}
         ;
         ; A custom {kind}. INIT runs once when it spawns, MAIN every frame; both end in RTL and are

@@ -195,6 +195,46 @@ public class SpriteInsertTests : IDisposable
         return (r.Data[at + 6] | r.Data[at + 7] << 8 | r.Data[at + 8] << 16) - 2;
     }
 
+    /// <summary>Cluster sprite 02 (01 empty) and extended 00, with its CAPE: each MAIN lands in its
+    /// kind's table at its list number, the CAPE in the extended cape table, and the three hooks
+    /// are in.</summary>
+    internal static void AddListed(ProjectFile d)
+    {
+        d.Sprites["sparkle"] = new() { Kind = "cluster", Source = "print \"MAIN \",pc\n    LDA #$C1\n    RTL\n" };
+        d.SpriteSlots["cluster 02"] = "sparkle";
+        d.Sprites["hammer"] = new() { Kind = "extended", Source = "print \"MAIN \",pc\n    LDA #$E1\n    RTL\nprint \"CAPE \",pc\n    LDA #$CA\n    RTL\n" };
+        d.SpriteSlots["extended 00"] = "hammer";
+    }
+
+    [AsarRomFact]
+    public void cluster_and_extended_sprites_land_in_their_tables()
+    {
+        var (status, rom) = Build(dir, more: (d, _, _) => AddListed(d));
+        Assert.True(rom is not null, status);
+        var r = rom!;
+        foreach (int at in (int[])[0x02F815, 0x029B16, 0x029636]) Assert.Equal(0x5C, r.ReadByte(at));   // JML
+        int OperandAt(int table, int n) => r.ReadByte(r.ReadValue(table + n * 3, 3) + 1);                  // its LDA #
+        int cluster = TableOf(r, [0xE9, 0x09, 0x48, 0xA9], 0), extended = TableOf(r, [0xE9, 0x13, 0x48, 0xA9], 0), cape = TableOf(r, [0xE9, 0x13, 0x48, 0xA9], 1);
+        Assert.Equal(0xC1, OperandAt(cluster, 2));
+        Assert.Equal(0, r.ReadValue(cluster + 1 * 3, 3));
+        Assert.Equal(0xE1, OperandAt(extended, 0));
+        Assert.Equal(0xCA, OperandAt(cape, 0));
+    }
+
+    /// <summary>A table ClusterRun, ExtendedRun or ExtendedCape reads (the <paramref name="nth"/>
+    /// one after `SBC #offset : PHA`), from its `LDA #bank : LDY #high : STY $04 : LDY #low`.</summary>
+    private static int TableOf(Rom r, byte[] pattern, int nth)
+    {
+        int at = -1;
+        for (int k = 0; k <= nth; k++)
+        {
+            int next = r.Data.AsSpan(at + 1).IndexOf(pattern);
+            Assert.True(next >= 0, "driver code not found");
+            at += 1 + next;
+        }
+        return r.Data[at + 4] << 16 | r.Data[at + 6] << 8 | r.Data[at + 10];
+    }
+
     [AsarRomFact]
     public void a_sprite_that_does_not_assemble_fails_the_build_by_name()
     {

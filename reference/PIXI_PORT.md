@@ -226,6 +226,37 @@ Each phase ends shippable.
   `.sscov`/`.s16ov`, extmod. Not yet opened in Lunar Magic itself. Found on the way: a config
   whose `Map16` is not base64 (QLDC2023's CapeShell says "Cape Shell") was refused at import;
   it now reads as no tiles, as PIXI does.
+- **Cluster and extended sprites (2026-10-19): done.** ASM alone (no config), slotted in lists of
+  their own, `cluster NN` / `extended NN` (00-7F); a PIXI folder's `CLUSTER:` and `EXTENDED:`
+  sections import into them, with `cluster/` and `extended/` `_header.asm`. Each must print
+  MAIN; an extended one may print `CAPE`. The interface, from PIXI's README and real sprites
+  (Ladida's cluster package, UberASM's defines): a custom number is the list number plus
+  `!ClusterOffset` = `$09` / `!ExtendedOffset` = `$13`, the sprite or its spawner storing it in
+  `$1892` / `$170B` itself (bit 7 of a cluster number is its extra bit). Those offsets are SMW's
+  table sizes, read off its dispatchers: the cluster jump table at `$02F825` has entries 00-08,
+  the extended one at `$029B2B` 00-12. Hooks: `$02F815` (the cluster loop's `LDA $1892,X : BEQ`)
+  and `$029B16` (the extended loop's `LDA $170B,X : BEQ`) send a custom number to its MAIN from
+  `ClusterTable` / `ExtendedTable` (0x80 longs each); an extended one's timer `$176F` counts down
+  first, as SMW's do. Entered with X = Y = the slot and the data bank set to the code's: a real
+  cluster sprite (`lava.asm`) indexes with Y and reads its tables without setting the bank.
+  SMW reads the number as an index in one other place, found by scanning for every
+  `$170B`/`$1892` read: the cape's check of extended sprites at `$029636`, whose clipping
+  (`$02A519`) is a table by number. That is hooked too: a custom one runs its `CAPE`, or nothing
+  (PIXI's README: without one "cape interaction ... do nothing"). The rest compare against fixed
+  numbers or look for a free slot. Measured in Mesen on level 105, 3/3: a sprite's INIT put
+  cluster 02 in cluster slot 3 and extended 00 in extended slot 5; the cluster MAIN ran 121
+  times and the extended 119 in 120 frames (the extended loop runs before the spawn that frame),
+  with the data bank `$90` and the slot in Y (cluster) and X (extended). The cape path is in the
+  table test only. The minor kinds (minor extended, bounce, smoke, spinning coin, score) are
+  still skipped at import, with a count.
+  Defines checked against PIXI's own defines file (`asm/sa1def.asm`, read for names and values
+  only): `!ExtendedSize` is `$08` (`!ExSprSize`+1 — spawning keeps off slots 8-9, Mario's
+  fireballs), cluster speed tables are `!cluster_misc_1e52`… by address, `!Bank8` is `$80`.
+  The same file gives the minor kinds' offsets for later: minor extended `$0C`, bounce `$08`,
+  smoke `$06`, spinning coin `$02`, score `$16`; its spawn routines (`routines/Spawn/*Generic`)
+  store A as the number, so the caller adds the offset. Since PIXI 1.41 its `!1938` is the
+  remapped `$7FAF00` and disabling the remap is an error; ours keeps SMW's `$1938` until the
+  remap is done.
 
 ## Open questions
 

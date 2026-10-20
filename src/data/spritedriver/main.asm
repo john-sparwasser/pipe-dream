@@ -62,6 +62,26 @@ org $02AFFE
     JML GeneratorRun
     NOP
 
+; ---- Cluster and extended sprites ----
+; A number from !ClusterOffset / !ExtendedOffset up (past SMW's own) is a custom one, run from
+; ClusterTable / ExtendedTable by its list number. SMW reads the number as an index nowhere else
+; but the extended sprites' cape check, hooked below.
+; The cluster loop's `LDA $1892,X : BEQ` (then a JSR to SMW's dispatch).
+org $02F815
+    JML ClusterRun
+    NOP
+; The extended loop's `LDA $170B,X : BEQ`.
+org $029B16
+    JML ExtendedRun
+    NOP
+; The cape's check of each extended sprite, `LDA $170B,X : CMP #$02 : BCC`: its clipping is a
+; table by number, which a custom one would read past, so that runs the sprite's CAPE instead.
+org $029636
+    JML ExtendedCape
+    NOP
+    NOP
+    NOP
+
 ; ---- Slot setup ----
 ; The end of $07F722, which every spawn runs through to clear a slot: clear the custom state too,
 ; so a slot a custom sprite left is a vanilla one again.
@@ -512,3 +532,121 @@ GeneratorRun:
     JSL CallMainOf
 .none
     JML $02B02A                 ; an RTS in bank 02
+
+; ---- Cluster and extended sprites ----
+
+; X = the cluster slot. Bit 7 of a custom number is its extra bit, so it is not the number.
+ClusterRun:
+    LDA $1892,x
+    BEQ .next
+    AND #$7F
+    CMP #!ClusterOffset
+    BCS .custom
+    JML $02F81A                 ; SMW's: JSR to its dispatch, then the next slot
+.custom
+    SBC #!ClusterOffset         ; carry set
+    PHA
+    LDA.b #ClusterTable>>16
+    LDY.b #ClusterTable>>8
+    STY $04
+    LDY.b #ClusterTable
+    STY $03
+    STA $05
+    PLA
+    JSL CallLong
+.next
+    JML $02F81D
+
+; X = the extended slot. A custom one's timer ($176F) counts down as SMW's do.
+ExtendedRun:
+    LDA $170B,x
+    BNE +
+    JML $029B15                 ; an RTS: the slot is empty
++   CMP #!ExtendedOffset
+    BCS .custom
+    JML $029B1B                 ; SMW's: its timer, then its dispatch
+.custom
+    LDY $9D
+    BNE +
+    LDY $176F,x
+    BEQ +
+    DEC $176F,x
++   SEC
+    SBC #!ExtendedOffset
+    PHA
+    LDA.b #ExtendedTable>>16
+    LDY.b #ExtendedTable>>8
+    STY $04
+    LDY.b #ExtendedTable
+    STY $03
+    STA $05
+    PLA
+    JSL CallLong
+    JML $029B15
+
+; X = the extended slot, while the cape spins. SMW's own (02 up) go through its contact check;
+; a custom one runs its CAPE, if it printed one.
+ExtendedCape:
+    LDA $170B,x
+    CMP #!ExtendedOffset
+    BCS .custom
+    CMP #$02
+    BCS +
+    JML $029653                 ; on to the next
++   JML $02963D                 ; SMW's: clipping, contact, a puff of smoke
+.custom
+    SBC #!ExtendedOffset        ; carry set
+    PHA
+    LDA.b #ExtendedCapeTable>>16
+    LDY.b #ExtendedCapeTable>>8
+    STY $04
+    LDY.b #ExtendedCapeTable
+    STY $03
+    STA $05
+    PLA
+    JSL CallLong
+    JML $029653
+
+; $03-$05 = a table of longs (0: none), A = an index into it (0-7F), X = the slot. Runs the code
+; there with Y = X and the data bank set to its bank, as cluster sprites expect, and returns carry
+; set; carry clear when there is none. Uses $00-$05.
+CallLong:
+    CMP #$80
+    BCS .out
+    PHB
+    PHX
+    REP #$30
+    AND #$00FF
+    STA $00
+    ASL
+    ADC $00
+    TAY
+    SEP #$20
+    INY
+    INY
+    LDA [$03],y
+    BEQ .none                   ; bank 00: nothing there
+    STA $02
+    PHA
+    PLB
+    DEY
+    DEY
+    REP #$20
+    LDA [$03],y
+    STA $00
+    SEP #$30
+    PLX
+    TXY
+    JSL .enter
+    PLB
+    SEC
+    RTL
+.enter
+    JML [$0000]
+.none
+    SEP #$30
+    PLX
+    PLB
+.out
+    CLC
+    RTL

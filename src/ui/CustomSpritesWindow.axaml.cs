@@ -56,8 +56,10 @@ public partial class CustomSpritesWindow : Window
     private void OnSelect(object? sender, SelectionChangedEventArgs e) => UpdateButtons();
 
     private void UpdateButtons()
-        => removeButton.IsEnabled = slotsButton.IsEnabled = editButton.IsEnabled = configButton.IsEnabled = openButton.IsEnabled
-            = list.SelectedIndex >= 0;
+    {
+        removeButton.IsEnabled = slotsButton.IsEnabled = editButton.IsEnabled = openButton.IsEnabled = list.SelectedIndex >= 0;
+        configButton.IsEnabled = list.SelectedItem is Row r && PixiImport.HasConfig(r.Kind);
+    }
 
     private async void OnNew(object? sender, RoutedEventArgs e)
     {
@@ -74,7 +76,7 @@ public partial class CustomSpritesWindow : Window
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "Add custom sprites to the project", AllowMultiple = true,
-            FileTypeFilter = [new FilePickerFileType("PIXI sprite") { Patterns = ["*.json", "*.cfg"] }],
+            FileTypeFilter = [new FilePickerFileType("PIXI sprite") { Patterns = ["*.json", "*.cfg", "*.asm"] }],
         });
         string? last = null;
         foreach (var f in files)
@@ -108,7 +110,7 @@ public partial class CustomSpritesWindow : Window
     private async void OnSlots(object? sender, RoutedEventArgs e)
     {
         if (list.SelectedItem is not Row row) return;
-        var ask = new TextPromptWindow($"Slots for {row.Name} — e.g. 1A, 105:B0 (empty: none)", row.Slots == "no slot" ? "" : row.Slots);
+        var ask = new TextPromptWindow(row.Kind is "cluster" or "extended" ? $"Slots for {row.Name} — e.g. {row.Kind} 01 (empty: none)" : $"Slots for {row.Name} — e.g. 1A, 105:B0 (empty: none)", row.Slots == "no slot" ? "" : row.Slots);
         await ask.ShowDialog(this);
         if (ask.Result is not { } slots) return;
         hint.Text = session.SetCustomSpriteSlots(row.Name, slots);

@@ -2,9 +2,10 @@ namespace PipeDream;
 
 /// <summary>
 /// Reading custom sprites in from disk (reference/PIXI_PORT.md, phase 1): one .json or .cfg with
-/// its ASM, or a whole PIXI folder — list.txt's SPRITE: section into slots, each listed sprite into
-/// the library, and the files every sprite assembles with (routines/, asm/ExtraDefines/, each
-/// folder's _header.asm). What it reads is the user's own copy; nothing of PIXI's ships with us.
+/// its ASM, or a whole PIXI folder — list.txt's SPRITE:, CLUSTER: and EXTENDED: sections into
+/// slots, each listed sprite into the library, and the files every sprite assembles with
+/// (routines/, asm/ExtraDefines/, each folder's _header.asm). What it reads is the user's own copy;
+/// nothing of PIXI's ships with us.
 /// </summary>
 internal static class PixiImport
 {
@@ -13,11 +14,20 @@ internal static class PixiImport
     public sealed record Folder(Dictionary<string, ProjectFile.SpriteEntry> Sprites, Dictionary<string, string> Slots,
                                 Dictionary<string, string> Files, List<string> Problems);
 
+    /// <summary>Kinds that are ASM alone, numbered in a list of their own ("cluster 01"): no config,
+    /// so not in Lunar Magic's lists or the Sprites catalog.</summary>
+    public static readonly string[] AsmOnlyKinds = ["cluster", "extended"];
+
+    /// <summary>Whether a kind has a config (sprites, shooters, generators) rather than ASM alone.</summary>
+    public static bool HasConfig(string kind) => !AsmOnlyKinds.Contains(kind);
+
     /// <summary>The kind of sprite a slot holds, or null for a slot that is not one: global 00-BF
     /// sprites, C0-CF shooters, D0-DF generators (PIXI runs nothing custom from E0); per-level
-    /// "LLL:NN" only B0-BF of levels 000-1FF.</summary>
+    /// "LLL:NN" only B0-BF of levels 000-1FF; "cluster NN" and "extended NN", 00-7F.</summary>
     public static string? SlotKind(string slot)
     {
+        if (slot.Split(' ', StringSplitOptions.RemoveEmptyEntries) is [var k, var num] && AsmOnlyKinds.Contains(k.ToLowerInvariant()))
+            return int.TryParse(num, System.Globalization.NumberStyles.HexNumber, null, out int i) && i is >= 0 and < 0x80 ? k.ToLowerInvariant() : null;
         int colon = slot.IndexOf(':');
         if (!int.TryParse(slot[(colon + 1)..], System.Globalization.NumberStyles.HexNumber, null, out int n)) return null;
         if (colon >= 0)
@@ -26,18 +36,22 @@ internal static class PixiImport
         return n switch { < 0 => null, < 0xC0 => "sprite", < 0xD0 => "shooter", < 0xE0 => "generator", _ => null };
     }
 
-    /// <summary>A slot as the project keys it: "1A", "105:B0". Null when it is not a slot.</summary>
+    /// <summary>A slot as the project keys it: "1A", "105:B0", "cluster 01". Null when it is not a slot.</summary>
     public static string? NormalSlot(string slot)
     {
         slot = slot.Trim();
-        if (SlotKind(slot) is null) return null;
+        if (SlotKind(slot) is not { } kind) return null;
+        if (!HasConfig(kind)) return $"{kind} {Convert.ToInt32(slot.Split(' ', StringSplitOptions.RemoveEmptyEntries)[1], 16):X2}";
         int colon = slot.IndexOf(':');
         int n = Convert.ToInt32(slot[(colon + 1)..], 16);
         return colon < 0 ? $"{n:X2}" : $"{Convert.ToInt32(slot[..colon], 16):X3}:{n:X2}";
     }
 
     /// <summary>The folder PIXI reads a kind's sprites (and its _header.asm) from.</summary>
-    public static string FolderOf(string kind) => kind switch { "shooter" => "shooters", "generator" => "generators", _ => "sprites" };
+    public static string FolderOf(string kind) => kind switch
+    {
+        "shooter" => "shooters", "generator" => "generators", "cluster" => "cluster", "extended" => "extended", _ => "sprites",
+    };
 
     /// <summary>
     /// Read one sprite: its config (a .cfg converts to JSON), the ASM the config names, beside it,
@@ -46,6 +60,7 @@ internal static class PixiImport
     /// </summary>
     public static ProjectFile.SpriteEntry ReadSprite(string configPath, string kind, out List<string> missing)
     {
+        if (!HasConfig(kind)) return ReadAsm(configPath, kind, out missing);
         string name = Path.GetFileNameWithoutExtension(configPath);
         string text = File.ReadAllText(configPath);
         var config = Path.GetExtension(configPath).Equals(".cfg", StringComparison.OrdinalIgnoreCase)
@@ -61,6 +76,17 @@ internal static class PixiImport
         return entry;
     }
 
+    /// <summary>A cluster or extended sprite: its .asm and what that includes, no config.</summary>
+    private static ProjectFile.SpriteEntry ReadAsm(string asm, string kind, out List<string> missing)
+    {
+        missing = [];
+        if (!Path.GetExtension(asm).Equals(".asm", StringComparison.OrdinalIgnoreCase))
+            throw new FormatException($"a {kind} sprite is an .asm, not {Path.GetFileName(asm)}");
+        var entry = new ProjectFile.SpriteEntry { Kind = kind, Source = File.ReadAllText(asm) };
+        entry.Files = PatchInsert.Includes(asm, out missing);
+        return entry;
+    }
+
     /// <summary>Read a PIXI folder: list.txt, the sprites it lists, and the shared files. A line
     /// that cannot be read is a problem, not a failure, so one bad sprite does not lose the rest;
     /// a missing list.txt throws <see cref="FileNotFoundException"/>.</summary>
@@ -71,25 +97,26 @@ internal static class PixiImport
         var result = new Folder([], [], [], []);
         // The same file in two slots is one sprite; keyed by where it lives, named by its file.
         var byPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        bool sprites = true;
+        string section = "SPRITE:";
         int skipped = 0, lineNo = 0;
         foreach (string raw in File.ReadAllLines(list))
         {
             lineNo++;
             string line = (raw.IndexOf(';') is int sc and >= 0 ? raw[..sc] : raw).Trim();
             if (line.Length == 0) continue;
-            if (line.EndsWith(':')) { sprites = line == "SPRITE:"; continue; }
-            if (!sprites) { skipped++; continue; }
+            if (line.EndsWith(':')) { section = line; continue; }
+            string? asmKind = section switch { "CLUSTER:" => "cluster", "EXTENDED:" => "extended", _ => null };
+            if (section != "SPRITE:" && asmKind is null) { skipped++; continue; }
             var parts = line.Split((char[]?)null, 2, StringSplitOptions.RemoveEmptyEntries);
             // A trailing "display"/"nodisplay" (PIXI 1.43, .cfg only) is about LM's lists: dropped.
             string file = parts.Length > 1 ? parts[1].Split(' ')[0] : "";
-            if (parts.Length < 2 || NormalSlot(parts[0]) is not { } slot)
+            if (parts.Length < 2 || NormalSlot(asmKind is null ? parts[0] : $"{asmKind} {parts[0]}") is not { } slot)
             { result.Problems.Add($"list.txt line {lineNo}: \"{line}\" is not a slot and a file"); continue; }
             string kind = SlotKind(slot)!;
             string path = Path.Combine(dir, FolderOf(kind), file);
             if (!byPath.TryGetValue(path, out var name))
             {
-                if (Path.GetExtension(file).ToLowerInvariant() is not (".json" or ".cfg"))
+                if (asmKind is null && Path.GetExtension(file).ToLowerInvariant() is not (".json" or ".cfg"))
                 { result.Problems.Add($"list.txt line {lineNo}: {file} is not a .json or .cfg"); continue; }
                 ProjectFile.SpriteEntry entry;
                 List<string> missing;
@@ -103,7 +130,7 @@ internal static class PixiImport
             }
             result.Slots[slot] = name;
         }
-        if (skipped > 0) result.Problems.Add($"{skipped} cluster, extended or other sprite(s) skipped: Pipe Dream inserts normal sprites, shooters and generators");
+        if (skipped > 0) result.Problems.Add($"{skipped} minor sprite(s) skipped (minor extended, bounce, smoke, spinning coin, score): Pipe Dream does not insert those yet");
         ReadShared(dir, result.Files);
         return result;
     }
@@ -113,7 +140,7 @@ internal static class PixiImport
     private static string UniqueName(Dictionary<string, ProjectFile.SpriteEntry> sprites, string name, string kind)
         => sprites.ContainsKey(name) ? $"{name} ({kind})" : name;
 
-    /// <summary>routines/ (subfolders and all), asm/ExtraDefines/, and the three folders' _header.asm.</summary>
+    /// <summary>routines/ (subfolders and all), asm/ExtraDefines/, and each kind's folder's _header.asm.</summary>
     private static void ReadShared(string dir, Dictionary<string, string> files)
     {
         void Add(string path, string key) { if (File.Exists(path)) files[key] = File.ReadAllText(path); }
@@ -125,7 +152,7 @@ internal static class PixiImport
         }
         AddTree(Path.Combine(dir, "routines"), "routines/");
         AddTree(Path.Combine(dir, "asm", "ExtraDefines"), "ExtraDefines/");
-        foreach (string kind in (string[])["sprite", "shooter", "generator"])
+        foreach (string kind in (string[])["sprite", "shooter", "generator", .. AsmOnlyKinds])
             Add(Path.Combine(dir, FolderOf(kind), "_header.asm"), FolderOf(kind) + "/_header.asm");
     }
 }

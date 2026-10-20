@@ -21,17 +21,17 @@ public static partial class SpriteInsert
     /// <summary>An empty table entry's INIT and MAIN: an RTL in bank 01, as PIXI fills them.</summary>
     private const int EmptyEntry = 0x018021;
 
-    /// <summary>Insert every sprite in a global slot onto <paramref name="rom"/>. On an error the
-    /// result says which sprite; what was already written stays (the build is then discarded).</summary>
+    /// <summary>Insert every slotted sprite onto <paramref name="rom"/>: the sizes their records
+    /// take, the routines they call, each sprite, then the driver with their tables. On an error
+    /// the result says which sprite; what was already written stays (the build is then discarded).</summary>
     public static Result Insert(Rom rom, ProjectFile data)
     {
-        var errors = new List<string>();
         var warnings = new List<string>();
         var written = new List<Asar.WrittenBlock>();
         Result Fail(string e) => new(false, [e], [.. warnings], [.. written]);
 
-        var (slots, perLevel) = Slots(data, warnings);
-        if (slots.Count == 0 && perLevel.Count == 0) return new(true, [], [.. warnings], []);
+        var (slots, perLevel, listed) = Slots(data, warnings);
+        if (slots.Count == 0 && perLevel.Count == 0 && listed.Count == 0) return new(true, [], [.. warnings], []);
         if (ForeignDriver(rom) is { } foreign) return Fail(foreign);
         if (LoaderStep(rom, out int lmStep) is { } loader) return Fail(loader);
 
@@ -42,27 +42,7 @@ public static partial class SpriteInsert
             try { configs[name] = PixiConfig.Parse(data.Sprites[name].Config); }
             catch (FormatException e) { return Fail($"sprite {name}: config: {e.Message}"); }
         }
-        // Custom placements have extra bits 2 (custom) or 3 (custom with the extra bit), and the
-        // loader steps each record by the table's length for those. A record's length is per
-        // number in every level, so with per-level sprites B0-BF are all 4 extra bytes, as PIXI has
-        // them, and a per-level sprite cannot ask for more.
-        foreach (var (n, name) in slots)
-        {
-            rom.SetSpriteEntrySize(2, n, 3 + configs[name].ExtraBytes);
-            rom.SetSpriteEntrySize(3, n, 3 + configs[name].ExtraBytesSet);
-        }
-        if (perLevel.Count > 0)
-        {
-            foreach (var (level, numbers) in perLevel)
-                foreach (var (n, name) in numbers)
-                    if (Math.Max(configs[name].ExtraBytes, configs[name].ExtraBytesSet) > PerLevelExtraBytes)
-                        return Fail($"sprite {name} in level {level:X3}'s slot {n:X2}: a per-level sprite has at most {PerLevelExtraBytes} extra bytes");
-            for (int n = 0xB0; n <= 0xBF; n++)
-            {
-                rom.SetSpriteEntrySize(2, n, 3 + PerLevelExtraBytes);
-                rom.SetSpriteEntrySize(3, n, 3 + PerLevelExtraBytes);
-            }
-        }
+        if (SetRecordSizes(rom, slots, perLevel, configs) is { } sizeError) return Fail(sizeError);
 
         var mem = new Dictionary<string, byte[]>();
         void Put(string path, string text) => mem[Path.Combine(VirtualDir, path)] = Encoding.UTF8.GetBytes(text);
@@ -70,29 +50,15 @@ public static partial class SpriteInsert
         foreach (var (path, text) in data.PixiFiles) Put(path, text);
 
         var sources = names.Where(n => configs[n].Type != 0).ToDictionary(n => n, n => data.Sprites[n]);
-        var routines = InsertRoutines(rom, data.PixiFiles, sources.Values, mem, written, out string? routineError);
+        var listedNames = listed.Values.SelectMany(l => l.Values).Distinct().ToList();
+        var routines = InsertRoutines(rom, data.PixiFiles, sources.Values.Concat(listedNames.Select(n => data.Sprites[n])), mem, written, out string? routineError);
         if (routineError is not null) return Fail(routineError);
         Put("routines.asm", string.Concat(routines.Select(r => $"macro {r.Key}()\n    JSL ${r.Value:X6}\nendmacro\n")));
 
         var entries = new Dictionary<string, (int Init, int Main, int[] Status)>();
-        int i = 0;
-        foreach (var (name, entry) in sources)
-        {
-            string dir = $"sprite{i++}";
-            foreach (var (path, bytes) in entry.Files) mem[Path.Combine(VirtualDir, dir, path)] = bytes;
-            string file = string.IsNullOrEmpty(configs[name].AsmFile) ? "sprite.asm" : Path.GetFileName(configs[name].AsmFile);
-            Put(Path.Combine(dir, file), entry.Source);
-            Put("_sprite.asm", Wrapper(data.PixiFiles, PixiImport.FolderOf(entry.Kind), $"{dir}/{file}"));
-            var r = Asar.Patch(rom, Path.Combine(VirtualDir, "_sprite.asm"), mem);
-            if (!r.Ok) return Fail($"sprite {name}: " + string.Join("; ", Local(r.Errors)));
-            warnings.AddRange(Local(r.Warnings).Select(w => $"sprite {name}: {w}"));
-            written.AddRange(r.Blocks);
-            // A shooter or generator only runs MAIN; its INIT, if it prints one, is kept anyway.
-            int? init = Entry(r, "INIT"), main = Entry(r, "MAIN");
-            if (main is null || init is null && entry.Kind == "sprite")
-                return Fail($"sprite {name}: no {(main is null ? "MAIN" : "INIT")} — the sprite must print it (print \"MAIN \",pc)");
-            entries[name] = (init ?? EmptyEntry, main.Value, [.. StatusEntries.Select(s => Entry(r, s) ?? 0)]);
-        }
+        if (AssembleSprites(rom, data, sources, configs, mem, entries, warnings, written) is { } spriteError) return Fail(spriteError);
+        var listedEntries = new Dictionary<string, (int Main, int Cape)>();
+        if (AssembleListed(rom, data, listedNames, mem, listedEntries, warnings, written) is { } listedError) return Fail(listedError);
 
         Put("main.asm", Driver("main.asm"));
         Put("_driver.asm", $"""
@@ -109,6 +75,13 @@ public static partial class SpriteInsert
             freedata
             LevelBlocks:
             {LevelBlocks(perLevel)}
+            freedata
+            ClusterTable:
+            {LongTable(listed.GetValueOrDefault("cluster"), n => listedEntries[n].Main)}
+            ExtendedTable:
+            {LongTable(listed.GetValueOrDefault("extended"), n => listedEntries[n].Main)}
+            ExtendedCapeTable:
+            {LongTable(listed.GetValueOrDefault("extended"), n => listedEntries[n].Cape)}
             """);
         var d = Asar.Patch(rom, Path.Combine(VirtualDir, "_driver.asm"), mem);
         if (!d.Ok) return Fail("the sprite driver: " + string.Join("; ", Local(d.Errors)));
@@ -116,27 +89,131 @@ public static partial class SpriteInsert
         return new(true, [], [.. warnings], [.. written]);
     }
 
-    /// <summary>Extra bytes every B0-BF record carries once a project has per-level sprites.</summary>
-    private const int PerLevelExtraBytes = 4;
-
-    /// <summary>The slots to insert: global number → sprite, and level → (B0-BF → sprite). A slot
-    /// naming a sprite the library lacks, or holding the wrong kind, is skipped with a warning.</summary>
-    private static (SortedDictionary<int, string> Global, SortedDictionary<int, SortedDictionary<int, string>> PerLevel)
+    /// <summary>The slots to insert: global number → sprite, level → (B0-BF → sprite), and per
+    /// ASM-only kind (cluster, extended) its list number → sprite. A slot naming a sprite the
+    /// library lacks, or holding the wrong kind, is skipped with a warning.</summary>
+    private static (SortedDictionary<int, string> Global, SortedDictionary<int, SortedDictionary<int, string>> PerLevel,
+                    Dictionary<string, SortedDictionary<int, string>> Listed)
         Slots(ProjectFile data, List<string> warnings)
     {
         var global = new SortedDictionary<int, string>();
         var perLevel = new SortedDictionary<int, SortedDictionary<int, string>>();
+        var listed = new Dictionary<string, SortedDictionary<int, string>>();
         foreach (var (slot, name) in data.SpriteSlots)
         {
             if (!data.Sprites.TryGetValue(name, out var s)) { warnings.Add($"slot {slot} names {name}, which is not in the project"); continue; }
             if (PixiImport.SlotKind(slot) is not { } kind || kind != s.Kind) { warnings.Add($"slot {slot} cannot hold {name}, a {s.Kind}"); continue; }
+            if (!PixiImport.HasConfig(kind))
+            {
+                if (!listed.TryGetValue(kind, out var list)) listed[kind] = list = [];
+                list[Convert.ToInt32(slot.Split(' ')[1], 16)] = name;
+                continue;
+            }
             int colon = slot.IndexOf(':');
             if (colon < 0) { global[Convert.ToInt32(slot, 16)] = name; continue; }
             int level = Convert.ToInt32(slot[..colon], 16);
             if (!perLevel.TryGetValue(level, out var numbers)) perLevel[level] = numbers = [];
             numbers[Convert.ToInt32(slot[(colon + 1)..], 16)] = name;
         }
-        return (global, perLevel);
+        return (global, perLevel, listed);
+    }
+
+    /// <summary>Extra bytes every B0-BF record carries once a project has per-level sprites.</summary>
+    private const int PerLevelExtraBytes = 4;
+
+    /// <summary>
+    /// Custom placements have extra bits 2 (custom) or 3 (custom with the extra bit), and the
+    /// loader steps each record by the table's length for those. A record's length is per
+    /// number in every level, so with per-level sprites B0-BF are all 4 extra bytes, as PIXI has
+    /// them, and a per-level sprite cannot ask for more. Returns an error naming it, or null.
+    /// </summary>
+    private static string? SetRecordSizes(Rom rom, SortedDictionary<int, string> slots,
+        SortedDictionary<int, SortedDictionary<int, string>> perLevel, Dictionary<string, PixiConfig> configs)
+    {
+        foreach (var (n, name) in slots)
+        {
+            rom.SetSpriteEntrySize(2, n, 3 + configs[name].ExtraBytes);
+            rom.SetSpriteEntrySize(3, n, 3 + configs[name].ExtraBytesSet);
+        }
+        if (perLevel.Count == 0) return null;
+        foreach (var (level, numbers) in perLevel)
+            foreach (var (n, name) in numbers)
+                if (Math.Max(configs[name].ExtraBytes, configs[name].ExtraBytesSet) > PerLevelExtraBytes)
+                    return $"sprite {name} in level {level:X3}'s slot {n:X2}: a per-level sprite has at most {PerLevelExtraBytes} extra bytes";
+        for (int n = 0xB0; n <= 0xBF; n++)
+        {
+            rom.SetSpriteEntrySize(2, n, 3 + PerLevelExtraBytes);
+            rom.SetSpriteEntrySize(3, n, 3 + PerLevelExtraBytes);
+        }
+        return null;
+    }
+
+    /// <summary>Assemble each sprite, shooter and generator on its own, with its folder's
+    /// _header.asm, into <paramref name="entries"/>: INIT, MAIN and the status entry points it
+    /// printed. Returns an error naming the sprite, or null.</summary>
+    private static string? AssembleSprites(Rom rom, ProjectFile data, Dictionary<string, ProjectFile.SpriteEntry> sources,
+        Dictionary<string, PixiConfig> configs, Dictionary<string, byte[]> mem, Dictionary<string, (int Init, int Main, int[] Status)> entries,
+        List<string> warnings, List<Asar.WrittenBlock> written)
+    {
+        void Put(string path, string text) => mem[Path.Combine(VirtualDir, path)] = Encoding.UTF8.GetBytes(text);
+        int i = 0;
+        foreach (var (name, entry) in sources)
+        {
+            string dir = $"sprite{i++}";
+            foreach (var (path, bytes) in entry.Files) mem[Path.Combine(VirtualDir, dir, path)] = bytes;
+            string file = string.IsNullOrEmpty(configs[name].AsmFile) ? "sprite.asm" : Path.GetFileName(configs[name].AsmFile);
+            Put(Path.Combine(dir, file), entry.Source);
+            Put("_sprite.asm", Wrapper(data.PixiFiles, PixiImport.FolderOf(entry.Kind), $"{dir}/{file}"));
+            var r = Asar.Patch(rom, Path.Combine(VirtualDir, "_sprite.asm"), mem);
+            if (!r.Ok) return $"sprite {name}: " + string.Join("; ", Local(r.Errors));
+            warnings.AddRange(Local(r.Warnings).Select(w => $"sprite {name}: {w}"));
+            written.AddRange(r.Blocks);
+            // A shooter or generator only runs MAIN; its INIT, if it prints one, is kept anyway.
+            int? init = Entry(r, "INIT"), main = Entry(r, "MAIN");
+            if (main is null || init is null && entry.Kind == "sprite")
+                return $"sprite {name}: no {(main is null ? "MAIN" : "INIT")} — the sprite must print it (print \"MAIN \",pc)";
+            entries[name] = (init ?? EmptyEntry, main.Value, [.. StatusEntries.Select(s => Entry(r, s) ?? 0)]);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Assemble each cluster and extended sprite as the others are, with its folder's _header.asm,
+    /// into <paramref name="entries"/>: its MAIN, which it must print, and for an extended sprite
+    /// the CAPE it may (its cape contact; without one the cape passes through it). Returns an
+    /// error naming the sprite, or null.
+    /// </summary>
+    private static string? AssembleListed(Rom rom, ProjectFile data, List<string> names, Dictionary<string, byte[]> mem,
+        Dictionary<string, (int Main, int Cape)> entries, List<string> warnings, List<Asar.WrittenBlock> written)
+    {
+        int i = 0;
+        foreach (string name in names)
+        {
+            var entry = data.Sprites[name];
+            string dir = $"listed{i++}";
+            foreach (var (path, bytes) in entry.Files) mem[Path.Combine(VirtualDir, dir, path)] = bytes;
+            mem[Path.Combine(VirtualDir, dir, "sprite.asm")] = Encoding.UTF8.GetBytes(entry.Source);
+            mem[Path.Combine(VirtualDir, "_sprite.asm")] = Encoding.UTF8.GetBytes(Wrapper(data.PixiFiles, PixiImport.FolderOf(entry.Kind), $"{dir}/sprite.asm"));
+            var r = Asar.Patch(rom, Path.Combine(VirtualDir, "_sprite.asm"), mem);
+            if (!r.Ok) return $"{entry.Kind} sprite {name}: " + string.Join("; ", Local(r.Errors));
+            warnings.AddRange(Local(r.Warnings).Select(w => $"{entry.Kind} sprite {name}: {w}"));
+            written.AddRange(r.Blocks);
+            if (Entry(r, "MAIN") is not { } main) return $"{entry.Kind} sprite {name}: no MAIN — the sprite must print it (print \"MAIN \",pc)";
+            entries[name] = (main, entry.Kind == "extended" ? Entry(r, "CAPE") ?? 0 : 0);
+        }
+        return null;
+    }
+
+    /// <summary>A list of 0x80 longs by list number (0: no sprite there), as db lines.</summary>
+    private static string LongTable(SortedDictionary<int, string>? list, Func<string, int> pointer)
+    {
+        var sb = new StringBuilder();
+        for (int n = 0; n < 0x80; n++)
+        {
+            int p = list?.GetValueOrDefault(n) is { } name ? pointer(name) : 0;
+            sb.Append($"db ${p & 0xFF:X2},${p >> 8 & 0xFF:X2},${p >> 16:X2}\n");
+        }
+        return sb.ToString();
     }
 
     /// <summary>A base that already carries PIXI (or our driver) has its own table and hooks;

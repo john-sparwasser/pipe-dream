@@ -18,7 +18,8 @@ namespace PipeDream;
 /// <item><b>.s16</b>: sprite Map16 from tile 0x400: each sprite's own tiles (0x300 up in its
 /// config) in slot order, its displays renumbered to match.</item>
 /// </list>
-/// Only global slots: Lunar Magic's lists are not per level.
+/// Only global slots of sprites with a config: Lunar Magic's lists are not per level, and cluster
+/// and extended sprites are not placed in a level.
 /// </summary>
 public static class SpriteAuxFiles
 {
@@ -31,7 +32,7 @@ public static class SpriteAuxFiles
         var sprites = new SortedDictionary<int, PixiConfig>();
         foreach (var (slot, name) in data.SpriteSlots)
         {
-            if (slot.Contains(':') || !data.Sprites.TryGetValue(name, out var s)) continue;
+            if (slot.Contains(':') || PixiImport.SlotKind(slot) is not { } k || !PixiImport.HasConfig(k) || !data.Sprites.TryGetValue(name, out var s)) continue;
             try { sprites[Convert.ToInt32(slot, 16)] = PixiConfig.Parse(s.Config); }
             catch (FormatException) { }
         }

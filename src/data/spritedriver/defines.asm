@@ -12,11 +12,15 @@
 !Base1 = $0000
 !Base2 = $0000
 !BankB = $800000
-!Bank8 = $800000
+!Bank8 = $80
+!bank8 = $80
+!GenStart = $D0
 !SprSize = $0C
 !EXLEVEL = 1
-; The 255-sprites-per-level remap is not part of the driver.
+; The 255-sprites-per-level remap is not part of the driver, so the load table is SMW's own.
 !Disable255SpritesPerLevel = 1
+!1938 = $1938
+!sprite_load_table = $1938
 
 ; ---- What the driver keeps per sprite slot (12 bytes each) ----
 !extra_bits = $7FAB10           ; the level data's extra bits ($04 the extra bit, $08 custom)
@@ -123,6 +127,7 @@ endmacro
 !sprite_misc_1602 = $1602
 !sprite_misc_160e = $160E
 !sprite_load_index = $161A
+!sprite_index_in_level = $161A
 !sprite_misc_1626 = $1626
 !sprite_behind_scenery = $1632
 !sprite_misc_163e = $163E
@@ -137,6 +142,64 @@ endmacro
 !sprite_tweaker_190f = $190F
 !sprite_misc_1fd6 = $1FD6
 !sprite_cape_disable_time = $1FE2
+
+; The same per-slot tables by their addresses, as some sprites name them.
+!7FAB10 = !extra_bits
+!7FAB1C = !new_code_flag
+!7FAB28 = !extra_prop_1
+!7FAB34 = !extra_prop_2
+!7FAB40 = !extra_byte_1
+!7FAB4C = !extra_byte_2
+!7FAB58 = !extra_byte_3
+!7FAB64 = !extra_byte_4
+!7FAB9E = !new_sprite_num
+!00AA = $AA
+!00B6 = $B6
+!BankA = $7E0000
+
+; ---- Cluster sprites (20 slots) ----
+; A custom one's number is its list number plus this (SMW's are 01-08); bit 7 is its extra bit.
+!ClusterOffset = $09
+!ClusterSize = $14
+!cluster_num = $1892
+!cluster_y_low = $1E02
+!cluster_x_low = $1E16
+!cluster_y_high = $1E2A
+!cluster_x_high = $1E3E
+!cluster_misc_0f4a = $0F4A
+!cluster_misc_0f5e = $0F5E
+!cluster_misc_0f72 = $0F72
+!cluster_misc_0f86 = $0F86
+!cluster_misc_0f9a = $0F9A
+!cluster_misc_1e52 = $1E52
+!cluster_misc_1e66 = $1E66
+!cluster_misc_1e7a = $1E7A
+!cluster_misc_1e8e = $1E8E
+
+; ---- Extended sprites (10 slots) ----
+; A custom one's number is its list number plus this (SMW's are 01-12). Spawning keeps to the
+; first eight: 8 and 9 are Mario's fireballs'.
+!ExtendedOffset = $13
+!ExSprSize = $07
+!ExtendedSize = $08
+!FireballSprSize = $09
+!extended_num = $170B
+!extended_y_low = $1715
+!extended_x_low = $171F
+!extended_y_high = $1729
+!extended_x_high = $1733
+!extended_y_speed = $173D
+!extended_x_speed = $1747
+!extended_y_fraction = $1751
+!extended_x_fraction = $175B
+!extended_table = $1765
+!extended_table_1 = $1765
+!extended_table_2 = $198C
+!extended_table_3 = $1996
+!extended_table_4 = $19A0
+!extended_table_5 = $19AA
+!extended_timer = $176F
+!extended_behind = $1779
 
 ; ---- Shooters (8 slots) ----
 !shoot_num = $1783
