@@ -12,3 +12,10 @@ Neither is wired into the editor's build.
   step (`StepRecord`) is skipped when no sprite takes extra bytes, and plain records take a fast path
   when one does. 1659 -> 1083 interpreter instructions per loader run with 255 sprites (no extra
   bytes), 1659 -> 1227 with. Adds `LoaderCostTests.cs` and a `Cpu65816.Instructions` counter.
+- `sprite_collision_speed.asm` — Asar patch, opt-in. Sprite-to-block collision's Map16 lookup (`$019441`, two calls
+  per ground sprite per frame): the horizontal-level block rewritten, and the `JSL $00F545` (POW recolouring) skipped
+  for every tile it cannot change. About 31 cycles a call, 374 cycles a frame for six Koopas and Goombas (2.6%),
+  measured by `src/tests/SpriteFrameCostTests.cs`. Moves the tile fetch to the spare bytes at `$01FFBF`; leaves the
+  vertical block and the entry code alone. Not exact: the accumulator's hidden high byte and the V flag differ,
+  which the three callers (all 8-bit, all `BEQ` on Z) never read. Test: `src/tests/SpriteCollisionPatchTests.cs`
+  (vanilla vs patched from random states at both entry points).

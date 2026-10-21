@@ -279,6 +279,10 @@ public sealed class Cpu65816(Rom rom)
     /// banks ($00-$02/$05/$07 and mirrors) — i.e. inside LM/tool-inserted code.</summary>
     public SortedSet<int>? PcHot;
 
+    /// <summary>Debug: called before each instruction with its 24-bit address, opcode and P.
+    /// For profiling (tests/SpriteFrameCostTests.cs).</summary>
+    public Action<int, byte, int>? Trace;
+
     /// <summary>Debug: the last 64 instruction addresses executed, oldest first.</summary>
     public IEnumerable<int> RecentPcs => Enumerable.Range(0, 64).Select(i => ring[(ringPos + i) & 63]).Where(p => p != 0);
     private readonly int[] ring = new int[64];
@@ -293,7 +297,9 @@ public sealed class Cpu65816(Rom rom)
             PcHot.Add((PBR << 16) | PC);
         if (StepLog is not null && (PBR & 0x7F) is 0x01 or 0x02 && StepLog.Count < 400)
             StepLog.Add(((PBR << 16) | PC, X, Y));
+        int at = (PBR << 16) | PC;
         byte op = Fetch();
+        Trace?.Invoke(at, op, P);
         int m = MMask, xm = XMask, v;
         switch (op)
         {
