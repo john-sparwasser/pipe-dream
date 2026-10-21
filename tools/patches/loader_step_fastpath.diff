@@ -1,0 +1,237 @@
+diff --git a/src/data/SpriteInsert.cs b/src/data/SpriteInsert.cs
+index 8587dda..cf08ed0 100644
+--- a/src/data/SpriteInsert.cs
++++ b/src/data/SpriteInsert.cs
+@@ -71,6 +71,8 @@ public static partial class SpriteInsert
+             incsrc "defines.asm"
+             !SizeTable = ${rom.LmSpriteSizeBase:X6}
+             !LmStep = ${lmStep:X6}
++            !NeedsStep = {(NeedsStep(rom, 0x400) ? 1 : 0)}
++            !PlainShort = {(lmStep != 0 && !NeedsStep(rom, 0x100) ? 1 : 0)}
+             incsrc "main.asm"
+             freedata
+             SpriteTable:
+@@ -225,6 +227,12 @@ public static partial class SpriteInsert
+         => rom.Data.AsSpan(rom.FileOffset(0x02FFE2), 4).SequenceEqual("STSD"u8)
+             ? "the base ROM already has PIXI's sprite driver — custom sprites need a base without it" : null;
+ 
++    /// <summary>Whether any record among the size table's first <paramref name="length"/> entries (0x100 per
++    /// extra-bits value, 0 first) is longer than 3 bytes, so the loader's step must read the table.
++    /// Without a table (no Lunar Magic) it is assumed.</summary>
++    private static bool NeedsStep(Rom rom, int length)
++        => rom.LmSpriteSizeBase <= 0 || rom.Data.AsSpan(rom.FileOffset(rom.LmSpriteSizeBase), length).IndexOfAnyExceptInRange((byte)0, (byte)3) >= 0;
++
+     /// <summary>What $02A846 does in this base: SMW's own step (<paramref name="lmStep"/> 0), or a
+     /// JML to Lunar Magic's, which our step chains into past its first three bytes.</summary>
+     private static string? LoaderStep(Rom rom, out int lmStep)
+diff --git a/src/data/spritedriver/main.asm b/src/data/spritedriver/main.asm
+index 582a609..7ba5630 100644
+--- a/src/data/spritedriver/main.asm
++++ b/src/data/spritedriver/main.asm
+@@ -27,9 +27,14 @@ org $02FFE2
+ 
+ ; ---- The level loader ----
+ ; $02A846 steps Y from one record's second byte to the next record: 3 bytes in SMW, so a record
+-; with extra bytes would be read from its middle. Step by the size table's length instead.
++; with extra bytes would be read from its middle. Step by the size table's length instead. When no
++; record is longer than 3 (!NeedsStep 0: no sprite takes extra bytes) the step is SMW's or Lunar
++; Magic's own, which is cheaper by some 25 instructions for every record the loader walks past,
++; so it stays.
++if !NeedsStep
+ org $02A846
+     JML StepRecord
++endif
+ ; The spawn stores the record's first byte AND #$0D into a position's high byte: bit 0 is the
+ ; position, bits 2-3 are the extra bits, which belong in a table of their own. $02A94B is the
+ ; vertical-level store (into $14E0), $02A963 the one Lunar Magic's horizontal path calls (into
+@@ -184,7 +189,19 @@ org $0185C3                     ; status 08, MAIN: STZ $1491 : LDA $9E,x
+ freecode
+ 
+ ; Y at the record's second byte; X counts records. 8-bit A/X/Y.
++if !NeedsStep
+ StepRecord:
++if !PlainShort
++    ; A plain SMW sprite (extra bits 0) is 3 long, as Lunar Magic's step has it: most records. (Only
++    ; with Lunar Magic's step, !LmStep, and a size table that says so; see PlainShort in SpriteInsert.cs.)
++    DEY
++    LDA [$CE],y
++    INY
++    AND #$0C
++    BNE .Sized
++    JML !LmStep                 ; Lunar Magic's own step, untouched
++.Sized:
++endif
+     PHX
+     DEY
+     LDA [$CE],y                 ; extra bits → the table's high byte
+@@ -217,6 +234,7 @@ if !LmStep != 0
+ else
+     JML $02A82E
+ endif
++endif
+ 
+ KeepBitsX:
+     PHA
+diff --git a/src/rom/Cpu65816.cs b/src/rom/Cpu65816.cs
+index d5ed25a..4fddf83 100644
+--- a/src/rom/Cpu65816.cs
++++ b/src/rom/Cpu65816.cs
+@@ -284,8 +284,12 @@ public sealed class Cpu65816(Rom rom)
+     private readonly int[] ring = new int[64];
+     private int ringPos;
+ 
++    /// <summary>Debug: instructions executed so far — a cost proxy for comparing two routines.</summary>
++    public long Instructions;
++
+     private void Step()
+     {
++        Instructions++;
+         ring[ringPos++ & 63] = (PBR << 16) | PC;
+         BankTrace?.Add(PBR);
+         if (PcHot is not null && ((PBR & 0x7F) is not (0x00 or 0x01 or 0x05 or 0x07)
+diff --git a/src/tests/LoaderCostTests.cs b/src/tests/LoaderCostTests.cs
+new file mode 100644
+index 0000000..c16e723
+--- /dev/null
++++ b/src/tests/LoaderCostTests.cs
+@@ -0,0 +1,108 @@
++using Xunit;
++using Xunit.Abstractions;
++
++namespace PipeDream.Tests;
++
++/// <summary>
++/// What one run of the level sprite loader ($02A7FC) costs in a level of 255 sprites, in
++/// instructions the CPU interpreter ran, with the camera half way along.
++/// </summary>
++public class LoaderCostTests(ITestOutputHelper log)
++{
++    private static string DevRom()
++    {
++        for (var d = new DirectoryInfo(AppContext.BaseDirectory); d is not null; d = d.Parent)
++        {
++            var p = Path.Combine(d.FullName, "dev", "base.smc");
++            if (File.Exists(p)) return p;
++        }
++        throw new FileNotFoundException("dev/base.smc");
++    }
++
++    /// <summary>255 records in sorted screen order, 0..31, never on column 2, then the terminator.</summary>
++    internal static byte[] List(int count = 255)
++    {
++        var l = new List<byte> { 0 };                                // the header byte
++        for (int i = 0; i < count; i++)
++        {
++            int screen = i * 32 / count, x = 5 + i % 10;
++            l.Add((byte)(((screen >> 4) & 1) << 1));
++            l.Add((byte)((x << 4) | (screen & 0xF)));
++            l.Add(0x10);
++        }
++        l.Add(0xFF);
++        return [.. l];
++    }
++
++    /// <summary>Lunar Magic starts the walk at a per-screen section of the list, not at its head:
++    /// $0CF6,x is the section's pointer (less its header byte) and $0D36,x its first record's index.
++    /// Section s starts at the first record on screen s or later.</summary>
++    internal static long Cost(Rom rom, int cameraX, bool right, byte[] list, bool sections = true) => Run(rom, cameraX, right, list, sections).Instructions;
++
++    internal static Cpu65816 Run(Rom rom, int cameraX, bool right, byte[] list, bool sections = true)
++    {
++        var cpu = new Cpu65816(rom);
++        list.CopyTo(cpu.Ram7F, 0x8000);
++        cpu.Ram7E[0xCE] = 0x00; cpu.Ram7E[0xCF] = 0x80; cpu.Ram7E[0xD0] = 0x7F;
++        int records = (list.Length - 2) / 3;
++        for (int s = 0; s < 32; s++)
++        {
++            int first = 0;
++            while (first < records && (((list[1 + first * 3] >> 1) & 1) << 4 | (list[2 + first * 3] & 0xF)) < s) first++;
++            int ptr = sections ? 0x8000 + first * 3 : 0x8000, idx = sections ? first : 0;
++            cpu.Ram7E[0x0CF6 + s * 2] = (byte)ptr; cpu.Ram7E[0x0CF7 + s * 2] = (byte)(ptr >> 8);
++            cpu.Ram7E[0x0D36 + s * 2] = 0; cpu.Ram7E[0x0D37 + s * 2] = (byte)idx;
++        }
++        cpu.Ram7E[0x1A] = (byte)cameraX; cpu.Ram7E[0x1B] = (byte)(cameraX >> 8);
++        cpu.Ram7E[0x55] = (byte)(right ? 2 : 0);
++        cpu.PresetP(0x30);
++        cpu.PresetDbr(0x02);
++        cpu.CallNear(0x02A7FC, 5_000_000);
++        return cpu;
++    }
++
++    /// <summary>The loader steps over records of 3 and of 5 bytes (a custom sprite with two extra bytes) alike:
++    /// it reaches the list's end, every record counted.</summary>
++    [AsarRomFact]
++    public void the_loader_walks_a_list_of_mixed_record_lengths_to_its_end()
++    {
++        var dir = Directory.CreateTempSubdirectory("pdwalk-").FullName;
++        try
++        {
++            var l = new List<byte> { 0 };
++            const int count = 200;
++            for (int i = 0; i < count; i++)
++            {
++                bool custom = i % 3 == 0;
++                l.Add((byte)(custom ? 0x08 : 0)); l.Add((byte)(0x50 | (i * 16 / count))); l.Add(custom ? (byte)0x1A : (byte)0x10);
++                if (custom) { l.Add(0xAB); l.Add(0xCD); }
++            }
++            l.Add(0xFF);
++            var (status, built) = SpriteInsertTests.Build(Path.Combine(dir, "a"));
++            Assert.True(built is not null, status);
++            // The camera is past every record, so the loader only walks them (a record in its window would spawn).
++            var cpu = Run(built!, 0x2000, true, [.. l], sections: false);
++            Assert.Equal(count & 0xFF, cpu.Registers.X);
++        }
++        finally { try { Directory.Delete(dir, true); } catch { } }
++    }
++
++    [AsarRomFact]
++    public void the_drivers_step_hook_cost_is_gone_without_extra_bytes()
++    {
++        var dir = Directory.CreateTempSubdirectory("pdcost-").FullName;
++        try
++        {
++            var list = List();
++            long plain = Cost(Rom.Load(DevRom()), 0x1000, true, list);
++            var (s0, without) = SpriteInsertTests.Build(Path.Combine(dir, "a"), extraBytes: 0);
++            var (s2, with) = SpriteInsertTests.Build(Path.Combine(dir, "b"), extraBytes: 2);
++            Assert.True(without is not null && with is not null, s0 + s2);
++            long cheap = Cost(without!, 0x1000, true, list), hooked = Cost(with!, 0x1000, true, list);
++            log.WriteLine($"255 sprites, camera $1000: dev base {plain}, driver without extra bytes {cheap}, with {hooked} instructions");
++            Assert.True(cheap <= plain + 5, "the driver costs the loader nothing when no sprite takes extra bytes");
++            Assert.True(hooked > cheap);
++        }
++        finally { try { Directory.Delete(dir, true); } catch { } }
++    }
++}
+diff --git a/src/tests/SpriteInsertTests.cs b/src/tests/SpriteInsertTests.cs
+index 5700338..a74040c 100644
+--- a/src/tests/SpriteInsertTests.cs
++++ b/src/tests/SpriteInsertTests.cs
+@@ -44,7 +44,7 @@ public class SpriteInsertTests : IDisposable
+         var sd = SpriteData.Parse(baseRom, 0x105);
+         var edit = new Services.SpriteEdit(sd, null, false);
+         Assert.True(edit.Place(0x1A, 12, 22));
+-        Assert.True(edit.SetData(sd.Sprites.Count - 1, 0x1A, 2, [0xAB, 0xCD]));
++        Assert.True(edit.SetData(sd.Sprites.Count - 1, 0x1A, 2, extraBytes == 0 ? [] : [0xAB, 0xCD]));
+         more?.Invoke(p.Data, edit, sd);
+         var st = p.Data.Level(0x105);
+         st.Objects = LevelParser.Parse(baseRom, 0x105).Objects.Select(ProjectFile.ObjectDto.From).ToList();
+@@ -95,6 +95,18 @@ public class SpriteInsertTests : IDisposable
+         Assert.Equal(0x1A, SpriteData.Parse(r, 0x105).Sprites[0].Number);
+     }
+ 
++    /// <summary>With no sprite taking extra bytes every record is 3 long, which SMW's and Lunar Magic's
++    /// own step already does; the driver's hook on it would only cost every record the loader walks.</summary>
++    [AsarRomFact]
++    public void the_loader_step_is_left_alone_when_no_record_is_longer_than_three()
++    {
++        var (status, rom) = Build(dir, extraBytes: 0);
++        Assert.True(rom is not null, status);
++        var baseRom = Rom.Load(Path.Combine(dir, "proj", "base.smc"));
++        Assert.Equal(baseRom.Data.AsSpan(baseRom.FileOffset(0x02A846), 4).ToArray(), rom!.Data.AsSpan(rom.FileOffset(0x02A846), 4).ToArray());
++        Assert.Equal(0x5C, rom.ReadByte(0x018127));                        // the other hooks are still in
++    }
++
+     /// <summary>A routine goes in once, under PIXI's macro name (folders run together), and
+     /// routines the routine calls come with it; one nobody calls stays out.</summary>
+     [AsarRomFact]

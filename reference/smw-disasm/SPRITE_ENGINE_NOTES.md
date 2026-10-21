@@ -102,8 +102,11 @@ Counter-example done right: `FindFreeSprSlot`/`FindFreeSlotLowPri` $02A9E4/$02A9
 - `CODE_0180D2` recomputes each slot's OAM index from `DATA_07F0B4[$1692]` + `DATA_07F000` every
   slot every frame, though `$1692` is constant for the whole level. 7 unrolled timer-decrement
   blocks also run 12×/frame even for empty slots.
-- `LoadSprFromLevel` $02A7FB restarts the level-sprite-list walk **from index 0** every other frame
-  — O(total sprites in level), no cursor; only saved by the early `BCS` once past the boundary column.
+- `LoadSprFromLevel` (really $02A7FC; $02A7F6-FB is data) restarts the level-sprite-list walk **from index 0**
+  every other frame in vanilla — O(total sprites in level). Lunar Magic's loader (JMLs into bank $1E from
+  $02A826) already starts at a per-screen section ($0CF6,x/$0D36,x), so on LM ROMs the cost is the records
+  in its window (~1100 interpreter instructions for 255 sprites at any camera; ~9500 from the head at the
+  far end). Measured in `src/tests/LoaderCostTests.cs`.
 - OAM fixed costs: boot builds a 384-byte unrolled clear routine in `$7F8000` (called from 11+
   sites), high-table repack $008494 rebuilds all 128 entries' size/X-high bits each frame, and
   `DoSomeSpriteDMA` $00844A DMAs the full $220 bytes unconditionally.
