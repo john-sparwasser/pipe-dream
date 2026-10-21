@@ -37,6 +37,9 @@ static class DebugCommands
         ("--prep10",            (a, i) => { RomPrep.V10Groups = int.Parse(a[i + 2]); return PrepRom(a[i + 1], 10); }),
         // --upgradebase <project.pdp> <vanilla.smc> : re-prep a project's base at the current version (File → Upgrade base, headless).
         ("--upgradebase",       (a, i) => { var p = Project.Open(a[i + 1]); var err = p.UpgradeBasePrep(a[i + 2]); Console.WriteLine(err ?? $"base upgraded to prep v{RomPrep.Version}"); return err is null ? 0 : 1; }),
+        // --mml <song.mml> [base] : compile a song with our own compiler and print its bytes (hex) or its errors,
+        // for diffing against AddmusicK's (reference/AMK_PORT.md). base defaults to AMK's song address, $238D.
+        ("--mml",               (a, i) => CompileMml(a[i + 1], a.Length > i + 2 ? Convert.ToInt32(a[i + 2], 16) : 0x238D)),
         ("--pixitrace",         PixiTrace),
         ("--sprites",           DumpSprites),
         ("--tilepng",           TilePng),
@@ -880,6 +883,19 @@ static class DebugCommands
         Console.WriteLine($"wrote {outp}: {parsed.Count} sprite entries, " +
                           $"{parsed.Values.Sum(v => v.Oam.Length)} OAM tiles, " +
                           $"{parsed.Values.Count(v => v.Req.Any(r => r.Length > 0))} with GFX requirements");
+        return 0;
+    }
+
+    private static int CompileMml(string path, int baseAddress)
+    {
+        var song = Music.MmlParser.Parse(File.ReadAllText(path));
+        var result = Music.MmlCompiler.Compile(song, baseAddress);
+        if (!result.Ok)
+        {
+            foreach (var d in result.Diagnostics) Console.WriteLine($"ERROR {d}");
+            return 1;
+        }
+        Console.WriteLine(string.Join(' ', result.Bytes.Select(b => b.ToString("X2"))));
         return 0;
     }
 }
