@@ -154,9 +154,11 @@ Each phase ends shippable.
    song needs them, or pick a newer version's documentation first?
 2. **The oracle's version.** Output differs between releases. The oracle is the local 1.0.5 build; a
    song that relies on a later feature will not compile there and has no oracle.
-3. **Does the bundled Quasar assemble `spc700`?** Asar does; confirm the pinned fork's `arch spc700`
-   works through `Asar.Patch`, and that a standalone SPC700 program can be assembled to bytes (AMK
-   assembles its engine to a `.bin`).
+3. **Does the bundled Quasar assemble `spc700`? Yes (2026-10-21).** `norom` + `arch spc700` + `org $0000` +
+   `base $0200` gives flat bytes at file offset 0 and labels at their ARAM addresses, through
+   `Asar.Patch` on an in-memory buffer (`Spc700AsarTests`). Syntax notes for the engine's author: no
+   `!` absolute prefix (the operand's size picks direct page or absolute; `.b`/`.w` force it), and
+   `immediate,dp` stores are written `mov $f2,#$6c`.
 4. **Engine compatibility without AMK's engine.** Songs depend on AMK's engine details (timing of
    fades, slides, the velocity table, how `q` and ties interact). The hex reference and the oracle pin
    most of it; some will only show up as songs that sound different. How much divergence is
