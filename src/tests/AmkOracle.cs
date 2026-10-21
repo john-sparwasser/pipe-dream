@@ -15,6 +15,14 @@ internal static class AmkOracle
         => Environment.GetEnvironmentVariable("PIPEDREAM_AMK") is { Length: > 0 } r
            && File.Exists(Path.Combine(r, "addmusick")) ? r : null;
 
+    /// <summary>AMK's own test songs that compile from a bare copy of its test/ folder. ww.mml, ww2.mml and
+    /// ww3.mml are left out: they name a sample (ww_07.brr) that folder does not have.</summary>
+    public static readonly string[] Corpus =
+    [
+        "cal.mml", "click.mml", "ct_fanfare_2.opt.mml", "dv.mml", "dv2.mml", "dv3.mml", "ek.mml",
+        "exp.mml", "exp2.mml", "exp3.mml", "rt_ct.mml", "rt_exp2.mml", "ww_solo.mml",
+    ];
+
     /// <summary>Compile <paramref name="songs"/> (paths under the folder's music/) with -norom and
     /// return the .spc each produced, keyed by the song's file name without its extension.</summary>
     public static Dictionary<string, SpcFile> Compile(string root, params string[] songs)
@@ -37,7 +45,9 @@ internal static class AmkOracle
         foreach (var s in songs)
         {
             var name = Path.GetFileNameWithoutExtension(s);
-            result[name] = SpcFile.Parse(File.ReadAllBytes(Path.Combine(work, "SPCs", name + ".spc")));
+            // AMK names the snapshot from the part before the first dot ("ct_fanfare_2.opt.mml" -> ct_fanfare_2.spc).
+            var file = new[] { name, name.Split('.')[0] }.Select(n => Path.Combine(work, "SPCs", n + ".spc")).First(File.Exists);
+            result[name] = SpcFile.Parse(File.ReadAllBytes(file));
         }
         Directory.Delete(work, true);
         return result;

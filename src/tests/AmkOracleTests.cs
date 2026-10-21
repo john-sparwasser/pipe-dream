@@ -18,6 +18,15 @@ public class AmkOracleTests
         Assert.Contains(spc.Ram, b => b != 0);
         Assert.Contains(spc.Dsp, b => b != 0);                      // the DSP is configured
     }
+
+    [AmkFact]
+    public void the_whole_corpus_compiles_to_spcs()
+    {
+        var all = AmkOracle.Compile(AmkOracle.Root!, AmkOracle.Corpus);
+
+        Assert.Equal(AmkOracle.Corpus.Length, all.Count);
+        Assert.All(all.Values, spc => Assert.Contains(spc.Ram, b => b != 0));
+    }
 }
 
 /// <summary>The interpreter against the real thing: AddmusicK's own engine, from its own snapshot.</summary>

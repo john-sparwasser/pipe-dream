@@ -76,6 +76,13 @@ should still start from this file and not from that source.
 Each phase ends shippable.
 
 ### 0. Fixtures, the oracle and the SPC700 interpreter
+**Status (2026-10-21): done.** `tests/AmkOracle.cs` runs `addmusick -norom -noblock <songs>` in a copy of the folder
+`PIPEDREAM_AMK` names and reads back each `.spc` with `rom/SpcFile.cs`; `AmkFact` skips without it. `rom/Spc700.cs` is
+the interpreter: all 256 opcodes with the documented cycle counts, the ports, three timers, and a DSP register file that
+logs every write with its cycle. It runs AMK's own engine from its own snapshot (ports reloaded from `$F4-$F7` of the
+dump) and keys voice 0 on in time. The corpus is 13 of AMK's 16 `test/music` songs (`ww`, `ww2`, `ww3` name a sample the
+folder lacks); the 93 effects ride along in every compile. Our own minimal song per command comes with phases 2 and 3.
+The tests are `AmkOracleTests`, `Spc700Tests` (programs assembled by Asar) and `Spc700AsarTests`.
 - An oracle harness: run a user-supplied `addmusick` (one is built at
   `~/projects/romhacking/AddmusicK/test/addmusick`, with `libasar`) on a song with `-norom`, collect its
   compiled data and `.spc`. Tests that need it read `PIPEDREAM_AMK` and **skip without it**, like the
@@ -158,7 +165,8 @@ Each phase ends shippable.
    `base $0200` gives flat bytes at file offset 0 and labels at their ARAM addresses, through
    `Asar.Patch` on an in-memory buffer (`Spc700AsarTests`). Syntax notes for the engine's author: no
    `!` absolute prefix (the operand's size picks direct page or absolute; `.b`/`.w` force it), and
-   `immediate,dp` stores are written `mov $f2,#$6c`.
+   `immediate,dp` stores are written `mov $f2,#$6c`, `tset`/`tclr` take the accumulator (`tset $0030,a`), and
+   `adc a,x` is not an instruction (`adc a,(x)` is).
 4. **Engine compatibility without AMK's engine.** Songs depend on AMK's engine details (timing of
    fades, slides, the velocity table, how `q` and ties interact). The hex reference and the oracle pin
    most of it; some will only show up as songs that sound different. How much divergence is
