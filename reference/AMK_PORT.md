@@ -93,6 +93,15 @@ The tests are `AmkOracleTests`, `Spc700Tests` (programs assembled by Asar) and `
   songs written for each command.
 
 ### 1. Model, import, session API: no insertion
+**Status (2026-10-21): done.** `data/MusicState.cs` is the model (`ProjectFile.Music`, so an older .pdp loads empty),
+`data/AmkImport.cs` reads and writes the three manifests, the options file and an AMK folder (every `.txt`/`.mml` under
+`music/`, every file under `samples/`, `1DF9/`, `1DFC/`, not only the ones the manifests name; a name with no file is a
+problem in the status), and `services/EditorSession.Music.cs` is the API: list, new, import a song (with the samples
+it names from beside it), set text, number a song global or local, delete, import a sample, delete a sample, import
+and export an AMK folder. Tests are `MusicTests`; the oracle one compiles five corpus songs from our export and from
+AMK's own folder and compares the ARAM and DSP state byte for byte. Not done here: the stock `#default` and
+`#optimized` samples are AMK's files (SMW's own samples); a project should take them from the user's ROM instead of
+shipping them (phase 4).
 - `ProjectFile.Music`: songs (name → MML), samples (name → BRR), groups (name → ordered samples with
   the important flag), sound effects (1DF9/1DFC lists with the `*`/`?` flags), the song list
   (global/local, number → song), options (AMK's flags as fields).
@@ -100,7 +109,10 @@ The tests are `AmkOracleTests`, `Spc700Tests` (programs assembled by Asar) and `
   the songs, samples, banks and effects they name, and `Addmusic_options.txt`. Export the same.
 - `services/EditorSession.Music…`: list, new, import, set text, delete, slot a song, add a sample,
   each returning a status string.
-- Tests: import then export is byte-identical on AMK's own `test/` folder.
+- Tests: songs, samples and effects come back byte for byte; the manifests are rewritten in AMK's own layout
+  (CRLF, tab before the effect file name, `!`, `*`, `?`), so they match where AMK's are canonical and read the
+  same where they are not. The real check is AMK's: given the folder we export instead of its own, `addmusick`
+  makes the same ARAM and DSP state.
 
 ### 2. The MML front end
 - Preprocessor, lexer and parser for everything in "What AMK does", to a syntax tree with line and

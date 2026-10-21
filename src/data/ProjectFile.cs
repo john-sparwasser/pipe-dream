@@ -104,6 +104,10 @@ public sealed class ProjectFile
         public Dictionary<string, byte[]> Files { get; set; } = new();
     }
 
+    /// <summary>The project's music: songs, samples, sample groups and sound effects, as AddmusicK
+    /// reads them (reference/AMK_PORT.md). A separate object so an older .pdp still loads unchanged.</summary>
+    public MusicState Music { get; set; } = new();
+
     /// <summary>LM ExAnimation (reference/EXANIMATION.md): the encoded record per level (key =
     /// level hex, value = ExAnimation.Encode hex, alt-file index in its header) and the global
     /// list's. Source files 60-63 live in <see cref="Gfx"/> under their ids.</summary>
