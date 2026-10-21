@@ -224,7 +224,11 @@ Each phase ends shippable.
   - PIXI writes nothing for a `.cfg` sprite; ours are JSON by then, so a converted one is listed
     under its two "(extra bit clear/set)" entries.
   Not done: appending a base's own aux files (a project copies only the ROM), the overworld's
-  `.sscov`/`.s16ov`, extmod. Not yet opened in Lunar Magic itself. Found on the way: a config
+  `.sscov`/`.s16ov`, extmod. Opened in Lunar Magic 3.40 (2026-10-21): Secret's four PIXI 1.40
+  sprites built on our routines, 150 sprites in level 105 - display tiles, tooltips and the Add
+  Sprites list all show, the level saves with no 128 warning and plays. Against pixi.exe 1.40 on
+  the same list the `.ssc` is identical, the `.mwt`/`.mw2` differ only by the converted `.cfg`
+  entries, and its `.s16` is ours padded with zeros to 0x1C000. Found on the way: a config
   whose `Map16` is not base64 (QLDC2023's CapeShell says "Cape Shell") was refused at import;
   it now reads as no tiles, as PIXI does.
 - **Cluster and extended sprites (2026-10-19): done.** ASM alone (no config), slotted in lists of
