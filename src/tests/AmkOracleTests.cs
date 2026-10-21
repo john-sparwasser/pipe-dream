@@ -19,3 +19,25 @@ public class AmkOracleTests
         Assert.Contains(spc.Dsp, b => b != 0);                      // the DSP is configured
     }
 }
+
+/// <summary>The interpreter against the real thing: AddmusicK's own engine, from its own snapshot.</summary>
+public class AmkEngineInInterpreterTests(Xunit.Abstractions.ITestOutputHelper log)
+{
+    [AmkFact]
+    public void amks_engine_runs_in_the_interpreter_and_keys_on_in_time()
+    {
+        var spc = AmkOracle.Compile(AmkOracle.Root!, "click.mml")["click"];
+        var cpu = Spc700.FromSpc(spc);
+        cpu.Run(3 * 1_024_000);                                     // three seconds of SPC time
+
+        var kon = cpu.DspWrites!.Where(w => w.Reg == 0x4C && w.Value != 0).ToList();
+        log.WriteLine($"{cpu.DspWrites!.Count} DSP writes, key-ons at " + string.Join(", ", kon.Select(w => w.Cycle)));
+        Assert.False(cpu.Halted);
+        Assert.True(kon.Count >= 3, $"only {kon.Count} key-ons");
+        Assert.All(kon, w => Assert.Equal(0x01, w.Value));          // channel 0 only, as the song says
+
+        // "c16 r16 r8" repeated is a quarter note at this tempo: the key-ons are evenly spaced.
+        var gaps = kon.Zip(kon.Skip(1), (a, b) => b.Cycle - a.Cycle).ToList();
+        Assert.All(gaps, g => Assert.InRange(g, gaps[0] * 0.99, gaps[0] * 1.01));
+    }
+}
