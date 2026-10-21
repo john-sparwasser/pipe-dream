@@ -48,8 +48,10 @@ public static partial class SpriteInsert
         void Put(string path, string text) => mem[Path.Combine(VirtualDir, path)] = Encoding.UTF8.GetBytes(text);
         Put("defines.asm", Driver("defines.asm"));
         // Our own routines stand in for any the project has not imported; an imported one wins,
-        // since it is the one the user's sprites were written against.
-        var files = BuiltinRoutines();
+        // since it is the one the user's sprites were written against. By macro name, not path:
+        // PIXI 1.40 keeps SpawnSprite as Spawn/Sprite.asm.
+        var imported = RoutinesByName(data.PixiFiles);
+        var files = BuiltinRoutines().Where(b => !imported.ContainsKey(MacroName(b.Key))).ToDictionary();
         foreach (var (path, text) in data.PixiFiles) files[path] = text;
         foreach (var (path, text) in files) Put(path, text);
 
@@ -251,7 +253,9 @@ public static partial class SpriteInsert
         error = null;
         var byName = RoutinesByName(files);
         var used = new SortedSet<string>(StringComparer.Ordinal);
-        var todo = new Stack<string>(sprites.SelectMany(s => s.Files.Values.Select(b => Encoding.UTF8.GetString(b)).Append(s.Source)));
+        // The sprites, their files, and every kind's _header.asm, whose macros call routines too.
+        var todo = new Stack<string>(sprites.SelectMany(s => s.Files.Values.Select(b => Encoding.UTF8.GetString(b)).Append(s.Source))
+                                            .Concat(files.Where(f => f.Key.EndsWith("/_header.asm")).Select(f => f.Value)));
         while (todo.TryPop(out var text))
             foreach (Match m in MacroCall().Matches(text))
                 if (byName.ContainsKey(m.Groups[1].Value) && used.Add(m.Groups[1].Value)) todo.Push(files[byName[m.Groups[1].Value]]);
@@ -271,7 +275,10 @@ public static partial class SpriteInsert
 
     private static Dictionary<string, string> RoutinesByName(Dictionary<string, string> files)
         => files.Keys.Where(p => p.StartsWith("routines/") && p.EndsWith(".asm", StringComparison.OrdinalIgnoreCase))
-                     .ToDictionary(p => p["routines/".Length..^4].Replace("/", ""), p => p);
+                     .ToDictionary(MacroName, p => p);
+
+    /// <summary>routines/Spawn/Smoke.asm is %SpawnSmoke(): the path with the folders run together.</summary>
+    private static string MacroName(string path) => path["routines/".Length..^4].Replace("/", "");
 
     private static Dictionary<string, int> AssembleRoutines(Rom rom, Dictionary<string, string> files, Dictionary<string, string> byName,
         IEnumerable<string> used, Dictionary<string, byte[]> mem, List<Asar.WrittenBlock> written, out string? error)

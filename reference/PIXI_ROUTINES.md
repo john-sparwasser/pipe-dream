@@ -1049,3 +1049,517 @@ What the random states had to be kept to, and why, is in the test's setups: real
 screens, Map16 pointers into ROM at `$0FBE`, a short stripe buffer, a data bank below `$10`.
 Outside those, SMW's own pointers lead into low RAM, where each routine's own stack sits, and the
 two differ by construction.
+
+## PIXI 1.40: new routines
+
+Clean-room interface contracts for the 23 shared routines that PIXI 1.40 has and 1.2.x does not.
+Same rules as the rest of this file: behaviour only, no PIXI code, no paraphrase of its
+instructions, no PIXI comments, no PIXI data tables (a table is cited only when it is SMW's own or
+equal to SMW's own, by address).
+
+- Date: 2026-10-20
+- Source read: `D:\SMW\Projects\Secret\tools\pixi\routines\**\*.asm` (PIXI 1.40, 50 files). The
+  macro name is the path with the folders run together: `Bounce/SetSpeed.asm` is `%BounceSetSpeed()`.
+  Defines resolved through `D:\SMW\Projects\Secret\tools\pixi\asm\sa1def.asm`. Intended use read from
+  the `_header.asm` files of `cluster`, `extended`, `shooters`, `sprites` and `misc_sprites\*`.
+  The PIXI folder has no README.
+- SMW addresses checked against `D:\SMW\Projects\.resources\SMW.smc` with the PipeDream disassembler.
+
+### Conventions for this section
+
+Everything under "Conventions that apply to every routine" above still holds (LoROM, D = 0,
+`JSL`/`RTL`, 8/8 on entry, by-product flags). In addition:
+
+- **X = the slot of the calling sprite's own kind** (bounce slot, score slot, ...), 8-bit. No routine
+  range-checks it. Every sprite table is read with absolute addressing, so **DB must map WRAM** for
+  every routine in this section. ROM tables (`$02xxxx`) are read long and do not depend on DB.
+- **RAM per sprite kind** (LoROM; the SA-1 build ORs `$6000` into each, as `define_base2_address` does):
+
+  | kind | slots | number | X lo/hi | Y lo/hi | X speed | Y speed | X frac | Y frac | other |
+  |---|---|---|---|---|---|---|---|---|---|
+  | bounce | 4 | `$1699` | `$16A5`/`$16AD` | `$16A1`/`$16A9` | `$16B5` | `$16B1` | `$16B9` | `$16BD` | `$16C9` direction (bits 0-1), `$1901` properties |
+  | score | 6 | `$16E1` | `$16ED`/`$16F3` | `$16E7`/`$16F9` | — | `$16FF` | — | — | `$1705` layer |
+  | smoke | 4 | `$17C0` | `$17C8`/— | `$17C4`/— | — | — | — | — | `$17CC` timer |
+  | spinning coin | 4 | `$17D0` | `$17E0`/`$17EC` | `$17D4`/`$17E8` | — | `$17D8` | — | `$17DC` | `$17E4` layer |
+  | minor extended | 12 | `$17F0` | `$1808`/`$18EA` | `$17FC`/`$1814` | `$182C` | `$1820` | `$1844` | `$1838` | `$1850` timer |
+  | cluster | 20 | `$1892` | `$1E16`/`$1E3E` | `$1E02`/`$1E2A` | — | — | — | — | |
+  | extended | 8 (+2 fireball) | `$170B` | `$171F`/`$1733` | `$1715`/`$1729` | `$1747` | `$173D` | `$175B` | `$1751` | |
+
+  The bounce fractions: PIXI's names put the **X** fraction at `$16B9` and the **Y** fraction at
+  `$16BD`. SMW's own bounce code uses them the other way round (see BounceUpdatePos).
+- **The 4.4 position update `U(s, f, p)`**, used by several routines. `s` = 8-bit speed (signed,
+  1/16 px per frame), `f` = the 8-bit fraction byte, `p` = the 16-bit position (two bytes):
+  1. `f ← (f + ((s & $0F) << 4)) mod 256`; `c` = 1 if that sum was ≥ 256.
+  2. `p ← (p + q + c) mod $10000`, where `q` = `floor(sext8(s) / 16)` (a value −8..7) as 16 bits.
+  3. On exit: **Y = `$00` if `s` < `$80`, else `$FF`**. A = the new high byte of `p`. N, Z, V and C
+     are those of the high-byte add (`hi(q) + hi(p) + carry from the low byte`); C = carry out of the
+     16-bit sum.
+
+  This is exactly SMW's `$02B526` (bounce Y), `$02B560` (extended Y) and `$02B58E` (spinning coin Y).
+- **The spawn routines take the number in B, not A.** Every `Spawn/*Generic` routine stores the high
+  byte of the accumulator (B) as the new sprite's number; the low byte of A on entry is ignored.
+  The callers' macros in every `_header.asm` do `XBA` and then fill `$04-$07` with their own position,
+  so the number travels in B. A reimplementation must take it from B.
+
+### BounceGetDrawInfo
+
+Finds the OAM slot and screen position of bounce sprite X. Handles the X high bit and layer 2.
+
+- **Called with:** 8/8, X = bounce slot (0..3). DB must map WRAM (the camera is read absolute, `$001A+i`).
+- **Behaviour:**
+  1. `$03` = `$02` (16×16 size bit).
+  2. Camera: layer 1 (`camX` = `$1A/$1B`, `camY` = `$1C/$1D`, `i` = 0) when `$1901,x` bit 7 is clear;
+     layer 2 (`$1E/$1F`, `$20/$21`, `i` = 4) when it is set.
+  3. `$00` = low byte of `X16 − camX`. If the high byte of the 16-bit `X16 − camX` is non-zero,
+     `$03` = `$03` (size bit plus X high bit). The sprite is **not** rejected for being off screen horizontally.
+  4. `$01` = low byte of `Y16 − camY`. `hy` = high byte of the 16-bit `Y16 − camY`.
+- **Returns:**
+  - `hy` ≠ 0 (not drawable): C=0, A = `hy`, Z=0, N = bit 7 of `hy`, **Y = `i`** (0 or 4).
+  - `hy` = 0: C=1, Y = A = SMW's OAM index byte at `$0291ED + x` (`$10,$14,$18,$1C`), N=0, Z=0.
+  - X preserved. `$00`, `$01` and `$03` are written on both paths; `$02` and `$04-$0F` are untouched.
+- **Equivalent SMW code:** the bounce-sprite draw prologue `$0291F8-$02922D`, same OAM table. Differences:
+  - SMW takes the layer from `$16C9,x` bit 7; PIXI from `$1901,x` bit 7.
+  - SMW rejects the sprite when the X high byte is non-zero; PIXI keeps it and sets the X high bit in `$03`.
+  - SMW leaves the camera bytes in `$02-$05`; PIXI writes only `$00`, `$01`, `$03`.
+- **Calls:** none.
+- **Edge cases:** X ≥ 4 reads past SMW's 4-byte OAM table (into code at `$0291F1`).
+
+### BounceGenericDraw
+
+Draws bounce sprite X as one 16×16 tile.
+
+- **Called with:** 8/8, X = bounce slot, A = tile number. DB must map WRAM.
+- **Behaviour:** `$02` = A. Then BounceGetDrawInfo. If that reports C=0, return at once with its exit
+  state (`$02` = tile is the only extra write). Otherwise, with `o` = the OAM index it returned:
+  - `$0200+o` = `$00`, `$0201+o` = `$01`, `$0202+o` = `$02`, `$0203+o` = `$1901,x OR $64`.
+  - `$0420 + o/4` = `$03`.
+- **Returns:**
+  - Drawn: Y = `o/4`, A = `$03` (`$02` or `$03`), N=0, Z=0, **C=0**. The routine gives no draw
+    status: C is 0 on both paths (for slots 0..3).
+  - Not drawn: BounceGetDrawInfo's C=0 exit.
+  - X preserved.
+- **Equivalent SMW code:** the rest of SMW's bounce draw from `$02922D` writes the same OAM bytes
+  (position, tile, `$1901,x | $64`, size into `$0420`) with SMW's own tile choice and off-screen rule.
+- **Calls:** BounceGetDrawInfo.
+
+### BounceSetMarioSpeed
+
+Gives the player the push of a bounce block.
+
+- **Called with:** 8/8, X = bounce slot. DB must map WRAM.
+- **Behaviour:** `d` = `$16C9,x & 3`.
+  - `v` = SMW's `$0290D6[d]` (`$80,$80,$80,$00`). If `v` ≠ `$80`, `$7D` = `v`.
+  - `w` = SMW's `$0290DA[d]` (`$80,$E0,$20,$80`). If `w` ≠ `$80`, `$7B` = `w`.
+  - So: `d`=0 nothing; 1: `$7B` = `$E0`; 2: `$7B` = `$20`; 3: `$7D` = 0.
+  PIXI carries its own copy of these 8 bytes; the values equal SMW's.
+- **Returns:** X preserved. **Y = X** (the slot). A = `w`. Flags from comparing `w` with `$80`:
+  `d`=0 or 3: Z=1, C=1, N=0; `d`=1: Z=0, C=1, N=0; `d`=2: Z=0, C=0, N=1.
+- **Equivalent SMW code:** `$0290F3-$02910A` exactly (same tables, `$80` = "leave alone").
+- **Calls:** none.
+
+### BounceSetSpriteSpeed
+
+Gives a normal sprite the push of a bounce block.
+
+- **Called with:** 8/8, X = bounce slot, `$0F` = the normal sprite's slot. DB must map WRAM.
+- **Behaviour:** `d` = `$16C9,x & 3`. `v` = SMW `$0290D6[d]`; if `v` ≠ `$80`, `$AA` of slot `[$0F]` = `v`.
+  `w` = SMW `$0290DA[d]`; if `w` ≠ `$80`, `$B6` of slot `[$0F]` = `w`. The same values as BounceSetMarioSpeed.
+- **Returns:** X preserved, Y = X, A = `w`, flags as BounceSetMarioSpeed. `$0F` unchanged.
+- **Equivalent SMW code:** none for sprites; SMW applies these tables only to the player (`$0290F3`).
+- **Calls:** none.
+
+### BounceSetSpeed
+
+Accelerates a bounce sprite as SMW's bounce blocks are accelerated.
+
+- **Called with:** 8/8, X = bounce slot. DB must map WRAM.
+- **Behaviour:** `d` = `$16C9,x & 3`. `$16B1,x` (Y speed) += SMW `$0290CE[d]` (`$10,$00,$00,$F0`);
+  then `$16B5,x` (X speed) += SMW `$0290D2[d]` (`$00,$F0,$10,$00`). 8-bit, wrapping. PIXI's copy of
+  the tables equals SMW's.
+- **Returns:** X preserved, Y = X, A = the new `$16B5,x`. N, Z, V, C from that last add.
+- **Equivalent SMW code:** `$029111-$02912A` exactly.
+- **Calls:** none.
+
+### BounceSetupMap16
+
+Sets `$98-$9B` and `$1933` to the block under bounce sprite X, ready for SMW's `$00BEB0`.
+
+- **Called with:** 8/8, X = bounce slot. DB must map WRAM (`$1933` absolute).
+- **Behaviour:**
+  - `$98` = `(Ylo + 8) & $F0`, `$99` = `Yhi` + carry of `Ylo + 8`.
+  - `$9A` = `(Xlo + 8) & $F0`, `$9B` = `Xhi` + carry of `Xlo + 8`.
+  - `$1933` = bit 7 of `$1901,x` (0 or 1).
+- **Returns:** A = the `$1933` value, Z = (A = 0), N=0, **C = bit 6 of `$1901,x`**. X and Y preserved.
+  `$9C` is not touched (the `_header.asm` macros set it before calling).
+- **Equivalent SMW code:** `$0291BC-$0291E5` (inside `$0291BA`) computes the same four bytes (X first)
+  and the layer. Difference: SMW takes the layer from `$16C9,x` bit 7, PIXI from `$1901,x` bit 7.
+  SMW then calls `$00BEB0` itself.
+- **Calls:** none.
+
+### BounceUpdatePos
+
+Moves bounce sprite X by its speeds.
+
+- **Called with:** 8/8, X = bounce slot. DB must map WRAM.
+- **Behaviour:** `U($16B1,x, $16BD,x, $16A9:$16A1,x)` (Y), then `U($16B5,x, $16B9,x, $16AD:$16A5,x)` (X).
+- **Returns:** as `U` for the X update: Y = sign byte of `$16B5,x`, A = new `$16AD,x`, N/Z/V/C of its
+  high-byte add. X preserved.
+- **Equivalent SMW code:** `$02B526` (Y) then `$02B51A` (X), as SMW calls them at `$02910B`. Differences:
+  - **The fraction bytes are swapped:** SMW's Y update uses `$16B9,x` and its X update `$16BD,x`.
+    PIXI uses `$16BD,x` for Y and `$16B9,x` for X.
+  - SMW's X update leaves X = `$1698`; PIXI preserves X.
+- **Calls:** none.
+
+### ScoreGetDrawInfo
+
+Finds the OAM slot and screen position of score sprite X.
+
+- **Called with:** 8/8, X = score slot (0..5). DB must map WRAM (camera read absolute).
+- **Behaviour:**
+  1. `i` = `(4 · $1705,x) mod 256`. `$02-$03` = the 16-bit word at `$001C+i`, `$04-$05` = the word at
+     `$001A+i` (layer 0: `$1C`/`$1A`; layer 1: `$20`/`$1E`). Written on every path; M=0 only for these
+     two copies.
+  2. `rx` = `(X16 − [$04-$05]) mod $10000`, `ry` = `(Y16 − [$02-$03]) mod $10000`.
+  3. Drawable when `rx` ≤ `$F3` and the high byte of `ry` is 0. Tested in this order, each failure
+     returning at once: (a) high byte of `(X16 + $0C − camX) mod $10000` ≠ 0; (b) high byte of `rx` ≠ 0;
+     (c) high byte of `ry` ≠ 0.
+- **Returns:**
+  - Drawable: `$00` = low byte of `rx`, `$01` = low byte of `ry`, Y = A = SMW `$02AD9E + x`
+    (`$B0,$B8,$C0,$C8,$D0,$D8`), C=1, N=1, Z=0.
+  - Rejected: C=0, A = the non-zero high byte that failed, Z=0, N = its bit 7, Y = `i`. `$00/$01` not written.
+  - X preserved. M=1.
+- **Equivalent SMW code:** `$02AE5B-$02AEA9` (score-sprite draw): the same tests in the same order and
+  the same OAM table. Difference: SMW uses OAM index 4 instead of the table while `$0D9B` bit 6 is set
+  (boss battles); PIXI has no such case.
+- **Calls:** none.
+
+### ScoreGenericDraw
+
+Draws score sprite X as two 8×8 tiles side by side, in front of all layers.
+
+- **Called with:** 8/8, X = score slot. `$07` = left tile, `$08` = right tile, `$09` = left
+  properties, `$0A` = right properties. DB must map WRAM.
+- **Behaviour:** ScoreGetDrawInfo. If C=0, return with its exit state. Else, with `o` = its OAM index:
+  - `$0200+o` = `$00`, `$0204+o` = `($00 + 8) mod 256`; `$0201+o` = `$0205+o` = `$01`.
+  - `$0202+o` = `$07`, `$0206+o` = `$08`; `$0203+o` = `$09 | $30`, `$0207+o` = `$0A | $30`.
+  - `$0420 + o/4` = 0 and `$0421 + o/4` = 0.
+- **Returns:** drawn: C=1, A=0, Z=1, N=0, Y = `o/4`. Not drawn: ScoreGetDrawInfo's C=0 exit. X
+  preserved. `$07-$0A` unchanged.
+- **Equivalent SMW code:** `$02AEA5-$02AEF1` writes the same eight OAM bytes and two size bytes, with
+  SMW's own tiles and properties.
+- **Calls:** ScoreGetDrawInfo.
+
+### ScoreUpdateYPos
+
+Lets score sprite X rise one pixel at a time, stopping near the top of the screen.
+
+- **Called with:** 8/8, X = score slot.
+  - C=0: the limit is `$04` (SMW's). A is ignored.
+  - C=1: the limit is A.
+  - The routine sets DB to its own bank for its body, so that bank must map WRAM (every LoROM bank
+    `$00-$3F`/`$80-$BF` does). DB is restored on exit.
+- **Behaviour:**
+  1. `$00` = limit.
+  2. `t` = `$16FF,x >> 4`. Mask `k` = SMW's `$02AD9A[t]` for `t` 0..3 (`$03,$01,$00,$00`): speed
+     `$00-$0F` moves every 4th frame, `$10-$1F` every 2nd, `$20-$3F` every frame. PIXI keeps its own
+     4-byte copy of these values; **for `t` ≥ 4 (speed ≥ `$40`) it reads whatever PIXI assembled after
+     that copy, which is not defined.** Callers keep the speed below `$40` (SpawnScoreGeneric uses `$30`);
+     a differential test must too.
+  3. If `$13 & k` ≠ 0, stop.
+  4. If `($16E7,x − $1C) mod 256` < `$00`, stop (low bytes and layer 1 only, whatever `$1705,x` says).
+  5. Otherwise decrement the 16-bit `$16F9:$16E7,x` by 1.
+- **Returns:** X preserved. N and Z reflect the caller's DB byte (restored last). By path:
+  - Stopped at 3: Y = `t`, A = `$13 & k`, C = bit 3 of `$16FF,x`.
+  - Stopped at 4: Y = old `$16E7,x`, A = `($16E7,x − $1C) mod 256`, C=0.
+  - Moved: Y = A = old `$16E7,x`, C=1.
+- **Equivalent SMW code:** `$02AE38-$02AE5A` with the limit fixed at 4 (C=0 gives exactly that).
+  SMW indexes `$02AD9A` directly, so its `t` ≥ 4 reads the next SMW table (`$02AD9E`).
+- **Calls:** none.
+
+### SmokeGetDrawInfo
+
+Finds the OAM slot and screen position of smoke sprite X.
+
+- **Called with:** 8/8, X = smoke slot (0..3). DB must map WRAM.
+- **Behaviour:** `d` = `($17C8,x − $1A) mod 256`. Low bytes only: no high byte or layer is considered.
+- **Returns:**
+  - `d` ≥ `$F0`: C=0, A = `d`, Y unchanged, Z = (`d` = `$F0`), N = bit 7 of `d − $F0`. Nothing written.
+  - Otherwise: `$00` = `d`, `$01` = `($17C4,x − $1C) mod 256`, Y = A = SMW `$0296B8 + x`
+    (`$20,$24,$28,$2C`), C=1, N=0, Z=0.
+  - X preserved. The smoke sprite is never erased.
+- **Equivalent SMW code:** none exact. SMW's smoke draw at `$02974A` uses the same OAM table but
+  rejects at `d` ≥ `$F4` and also at a relative Y ≥ `$E0`.
+- **Calls:** none.
+
+### SmokeGenericDraw
+
+Draws smoke sprite X as one tile.
+
+- **Called with:** 8/8, X = smoke slot. `$02` = tile, `$03` = properties (YXPPCCCT), `$04` = the
+  `$0420` byte (size and X high bit). DB must map WRAM.
+- **Behaviour:** SmokeGetDrawInfo; if C=0, return with its exit state. Else `$0200+o` = `$00`,
+  `$0201+o` = `$01`, `$0202+o` = `$02`, `$0203+o` = `$03`, `$0420 + o/4` = `$04`.
+- **Returns:** drawn: C=1, Y = `o/4`, A = `$04`, N/Z from `$04`. X preserved. `$02-$04` unchanged.
+- **Equivalent SMW code:** none as a routine.
+- **Calls:** SmokeGetDrawInfo.
+
+### SpinningCoinGetDrawInfo
+
+Meant to find the OAM slot and screen position of spinning-coin sprite X, erasing it when off the
+side of the screen. **As shipped it compares the wrong camera bytes** (see Behaviour). The contract
+describes what it does, not what it was meant to do.
+
+- **Called with:** 8/8, X = spinning-coin slot (0..3). DB must map WRAM.
+- **Behaviour:**
+  1. `i` = `(4 · $17E4,x) mod 256`. `$02-$03` = word at `$001C+i` (camera **Y**), `$04-$05` = word at
+     `$001A+i` (camera **X**). For layer 1: `$02`=`$1C`, `$03`=`$1D`, `$04`=`$1A`, `$05`=`$1B`.
+  2. `b` = 1 if `$17D4,x` < `$02`, else 0. `h` = `($17E8,x − $04 − b) mod 256`: the coin's Y high
+     byte minus the camera's **X low** byte. `c` = 1 if `$17E8,x` ≥ `$04 + b` (no borrow), else 0.
+     If `h` ≠ 0: return, not drawn and not erased.
+  3. `d` = `($17E0,x − $03 − (1 − c)) mod 256`: the coin's X low byte minus the camera's **Y high**
+     byte, minus a borrow that is 0 unless `$17E8,x` = 0, `$04` = `$FF` and `b` = 1.
+     If `d` ≥ `$F8`: `$17D0,x` = 0 (erase) and return, not drawn.
+  4. Otherwise drawable.
+- **Returns:**
+  - Not drawn at step 2: C=0, A = `h`, Z=0, N = bit 7 of `h`, Y = `i`.
+  - Erased at step 3: C=0, A = `d`, Y = `i`, N/Z from comparing `d` with `$F8`.
+  - Drawable: `$00` = `d`, `$01` = `($17D4,x − $02) mod 256`, Y = A = SMW `$0299E9 + x`
+    (`$30,$38,$40,$48`), C=1, N=0, Z=0.
+  - `$02-$05` are written on every path. X preserved. The X high byte `$17EC,x` is never read.
+- **Equivalent SMW code:** `$029A08-$029A3D`. SMW stores the camera bytes as `$02` = Y lo, `$03` = X lo,
+  `$04` = Y hi and compares against those; PIXI stores two words (`$02-$03` = Y, `$04-$05` = X) but
+  compares against the same offsets, hence the mix-up. SMW also starts the X subtraction with no
+  borrow, and erases through its own path at `$0299E3`.
+- **Calls:** none.
+- **For the differential test:** with real camera values `h` is almost never 0, so the routine almost
+  always returns "not drawn". Random states are needed to reach steps 3 and 4.
+
+### SpinningCoinUpdateYPos
+
+- **Called with:** 8/8, X = spinning-coin slot. DB must map WRAM.
+- **Behaviour:** `U($17D8,x, $17DC,x, $17E8:$17D4,x)`.
+- **Returns:** as `U`. X preserved.
+- **Equivalent SMW code:** `$02B58E` exactly (`RTL` for `RTS`).
+- **Calls:** none.
+
+### MinorExtendedGetDrawInfo
+
+Finds the OAM slot and screen position of minor extended sprite X; erases it when well off screen.
+
+- **Called with:** 8/8, X = minor extended slot (0..11). DB must map WRAM.
+- **Behaviour:**
+  1. `$01` = `ry` = `($17FC,x − $1C) mod 256`. If `ry` is in `$E0..$EF`: erase. Only the low bytes
+     are used; the Y high bytes are never read.
+  2. `$02` = 0. `$00` = low byte of `X16 − camX` (`X16` = `$18EA:$1808,x`, `camX` = `$1B:$1A`).
+     If the high byte of that 16-bit difference is non-zero: when `($00 + $38) mod 256` ≥ `$70`, erase;
+     otherwise `$02` = 1 and carry on. Any non-zero high byte counts, not only ±1 screen.
+  3. Drawable.
+  - Erase means `$17F0,x` = 0 and return, not drawn.
+- **Returns:**
+  - Erased at step 1: C=0, A = `(ry + $10) mod 256` (`$F0..$FF`), Y unchanged. `$00` and `$02` not written.
+  - Erased at step 2: C=0, A = `($00 + $38) mod 256`, Y unchanged. `$00`, `$01` and `$02` (= 0) written.
+  - Drawable: C=1, Y = A = **the byte at `$028B77 + x`**, N/Z from it. `$00`, `$01`, `$02` written.
+  - X preserved.
+- **Tables/data:** SMW's minor-extended OAM table is at **`$028B78`** (12 bytes, `$50,$54,…,$78,$7C`;
+  SMW reads it at `$028C6E` and seven other places, never at `$028B77`). PIXI reads one byte earlier,
+  so slot `n` gets SMW's index for slot `n−1`, and slot 0 gets `$60` (the byte before the table), the
+  same index as slot 5. In a vanilla or PIXI-patched ROM the bytes `$028B77-$028B82` are
+  `$60,$50,$54,$58,$5C,$60,$64,$68,$6C,$70,$74,$78`. To match PIXI, read `$028B77 + x`.
+- **Equivalent SMW code:** none as a routine; SMW's minor extended sprites each have their own draw code.
+- **Calls:** none.
+
+### ClusterGetDrawInfo
+
+The same contract as MinorExtendedGetDrawInfo, on the cluster tables:
+
+- Number `$1892,x`, Y low `$1E02,x`, X `$1E3E:$1E16,x`. X = cluster slot (0..19).
+- Drawable: Y = A = SMW's byte at `$02FF50 + x` (20 bytes: `$E0,$E4,…,$FC,$5C,$58,…,$30`), the table
+  SMW's cluster code reads at `$02FCD9` and elsewhere. Here the address is SMW's own (no offset).
+- Erase means `$1892,x` = 0.
+- **Calls:** none.
+
+### MinorExtendedSpeed
+
+Moves minor extended sprite X along one axis.
+
+- **Called with:** 8/8, X = minor extended slot, A = mode. Only bits 0-1 count: bit 0 = fast, bit 1 =
+  Y axis. DB must map WRAM.
+  - 0: slow X: `U($182C,x, $1844,x, $18EA:$1808,x)`.
+  - 1: fast X: `$18EA:$1808,x` += `sext8($182C,x)` (whole pixels, no fraction).
+  - 2: slow Y: `U($1820,x, $1838,x, $1814:$17FC,x)`.
+  - 3: fast Y: `$1814:$17FC,x` += `sext8($1820,x)`.
+- **Returns:** every mode: Y = `$00` if the speed used is < `$80`, else `$FF`; A = the new position
+  high byte; N, Z, V, C from the high-byte add (C = carry out of the 16-bit sum). X preserved.
+- **Equivalent SMW code:** the slow modes are SMW's 4.4 update (as `$02B560`) on the minor extended
+  tables. SMW has no routine for it; its minor extended sprites update inline.
+- **Calls:** none.
+
+### SpawnClusterGeneric (`Spawn/ClusterGeneric.asm`)
+
+Spawns a cluster sprite at an origin plus an offset.
+
+- **Called with:** 8/8. **B = cluster number.** `$00` = X offset, `$01` = Y offset (both signed).
+  **`$02-$03` = origin X, `$04-$05` = origin Y** (16-bit). DB must map WRAM.
+- **Search:** slots 19 down to 0, taking the first with `$1892,y` = 0.
+- **Writes (slot `n`):** `$1892,n` = B; `$1E3E:$1E16,n` = `[$02-$03] + sext($00)`;
+  `$1E2A:$1E02,n` = `[$04-$05] + sext($01)`. Nothing else: no misc tables are cleared.
+- **Returns:**
+  - Success: C=0, Y = `n`, A = the new `$1E2A,n`, N/Z/V from its add, **B = 0**.
+  - No free slot: C=1, Y = `$FF`, A = `$1892` (slot 0's number, non-zero), N=1, Z=0, B = entry B.
+    Nothing written.
+  - X untouched. `$00-$07` unchanged.
+- **Equivalent SMW code:** none (SMW spawns cluster sprites inline).
+- **Calls:** none.
+- **Edge case: the callers disagree.** Every `_header.asm` `%SpawnCluster()` macro puts the caller's
+  position in `$04-$07`, as for the other `*Generic` spawns. With this routine's layout, that gives the
+  new cluster sprite X = whatever is in `$02-$03` and Y = the caller's **X**. Implement the routine's
+  layout (`$02`/`$04`); what the header macros should pass is a separate matter.
+
+### SpawnExtendedGeneric (`Spawn/ExtendedGeneric.asm`)
+
+- **Called with:** 8/8. B = extended number. `$00`/`$01` = X/Y offset (signed), `$02` = X speed,
+  `$03` = Y speed, `$04-$05` = origin X, `$06-$07` = origin Y. DB must map WRAM.
+- **Search:** slots 7 down to 0, first with `$170B,y` = 0. The fireball slots 8 and 9 are never used.
+- **Writes:** `$170B,n` = B; `$1733:$171F,n` = origin X + sext(`$00`); `$1729:$1715,n` = origin Y +
+  sext(`$01`); `$1747,n` = `$02`; `$173D,n` = `$03`. Fractions, `$1765`, `$176F` and `$1779` are not touched.
+- **Returns:** success: C=0, Y = `n`, A = `$03`, N/Z from `$03`, B = 0. No free slot: as
+  SpawnClusterGeneric (A = `$170B`). X untouched; `$00-$07` unchanged.
+- **Equivalent SMW code:** none. Unlike SpawnExtended there is no parent off-screen test.
+- **Calls:** none.
+
+### SpawnGeneric (`Spawn/Generic.asm`), the minor extended spawner
+
+- **Called with:** as SpawnExtendedGeneric, with B = minor extended number.
+- **Search:** slots 11 down to 0, first with `$17F0,y` = 0.
+- **Writes:** `$17F0,n` = B; `$18EA:$1808,n` = origin X + sext(`$00`); `$1814:$17FC,n` = origin Y +
+  sext(`$01`); `$182C,n` = `$02`; `$1820,n` = `$03`. Fractions and `$1850` (timer) are not touched.
+- **Returns:** as SpawnExtendedGeneric (failure A = `$17F0`).
+- **Calls:** none.
+- **The name:** by the path rule its macro is `%SpawnGeneric()`, but every `_header.asm` calls
+  `%SpawnMinorExtendedGeneric()`, which no file in `routines\` provides. A PIXI-compatible set needs
+  at least the name the headers use.
+
+### SpawnScoreGeneric (`Spawn/ScoreGeneric.asm`)
+
+- **Called with:** 8/8. B = score number. `$00`/`$01` = X/Y offset, `$04-$05` = origin X, `$06-$07` =
+  origin Y. DB must map WRAM (`$18F7` absolute).
+- **Search, which never fails:** slots 5 down to 0, first with `$16E1,y` = 0. If none is free:
+  decrement `$18F7`; if the result has bit 7 set, `$18F7` = 5; use slot `$18F7`.
+- **Writes:** `$16E1,n` = B; `$16F3:$16ED,n` = origin X + sext(`$00`); `$16F9:$16E7,n` = origin Y +
+  sext(`$01`); `$16FF,n` = `$30`. `$1705` (layer) is not touched.
+- **Returns:** Y = `n`, A = `$30`, N=0, Z=0. C = carry out of the Y high-byte add (by-product: the
+  routine reports no status). B = 0 if a free slot was found; otherwise B = `$16E1` (slot 0's
+  number, as the search last read it), or `$05` when `$18F7` wrapped. X untouched.
+- **Equivalent SMW code:** the slot choice is SMW's `$02AD34` exactly (same search, same `$18F7`
+  round-robin). SMW's `$02ACEF` then places the score at the sprite's position − 8, nudged down when
+  above the screen; PIXI uses origin + offset.
+- **Calls:** none.
+
+### SpawnSmokeGeneric (`Spawn/SmokeGeneric.asm`)
+
+- **Called with:** 8/8. B = smoke number. `$00`/`$01` = X/Y offset, `$02` = timer, `$04` = origin X
+  low, `$06` = origin Y low (`$05` and `$07` are ignored). DB must map WRAM.
+- **Search:** slots 3 down to 0, first with `$17C0,y` = 0.
+- **Writes:** `$17C0,n` = B; `$17C8,n` = `($04 + $00) mod 256`; `$17C4,n` = `($06 + $01) mod 256`;
+  `$17CC,n` = `$02`. 8-bit positions only: the high bytes `$1964`/`$1960` are not written.
+- **Returns:** success: C=0, Y = `n`, A = `$02`, N/Z from `$02`, B = 0. No free slot: as
+  SpawnClusterGeneric (A = `$17C0`); slot 0 is not reused, unlike SMW's inline smoke spawns. X untouched.
+- **Calls:** none.
+
+### SpawnSpinningCoinGeneric (`Spawn/SpinningCoinGeneric.asm`)
+
+- **Called with:** 8/8. B = number. `$00`/`$01` = X/Y offset, `$03` = Y speed, `$04-$05` = origin X,
+  `$06-$07` = origin Y. `$02` is ignored. DB must map WRAM.
+- **Search:** slots 3 down to 0, first with `$17D0,y` = 0.
+- **Writes:** `$17D0,n` = B; `$17EC:$17E0,n` = origin X + sext(`$00`); `$17E8:$17D4,n` = origin Y +
+  sext(`$01`); `$17D8,n` = `$03`. `$17DC` (fraction) and `$17E4` (layer) are not touched.
+- **Returns:** success: C=0, Y = `n`, A = `$03`, N/Z from `$03`, B = 0. No free slot: as
+  SpawnClusterGeneric (A = `$17D0`).
+- **Calls:** none.
+
+### Edge cases common to the `*Generic` spawns
+
+- B = 0 "succeeds" but leaves the slot marked free.
+- No on-screen test is made. The `sprites\_header.asm` version of `%SpawnMinorExtended()` makes its own
+  (`$15A0 | $186C | $15D0` of the parent) before calling; the other macros do not.
+- Positions are 16-bit adds of a sign-extended 8-bit offset, carry included; they wrap at `$10000`.
+
+## PIXI 1.40: changes to the 1.2.x routines
+
+- Date: 2026-10-20
+- Compared: `D:\SMW\Projects\BigEye\Sprites\routines\*.asm` (1.2.x, the source of the contracts above)
+  with the 1.40 files of the same macro name in `D:\SMW\Projects\Secret\tools\pixi\routines\`
+  (`ExtendedX` → `Extended/X.asm`, `SpawnX` → `Spawn/X.asm`). Both were reduced to their instructions
+  (comments, label spelling and 1.40's local-label syntax removed, defines resolved) and compared.
+  The two `sa1def.asm` files give the same values for every define these routines use.
+
+**Changed in behaviour: 1 of 27 (ExtendedGetDrawInfo).**
+
+### ExtendedGetDrawInfo: changed
+
+- **Vertical rule.** The 1.2.x rule (`t` formed by addition) is gone. 1.40 uses the true high byte of
+  the 16-bit `Y16 − camY16`. With `d` = `(Ylo − camYlo) mod 256` and `h` = that high byte:
+  - `h` = 0: erase if `d` ≥ `$F0`, otherwise visible.
+  - `h` = `$FF` (up to one screen above): erase if `d` < `$C0`; hide (`$02` = `$F0`, not erased) if
+    `d` < `$E0`; otherwise visible.
+  - any other `h`: erase.
+
+  Registers on return keep the same shape: visible with `h` = 0: A = `d`, C=0; visible with
+  `h` = `$FF`: A = `d`, C=1; hidden or erased: A = `$F0`, N=1, Z=0. The X-axis rule, `$00`, `$01`
+  and the erase (`$170B,x` = 0) are unchanged.
+- **OAM index table.** 1.40 reads SMW's `$02A153` directly instead of its own copy. Slots 0..7 get the
+  same values. Slots 8 and 9 now get SMW's next bytes, `$2C` and `$2D` (defined, but not usable OAM
+  indexes), instead of whatever followed PIXI's copy. Callers still must not use those slots.
+
+### Same behaviour, different code
+
+- **Star:** the player-side test is now a `JSL` to the shared SubHorzPos instead of a private copy
+  reached by `JSR`. Same writes (`$0E-$0F`, Y) and results; it uses one more byte of stack, and a 1.40
+  Star needs SubHorzPos inserted too.
+- **SpawnExtended:** the search start is written as `!ExtendedSize − 1`, which is 7, as before.
+- **ExtendedHurt:** the bank-2 `RTL` address is written as `$B888` instead of `$B889 − 1`. Same value.
+- **ChangeMap16, GetMap16, SubOffScreen, Aiming:** the `!EXLEVEL` / `!SA1` conditionals are written as
+  comparisons. Both defines are only ever 0 or 1, so the same branch is assembled.
+
+### Identical
+
+Aiming, CapeContact, ChangeMap16, CheckForContactAlternate, CircleX, CircleY, ExtendedCapeClipping,
+ExtendedHurt, ExtendedSpeed, FinishOAMWrite, FireballContact, GetDrawInfo, GetMap16, LoseYoshi,
+Random, SetPlayerClippingAlternate, SetSpriteClippingAlternate, ShooterMain, SpawnExtended,
+SpawnSmoke, SpawnSprite, SpawnSpriteSafe, Star, SubHorzPos, SubOffScreen and SubVertPos behave the
+same (only labels, comments, layout and the spellings noted above differ). The corrections under
+"Measured against PIXI's" apply to the 1.40 versions unchanged.
+
+## Measured against PIXI 1.40's (2026-10-20)
+
+`PixiRoutineTests` runs ours against each PIXI version on the machine that has the routine: 1.2.x
+(BigEye's copy) and 1.40 (Secret's). Ours match 1.2.x for 26 routines and 1.40 for all 50 but the
+deliberate differences below. Corrections to the 1.40 contracts above, found that way and measured
+black-box:
+
+- **BounceGenericDraw:** the property byte is `$1901,x` ORed with the byte at direct page `$64`
+  (SMW's sprite priority), not with the value `$64`. With RAM cleared it is `$1901,x` exactly.
+- **BounceSetMarioSpeed, BounceSetSpriteSpeed:** C is from comparing the X speed with `$80`, but N
+  and Z are from X (the slot is restored last), not from that compare.
+- **BounceSetSpeed:** N and Z are from X likewise; C and V from the add.
+- **MinorExtendedGetDrawInfo, ClusterGetDrawInfo, erasing:** just above the screen, N and Z come
+  from A (the `$F0-$FF` returned); off a side, from the test against `$70`.
+- **ExtendedGetDrawInfo:** erased for being more than a screen above or below, C = 0.
+
+Where ours is deliberately not PIXI 1.40's (each has a test of its own):
+
+- **ExtendedGetDrawInfo** is 1.40's, so it is not 1.2.x's (whose vertical test adds the camera's
+  high byte).
+- **MinorExtendedGetDrawInfo** gives each slot SMW's OAM index (`$028B78 + x`); PIXI's reads one
+  byte early, so its slot 0 shares slot 5's. Everything else in it matches PIXI's.
+- **SpinningCoinGetDrawInfo** compares the coin with the camera as SMW's own coins do (`$029A08`):
+  tested against SMW's coin code itself, which it matches in every trial (drawn, erased or left,
+  and where it is drawn, the same place and OAM index). PIXI's compares the wrong camera bytes and
+  almost never draws.
+- **SpawnMinorExtendedGeneric** exists: PIXI 1.40's `_header.asm` files call it, but PIXI ships it
+  only as `Spawn/Generic.asm` (`%SpawnGeneric()`). Ours has both names.
+
+Found on the way, in Pipe Dream's build: routines called only from a `_header.asm` were never
+inserted (the build scanned only the sprites), and our `defines.asm` defined `%LDE()`, which PIXI
+1.40's headers define themselves. Both fixed; a sprite using PIXI 1.40's `sprites/_header.asm`
+spawn macros now builds against our routines.

@@ -323,8 +323,21 @@ Each phase ends shippable.
   so an imported PIXI 1.2.x routine set had never assembled; each routine is now included inside a
   macro of its own. `Cpu65816` gained the CPU's multiplier/divider, the PPU's signed multiply and
   the stack-relative ALU forms, all of which the routines use.
-  Not done: the newer PIXI's routines in subfolders (`Spawn/`, `Bounce/`, `Score/`… that the minor
-  kinds' `_header.asm` call), SA-1.
+  Not done: SA-1.
+- **PIXI 1.40's routines (2026-10-20): done.** The 23 that 1.40 adds (the `Bounce`, `Score`,
+  `Smoke`, `SpinningCoin`, `MinorExtended` and cluster routines and the `*Generic` spawns, kept in
+  folders there but the same macro names as ours, flat), plus `SpawnMinorExtendedGeneric`, the name
+  1.40's own headers call and its routines lack. Same clean room (contracts in `PIXI_ROUTINES.md`)
+  and the same test, now against every PIXI version on the machine: 1.2.x (BigEye) and 1.40
+  (Secret, the newest here; its ROM's `STSD` says 140). Of the 27, only ExtendedGetDrawInfo changed
+  in 1.40, and ours is 1.40's. Three of 1.40's are kept out on purpose, each tested against what
+  ours does instead: MinorExtendedGetDrawInfo takes SMW's OAM index (PIXI's reads a byte early),
+  SpinningCoinGetDrawInfo decides as SMW's coins do (PIXI's compares the wrong camera bytes;
+  checked against SMW's own coin code), and ExtendedHurt (above). An imported routine now replaces
+  ours by macro name, wherever its file sits (1.40 has `Spawn/Sprite.asm` for SpawnSprite). The
+  build now also inserts the routines a `_header.asm` calls, and `defines.asm` no longer defines
+  `%LDE()`, which 1.40's headers do: a sprite using 1.40's `sprites/_header.asm` spawn macros builds.
+  Not done: a real minor, cluster or bounce sprite run in Mesen; there is none on this machine.
 
 ## Open questions
 

@@ -266,6 +266,18 @@ public class SpriteInsertTests : IDisposable
         Assert.Equal([0xA9, 0x5A], withMine.Data.AsSpan(withMine.FileOffset(withMine.ReadValue(own + 1, 3)), 2).ToArray());
     }
 
+    /// <summary>An imported routine replaces ours by its macro name, wherever its file sits: PIXI
+    /// 1.40 keeps SpawnSprite as Spawn/Sprite.asm, ours is SpawnSprite.asm.</summary>
+    [AsarRomFact]
+    public void an_imported_routine_in_a_folder_replaces_ours_of_the_same_name()
+    {
+        string source = Probe.Replace("    LDA #$11\n", "    %SpawnSprite()\n    LDA #$11\n");
+        var (status, rom) = Build(dir, source, pixiFiles: new() { ["routines/Spawn/Sprite.asm"] = "    LDA #$5B\n    RTL\n" });
+        Assert.True(rom is not null, status);
+        int init = rom!.ReadValue(rom.ReadValue(0x02FFEE, 3) + 0x1A * 0x10 + 8, 3);
+        Assert.Equal([0xA9, 0x5B], rom.Data.AsSpan(rom.FileOffset(rom.ReadValue(init + 1, 3)), 2).ToArray());
+    }
+
     /// <summary>PIXI's own macros a sprite may call (its sa1def.asm's), ours: the extra bit's
     /// branches, the range check, the table defines.</summary>
     [AsarRomFact]

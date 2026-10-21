@@ -23,14 +23,45 @@ public class PixiRoutineTests(ITestOutputHelper log)
         int FlagsMask = 0xBF,                    // V is a by-product everywhere
         bool CompareB = false,                   // the accumulator's high byte, only where the spec makes it exact
         bool CompareA = true,                    // false where the spec leaves A a by-product
-        Action<Cpu65816, Random>? Setup = null); // anything the spec needs on entry beyond random
+        Action<Cpu65816, Random>? Setup = null,  // anything the spec needs on entry beyond random
+        bool CompareY = true);                   // false where ours differs on purpose (the reason at the Case)
 
     /// <summary>Flags where only C (and the widths) are in the contract: N and Z are by-products.</summary>
     private const int NoNZ = 0x3D;
 
+    /// <summary>Where ours is not that version's on purpose, so there is nothing to compare; each has
+    /// a test of its own against what ours does instead.</summary>
+    private static readonly Dictionary<(string Version, string Name), string> Unlike = new()
+    {
+        [("1.2", "ExtendedGetDrawInfo")] = "ours is 1.40's: 1.2's vertical test adds the camera's Y high byte",
+        [("1.40", "SpinningCoinGetDrawInfo")] = "PIXI's compares the coin with the wrong camera bytes; ours decides as SMW's coins do",
+    };
+
     private static readonly Dictionary<string, Case> Cases = new()
     {
         ["Aiming"] = new(CompareB: true, Setup: Aim),                                 // B = Vx's high byte
+        ["BounceGenericDraw"] = new(MaxSlot: 3, Setup: BounceNearCamera),
+        ["BounceGetDrawInfo"] = new(MaxSlot: 3, Setup: BounceNearCamera),
+        ["BounceSetMarioSpeed"] = new(MaxSlot: 3),
+        ["BounceSetSpeed"] = new(MaxSlot: 3),
+        ["BounceSetSpriteSpeed"] = new(MaxSlot: 3, Setup: (cpu, r) => cpu.Ram7E[0x0F] = (byte)r.Next(12)),
+        ["BounceSetupMap16"] = new(MaxSlot: 3),
+        ["BounceUpdatePos"] = new(MaxSlot: 3),
+        ["ClusterGetDrawInfo"] = new(MaxSlot: 19, Setup: ClusterNearCamera),
+        ["MinorExtendedGetDrawInfo"] = new(MaxSlot: 11, CompareA: false, CompareY: false, Setup: MinorNearCamera),   // ours reads SMW's OAM table, PIXI's a byte early
+        ["MinorExtendedSpeed"] = new(MaxSlot: 11),
+        ["ScoreGenericDraw"] = new(MaxSlot: 5, Setup: ScoreNearCamera),
+        ["ScoreGetDrawInfo"] = new(MaxSlot: 5, Setup: ScoreNearCamera),
+        ["ScoreUpdateYPos"] = new(MaxSlot: 5, Setup: ScoreRising),
+        ["SmokeGenericDraw"] = new(MaxSlot: 3),
+        ["SmokeGetDrawInfo"] = new(MaxSlot: 3),
+        ["SpawnClusterGeneric"] = new(Setup: (cpu, r) => Free(cpu, r, 0x1892, 20)),
+        ["SpawnExtendedGeneric"] = new(Setup: (cpu, r) => Free(cpu, r, 0x170B, 8)),
+        ["SpawnGeneric"] = new(Setup: (cpu, r) => Free(cpu, r, 0x17F0, 12)),
+        ["SpawnScoreGeneric"] = new(Setup: (cpu, r) => Free(cpu, r, 0x16E1, 6)),
+        ["SpawnSmokeGeneric"] = new(Setup: (cpu, r) => Free(cpu, r, 0x17C0, 4)),
+        ["SpawnSpinningCoinGeneric"] = new(Setup: (cpu, r) => Free(cpu, r, 0x17D0, 4)),
+        ["SpinningCoinUpdateYPos"] = new(MaxSlot: 3),
         ["CapeContact"] = new(FlagsMask: NoNZ, CompareA: false, Setup: NearCape),     // C, X, Y are the contract
         ["ChangeMap16"] = new(CompareA: false, Setup: Map16Block),                   // A: not in the contract (C, P, X, Y are)
         ["CheckForContactAlternate"] = new(FlagsMask: NoNZ, CompareA: false, Setup: Boxes),   // N, Z, A: the last compare's
@@ -143,6 +174,40 @@ public class PixiRoutineTests(ITestOutputHelper log)
         int x = cpu.Registers.X & 0xFF;
         int ex = (ram[0x1A] | ram[0x1B] << 8) + r.Next(-0x40, 0x140), ey = (ram[0x1C] | ram[0x1D] << 8) + r.Next(-0x60, 0x120);
         ram[0x171F + x] = (byte)ex; ram[0x1733 + x] = (byte)(ex >> 8); ram[0x1715 + x] = (byte)ey; ram[0x1729 + x] = (byte)(ey >> 8);
+    }
+
+    /// <summary>Half the time a sprite of some kind near its layer's camera (layer 2's at $1E/$20 when
+    /// <paramref name="layer2"/>): X at $xlo/$xhi + slot, Y at $ylo/$yhi + slot.</summary>
+    private static void NearCam(Cpu65816 cpu, Random r, int xlo, int xhi, int ylo, int yhi, bool layer2 = false)
+    {
+        if (r.Next(2) == 0) return;
+        var ram = cpu.Ram7E;
+        int s = cpu.Registers.X & 0xFF, cam = layer2 ? 0x1E : 0x1A;
+        int x = (ram[cam] | ram[cam + 1] << 8) + r.Next(-0x60, 0x160), y = (ram[cam + 2] | ram[cam + 3] << 8) + r.Next(-0x40, 0x120);
+        ram[xlo + s] = (byte)x; ram[xhi + s] = (byte)(x >> 8); ram[ylo + s] = (byte)y; ram[yhi + s] = (byte)(y >> 8);
+    }
+
+    private static void BounceNearCamera(Cpu65816 cpu, Random r)
+        => NearCam(cpu, r, 0x16A5, 0x16AD, 0x16A1, 0x16A9, (cpu.Ram7E[0x1901 + (cpu.Registers.X & 0xFF)] & 0x80) != 0);
+    private static void ClusterNearCamera(Cpu65816 cpu, Random r) => NearCam(cpu, r, 0x1E16, 0x1E3E, 0x1E02, 0x1E2A);
+    private static void MinorNearCamera(Cpu65816 cpu, Random r) => NearCam(cpu, r, 0x1808, 0x18EA, 0x17FC, 0x1814);
+
+    /// <summary>A score sprite on layer 1 or 2 (its $1705), half the time near that camera.</summary>
+    private static void ScoreNearCamera(Cpu65816 cpu, Random r)
+    {
+        int s = cpu.Registers.X & 0xFF;
+        cpu.Ram7E[0x1705 + s] = (byte)r.Next(2);
+        NearCam(cpu, r, 0x16ED, 0x16F3, 0x16E7, 0x16F9, cpu.Ram7E[0x1705 + s] == 1);
+    }
+
+    /// <summary>A score sprite's speed under $40: past it PIXI's reads past its table.</summary>
+    private static void ScoreRising(Cpu65816 cpu, Random r) => cpu.Ram7E[0x16FF + (cpu.Registers.X & 0xFF)] = (byte)r.Next(0x40);
+
+    /// <summary>Most of the time one of the <paramref name="count"/> slots of the table at
+    /// <paramref name="table"/> free.</summary>
+    private static void Free(Cpu65816 cpu, Random r, int table, int count)
+    {
+        if (r.Next(4) != 0) cpu.Ram7E[table + r.Next(count)] = 0;
     }
 
     /// <summary>Mostly a real graphics routine's end: a few tiles, a size SMW uses, OAM in range.</summary>
@@ -258,21 +323,26 @@ public class PixiRoutineTests(ITestOutputHelper log)
         ram[0xD8 + x] = (byte)sy; ram[0x14D4 + x] = (byte)(sy >> 8);
     }
 
-    public static TheoryData<string> Ours()
+    /// <summary>Each of ours against each PIXI version on this machine that has it.</summary>
+    public static TheoryData<string, string> Ours()
     {
-        var names = new TheoryData<string>();
-        foreach (string path in SpriteInsert.BuiltinRoutines().Keys.Order())
-            names.Add(path["routines/".Length..^4]);
-        return names;
+        var cases = new TheoryData<string, string>();
+        var ours = SpriteInsert.BuiltinRoutines().Keys.Select(p => p["routines/".Length..^4].Replace("/", "")).Order().ToList();
+        foreach (var (version, files) in PixiRoutineTheoryAttribute.Versions())
+        {
+            var theirs = files.Keys.Select(p => p["routines/".Length..^4].Replace("/", "")).ToHashSet();
+            foreach (string name in ours.Where(n => theirs.Contains(n) && !Unlike.ContainsKey((version, n)))) cases.Add(version, name);
+        }
+        return cases;
     }
 
     [PixiRoutineTheory]
     [MemberData(nameof(Ours))]
-    public void ours_behaves_as_pixis(string name)
+    public void ours_behaves_as_pixis(string version, string name)
     {
         Assert.True(Cases.TryGetValue(name, out var c), $"{name} has no Case: say how it is entered");
         var (ours, oursAt) = Assemble(SpriteInsert.BuiltinRoutines(), name);
-        var (pixis, pixisAt) = Assemble(PixiRoutineTheoryAttribute.Reference(), name);
+        var (pixis, pixisAt) = Assemble(PixiRoutineTheoryAttribute.Versions()[version], name);
 
         // The same trials every run (string.GetHashCode differs per process); set
         // PIPEDREAM_ROUTINE_SEED to try another sample of them.
@@ -295,6 +365,93 @@ public class PixiRoutineTests(ITestOutputHelper log)
         }
         log.WriteLine("exits: " + string.Join(", ", exits.Select(e => $"{e.Key} ×{e.Value}")));
         Assert.True(failures == 0, $"{name}: differs from PIXI's (first differences in the test output)");
+    }
+
+    /// <summary>
+    /// Ours is not PIXI's here (PIXI 1.40's compares the coin with the wrong camera bytes), so the
+    /// oracle is SMW's own coin code: its per-coin routine ($0299F1, with sprites frozen so the coin
+    /// does not move first) and ours, from the same states, must draw, erase or leave the coin alike,
+    /// and where they draw, at the same place and OAM index.
+    /// </summary>
+    [AsarRomFact]
+    public void spinning_coin_get_draw_info_decides_as_smws_coins()
+    {
+        var (ours, at) = Assemble(SpriteInsert.BuiltinRoutines(), "SpinningCoinGetDrawInfo");
+        var rng = new Random(1);
+        var tally = new int[3];                                          // drawn, erased, left
+        for (int t = 0; t < Trials; t++)
+        {
+            int seed = rng.Next(), slot = 0;
+            Cpu65816 Coin()
+            {
+                var r = new Random(seed);
+                var cpu = new Cpu65816(ours);
+                r.NextBytes(cpu.Ram7E); r.NextBytes(cpu.Ram7F);
+                slot = r.Next(4);
+                cpu.PresetRegs(0, slot, 0);
+                cpu.PresetP(0x30);
+                cpu.PresetDbr(0x02);
+                var ram = cpu.Ram7E;
+                ram[0x9D] = 1; ram[0x17D0 + slot] = 1; ram[0x17E4 + slot] = (byte)r.Next(2); ram[0x0F] = 0xFF;
+                NearCam(cpu, r, 0x17E0, 0x17EC, 0x17D4, 0x17E8, ram[0x17E4 + slot] == 1);
+                return cpu;
+            }
+            var smw = Coin();
+            smw.CallNear(0x0299F1, 200_000);
+            var mine = Coin();
+            mine.CallLong(at, 200_000);
+            int index = smw.Read(0x02, 0x99E9 + slot);
+            bool smwErased = smw.Ram7E[0x17D0 + slot] == 0, smwDrawn = smw.Ram7E[0x0F] == index;   // its drawing keeps the index in $0F
+            bool erased = mine.Ram7E[0x17D0 + slot] == 0, drawn = (mine.Registers.P & 1) != 0;
+            Assert.True((smwErased, smwDrawn) == (erased, drawn), $"trial {t} (seed {seed}): SMW's erased {smwErased} drawn {smwDrawn}, ours erased {erased} drawn {drawn}");
+            if (drawn)
+            {
+                Assert.Equal(index, mine.Registers.Y);
+                Assert.Equal((smw.Ram7E[0x00], smw.Ram7E[0x01]), (mine.Ram7E[0x00], mine.Ram7E[0x01]));
+            }
+            tally[drawn ? 0 : erased ? 1 : 2]++;
+        }
+        log.WriteLine($"drawn {tally[0]}, erased {tally[1]}, left {tally[2]}");
+        Assert.All(tally, n => Assert.True(n > 0));
+    }
+
+    /// <summary>A sprite with PIXI 1.40's own sprites/_header.asm imported (as a user's PIXI folder
+    /// brings it) builds with ours: its spawn macros call our generic spawns, the minor extended one
+    /// by the name only the header knows.</summary>
+    [PixiRoutineTheory]
+    [InlineData("1.40")]
+    public void pixis_headers_build_with_ours(string version)
+    {
+        string header = Path.Combine(Environment.GetEnvironmentVariable("PIPEDREAM_SMW_ROOT")!, "Secret", "tools", "pixi", "sprites", "_header.asm");
+        Assert.True(File.Exists(header), "PIXI " + version + "'s sprites/_header.asm not found");
+        string source = SpriteInsertTests.Probe.Replace("    LDA #$11\n",
+            "    %SpawnMinorExtended()\n    %SpawnCluster()\n    %SpawnScore()\n    %SpawnSpinningCoin()\n    LDA #$11\n");
+        string dir = Path.Combine(Path.GetTempPath(), "pipedream-headers-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var (status, rom) = SpriteInsertTests.Build(dir, source, pixiFiles: new() { ["sprites/_header.asm"] = File.ReadAllText(header) });
+            Assert.True(rom is not null, status);
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { } }
+    }
+
+    /// <summary>Ours gives each minor extended slot SMW's OAM index ($028B78), where PIXI 1.40's
+    /// reads the table a byte early; the rest of it is compared with PIXI's above.</summary>
+    [AsarRomFact]
+    public void minor_extended_get_draw_info_takes_smws_oam_index()
+    {
+        var (ours, at) = Assemble(SpriteInsert.BuiltinRoutines(), "MinorExtendedGetDrawInfo");
+        for (int slot = 0; slot < 12; slot++)
+        {
+            var cpu = new Cpu65816(ours);
+            cpu.Ram7E[0x17F0 + slot] = 1;                                // on the screen's corner, camera at 0
+            cpu.PresetRegs(0, slot, 0);
+            cpu.PresetP(0x30);
+            cpu.PresetDbr(0x01);
+            cpu.CallLong(at, 200_000);
+            Assert.Equal(1, cpu.Registers.P & 1);
+            Assert.Equal(ours.ReadByte(0x028B78 + slot), cpu.Registers.Y);
+        }
     }
 
     private sealed record Exit(int A, int X, int Y, int P, int SP, int DBR, int PBR, byte[] Ram7E, byte[] Ram7F, string? Error, string Entry);
@@ -331,7 +488,7 @@ public class PixiRoutineTests(ITestOutputHelper log)
         void Reg(string n, int x, int y, int mask) { if ((x & mask) != (y & mask)) d.Add($"{n} ours ${x & mask:X} PIXI's ${y & mask:X}"); }
         Reg("A", a.A, b.A, aMask);
         Reg("X", a.X, b.X, 0xFFFF);
-        Reg("Y", a.Y, b.Y, 0xFFFF);
+        Reg("Y", a.Y, b.Y, c.CompareY ? 0xFFFF : 0);
         Reg("P", a.P, b.P, c.FlagsMask);
         Reg("SP", a.SP, b.SP, 0xFFFF);
         Reg("DB", a.DBR, b.DBR, 0xFF);
@@ -360,21 +517,31 @@ public class PixiRoutineTests(ITestOutputHelper log)
     }
 }
 
-/// <summary>Runs when Asar, the vanilla ROM and PIXI's routines (as a user's project carries
-/// them) are all on this machine; PIXI's copy is the oracle, so without it there is no test.</summary>
+/// <summary>Runs when Asar, the vanilla ROM and PIXI's routines (as users' projects carry them)
+/// are all on this machine; PIXI's copies are the oracle, so without one there is no test.</summary>
 public sealed class PixiRoutineTheoryAttribute : TheoryAttribute
 {
-    private static string Folder => Path.Combine(
-        Environment.GetEnvironmentVariable("PIPEDREAM_SMW_ROOT") ?? @"C:\SMW\Projects", "BigEye", "Sprites", "routines");
+    private static string Root => Environment.GetEnvironmentVariable("PIPEDREAM_SMW_ROOT") ?? @"C:\SMW\Projects";
+
+    /// <summary>Where each PIXI version's routines are: 1.2.x as BigEye carries them (27, flat),
+    /// 1.40 as Secret's tools carry them (50, some in folders).</summary>
+    private static readonly (string Version, string[] Path)[] Folders =
+    [
+        ("1.2", ["BigEye", "Sprites", "routines"]),
+        ("1.40", ["Secret", "tools", "pixi", "routines"]),
+    ];
 
     public PixiRoutineTheoryAttribute()
     {
         if (!Asar.Available) Skip = "Asar library not found (set PIPEDREAM_ASAR to libasar's path)";
         else if (!File.Exists(TestRom.RealRomPath)) Skip = "real ROM not present: " + TestRom.RealRomPath;
-        else if (!Directory.Exists(Folder)) Skip = "PIXI's routines not present: " + Folder;
+        else if (Versions().Count == 0) Skip = "no PIXI routines under " + Root;
     }
 
-    /// <summary>PIXI's routines, keyed as an imported folder's are.</summary>
-    internal static Dictionary<string, string> Reference()
-        => Directory.GetFiles(Folder, "*.asm").ToDictionary(f => "routines/" + Path.GetFileName(f), File.ReadAllText);
+    /// <summary>Each version present: its routines, keyed as an imported folder's are.</summary>
+    internal static Dictionary<string, Dictionary<string, string>> Versions()
+        => Folders.Select(f => (f.Version, Dir: Path.Combine([Root, .. f.Path])))
+                  .Where(f => Directory.Exists(f.Dir))
+                  .ToDictionary(f => f.Version, f => Directory.GetFiles(f.Dir, "*.asm", SearchOption.AllDirectories)
+                      .ToDictionary(p => "routines/" + Path.GetRelativePath(f.Dir, p).Replace('\\', '/'), File.ReadAllText));
 }

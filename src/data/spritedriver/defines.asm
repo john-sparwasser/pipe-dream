@@ -36,21 +36,19 @@
 !new_sprite_num = $7FAB9E       ; the custom sprite's own number ($9E holds its acts-like)
 !CustomBit = $08
 
-; LM's "extra bit": set when the placement's extra bits are 3 rather than 2.
-macro LDE()
+; The macros a PIXI sprite may call from PIXI's sa1def.asm (reference/PIXI_ROUTINES.md, "sa1def.asm
+; macros"; ours, written from that). Not LDE: PIXI's _header.asm files define that, and a second
+; definition is an error once one is imported.
+; BES/BEC: branch if LM's "extra bit" (extra bits 3 rather than 2) is set/clear, A = $04/$00.
+macro BES(label)
     LDA !extra_bits,x
     AND #$04
-endmacro
-
-; The rest of the macros a PIXI sprite may call (reference/PIXI_ROUTINES.md, "sa1def.asm
-; macros"; ours, written from that). BES/BEC: branch if the extra bit is set/clear, A = $04/$00.
-macro BES(label)
-    %LDE()
     BNE <label>
 endmacro
 
 macro BEC(label)
-    %LDE()
+    LDA !extra_bits,x
+    AND #$04
     BEQ <label>
 endmacro
 
