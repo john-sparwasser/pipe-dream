@@ -243,7 +243,7 @@ public class PixiTests
         Assert.Empty(ProjectFile.FromJson("{}").Sprites);                            // an older .pdp
     }
 
-    [Fact]
+    [RealRomFact]
     public void the_library_and_slots_through_the_session()
     {
         string dir = Directory.CreateTempSubdirectory("pipedream-proj-").FullName;
@@ -277,7 +277,7 @@ public class PixiTests
         Assert.Equal("slot 1A emptied", s.SetSpriteSlot("1A", null));
     }
 
-    [Fact]
+    [RealRomFact]
     public void a_sprites_slots_are_set_as_a_list()
     {
         string dir = Directory.CreateTempSubdirectory("pipedream-proj-").FullName;
