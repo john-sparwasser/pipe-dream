@@ -71,6 +71,7 @@
     <EmbeddedResource Include="data\blockdriver\*.asm" LogicalName="blockdriver/%(Filename)%(Extension)" />
     <EmbeddedResource Include="data\spritedriver\*.asm" LogicalName="spritedriver/%(Filename)%(Extension)" />
     <EmbeddedResource Include="data\musicdriver\*.asm" LogicalName="musicdriver/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="data\uberdriver\*.asm" LogicalName="uberdriver/%(Filename)%(Extension)" />
     <EmbeddedResource Include="data\spritedriver\routines\*.asm" LogicalName="spritedriver/routines/%(Filename)%(Extension)" />
     <!-- Help ▸ Third-party licences: the one-file binary carries the texts its libraries require. -->
     <EmbeddedResource Include="..\assets\licenses\*.txt" LogicalName="licenses/%(Filename)%(Extension)" />

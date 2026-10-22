@@ -159,6 +159,20 @@ internal static class RomBuilder
         return null;
     }
 
+    /// <summary>The project's UberASM and our driver (reference/UBERASM_PORT.md), after the sprites and before the patches, so a
+    /// patch can hook what the driver installed. Its hooks are checked for SMW's own bytes, not against prep's (it hooks none of
+    /// prep's); patches after it are. Returns a build failure, or null.</summary>
+    private static string? InsertUber(Rom rom, Project project, List<PatchInsert.Owned> owned, List<string> warnings)
+    {
+        if (project.Data.Uber.IsEmpty) return null;
+        if (!Asar.Available) { warnings.Add("UberASM skipped (Asar library not found)"); return null; }
+        var r = UberInsert.Insert(rom, project.Data);
+        if (!r.Ok) return "build failed: UberASM: " + string.Join("; ", r.Errors);
+        warnings.AddRange(r.Warnings.Select(w => "UberASM: " + w));
+        owned.AddRange(r.Written.Select(b => new PatchInsert.Owned("the UberASM driver", Rom.SnesToPc(b.Snes), b.Length)));
+        return null;
+    }
+
     /// <summary>
     /// The project's enabled patches, in list order, right after the blocks: their freespace is
     /// RATS-tagged before the build allocates anything, so the build steps around it, and the
@@ -224,6 +238,7 @@ internal static class RomBuilder
             var owned = PrepOwned(project);
             if (InsertGps(rom, project, owned, warnings) is { } gpsErr) return (gpsErr, null);
             if (InsertSprites(rom, project, owned, warnings) is { } spriteErr) return (spriteErr, null);
+            if (InsertUber(rom, project, owned, warnings) is { } uberErr) return (uberErr, null);
             if (ApplyPatches(rom, project, owned, warnings) is { } patchErr) return (patchErr, null);
             if (InsertMusic(rom, project, owned, warnings) is { } musicErr) return (musicErr, null);
             if (ReplayMap16(rom, project.Data) is { } err) return (err, null);

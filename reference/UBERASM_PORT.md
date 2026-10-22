@@ -68,6 +68,21 @@ Each phase ends shippable.
 - Tests: in the 65816 interpreter, a level resource's `init:`/`main:`/`end:` run in their order; `*` before the number; a
   skip; extra bytes reach `$00`; a library label and a shared routine resolve. **Mesen**: level 105 `main:` counts frames.
 
+- **Status (2026-10-22): done; Mesen check outstanding.** `data/uberdriver/` (`main.asm` the hooks and the code around them,
+  `defines.asm`, `macros.asm`), `data/UberInsert.cs`, `RomBuilder.InsertUber`, `tests/UberInsertTests.cs`. Order: shared routines
+  (one assembly, each body in a macro of its own so its `?` labels work), library files (an .asm under `namespace file`, so its
+  labels come out `file_label`; a binary as one label), each resource with its calls' extra bytes after it (so they are in its
+  bank), then the driver with the global and status bar files (`namespace UberGlobal`/`UberStatus`) and the dispatch: per kind
+  and label a table of long pointers to a routine per distinct call list (a call: `$00` ← its extra bytes, DBR ← its bank unless
+  nmi or `;>dbr off`, JSL), entered by `JML [$0000]`. Every hook site is checked for SMW's own bytes, and all eleven hold them
+  on the dev base (prepped v34). Defines are the sprite driver's (SMW's tables under UberASM Tool's names) plus ours; our
+  macros are left out where the user's macro library or the sprite defines have one of the name. The 1.x global file's
+  `main:`, `nmi:` and `load:` are called where 2.x's readme moves them. Tested in the interpreter: `*` before the level's own,
+  `-file` skips, extra bytes through `$00`, the DBR, a library label and a shared routine, game mode init/main/end, global init
+  and the game mode word, the hooks' JMLs, and the errors; and a full project build beside the sprite driver with no warnings.
+  Not yet checked in Mesen: the frame, level main (incl. paused frames), NMI, the map. UberASM Tool's own routines (GPL) are not
+  shipped; one a resource calls must be in the project (an imported folder brings the user's copies).
+
 ### 3. The window and Level Properties
 - ASM ▸ UberASM…: resources and library with Edit/Import/Remove, the list per kind, extra bytes per entry.
 - Level Properties: the level's resources (and which `*` ones it skips).
