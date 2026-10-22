@@ -911,6 +911,7 @@ static class DebugCommands
     {
         var cpu = Spc700.FromSpc(SpcFile.Parse(File.ReadAllBytes(path)));
         cpu.DspWrites = null;
+        _ = new SpcDsp(cpu) { Muted = Convert.ToInt32(Environment.GetEnvironmentVariable("PIPEDREAM_MUTE") ?? "0", 16) };
         File.WriteAllBytes(wav, SpcDsp.Wav(SpcDsp.Render(cpu, (int)(seconds * 32000))));
         return 0;
     }

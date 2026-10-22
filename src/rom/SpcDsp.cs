@@ -5,12 +5,14 @@ namespace PipeDream;
 /// chapters): BRR decoding, the pitch counter with pitch modulation, 4-point Gaussian interpolation, ADSR and GAIN envelopes,
 /// noise, the mixer, and echo with its 8-tap FIR. It reads its registers from <see cref="Spc700.Dsp"/> and the samples and echo
 /// buffer from <see cref="Spc700.Ram"/>; <see cref="Spc700"/> tells it about KON and ENDX writes. Not cycle-exact: everything a
-/// sample does happens at once, KON and KOFF are polled every other sample, and the rate counters have no per-rate phase.
+/// sample does happens at once, KON and KOFF are polled every other sample, and the rate counter's starting point is a guess.
 /// </summary>
 public sealed class SpcDsp
 {
     private readonly Spc700 cpu;
     private readonly Voice[] voices = [new(), new(), new(), new(), new(), new(), new(), new()];
+    /// <summary>Voices left out of the mix (bit per voice), for hearing or checking one at a time. They still run.</summary>
+    public int Muted;
     private int konLatch, sampleCount, rateCounter, noise = 0x4000;
     private readonly int[] firL = new int[8], firR = new int[8];
     private int firIndex, echoIndex, echoLength;
@@ -72,7 +74,7 @@ public sealed class SpcDsp
     public (short L, short R) Sample()
     {
         rateCounter = rateCounter == 0 ? 0x77FF : rateCounter - 1;
-        bool poll = (sampleCount++ & 1) == 0;
+        bool poll = (sampleCount++ & 1) == 1;
         int flg = R(0x6C);
         if (Fires(flg & 0x1F)) noise = (noise >> 1) & 0x3FFF | ((noise ^ noise >> 1) & 1) << 14;
         int non = R(0x3D), eon = R(0x4D), pmon = R(0x2D);
@@ -93,6 +95,7 @@ public sealed class SpcDsp
             var x = voices[v];
             if ((flg & 0x80) != 0) { x.Mode = 0; x.Env = 0; }
             int o = VoiceSample(v, x, (non >> v & 1) != 0, v > 0 && (pmon >> v & 1) != 0 ? voices[v - 1].Out : (int?)null);
+            if ((Muted >> v & 1) != 0) continue;
             int l = o * S(v << 4) >> 6, r = o * S(v << 4 | 1) >> 6;
             mainL = Clamp16(mainL + l); mainR = Clamp16(mainR + r);
             if ((eon >> v & 1) != 0) { echoL = Clamp16(echoL + l); echoR = Clamp16(echoR + r); }
@@ -243,8 +246,11 @@ public sealed class SpcDsp
     private static readonly int[] RatePeriod =
         [0, 2048, 1536, 1280, 1024, 768, 640, 512, 384, 320, 256, 192, 160, 128, 96, 80, 64, 48, 40, 32, 24, 20, 16, 12, 10, 8, 6, 5, 4, 3, 2, 1];
 
-    /// <summary>Whether a 5-bit rate steps on this sample (rate 0 never does).</summary>
-    private bool Fires(int rate) => rate != 0 && rateCounter % RatePeriod[rate] == 0;
+    /// <summary>Whether a 5-bit rate steps on this sample (rate 0 never does). The periods are 1, 3 or 5 times a power of two, each
+    /// family counted from its own point of the shared counter (0, 1040 and 536 samples in).</summary>
+    private bool Fires(int rate) => rate != 0 && (rateCounter + RateOffset[rate % 3]) % RatePeriod[rate] == 0;
+
+    private static readonly int[] RateOffset = [536, 0, 1040];
 
     private static int Clamp16(int v) => Math.Clamp(v, -0x8000, 0x7FFF);
 

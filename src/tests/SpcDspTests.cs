@@ -36,6 +36,24 @@ public class SpcDspTests(Xunit.Abstractions.ITestOutputHelper log)
     }
 
     [AsarFact]
+    public void a_key_off_stands_long_enough_for_the_dsp_to_see_it()
+    {
+        // The DSP reads KOFF every 64 cycles; one cleared sooner (for a key-on in the same tick) can be missed and the note ring on.
+        var (code, labels) = MusicEngineTests.AssembleEngine();
+        var image = MusicLayout.Build(code, MmlParser.Parse("#amk 2\n#0 t60 @0 o4 q7f [c=24]8\n#1 @1 o3 r=22 [c=24]8"),
+            MusicEngineTests.GroupSamples, MusicEngineTests.SampleFile);
+        var cpu = new Spc700 { Pc = labels["Start"], Sp = 0xEF };
+        Array.Copy(image.Ram, cpu.Ram, 0x10000);
+        cpu.Run(20_000);
+        cpu.FromCpu[2] = 1;
+        cpu.Run(2 * 1_024_000);
+        var koff = cpu.DspWrites!.Where(w => w.Reg == 0x5C).ToList();
+        var offs = koff.Zip(koff.Skip(1)).Where(p => p.First.Value is not (0 or 0xFF)).ToList();
+        Assert.NotEmpty(offs);
+        Assert.All(offs, p => Assert.True(p.Second.Cycle - p.First.Cycle >= 64, $"KOFF {p.First.Value:X2} cleared {p.Second.Cycle - p.First.Cycle} cycles later"));
+    }
+
+    [AsarFact]
     public void the_player_renders_the_songs_length_as_a_wav()
     {
         if (!File.Exists(ReferenceRoms.Vanilla)) return;

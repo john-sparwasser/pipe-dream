@@ -653,7 +653,12 @@ FlushDsp:
     and a,!koffMask
     mov $F2,#$5C
     mov $F3,a
-    mov a,!sfxBusy
+    beq +                               ; (flags from the AND: neither MOV sets any)
+    ; The DSP reads KOFF only every 64 cycles: a key-off must stand that long before the key-on below clears it, or the DSP can
+    ; miss it and the note rings on. (AddmusicK's stand the rest of the tick; found playing a song against libgme.)
+    mov y,#12                           ; 12 x 6 cycles
+-   dbnz y,-
++   mov a,!sfxBusy
     eor a,#$FF
     and a,!konMask
     beq .done
