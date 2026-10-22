@@ -108,6 +108,14 @@ base $0400
 !c_pfStepL = $0390
 !c_pfStepH = $0398
 !c_pfTarget = $03A0
+!c_vibFade = $03A8                      ; $EA: ticks the vibrato takes to reach its depth after key-on (0: at once)
+!c_trmDelay = $03B0                     ; $E5 tremolo: delay, phase step a tick, depth (0: off)
+!c_trmRate = $03B8
+!c_trmDepth = $03C0
+!c_envType = $03C8                      ; $EB/$EC pitch envelope on every note: 0 none, 1 release (bend away), 2 attack (bend in)
+!c_envDelay = $03D0
+!c_envLen = $03D8
+!c_envSemis = $03E0
 
 macro dsp(reg)                          ; write A to a DSP register
     mov $F2,#<reg>
@@ -199,6 +207,9 @@ Tick:
     mov a,!c_pfLeft+x
     beq +
     call PanGlide
++   mov a,!c_trmDepth+x
+    beq +
+    call Tremolo
 +   mov a,!c_vibDepth+x
     or a,!c_bendLen+x
     beq .next
@@ -362,6 +373,9 @@ ResetChannel:                           ; X = channel
     mov !c_amp+x,a
     mov !c_vdirty+x,a
     mov !c_vibDepth+x,a
+    mov !c_vibFade+x,a
+    mov !c_trmDepth+x,a
+    mov !c_envType+x,a
     mov !c_volF+x,a
     mov !c_vfLeft+x,a
     mov !c_panF+x,a
@@ -649,13 +663,20 @@ NoteOn:
     mov a,#$00
     mov !c_age+x,a
     mov !c_bendLen+x,a
+    mov a,!c_envType+x                  ; $EB/$EC: every note bends
+    beq +
+    call EnvelopeBend
++
     call SendInstrument
     call NotePitch
     call SendPitch
     mov a,#$00
     mov !c_vdirty+x,a
     call SendVolume
-    call VoiceBit
+    mov a,!c_trmDepth+x                 ; a tremolo already moving lowers the volume the note starts at
+    beq +
+    call Tremolo
++   call VoiceBit
     or a,!konMask
     mov !konMask,a
     ret
@@ -931,7 +952,10 @@ ReadBend:                               ; X = channel, !ptr at the delay
     call GetByte
     setc
     sbc a,!c_note+x
-    mov !c_bendDiff+x,a                 ; signed semitones
+    ; fall into SetBendStep
+
+SetBendStep:                            ; A = signed semitones to bend by, X = channel; the delay and length are set
+    mov !c_bendDiff+x,a
     mov !t3,a
     bpl +
     eor a,#$FF
@@ -1006,8 +1030,9 @@ Vibrato:                                ; X = channel
     bpl +
     eor a,#$FF
     inc a
-+   mov y,a
-    mov a,!c_vibDepth+x
++   mov !t5,a
+    call VibratoDepth
+    mov y,!t5
     mul ya                              ; depth x |position|, >> 6
     movw !t0,ya
     mov y,#$06
@@ -1034,6 +1059,135 @@ Vibrato:                                ; X = channel
     mov !t7,a
 .ret:
     ret
+
+; The vibrato's depth now: with $EA it grows from 0 at key-on to the full depth over that many ticks.
+VibratoDepth:                           ; X = channel -> A. Keeps !t3, !t5, !t6, !t7.
+    mov a,!c_vibFade+x
+    beq .full
+    mov a,!c_age+x
+    cmp a,!c_vibFade+x
+    bcs .full
+    mov !t4,a
+    mov a,!c_vibDepth+x                 ; (depth x age + depth x fraction >> 8) / fade
+    mov y,!tickAcc
+    mul ya
+    mov !t2,y
+    mov a,!c_vibDepth+x
+    mov y,!t4
+    mul ya
+    clrc
+    adc a,!t2
+    bcc +
+    inc y
++   mov !t0,a
+    push x
+    mov a,!c_vibFade+x
+    mov x,a
+    mov a,!t0
+    div ya,x
+    pop x
+    ret
+.full:
+    mov a,!c_vibDepth+x
+    ret
+
+; Tremolo, every timer tick, one song tick ahead (measured): the phase is (t + 1 - delay) x rate, and the volume is
+; v x (1 - depth/256 x u), u a triangle from 0 at phase 0 to 1 at phase $80 and back.
+Tremolo:                                ; X = channel
+    mov a,!tickAcc
+    mov !t0,a
+    mov a,!c_age+x
+    inc a
+    setc
+    sbc a,!c_trmDelay+x
+    bcc .ret
+    mov !t1,a
+    mov a,!c_trmRate+x
+    mov y,a
+    mov a,!t1
+    mul ya
+    mov !t2,a
+    mov a,!c_trmRate+x
+    mov y,a
+    mov a,!t0
+    mul ya
+    mov a,y
+    clrc
+    adc a,!t2                           ; the phase
+    bpl +
+    eor a,#$FF                          ; the second half comes back up: 255 - phase
++   asl a                               ; u x 256 (0 ... 254)
+    mov !t3,a
+    mov a,!c_trmDepth+x
+    mov y,a
+    mov a,!t3
+    mul ya                              ; depth x u >> 8: how much of v to take away, x 256
+    mov a,y
+    eor a,#$FF                          ; 255 - that: the share of v kept
+    mov !t3,a
+    mov a,!c_vol+x
+    push a
+    mov y,!t3
+    mul ya
+    mov a,y
+    mov !c_vol+x,a
+    call SendVolume
+    pop a
+    mov !c_vol+x,a
+.ret:
+    ret
+
+CmdTremolo:                             ; $E5 delay rate depth
+    call GetByte
+    mov !c_trmDelay+x,a
+    call GetByte
+    mov !c_trmRate+x,a
+    call GetByte
+    mov !c_trmDepth+x,a
+    bne +
+    mov a,#$01                          ; off: the volume as it is
+    mov !c_vdirty+x,a
++   jmp ReadData
+
+CmdVibratoFade:                         ; $EA ticks
+    call GetByte
+    mov !c_vibFade+x,a
+    jmp ReadData
+
+CmdEnvelopeRelease:                     ; $EB delay length semitones: every note bends away
+    mov a,#$01
+    bra CmdEnvelope2
+CmdEnvelopeAttack:                      ; $EC delay length semitones: every note starts away and bends in
+    mov a,#$02
+CmdEnvelope2:
+    mov !c_envType+x,a
+    call GetByte
+    mov !c_envDelay+x,a
+    call GetByte
+    mov !c_envLen+x,a
+    bne +
+    mov !c_envType+x,a                  ; a length of 0: off
++   call GetByte
+    mov !c_envSemis+x,a
+    jmp ReadData
+
+; NoteOn under $EB/$EC: release bends from the note by the semitones; attack starts the note that far the other way and bends back.
+EnvelopeBend:                           ; X = channel
+    mov a,!c_envDelay+x
+    mov !c_bendDelay+x,a
+    mov a,!c_envLen+x
+    mov !c_bendLen+x,a
+    mov a,!c_envSemis+x
+    mov !t3,a
+    mov a,!c_envType+x
+    cmp a,#$02
+    bne +
+    mov a,!c_note+x                     ; attack: key on at note - semitones (measured: $F4 starts an octave up)
+    setc
+    sbc a,!t3
+    mov !c_note+x,a
++   mov a,!t3
+    jmp SetBendStep
 
 CmdVibrato:                             ; $DE delay rate depth
     call GetByte
@@ -1695,9 +1849,9 @@ Skip0: jmp ReadData
 
 CommandTable:                           ; $DA ... $FC
     dw CmdInstrument, CmdPan, CmdPanFade, Skip3, CmdVibrato, CmdVibratoOff ; DA DB DC DD DE DF
-    dw CmdGlobalVolume, CmdGlobalVolumeFade, CmdTempo, CmdTempoFade, CmdTranspose, Skip3 ; E0 E1 E2 E3 E4 E5
-    dw CmdSubloop, CmdVolume, CmdVolumeFade, CmdCall, Skip1, Skip3 ; E6 E7 E8 E9 EA EB
-    dw Skip3, CmdEnvelope, CmdFineTune, Skip3, Skip0, Skip3        ; EC ED EE EF F0 F1
+    dw CmdGlobalVolume, CmdGlobalVolumeFade, CmdTempo, CmdTempoFade, CmdTranspose, CmdTremolo ; E0 E1 E2 E3 E4 E5
+    dw CmdSubloop, CmdVolume, CmdVolumeFade, CmdCall, CmdVibratoFade, CmdEnvelopeRelease ; E6 E7 E8 E9 EA EB
+    dw CmdEnvelopeAttack, CmdEnvelope, CmdFineTune, Skip3, Skip0, Skip3 ; EC ED EE EF F0 F1
     dw Skip3, Skip2, CmdF4, Skip8, Skip2, Unknown                  ; F2 F3 F4 F5 F6 F7
     dw Skip1, Skip2, CmdFA, SkipArpeggio, Skip4                    ; F8 F9 FA FB FC
 

@@ -145,6 +145,8 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
     [InlineData("#0 t40 c2 $DD $04 $08 $B0 d2 $DD $00 $10 $98 o3 c2 $DD $02 $20 $C0 e4 $DE $00 $10 $40 c2 $DD $04 $08 $A8")]   // pitch bends
     [InlineData("#0 t40 $E8 $10 $40 c1 v40 $E8 $08 $F0 c2 $E8 $00 $80 c2 y3 $DC $10 $14 c1 $DC $08 $05 c2 $E1 $10 $40 c1 $E1 $20 $FF c1")]   // fades
     [InlineData("#0 t40 c4 $E3 $20 $80 c4 c4 c4 c4 c4 c4 $E3 $10 $20 c4 c4 c4 c4")]   // tempo fade
+    [InlineData("#0 t40 $E5 $04 $10 $80 c1 $E5 $00 $08 $C0 c2 $E5 $00 $00 $00 c4 $DE $00 $10 $60 $EA $10 c1 $EA $00 c2")]   // tremolo, vibrato fade
+    [InlineData("#0 t40 $EB $04 $08 $0C c2 d2 $EB $00 $00 $00 c4 $EC $02 $06 $F4 c2 d2 $EC $01 $04 $03 e4 $EC $00 $00 $00 c4")]   // pitch envelopes
     [InlineData("#0 c4 d4 e8 f8")]                                         // the default tempo
     [InlineData("#0 t40 @21 c4 d4 @22 c4 @23 c8 c8 @24 c8 @25 c8 @26 c8 @27 c8 @28 c8 @29 c8 @0 e4")]   // percussion
     [InlineData("#0 t40 o3 @26 [c8]2 @29 d8 c16")]                         // a hit in a loop, then notes on its instrument
