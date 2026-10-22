@@ -89,13 +89,26 @@ public class MusicEngineTests
     [InlineData("#0 t50 w120 [c8 e8 g8]3 o5 c2")]
     [InlineData("#0 t80 @2 c4 @9 d4 @13 e4 l16 c d e f g a b > c")]
     [InlineData("#0 t40 c4 d4\n#1 t40 @1 o3 e4 g4 b4")]
+    [InlineData("#0 t80 [[c8 d8]]3 e4")]                                   // super loop
+    [InlineData("#0 t60 [[c16 [d16 e16]2]]2 f8")]                           // super loop around a loop
+    [InlineData("#0 t60 @4 v150 y4 q5C c4 / d4 e4")]                       // the loop phrase keeps @, v, y and q
+    [InlineData("#0 t60 @19 c4 @20 d4 @18 e4")]                             // @19 and @20 play as @0
     public void a_song_plays_as_in_addmusick(string body)
     {
         string mml = "#amk 2\n" + body;
-        var diff = Differences(PlayTheirs(mml, 2.5), PlayOurs(mml, 2.5), TickCycles(40));
+        int tempo = int.Parse(System.Text.RegularExpressions.Regex.Match(body, @"\bt(\d+)").Groups[1].Value);
         var (t, o) = (PlayTheirs(mml, 2.5), PlayOurs(mml, 2.5));
+        var diff = Differences(t, o, TickCycles(tempo));
         string F(SpcTrace x) => string.Join(" ", x.KeyOffs.Take(8).Select(k => $"{k.Cycle - x.KeyOns[0].Cycle}:{k.Mask:X2}"));
         Assert.True(diff.Count == 0, string.Join("\n", diff) + "\ntheirs " + F(t) + "\nours   " + F(o));
+    }
+
+    [AsarFact]
+    public void an_arpeggio_is_stepped_over_whole()
+    {
+        // $FB carries its notes after the count and length; reading only two bytes would take $04 as a length and $07 as a q byte.
+        var t = PlayOurs("#amk 2\n#0 t40 c4 $FB $02 $0C $04 $07 d4 e4", 2);
+        Assert.Equal([0x0C8A, 0x0E16, 0x0FD2], t.KeyOns.Take(3).Select(k => (int)k.Pitch));
     }
 
     [AsarFact]

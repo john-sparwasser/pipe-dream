@@ -368,7 +368,7 @@ public static class MmlParser
             {
                 Advance();
                 int? t = ReadInt();
-                if (t is null) { Error("Error parsing a note length."); return MmlLength.None; }
+                if (t is null or < 0) { Error("Error parsing a note length."); return MmlLength.None; }
                 return new MmlLength(null, 0, t);
             }
             int? d = char.IsDigit(Peek()) ? ReadInt() : null;

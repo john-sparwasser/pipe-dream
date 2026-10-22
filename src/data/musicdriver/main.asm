@@ -117,7 +117,7 @@ InitDsp:
     %dspi($7D,$00)
     %dspi($6D,$FF)
     %dspi($5D,$24)                      ; the sample directory
-    mov x,#$00
+    mov x,#$0F
     mov a,#$00
 .fir:
     mov $F2,x
@@ -127,7 +127,7 @@ InitDsp:
     adc a,#$10
     mov x,a
     mov a,#$00
-    cmp x,#$80
+    cmp x,#$8F
     bcc .fir
     %dspi($6C,$20)
     ret
@@ -204,6 +204,11 @@ StartSong:
     mov a,!SongInfo
     mov y,!SongInfo+1
     movw !instr,ya
+    mov x,#$07
+.reset:
+    call ResetChannel
+    dec x
+    bpl .reset
     call NextPhrase
     mov a,#$01
     mov !playing,a
@@ -269,14 +274,23 @@ NextPhrase:
     bne .chan
     ret
 
-InitChannel:                            ; X = channel
+InitChannel:                            ; X = channel: where it is in its data, at the start of a phrase
     mov a,#$01
     mov !c_act+x,a
     mov !c_dur+x,a                      ; fetch on the first song tick
     mov a,#$FF
-    mov !c_vol+x,a
     mov !c_perc+x,a
     mov !c_lcnt+x,a
+    mov a,#$00
+    mov !c_koff+x,a
+    mov !c_koff2+x,a
+    mov !c_rcnt+x,a
+    ret
+
+; What a channel sounds like at the start of a song. Phrases carry it on: the compiler writes @, v, y and q only when they change.
+ResetChannel:                           ; X = channel
+    mov a,#$FF
+    mov !c_vol+x,a
     mov a,#$0A
     mov !c_pan+x,a
     mov a,#$0F
@@ -285,9 +299,6 @@ InitChannel:                            ; X = channel
     mov !c_qd+x,a
     mov a,#$00
     mov !c_surr+x,a
-    mov !c_koff+x,a
-    mov !c_koff2+x,a
-    mov !c_rcnt+x,a
     mov !c_len+x,a
     mov a,#$00                          ; a song that never says @n plays instrument 0
     jmp SetInstrument
@@ -501,6 +512,7 @@ GetByte:                                ; A = next byte of the data, !ptr advanc
     mov y,#$00
     mov a,(!ptr)+y
     incw !ptr
+    cmp a,#$00                          ; the flags from the byte, not from INCW's pointer
     ret
 
 ; $00: the end of this stretch of data: return from a call, or the channel is finished.
@@ -730,9 +742,28 @@ Command:
 Unknown:
     jmp ReadData
 
+SkipArpeggio:                           ; $FB count length, then count notes ($80 and up: trill or glissando, no notes)
+    call GetByte
+    mov !t0,a
+    call GetByte
+    mov a,!t0
+    bmi .done
+    beq .done
+.note:
+    call GetByte
+    dbnz !t0,.note
+.done:
+    jmp ReadData
+
 CmdInstrument:                          ; $DA n
     call GetByte
+    cmp a,#$13
+    bcc .set
+    cmp a,#$15
+    bcc .keep                           ; @19 and @20 leave the instrument as it is, as AddmusicK's do
+.set:
     call SetInstrument
+.keep:
     jmp ReadData
 
 ; A = instrument number: load its registers into the channel's state.
@@ -889,7 +920,7 @@ CommandTable:                           ; $DA ... $FC
     dw CmdSubloop, CmdVolume, Skip2, CmdCall, Skip1, Skip3         ; E6 E7 E8 E9 EA EB
     dw Skip3, Skip2, Skip1, Skip3, Skip0, Skip3                    ; EC ED EE EF F0 F1
     dw Skip3, Skip2, Skip1, Skip8, Skip2, Unknown                  ; F2 F3 F4 F5 F6 F7
-    dw Skip1, Skip2, Skip2, Skip2, Skip4                           ; F8 F9 FA FB FC
+    dw Skip1, Skip2, Skip2, SkipArpeggio, Skip4                    ; F8 F9 FA FB FC
 
 ; ---------------------------------------------------------------- tables
 PitchLo: db $5F,$DE,$65,$F4,$8C,$2C,$D6,$8B,$4A,$14,$EB,$CD

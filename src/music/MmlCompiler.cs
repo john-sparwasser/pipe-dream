@@ -46,18 +46,21 @@ public static class MmlCompiler
         if (!song.Channels.Any(c => c is not null && HasNotes(c)))
             return new CompiledSong([], baseAddress, [new MmlDiagnostic(1, 1, "This song doesn't seem to have any data.")]);
 
+        // Where the song's own samples start in its sample table: after the groups' samples.
+        int groupBase = song.SampleGroups.Sum(groupSize);
+
         // A channel whose text compiles to nothing (an octave change and no notes) is not in the song at all.
         int first = -1;
         for (int i = 0; i < 8 && first < 0; i++)
             if (song.Channels[i] is { Count: > 0 } probe
-                && (i == 0 || !new ChannelCompiler(song, new List<MmlDiagnostic>(), false, i, new(), new LoopState()).Run(probe).IsEmpty)) first = i;
+                && (i == 0 || !new ChannelCompiler(song, groupBase, new List<MmlDiagnostic>(), false, i, new(), new LoopState()).Run(probe).IsEmpty)) first = i;
         var channels = new ChannelOut?[8];
         var labels = new Dictionary<int, (int Ch, int Sub, int Line, int Col)>();
         var loopState = new LoopState();
         for (int i = 0; i < 8; i++)
             if (song.Channels[i] is { Count: > 0 } cmds)
             {
-                var c = new ChannelCompiler(song, problems, i == first, i, labels, loopState).Run(cmds);
+                var c = new ChannelCompiler(song, groupBase, problems, i == first, i, labels, loopState).Run(cmds);
                 if (!c.IsEmpty || i == first) channels[i] = c;     // channel 0 counts as soon as it has any text
             }
         if (first < 0) return new CompiledSong([], baseAddress, [new MmlDiagnostic(1, 1, "This song doesn't seem to have any data.")]);
@@ -72,7 +75,6 @@ public static class MmlCompiler
         if (problems.Count > 0) return new CompiledSong([], baseAddress, problems);
 
         // The sample table the song's instruments name.
-        int groupBase = song.SampleGroups.Sum(groupSize);
         var table = new List<byte>();
         foreach (var ins in song.Instruments)
         {
@@ -192,7 +194,7 @@ public static class MmlCompiler
         public void Forget() { LastDuration = null; LastQv = null; }
     }
 
-    private sealed class ChannelCompiler(MmlSong song, List<MmlDiagnostic> problems, bool isFirst, int channelIndex, Dictionary<int, (int Ch, int Sub, int Line, int Col)> labels, LoopState loopState)
+    private sealed class ChannelCompiler(MmlSong song, int groupBase, List<MmlDiagnostic> problems, bool isFirst, int channelIndex, Dictionary<int, (int Ch, int Sub, int Line, int Col)> labels, LoopState loopState)
     {
         // What the channel is set to as the text is read.
         private int octave = 4, defaultLength = 8, tune, instrument = -1, qv = 0x7F;
@@ -226,6 +228,7 @@ public static class MmlCompiler
                     int sub = Subroutine(d.Body, false);
                     if (!labels.TryAdd(RemoteKey(d.Id), (channelIndex, sub, d.Line, d.Column))) Error(d, "Remote code definitions cannot repeat.");
                 }
+            lastLoop = -1;                                   // remote code is not a loop for * to recall
             if (isFirst)
             {
                 main.Bytes.AddRange([0xF4, 0x08, 0xFA, 0x04, 0x00]);
@@ -343,7 +346,7 @@ public static class MmlCompiler
                         {
                             int index = song.Samples.IndexOf(s.Sample);
                             if (index < 0) { Error(s, "The specified sample was not included in this song."); break; }
-                            buf.Bytes.AddRange([0xF3, (byte)index, (byte)s.Tuning]);
+                            buf.Bytes.AddRange([0xF3, (byte)(groupBase + index), (byte)s.Tuning]);
                             break;
                         }
                     case HexCmd h:

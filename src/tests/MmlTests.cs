@@ -21,6 +21,9 @@ public class MmlTests
     public static readonly TheoryData<string, string> Golden = new()
     {
         { "#amk 2\n#0 c4", "9323FF008D23A3230000000000000000000000000000F408FA0400307FA400" },
+        // A sample load names the sample by its place after the group's samples, as the instrument table does.
+        { "#amk 2\n#samples { #default \"06_scores_00.brr\" }\n#0 (\"06_scores_00.brr\",$03) c4", "9323FF008D23A3230000000000000000000000000000F408FA0400F31403307FA400" },
+        { "#amk 2\n#samples { #optimized \"06_scores_00.brr\" \"06_scores_01.brr\" }\n#0 (\"06_scores_01.brr\",$03) c4", "9323FF008D23A3230000000000000000000000000000F408FA0400F31503307FA400" },
         { "#amk 2\n#0 c4 d4 e4", "9323FF008D23A3230000000000000000000000000000F408FA0400307FA4A6A800" },
         { "#amk 2\n#0 c1", "9323FF008D23A3230000000000000000000000000000F408FA0400607FA4C600" },
         { "#amk 2\n#0 c=129", "9323FF008D23A3230000000000000000000000000000F408FA04007F7FA402C600" },
@@ -154,6 +157,17 @@ public class MmlTests
         Assert.Contains("target program", Assert.Single(MmlParser.Parse("#0 c4").Diagnostics).Message);
         Assert.Contains("any data", Assert.Single(MmlParser.Parse("#amk 2").Diagnostics).Message);
         Assert.Contains("inside a channel", MmlParser.Parse("#amk 2\nc4").Diagnostics[0].Message);
+    }
+
+    [Fact]
+    public void remote_code_is_not_a_loop_to_recall()
+        => Assert.Contains("no loop to recall", Assert.Single(Compile("#amk 2\n(!1)[$F4 $09]\n#0 c4 *2").Diagnostics).Message);
+
+    [Fact]
+    public void a_negative_tick_length_is_an_error()
+    {
+        Assert.Contains("note length", Assert.Single(MmlParser.Parse("#amk 2\n#0 c=-5 d4").Diagnostics).Message);
+        Assert.True(Compile("#amk 2\n#0 c=0 d4").Ok);       // zero is allowed, as AddmusicK allows it
     }
 
     [Fact]

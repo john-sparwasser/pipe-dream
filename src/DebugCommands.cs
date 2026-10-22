@@ -908,8 +908,8 @@ static class DebugCommands
     private static int SpcEvents(string path, double seconds)
     {
         var cpu = Spc700.FromSpc(SpcFile.Parse(File.ReadAllBytes(path)));
+        var last = new Dictionary<int, byte>(cpu.Dsp.Select((b, i) => KeyValuePair.Create(i, b)));   // the state before the run
         var t = SpcTrace.Run(cpu, (long)(seconds * 1_024_000));
-        var last = new Dictionary<int, byte>(cpu.Dsp.Select((b, i) => KeyValuePair.Create(i, b)));
         var lines = new List<(long, string)>();
         foreach (var (c, r, v) in t.Global)
         {
