@@ -100,7 +100,7 @@ public static class MusicLayout
             Array.Copy(brr, 2, ram, at, brr.Length - 2);
             at += brr.Length - 2;
         }
-        return new BaseImage(ram, (at + 0xFF) & ~0xFF, delay, [], placed);
+        return new BaseImage(ram, (at + 0xFF) & ~0xFF, delay, [], resident is null ? null : placed);
     }
 
     /// <param name="sample">A sample file by the name a song gives it, or null.</param>
@@ -118,6 +118,7 @@ public static class MusicLayout
             if (groupSamples(g) is not { } list) { problems.Add(new MmlDiagnostic(1, 1, $"There is no sample group \"{g}\".")); continue; }
             brrs.AddRange(list.Select((b, i) => ($"{g} {i}", b)));
         }
+        int groupCount = brrs.Count;
         foreach (var name in song.Samples)
         {
             var data = (song.Path is { Length: > 0 } p ? sample(p.TrimEnd('/') + "/" + name) : null) ?? sample(name);
@@ -142,6 +143,14 @@ public static class MusicLayout
         {
             var data = brrs[i].Data;
             int len = data.Length - 2;
+            if (b.Resident is not null && i < groupCount && compiled.UsedSamples?.Contains(i) == false
+                && !b.Resident.ContainsKey(BaseImage.Key(data)))
+            {
+                // A group's sample that is neither important (resident) nor named: no data, its entry where the next one starts, as
+                // AddmusicK leaves it. (Without a resident set nothing says what is important, so everything goes up.)
+                ram[dir + 4 * i] = ram[dir + 4 * i + 2] = (byte)at; ram[dir + 4 * i + 1] = ram[dir + 4 * i + 3] = (byte)(at >> 8);
+                continue;
+            }
             if (b.Resident?.TryGetValue(BaseImage.Key(data), out int start) != true)
             {
                 start = at;                                        // the song's own copy, uploaded with it

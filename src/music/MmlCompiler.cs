@@ -4,7 +4,10 @@ namespace PipeDream.Music;
 
 /// <summary>A song compiled to the bytes the engine plays, addressed as if loaded at <see cref="Base"/>.</summary>
 /// <param name="InstrumentTable">Where the song's custom instruments (six bytes each: sample, ADSR1, ADSR2, GAIN, tuning) start: after the phrase list.</param>
-public sealed record CompiledSong(byte[] Bytes, int Base, IReadOnlyList<MmlDiagnostic> Diagnostics, int InstrumentTable = 0)
+/// <param name="UsedSamples">The places in the song's sample table that something names: an instrument it sets, any instrument it
+/// defines, a sample load. AddmusicK uploads no other sample but the ones marked important (measured).</param>
+public sealed record CompiledSong(byte[] Bytes, int Base, IReadOnlyList<MmlDiagnostic> Diagnostics, int InstrumentTable = 0,
+    IReadOnlySet<int>? UsedSamples = null)
 {
     public bool Ok => Diagnostics.Count == 0;
 }
@@ -87,6 +90,7 @@ public static class MmlCompiler
                 if (pos < 0) return new CompiledSong([], baseAddress, [new MmlDiagnostic(1, 1, $"The sample \"{ins.Sample}\" was not included in this song.")]);
                 index = groupBase + pos;
             }
+            if (ins.Noise is null) loopState.Used.Add(index);
             table.Add((byte)index); table.AddRange(ins.Bytes);
         }
 
@@ -130,16 +134,16 @@ public static class MmlCompiler
             }
         foreach (var (_, ch, sub) in order) bytes.AddRange(channels[ch]!.Subs[sub]);
         if (problems.Count > 0) return new CompiledSong([], baseAddress, problems);
-        return new CompiledSong(bytes.ToArray(), baseAddress, problems, baseAddress + header);
+        return new CompiledSong(bytes.ToArray(), baseAddress, problems, baseAddress + header, loopState.Used);
     }
 
     /// <summary>A call to a subroutine still to be filled in: where it is, and the subroutine it names (a loop of this
     /// channel, or a label that may be another channel's).</summary>
     private sealed record Call(bool InSub, int Owner, int Offset, int Sub, int Label, Cmd At);
 
-    /// <summary>What AddmusicK keeps for loop bodies across the whole song: the transposition (h) they use, whether one was set, and
-    /// the loop defined last, which <c>*</c> recalls from any channel (measured).</summary>
-    private sealed class LoopState { public int Tune; public bool TuneSet; public (int Ch, int Sub) Last = (-1, -1); public int Recalls; }
+    /// <summary>What AddmusicK keeps across the whole song: for loop bodies the transposition (h) they use, whether one was set, and
+    /// the loop defined last, which <c>*</c> recalls from any channel (measured); and the samples named so far.</summary>
+    private sealed class LoopState { public int Tune; public bool TuneSet; public (int Ch, int Sub) Last = (-1, -1); public int Recalls; public readonly HashSet<int> Used = []; }
 
     /// <summary>One channel's bytes: the main stream, then its subroutines, with the places that call them still to be filled in.</summary>
     private sealed class ChannelOut(int index, List<byte> main, List<List<byte>> subs, List<(int Line, int Col)> subAt, List<Call> calls, int? introAt, bool noLoop)
@@ -341,6 +345,7 @@ public static class MmlCompiler
                             int index = song.Samples.IndexOf(s.Sample);
                             if (index < 0) { Error(s, "The specified sample was not included in this song."); break; }
                             buf.Bytes.AddRange([0xF3, (byte)(groupBase + index), (byte)s.Tuning]);
+                            loopState.Used.Add(groupBase + index);
                             break;
                         }
                     case HexCmd h:
@@ -352,7 +357,7 @@ public static class MmlCompiler
                             if ((scaled[0] == 0xE2 && scaled[1] == 0) || (scaled[0] == 0xE3 && scaled[2] == 0)) { Error(h, "Tempo has been zeroed out."); break; }
                             buf.Bytes.AddRange(scaled);
                         }
-                        if (h.Bytes[0] == 0xDA) { instrument = h.Bytes[1]; pendingPercussion = -1; }
+                        if (h.Bytes[0] == 0xDA) { instrument = h.Bytes[1]; pendingPercussion = -1; Uses(instrument); }
                         if (h.Bytes[0] is 0xE6 or 0xE9) buf.Forget();           // a subloop edge or loop call, written by hand
                         break;
                     case TripletCmd t: Sequence(t.Body, buf, true); break;
@@ -418,11 +423,18 @@ public static class MmlCompiler
         private void Instrument(InstrumentCmd n, Buf buf)
         {
             int v = n.Number;
+            Uses(v);
             if (v is >= 21 and <= 29) { pendingPercussion = v; instrument = v; return; }
             if (v >= 30 && v - 30 >= song.Instruments.Count) { Error(n, "This custom instrument has not been defined yet."); return; }
             pendingPercussion = -1;
             instrument = v;
             buf.Bytes.AddRange([0xDA, (byte)v]);
+        }
+
+        /// <summary>SMW's instruments play SMW's samples (custom ones are counted where they are defined).</summary>
+        private void Uses(int instrument)
+        {
+            if (instrument is >= 0 and < 30) loopState.Used.Add(StockSample[instrument]);
         }
 
         /// <summary>A note, rest or tie, with the ties after it already added to the length: the duration (and

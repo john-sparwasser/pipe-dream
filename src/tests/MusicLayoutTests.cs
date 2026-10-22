@@ -18,6 +18,27 @@ public class MusicLayoutTests
     }
 
     [Fact]
+    public void a_group_sample_neither_important_nor_named_is_left_out_as_addmusick_leaves_it()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla)) return;
+        var stock = SmwSound.StockSamples(Rom.Load(ReferenceRoms.Vanilla));
+        var (code, _) = MusicEngineTests.AssembleEngine();
+        IReadOnlyList<byte[]>? Group(string g) => g == "default" ? stock : null;
+        var b = MusicLayout.Base(code, null, [], Group, stock.Where((_, i) => i is not (0x0D or 0x0F or 0x11)));
+        int[] Kept(string mml)
+        {
+            var image = MusicLayout.Local(b, MmlParser.Parse("#amk 2\n" + mml), Group, _ => null);
+            Assert.True(image.Ok, string.Join("; ", image.Problems));
+            int Start(int i) => image.Ram[image.DirPage * 256 + 4 * i] | image.Ram[image.DirPage * 256 + 4 * i + 1] << 8;
+            return [.. new[] { 0x0D, 0x0F, 0x11 }.Where(i => image.Ram.AsSpan(Start(i), stock[i].Length - 2).SequenceEqual(stock[i].AsSpan(2)))];
+        }
+        Assert.Empty(Kept("#0 @0 c4"));                                          // measured: AddmusicK uploads none of the three
+        Assert.Equal([0x0D], Kept("#0 @0 c4 @14"));                              // an instrument set, even after the last note
+        Assert.Equal([0x0D], Kept("#instruments { @14 $8F $E0 $00 $03 $00 }\n#0 @0 c4"));   // or only defined
+        Assert.Equal([0x0F, 0x11], Kept("#0 $DA $15 c4 @17 c4"));
+    }
+
+    [Fact]
     public void smws_samples_come_from_the_rom_as_addmusick_ships_them()
     {
         if (!File.Exists(ReferenceRoms.Vanilla) || AmkOracle.Root is not { } root) return;
