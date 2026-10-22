@@ -195,8 +195,8 @@ StartSong:
     mov a,#(!SongBase&$FF)
     mov y,#(!SongBase>>8)
     movw !phrase,ya
-    mov a,#$FF
-    mov !tempo,a                        ; until the song sets one
+    mov a,#$35
+    mov !tempo,a                        ; until the song sets one: 53, as measured
     mov a,#$00
     mov !tickAcc,a
     mov a,#$C0
@@ -553,9 +553,21 @@ NoteOn:
     mov !konMask,a
     ret
 
-; Percussion bytes $CA-$DF play an instrument at a fixed pitch.
+; Percussion bytes $D0-$D8 (@21-@29) play their instrument at its own note, and the channel keeps the instrument after.
 PercussionOn:
-    ret
+    setc
+    sbc a,#$BB                          ; the instrument number
+    mov !t5,a
+    call SetInstrument
+    mov a,!t5
+    setc
+    sbc a,#21
+    bcs +
+    mov a,#$A4                          ; ponytail: $CA-$CF (@15-@20) are never compiled; o4 c if a hex block writes one
+    jmp NoteOn
++   mov y,a
+    mov a,PercussionNotes+y
+    jmp NoteOn
 
 SendInstrument:                         ; X = channel
     mov a,!c_dirty+x
@@ -772,9 +784,9 @@ SetInstrument:
     mov a,#$01
     mov !c_dirty+x,a
     mov a,!c_ins+x
-    cmp a,#$13
+    cmp a,#$1E
     bcs .custom
-    mov y,#$06                          ; stock: six bytes each
+    mov y,#$06                          ; stock and percussion: six bytes each
     mul ya
     movw !t2,ya
     clrc
@@ -951,17 +963,20 @@ StockInstruments:
     db $0C,$FE,$70,$B8,$03,$00   ; @16
     db $11,$FE,$6A,$B8,$05,$00   ; @17
     db $01,$E9,$6A,$B8,$03,$00   ; @18
+    db $00,$00,$00,$00,$00,$00   ; @19 and @20 are never loaded (CmdInstrument keeps the instrument)
+    db $00,$00,$00,$00,$00,$00
+    db $0F,$0F,$6A,$7F,$03,$00   ; @21, the percussion: tuning measured from the notes played after a hit
+    db $06,$0E,$6A,$40,$07,$00   ; @22
+    db $06,$8C,$E0,$70,$07,$00   ; @23
+    db $0E,$FE,$6A,$B8,$07,$00   ; @24
+    db $0E,$FE,$6A,$B8,$08,$00   ; @25
+    db $0B,$FE,$6A,$B8,$02,$00   ; @26
+    db $0B,$7E,$6A,$7F,$08,$00   ; @27
+    db $0B,$7E,$6A,$30,$08,$00   ; @28
+    db $0E,$0E,$6A,$7F,$03,$00   ; @29
 
 ; Percussion @21-@29: sample, ADSR1, ADSR2, GAIN and the fixed pitch (word).
-PercussionInstruments:
-    db $0F,$0F,$6A,$7F : dw $07E9   ; @21
-    db $06,$0E,$6A,$40 : dw $0EA1   ; @22
-    db $06,$8C,$E0,$70 : dw $0C4E   ; @23
-    db $0E,$FE,$6A,$B8 : dw $0EA1   ; @24
-    db $0E,$FE,$6A,$B8 : dw $10B8   ; @25
-    db $0B,$FE,$6A,$B8 : dw $02A2   ; @26
-    db $0B,$7E,$6A,$7F : dw $12C8   ; @27
-    db $0B,$7E,$6A,$30 : dw $12C8   ; @28
-    db $0E,$0E,$6A,$7F : dw $0546   ; @29
+PercussionNotes:                        ; the note each of @21-@29 plays (measured)
+    db $A8,$A4,$A1,$A4,$A4,$9C,$A6,$A6,$A1
 
 EngineEnd:
