@@ -61,6 +61,12 @@ public class MusicSnesTests(Xunit.Abstractions.ITestOutputHelper log)
         var r = MusicInsert.Insert(patched, p);
         Assert.Equal(0x30, patched.ReadByte(0x00F60B));
         Assert.Contains(r.Warnings, w => w.Contains("$00F60B"));
+
+        var foreign = Rom.Load(ReferenceRoms.Vanilla);
+        foreign.Data[foreign.FileOffset(0x0080E8)] = 0x22;                                // someone else's JSL in SMW's upload
+        var f = MusicInsert.Insert(foreign, p);
+        Assert.False(f.Ok);
+        Assert.Contains("$0080E8", Assert.Single(f.Errors));
     }
 
     /// <summary>Frames of the game: the NMI's music part once a frame (17066 SPC cycles), what the SPC keyed on meanwhile.</summary>

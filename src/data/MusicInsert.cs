@@ -28,6 +28,8 @@ public static class MusicInsert
         var slots = m.SongList.Where(s => s.Number is > 0 and < 0xFF).OrderBy(s => s.Number).ToList();
         if (slots.Count == 0) return new(true, [], [], [], 0, new Dictionary<string, int>());
 
+        if (ForeignSoundCode(rom) is { } at)
+            return Fail([$"the ROM's sound code at ${at:X6} is not SMW's (AddmusicK or another music patch already in it?): build from a ROM without one"]);
         var (engine, _, asmErrors) = MusicEngine.Assemble();
         if (asmErrors.Length > 0) return Fail(["the music engine: " + string.Join("; ", asmErrors)]);
 
@@ -96,6 +98,19 @@ public static class MusicInsert
         var r = Asar.Patch(rom, Path.Combine(VirtualDir, "music.asm"), mem);
         if (!r.Ok) return Fail([.. r.Errors.Select(e => "music: " + e)]);
         return new(true, [], [.. warnings], r.Blocks, songs.Count, r.Labels);
+    }
+
+    /// <summary>The first place data/musicdriver/snes.asm hooks that does not hold SMW's own code, or null.</summary>
+    private static int? ForeignSoundCode(Rom rom)
+    {
+        (int At, byte[] Smw)[] hooks =
+        [
+            (0x0080E8, [0xA9, 0x00, 0x8D]), (0x0080FD, [0xA9, 0x00, 0x8D]), (0x00810E, [0xA9, 0xB1, 0x8D]),
+            (0x008148, [0xA9, 0xD6, 0x8D]), (0x008159, [0xA9, 0x00, 0x8D]), (0x008179, [0xAD, 0xFB, 0x1D]),
+        ];
+        foreach (var (at, smw) in hooks)
+            if (!rom.Data.AsSpan(rom.FileOffset(at), smw.Length).SequenceEqual(smw)) return at;
+        return null;
     }
 
     // ---- SMW's song numbers as AddmusicK's ----
