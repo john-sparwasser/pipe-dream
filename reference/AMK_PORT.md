@@ -156,10 +156,18 @@ costs ARAM; global songs and sound-effect data are not placed yet (phases 5 and 
   specified and by region where it is ours to choose.
 
 ### 5. Our engine and the SNES side
-**Status (2026-10-22): the engine is done but for sound effects and the port protocol; the SNES side is not started.**
-`data/musicdriver/main.asm` plays every music command and matches AddmusicK's engine, register by register, on every corpus song
-(`MusicEngineTests`: 53 songs written per command plus the corpus, `reference/AMK_ENGINE.md` for what was measured and where
-AddmusicK is not followed: its lag under load, two hangs, and the remote-code syntax its 1.0.5 build cannot compile).
+**Status (2026-10-22): done; Mesen check outstanding.** `data/musicdriver/main.asm` plays every music command and matches
+AddmusicK's engine, register by register, on every corpus song (`MusicEngineTests`, `reference/AMK_ENGINE.md` for what was measured
+and where AddmusicK is not followed: its lag under load, two hangs, and the remote-code syntax its 1.0.5 build cannot compile).
+`data/musicdriver/snes.asm` is the main CPU's side, written from SMW's disassembly and the boot ROM's protocol: power-on uploads the
+engine, effects, global songs and the resident samples; the NMI uploads a local song when `$1DFB` asks for one not in ARAM, then
+hands songs and effects to the ports. `data/MusicInsert.cs` builds the block lists and runs from `RomBuilder` after the patches.
+`$1DFB` `$FF` or a song the ROM lacks fades out over 240 ticks; `$1DF9` `$FF` (hurry up) adds 10 to the tempo and plays SMW's
+jingle, until a level entered from the map uploads its song again (all measured against AddmusicK and SMW's own engine). SMW's song
+numbers are rewritten as AddmusicK's at every `$1DFB` site and table (`MusicInsert.SongSites`, matched by playing SMW's songs
+against AddmusicK's originals); a site another patch changed is left with a warning, and a ROM whose sound code is not SMW's is
+refused. `MusicSnesTests` runs SMW's 65816 code and ours against the SPC interpreter with the boot ROM modelled. Not done: a
+`.msc` for Lunar Magic (Pipe Dream names the songs itself), and the check in Mesen.
 - The SPC700 engine in `data/musicdriver/` (Asar `spc700`): the N-SPC command set and AMK's hex
   commands per the reference, the song and sound-effect channels, volume, pan, pitch, vibrato,
   tremolo, echo, the `$1DFA`/`$1DFB` protocol, and `#asm`/`#jsr` slots.
@@ -174,11 +182,14 @@ AddmusicK is not followed: its lag under load, two hangs, and the remote-code sy
 - ASM ▸ Music… lists the project's songs, samples and effects to add, import, slot, edit and remove.
 - A song editor: the MML text with colouring, the error list with jump to line, the per-channel
   sizes, an ARAM usage bar, and Open in your editor, as blocks and sprites have.
-- Music names in the level header and the overworld pickers come from the list instead of numbers.
+- Music names in the level header and the overworld pickers come from the list instead of numbers. (Done for the level header;
+  the overworld has no music picker yet.)
 - Build runs music after patches and blocks, before sprites; its status and warnings show in the
   build panel.
 
 ### 7. Sound effects
+**Status (2026-10-22): done.** All 93 of AddmusicK's effects play as in its engine (`SfxTests`); `music/SfxCompiler.cs` compiles the
+note syntax as AddmusicK 1.0.5 does (measured, not as its readme says); `#jsr` to pause and unpause become the engine's own.
 - 1DF9 and 1DFC effects through the same compiler (the note subset, noise, stereo volume, raw
   hex, repeat) and inline `#asm`/`#jsr`.
 - Tests: the 93 effects compile to the oracle's bytes.
