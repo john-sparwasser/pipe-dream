@@ -21,7 +21,9 @@ public abstract record Cmd(int Line, int Column);
 
 public sealed record NoteCmd(int Line, int Column, int Letter, int Accidental, MmlLength Length) : Cmd(Line, Column);
 public sealed record RestCmd(int Line, int Column, MmlLength Length) : Cmd(Line, Column);
-public sealed record TieCmd(int Line, int Column, MmlLength Length) : Cmd(Line, Column);
+/// <param name="BeforeBend">Written straight against a <c>$DD</c> ("^16$DD"): AddmusicK writes it on its own, not into the note's
+/// length (measured; a space between and it does not).</param>
+public sealed record TieCmd(int Line, int Column, MmlLength Length, bool BeforeBend = false) : Cmd(Line, Column);
 public sealed record OctaveCmd(int Line, int Column, int Octave) : Cmd(Line, Column);
 public sealed record OctaveShiftCmd(int Line, int Column, int By) : Cmd(Line, Column);
 public sealed record DefaultLengthCmd(int Line, int Column, int Denominator) : Cmd(Line, Column);

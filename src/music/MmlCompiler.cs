@@ -70,7 +70,7 @@ public static class MmlCompiler
             var bytes0 = new List<byte>();
             ChannelCompiler.OptionBytes(song, bytes0);
             bytes0.Add(0x00);
-            channels[0] = new ChannelOut(0, bytes0, [], [], null, false);
+            channels[0] = new ChannelOut(0, bytes0, [], [], [], null, false);
         }
         if (problems.Count > 0) return new CompiledSong([], baseAddress, problems);
 
@@ -100,9 +100,12 @@ public static class MmlCompiler
         var starts = new int?[8];
         for (int i = 0; i < 8; i++)
             if (channels[i] is { } c) { starts[i] = at; at += c.MainLength; }
-        var subBase = new int[8];                          // every channel's subroutines come after every channel's own bytes
-        for (int i = 0; i < 8; i++)
-            if (channels[i] is { } c) { subBase[i] = at; at += c.SubLength; }
+        // Every subroutine after every channel's own bytes, in the order the text has them, whichever channel (measured).
+        var order = Enumerable.Range(0, 8).Where(i => channels[i] is not null)
+            .SelectMany(i => channels[i]!.SubAt.Select((p, k) => (p, Ch: i, Sub: k))).OrderBy(x => x.p).ToList();
+        var subAddr = new int[8][];
+        for (int i = 0; i < 8; i++) subAddr[i] = new int[channels[i]?.Subs.Count ?? 0];
+        foreach (var (_, ch, sub) in order) { subAddr[ch][sub] = at; at += channels[ch]!.Subs[sub].Count; }
 
         var bytes = new List<byte>();
         void W16(int v) { bytes.Add((byte)v); bytes.Add((byte)(v >> 8)); }
@@ -118,19 +121,14 @@ public static class MmlCompiler
             for (int i = 0; i < 8; i++)
                 W16(channels[i] is { } c && starts[i] is { } s ? s + (phrase == 1 ? c.IntroAt ?? 0 : 0) : 0);
         }
-        // Where every subroutine ended up, so calls (and label calls from other channels) can be filled in.
-        var subAddr = new int[8][];
-        for (int i = 0; i < 8; i++)
-            if (channels[i] is { } c) subAddr[i] = c.SubStarts(subBase[i]);
-        var subData = new List<byte>();
+        // Calls (and label calls from other channels) filled in with where every subroutine ended up.
         for (int i = 0; i < 8; i++)
             if (channels[i] is { } c)
             {
-                problems.AddRange(c.Resolve(subAddr, labels, out var main, out var subBytes));
+                problems.AddRange(c.Resolve(subAddr, labels, out var main));
                 bytes.AddRange(main);
-                subData.AddRange(subBytes);
             }
-        bytes.AddRange(subData);
+        foreach (var (_, ch, sub) in order) bytes.AddRange(channels[ch]!.Subs[sub]);
         if (problems.Count > 0) return new CompiledSong([], baseAddress, problems);
         return new CompiledSong(bytes.ToArray(), baseAddress, problems, baseAddress + header);
     }
@@ -144,24 +142,17 @@ public static class MmlCompiler
     private sealed class LoopState { public int Tune; public bool TuneSet; public (int Ch, int Sub) Last = (-1, -1); public int Recalls; }
 
     /// <summary>One channel's bytes: the main stream, then its subroutines, with the places that call them still to be filled in.</summary>
-    private sealed class ChannelOut(int index, List<byte> main, List<List<byte>> subs, List<Call> calls, int? introAt, bool noLoop)
+    private sealed class ChannelOut(int index, List<byte> main, List<List<byte>> subs, List<(int Line, int Col)> subAt, List<Call> calls, int? introAt, bool noLoop)
     {
+        public IReadOnlyList<List<byte>> Subs => subs;
+        public IReadOnlyList<(int Line, int Col)> SubAt => subAt;
         public int? IntroAt => introAt;
         public bool NoLoop => noLoop;
         /// <summary>Nothing but the terminator: the channel played nothing.</summary>
         public bool IsEmpty => main.Count <= 1 && subs.Count == 0 && main.All(b => b == 0);
         public int MainLength => main.Count;
-        public int SubLength => subs.Sum(s => s.Count);
 
-        public int[] SubStarts(int start)
-        {
-            var at = start;
-            var result = new int[subs.Count];
-            for (int i = 0; i < subs.Count; i++) { result[i] = at; at += subs[i].Count; }
-            return result;
-        }
-
-        public List<MmlDiagnostic> Resolve(int[][] subAddr, Dictionary<int, (int Ch, int Sub, int Line, int Col)> labels, out byte[] mainBytes, out byte[] subBytes)
+        public List<MmlDiagnostic> Resolve(int[][] subAddr, Dictionary<int, (int Ch, int Sub, int Line, int Col)> labels, out byte[] mainBytes)
         {
             var errors = new List<MmlDiagnostic>();
             foreach (var c in calls)
@@ -179,7 +170,6 @@ public static class MmlCompiler
                 list[c.Offset + 1] = (byte)(target >> 8);
             }
             mainBytes = main.ToArray();
-            subBytes = subs.SelectMany(x => x).ToArray();
             return errors;
         }
     }
@@ -203,6 +193,7 @@ public static class MmlCompiler
         private int pendingPercussion = -1;
 
         private readonly List<List<byte>> subs = new();
+        private readonly List<(int Line, int Col)> subAt = new();     // where each was written: subroutines are laid out in that order
         private readonly List<Call> calls = new();
         private int? introAt;
         private bool noLoop;
@@ -225,7 +216,7 @@ public static class MmlCompiler
             if (isFirst)                                     // remote code lives with the first channel's subroutines
                 foreach (var d in song.RemoteDefs)
                 {
-                    int sub = Subroutine(d.Body, false);
+                    int sub = Subroutine(d.Body, false, d);
                     if (!labels.TryAdd(RemoteKey(d.Id), (channelIndex, sub, d.Line, d.Column))) Error(d, "Remote code definitions cannot repeat.");
                 }
             if (isFirst)
@@ -239,7 +230,7 @@ public static class MmlCompiler
             }
             Sequence(cmds, main, false);
             main.Bytes.Add(0x00);
-            return new ChannelOut(channelIndex, main.Bytes, subs, calls, introAt, noLoop);
+            return new ChannelOut(channelIndex, main.Bytes, subs, subAt, calls, introAt, noLoop);
         }
 
         /// <summary>What #halvetempo or #option dividetempo divides tempo and every time by.</summary>
@@ -297,7 +288,7 @@ public static class MmlCompiler
                             // A note takes the ties after it; a rest takes the ties and rests after it.
                             while (end + 1 < cmds.Count && (cmds[end + 1] is TieCmd || (c is RestCmd && cmds[end + 1] is RestCmd)))
                             { lastTicks = TicksOf(cmds[end + 1], triplet); sum += lastTicks; end++; }
-                            bool slideNext = end + 1 < cmds.Count && cmds[end + 1] is PitchSlideCmd;
+                            bool slideNext = end + 1 < cmds.Count && cmds[end + 1] is PitchSlideCmd || cmds[end] is TieCmd { BeforeBend: true };
                             if (slideNext)
                             {
                                 // The last thing before a slide is written on its own.
@@ -305,7 +296,7 @@ public static class MmlCompiler
                                 {
                                     int head = Round(sum - lastTicks), tail = Round(lastTicks);
                                     if (head > 0) Group(c, head, buf);
-                                    if (tail > 0) Group(cmds[end], tail, buf, true);
+                                    if (tail > 0) Group(c is RestCmd ? c : cmds[end], tail, buf, true);   // a rest's own is a rest
                                 }
                                 else if (Round(sum) > 0) Group(c, Round(sum), buf, true);
                                 i = end;
@@ -365,10 +356,10 @@ public static class MmlCompiler
                         if (h.Bytes[0] is 0xE6 or 0xE9) buf.Forget();           // a subloop edge or loop call, written by hand
                         break;
                     case TripletCmd t: Sequence(t.Body, buf, true); break;
-                    case LoopCmd l: EmitCall(buf, Subroutine(l.Body, triplet), -1, l.Count, l); break;
+                    case LoopCmd l: EmitCall(buf, Subroutine(l.Body, triplet, l), -1, l.Count, l); break;
                     case LabelLoopCmd l:
                         {
-                            int sub = Subroutine(l.Body, triplet);
+                            int sub = Subroutine(l.Body, triplet, l);
                             if (!labels.TryAdd(l.Id, (channelIndex, sub, l.Line, l.Column))) Error(l, "Label redefinition.");
                             EmitCall(buf, sub, -1, l.Count, l);
                             break;
@@ -493,8 +484,9 @@ public static class MmlCompiler
         /// <summary>A loop's body, compiled into a subroutine. Its notes use the loops' own transposition (h, kept from loop to loop and apart from the
         /// text's), and what the body does to the instrument and a pending percussion hit is undone once it ends; octave, default length and quantisation
         /// carry in and out, as they do through the text.</summary>
-        private int Subroutine(List<Cmd> body, bool triplet)
+        private int Subroutine(List<Cmd> body, bool triplet, Cmd at)
         {
+            subAt.Add((at.Line, at.Column));
             var (savedTune, savedSet, savedInstrument, savedPercussion) = (tune, tuneSet, instrument, pendingPercussion);
             (tune, tuneSet) = (loopState.Tune, loopState.TuneSet);   // the loops' own transposition, which carries from one loop to the next
             var sub = new Buf(subs.Count);

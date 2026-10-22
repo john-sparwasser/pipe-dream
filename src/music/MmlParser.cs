@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace PipeDream.Music;
 
@@ -99,6 +100,10 @@ public static class MmlParser
     {
         private int pos, line = 1, lineStart;
         private readonly Dictionary<string, string> replacements = new();
+        /// <summary>An Addmusic 4.05 or AddmusicM song, which AddmusicK converts as it reads (the readme's -c): #am4 and #amm win
+        /// wherever they are in the file.</summary>
+        private readonly bool legacy = Regex.IsMatch(src, @"(?im)^[ \t]*#(am4|amm)\b");
+        private readonly bool am4 = Regex.IsMatch(src, @"(?im)^[ \t]*#am4\b");
         private int col => pos - lineStart + 1;
         private bool Eof => pos >= src.Length;
         private char Peek(int ahead = 0) => pos + ahead < src.Length ? src[pos + ahead] : '\0';
@@ -161,12 +166,20 @@ public static class MmlParser
                     }
                     continue;
                 }
-                if (channel < 0 && Peek() == '"') { ParseReplacementDefinition(); continue; }   // names, before any channel
-                if (channel < 0 && Peek() == '?') { ParseItem(song.Channels[0] ??= [], End.Channel); continue; }   // no loop, likewise
                 if (channel < 0)
                 {
-                    Error("Note data must be inside a channel!");
-                    while (!Eof && Peek() != '#') Advance();
+                    // Before the first #n the text is channel 0's (AddmusicK's, measured: an Addmusic 4 song's header goes there),
+                    // but for AddmusicK's own songs notes are not.
+                    Replace();
+                    var zero = song.Channels[0] ??= [];
+                    int had = zero.Count;
+                    ParseItem(zero, End.Channel);
+                    if (!legacy && zero.Skip(had).FirstOrDefault(c => c is NoteCmd or RestCmd or TieCmd) is { } note)
+                    {
+                        zero.RemoveRange(had, zero.Count - had);
+                        Error("Note data must be inside a channel!", note.Line, note.Column);
+                        while (!Eof && Peek() != '#') Advance();
+                    }
                     continue;
                 }
                 var list = song.Channels[channel] ??= new List<Cmd>();
@@ -398,7 +411,13 @@ public static class MmlParser
             switch (c)
             {
                 case 'r': Advance(); into.Add(new RestCmd(l, cc, ParseLength())); return;
-                case '^': Advance(); into.Add(new TieCmd(l, cc, ParseLength())); return;
+                case '^':
+                    {
+                        Advance();
+                        var length = ParseLength();
+                        into.Add(new TieCmd(l, cc, length, Peek() == '$' && char.ToUpperInvariant(Peek(1)) == 'D' && char.ToUpperInvariant(Peek(2)) == 'D'));
+                        return;
+                    }
                 case 'l':
                     {
                         Advance();
@@ -625,6 +644,7 @@ public static class MmlParser
         {
             int l = line, cc = col;
             int? first = ReadHexToken();
+            if (legacy && first < 0x80) return;                  // a stray byte in an old song: dropped (measured)
             if (first is null || !HexParams.TryGetValue(first.Value, out int need)) { Error("Unknown hex command type.", l, cc); return; }
             var bytes = new List<byte> { (byte)first.Value };
             for (int i = 0; i < need || need < 0; i++)
@@ -641,7 +661,19 @@ public static class MmlParser
             if (bytes[0] == 0xF4 && bytes[1] is not (0 or 1 or 2 or 3 or 5 or 6 or 7 or 8 or 9)) { Error("Unknown $F4 hex command type.", l, cc); return; }
             if (bytes[0] == 0xFA && bytes[1] is not (0 or 1 or 2 or 3 or 4 or 6)) { Error("Unknown $FA hex command type.", l, cc); return; }
             if (bytes[0] == 0xF1 && bytes[1] > 0x0F) { Error("Echo buffer exceeded total space in ARAM.", l, cc); return; }
+            if (am4 && bytes[0] == 0xED && bytes[1] >= 0x80) { Hfd(into, bytes, l, cc); return; }
             into.Add(new HexCmd(l, cc, bytes.ToArray()));
+        }
+
+        /// <summary>Addmusic 4.05's own $ED $8X commands as AddmusicK converts them (measured): $80 r v writes DSP register r, but
+        /// for the echo buffer's place and size ($6D, $7D), which the engine sets itself; $81 a b is $FA $02 a.</summary>
+        private void Hfd(List<Cmd> into, List<byte> bytes, int l, int cc)
+        {
+            if (bytes[1] is not (0x80 or 0x81)) { Error(bytes[1] == 0x82 ? "$ED $82 (Addmusic 4's ARAM write) is not supported." : "Unknown HFD hex command type.", l, cc); return; }
+            SkipTrivia();
+            if (ReadHexToken() is not { } last) { Error("Error while parsing HFD hex command.", l, cc); return; }
+            if (bytes[1] == 0x81) into.Add(new HexCmd(l, cc, [0xFA, 0x02, bytes[2]]));
+            else if (bytes[2] is not (0x6D or 0x7D)) into.Add(new HexCmd(l, cc, [0xF6, bytes[2], (byte)last]));
         }
 
         private int? ReadHexToken()

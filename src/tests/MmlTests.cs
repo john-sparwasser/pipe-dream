@@ -29,6 +29,17 @@ public class MmlTests
         { "#amk 2\n#0 ?1 c4", "9323FF008D23A3230000000000000000000000000000F408FA0400307FA400" },
         { "#amk 2\n#0 (1)[c4]2 [d4]2 \n#1 (1)2 *2", "9323FF008D23A323B123000000000000000000000000F408FA0400E9BA2302E9BE230200E9BA2302E9BE230200307FA400307FA600" },
         { "#amk 2\n\"NAME=$E7 $80\"\n#0 NAME c4", "9323FF008D23A3230000000000000000000000000000F408FA0400E780307FA400" },
+        // Addmusic 4.05 and AddmusicM songs as AddmusicK converts them: the header's echo-buffer writes dropped, $ED $80 r v as $F6,
+        // $ED $81 a b as $FA $02 a, stray bytes under $80 dropped, notes allowed before the first channel (channel 0's).
+        { "#am4\n$ED $80 $6D $2B\n$ED $80 $7D $00\n$F0\n#0 c4", "9323FF008D23A3230000000000000000000000000000FA0400F0307FA400" },
+        { "#am4\n#0 $ED $80 $1F $16 $ED $81 $05 $06 $10 c4", "9323FF008D23A3230000000000000000000000000000FA0400F61F16FA0205307FA400" },
+        { "#am4\nl8 c\n#0 c4", "9323FF008D23A3230000000000000000000000000000FA0400187FA430A400" },
+        { "#amm\n#0 $ED $81 $05 $06 c4", "9323FF008D23A3230000000000000000000000000000FA0400ED8105307FA400" },
+        // Anything but notes before the first channel is channel 0's; loops are laid out in the order written, whichever channel;
+        // a tie written straight against $DD is its own.
+        { "#amk 2\nw220\n#0 c4", "9323FF008D23A3230000000000000000000000000000F408FA0400E0DC307FA400" },
+        { "#amk 2\n#1 [d4]2 f4\n#0 [c4]2 e4", "9323FF008D23A323B023000000000000000000000000F408FA0400E9BC2302307FA800E9B82302307FA900307FA600307FA400" },
+        { "#amk 2\n#0 c32^64$DD$01$03$AD r32^64$DD$01$03$AD c32^64 $DD$01$03$AD", "9323FF008D23A3230000000000000000000000000000F408FA0400067FA403C6DD0103AD06C703C7DD0103AD09A4DD0103AD00" },
         // A sample load names the sample by its place after the group's samples, as the instrument table does.
         { "#amk 2\n#samples { #default \"06_scores_00.brr\" }\n#0 (\"06_scores_00.brr\",$03) c4", "9323FF008D23A3230000000000000000000000000000F408FA0400F31403307FA400" },
         { "#amk 2\n#samples { #optimized \"06_scores_00.brr\" \"06_scores_01.brr\" }\n#0 (\"06_scores_01.brr\",$03) c4", "9323FF008D23A3230000000000000000000000000000F408FA0400F31503307FA400" },
