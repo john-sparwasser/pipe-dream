@@ -41,6 +41,28 @@ public class MusicSnesTests(Xunit.Abstractions.ITestOutputHelper log)
         return (rom, r.Labels);
     }
 
+    [Fact]
+    public void smws_song_numbers_become_addmusicks()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla)) return;
+        var (rom, _) = Inserted();
+        Assert.Equal(0x01, rom.ReadByte(0x00F60B));                                       // death: SMW's $09 is AddmusicK's Miss
+        Assert.Equal(0x05, rom.ReadByte(0x01C586));                                       // the star
+        Assert.Equal(new byte[] { 0x0B, 0x0F, 0x0A, 0x11, 0x10, 0x0C, 0x0E, 0x12 },        // the level header's eight songs
+            Enumerable.Range(0, 8).Select(i => rom.ReadByte(0x0584DB + i)).ToArray());
+        Assert.Equal(0x15, rom.ReadByte(0x0096C7));                                       // the title: the map's $01
+        Assert.Equal(0x26, rom.ReadByte(0x0C9447));                                       // the staff roll: the ending's $09
+
+        var patched = Rom.Load(ReferenceRoms.Vanilla);
+        patched.Data[patched.FileOffset(0x00F60B)] = 0x30;                                // a patch asked for its own song
+        var p = new ProjectFile();
+        p.Music.Songs["a.mml"] = "#amk 2\n#0 c4";
+        p.Music.SongList.Add(new MusicState.SongSlot { Number = 0x0A, Path = "a.mml" });
+        var r = MusicInsert.Insert(patched, p);
+        Assert.Equal(0x30, patched.ReadByte(0x00F60B));
+        Assert.Contains(r.Warnings, w => w.Contains("$00F60B"));
+    }
+
     /// <summary>Frames of the game: the NMI's music part once a frame (17066 SPC cycles), what the SPC keyed on meanwhile.</summary>
     private static SpcTrace Frames(Cpu65816 cpu, Spc700 spc, int nmi, int frames)
     {

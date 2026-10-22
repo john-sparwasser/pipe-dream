@@ -90,11 +90,60 @@ public static class MusicInsert
         for (int n = 0; n < 256; n++) asm.Append(lists.ContainsKey(n) ? $"    dl Song{n:X2}\n" : "    dl $000000\n");
         asm.Append("Global:\n");
         for (int n = 0; n < 256; n++) asm.Append($"    db {(globals.Any(g => g.Number == n) ? 1 : 0)}\n");
+        Renumber(rom, asm, warnings);
         Put("music.asm", Encoding.UTF8.GetBytes(asm.ToString()));
 
         var r = Asar.Patch(rom, Path.Combine(VirtualDir, "music.asm"), mem);
         if (!r.Ok) return Fail([.. r.Errors.Select(e => "music: " + e)]);
         return new(true, [], [.. warnings], r.Blocks, songs.Count, r.Labels);
+    }
+
+    // ---- SMW's song numbers as AddmusicK's ----
+
+    /// <summary>SMW numbers its songs per music bank (the level's, which also holds the songs every level shares; the map's; the
+    /// ending's); AddmusicK numbers them once, in its default list, and a project's songs keep those numbers. The pairs were found
+    /// by playing each of SMW's songs in its own engine against AddmusicK's originals compiled by ours. SMW's $2E-$34 (the Bowser
+    /// fight's pauses) start no song in SMW and are no song here either, so the music fades.</summary>
+    public static readonly IReadOnlyDictionary<int, int> LevelSongs = new Dictionary<int, int>
+    {
+        [0x01] = 0x0A, [0x02] = 0x0B, [0x03] = 0x0C, [0x04] = 0x0D, [0x05] = 0x0E, [0x06] = 0x0F, [0x07] = 0x10, [0x08] = 0x11,
+        [0x09] = 0x01, [0x0A] = 0x02, [0x0B] = 0x03, [0x0C] = 0x04, [0x0D] = 0x05, [0x0E] = 0x06, [0x0F] = 0x07, [0x10] = 0x07,
+        [0x11] = 0x08, [0x12] = 0x12, [0x13] = 0x13, [0x14] = 0x09, [0x15] = 0x14, [0x16] = 0x0D, [0x17] = 0x24, [0x18] = 0x23,
+        [0x19] = 0x1F, [0x1A] = 0x20, [0x1B] = 0x21, [0x1C] = 0x25, [0x1D] = 0x22,
+    };
+    private static readonly IReadOnlyDictionary<int, int> MapSongs = new Dictionary<int, int>
+    {
+        [0x01] = 0x15, [0x02] = 0x17, [0x03] = 0x18, [0x04] = 0x19, [0x05] = 0x1A, [0x06] = 0x1B, [0x07] = 0x1C, [0x08] = 0x16, [0x09] = 0x1D,
+    };
+    private static readonly IReadOnlyDictionary<int, int> EndingSongs = new Dictionary<int, int> { [0x09] = 0x26, [0x0A] = 0x27, [0x0B] = 0x28 };
+
+    /// <summary>Every place SMW's code or tables name a song for $1DFB (reference/smw-disasm), with the number SMW has there.</summary>
+    private static readonly (int At, int Vanilla, IReadOnlyDictionary<int, int> Bank)[] SongSites =
+    [
+        (0x0094B3, 0x15, LevelSongs), (0x009737, 0x16, LevelSongs), (0x00C526, 0x14, LevelSongs), (0x00C9BD, 0x11, LevelSongs),
+        (0x00D0DE, 0x0A, LevelSongs), (0x00E304, 0x0E, LevelSongs), (0x00EEC3, 0x0C, LevelSongs), (0x00F60B, 0x09, LevelSongs),
+        (0x018784, 0x0B, LevelSongs), (0x01AB08, 0x0E, LevelSongs), (0x01C0F0, 0x0C, LevelSongs), (0x01C586, 0x0D, LevelSongs),
+        (0x01D04F, 0x0B, LevelSongs), (0x01E216, 0x10, LevelSongs), (0x01FB2E, 0x0B, LevelSongs), (0x028968, 0x0E, LevelSongs),
+        (0x03809D, 0x0B, LevelSongs), (0x0398E7, 0x0B, LevelSongs), (0x03A702, 0x17, LevelSongs), (0x03A7A8, 0x1D, LevelSongs),
+        (0x03A7C2, 0x18, LevelSongs), (0x03ABF4, 0x1B, LevelSongs), (0x03AC53, 0x1C, LevelSongs), (0x03CE9A, 0x0B, LevelSongs),
+        (0x03A849, 0x19, LevelSongs), (0x03A84A, 0x1A, LevelSongs),                                   // BowserSoundMusic's songs
+        (0x0584DB, 0x02, LevelSongs), (0x0584DC, 0x06, LevelSongs), (0x0584DD, 0x01, LevelSongs), (0x0584DE, 0x08, LevelSongs),
+        (0x0584DF, 0x07, LevelSongs), (0x0584E0, 0x03, LevelSongs), (0x0584E1, 0x05, LevelSongs), (0x0584E2, 0x12, LevelSongs),
+        (0x0096C7, 0x01, MapSongs), (0x0483D2, 0x08, MapSongs),                                       // the title; Bowser's valley
+        .. new[] { 0x02, 0x03, 0x04, 0x06, 0x07, 0x09, 0x05 }.SelectMany((v, i) => new[] { (0x048D8A + i, v, MapSongs), (0x04DBC8 + i, v, MapSongs) }),
+        (0x0C9447, 0x09, EndingSongs), (0x0CA40C, 0x0A, EndingSongs), (0x0CA5C2, 0x0B, EndingSongs),
+    ];
+
+    /// <summary>SMW's song numbers rewritten as AddmusicK's, where the ROM still has SMW's own (a patch that changed one keeps it).</summary>
+    private static void Renumber(Rom rom, StringBuilder asm, List<string> warnings)
+    {
+        asm.Append('\n');
+        foreach (var (at, vanilla, bank) in SongSites)
+        {
+            int now = rom.ReadByte(at);
+            if (now == vanilla) asm.Append($"org ${at:X6}\n    db ${bank[vanilla]:X2}\n");
+            else if (now != bank[vanilla]) warnings.Add($"${at:X6} asks for song {now:X2}, not SMW's {vanilla:X2}: left as it is");
+        }
     }
 
     /// <summary>The samples that stay in ARAM: every group's important ones (the "!" in AddmusicK's list), so a song change does not

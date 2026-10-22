@@ -136,6 +136,8 @@ public class LevelPropertiesTests(ITestOutputHelper log)
         Assert.Equal(["0 — no timer", "1 — 200", "2 — 300", "3 — 400"], c.Time);
         // LevelMusicTable $0584DB: eight track numbers, which is all the ROM knows them by.
         Assert.Equal("0 — track 02", c.Music[0]);
+        // With music of the project's own, the track is the name it gives.
+        Assert.Equal("0 — here we go", Services.LevelChoices.Of(rom, n => n == 2 ? "here we go" : null).Music[0]);
         // Layer 2's rate index picks from BOTH $05D720 (H) and $05D710 (V): index 3 fixes the
         // layer, index 0 is 1:2 across and 1:16 down.
         Assert.Equal("3 — H fixed, V fixed", c.Layer2Scroll[3]);

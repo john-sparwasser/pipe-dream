@@ -22,9 +22,11 @@ public static class LevelOptions
 
     /// <summary>Header byte 3 bits 4-6 → <c>LevelMusicTable</c> $0584DB, eight track numbers.
     /// The tracks have no names in the ROM — Lunar Magic shows numbers too unless a .msc file
-    /// supplies them (info_custom_music_names.htm) — so the number is what we show.</summary>
-    public static string[] Music(Rom? rom) =>
-        [.. Enumerable.Range(0, 8).Select(i => $"{i} — track {(rom?.ReadByte(0x0584DB + i) ?? 0):X2}")];
+    /// supplies them (info_custom_music_names.htm) — so the number is what we show, or the name
+    /// <paramref name="song"/> gives it when the project has music of its own.</summary>
+    public static string[] Music(Rom? rom, Func<int, string?>? song = null) =>
+        [.. Enumerable.Range(0, 8).Select(i => (rom?.ReadByte(0x0584DB + i) ?? 0) is var n && song?.Invoke(n) is { } s
+            ? $"{i} — {s}" : $"{i} — track {n:X2}")];
 
     /// <summary>Header byte 5 bits 4-5 → $1412, read at $0585B6: 3 zeroes $1411 as well, and the
     /// scroller at $00F7F4/$00F85E branches on 0 (off), 1 (free) and the rest (only while the

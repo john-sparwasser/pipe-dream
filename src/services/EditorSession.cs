@@ -642,7 +642,7 @@ public sealed partial class EditorSession
     /// properties dialog's choice lists. Several are read out of the ROM's own tables — which a
     /// hack may have rewritten — so they are resolved here rather than in the window, which holds
     /// no Rom of its own (see LevelOptions).</summary>
-    public LevelChoices LevelOptionChoices => LevelChoices.Of(Rom);
+    public LevelChoices LevelOptionChoices => LevelChoices.Of(Rom, LevelSongName);
 
     // ---- recomposing ----
     /// <summary>
@@ -795,8 +795,8 @@ public sealed partial class EditorSession
 public readonly record struct LevelChoices(
     string[] LevelMode, string[] Height, string[] Music, string[] Time, string[] Layer2Scroll)
 {
-    public static LevelChoices Of(Rom? rom) => new(
-        LevelOptions.LevelMode(rom), LevelOptions.LevelHeight(rom), LevelOptions.Music(rom),
+    public static LevelChoices Of(Rom? rom, Func<int, string?>? song = null) => new(
+        LevelOptions.LevelMode(rom), LevelOptions.LevelHeight(rom), LevelOptions.Music(rom, song),
         LevelOptions.Time(rom), LevelOptions.Layer2Scroll(rom));
 
     /// <summary>What a caller with no ROM open gets: vanilla's own tables.</summary>

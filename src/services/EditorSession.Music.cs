@@ -31,6 +31,16 @@ public sealed partial class EditorSession
         }
     }
 
+    /// <summary>What SMW's level song <paramref name="vanilla"/> plays in this project: the number AddmusicK gives it, and the
+    /// project's song there (null when the project has no music: SMW's own plays).</summary>
+    private string? LevelSongName(int vanilla)
+    {
+        if (Project?.Data.Music is not { SongList.Count: > 0 } m) return null;
+        int n = MusicInsert.LevelSongs.GetValueOrDefault(vanilla, vanilla);
+        var slot = m.SongList.FirstOrDefault(s => s.Number == n);
+        return $"song {n:X2}, " + (slot is null ? "not in the project (the music fades)" : Path.GetFileNameWithoutExtension(slot.Path));
+    }
+
     /// <summary>The project's samples and banks, by path.</summary>
     public IReadOnlyList<SampleInfo> MusicSamples
         => Project?.Data.Music.Samples.OrderBy(s => s.Key, StringComparer.OrdinalIgnoreCase)
