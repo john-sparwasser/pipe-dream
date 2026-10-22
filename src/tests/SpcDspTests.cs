@@ -59,9 +59,11 @@ public class SpcDspTests(Xunit.Abstractions.ITestOutputHelper log)
         if (!File.Exists(ReferenceRoms.Vanilla)) return;
         var (spc, _) = MusicInsert.Spc(Rom.Load(ReferenceRoms.Vanilla), new ProjectFile(), "t",
             "#amk 2\n#SPC\n{\n#length \"0:03\"\n}\n#0 t40 @0 v255 o4 c4 d4");
-        var wav = File.ReadAllBytes(Services.SongPlayer.Render(spc!));
+        string path = Services.SongPlayer.Render(spc!);
+        var wav = File.ReadAllBytes(path);
         Assert.Equal("RIFF", System.Text.Encoding.ASCII.GetString(wav, 0, 4));
         Assert.Equal(44 + 3 * 32000 * 4, wav.Length);                // three seconds of 16-bit stereo at 32 kHz
+        Assert.Equal(path, Services.SongPlayer.Render(spc!));         // nothing changed: the same render again
     }
 
     [GmeFact]
