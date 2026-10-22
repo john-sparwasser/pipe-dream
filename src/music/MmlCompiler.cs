@@ -49,7 +49,7 @@ public static class MmlCompiler
         int first = -1;
         for (int i = 0; i < 8 && first < 0; i++)
             if (song.Channels[i] is { Count: > 0 } probe
-                && !new ChannelCompiler(song, new List<MmlDiagnostic>(), false, i, new(), new LoopState()).Run(probe).IsEmpty) first = i;
+                && (i == 0 || !new ChannelCompiler(song, new List<MmlDiagnostic>(), false, i, new(), new LoopState()).Run(probe).IsEmpty)) first = i;
         var channels = new ChannelOut?[8];
         var labels = new Dictionary<int, (int Ch, int Sub, int Line, int Col)>();
         var loopState = new LoopState();
@@ -57,7 +57,7 @@ public static class MmlCompiler
             if (song.Channels[i] is { Count: > 0 } cmds)
             {
                 var c = new ChannelCompiler(song, problems, i == first, i, labels, loopState).Run(cmds);
-                if (!c.IsEmpty || i == first) channels[i] = c;
+                if (!c.IsEmpty || i == first) channels[i] = c;     // channel 0 counts as soon as it has any text
             }
         if (first < 0) return new CompiledSong([], baseAddress, [new MmlDiagnostic(1, 1, "This song doesn't seem to have any data.")]);
         // The song's options are bytes at the start of channel 0, which exists for them when the song has no #0 of its own.
