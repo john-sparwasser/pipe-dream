@@ -1,0 +1,40 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ae="using:AvaloniaEdit"
+        x:Class="PipeDream.Ui.SongEditWindow"
+        Width="820" Height="700"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+  <DockPanel Margin="14">
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right"
+                Spacing="8" Margin="0,12,0,0">
+      <TextBlock x:Name="Size" VerticalAlignment="Center" Margin="0,0,8,0" FontSize="12"
+                 Foreground="{DynamicResource TextDimBrush}"/>
+      <Button x:Name="OpenButton" Click="OnOpen"
+              ToolTip.Tip="Open the song in your text editor (File ▸ Preferences); saving there updates the project"/>
+      <Button Content="Cancel" Click="OnCancel" IsCancel="True"/>
+      <Button x:Name="Save" Content="Save" Click="OnSave"/>
+    </StackPanel>
+    <!-- What the compiler says, one per row; Enter or a double-click puts the caret on its line. -->
+    <ListBox x:Name="Problems" DockPanel.Dock="Bottom" Height="130" Margin="0,10,0,0"
+             DoubleTapped="OnJump" KeyDown="OnProblemKey">
+      <ListBox.ItemTemplate>
+        <DataTemplate>
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+            <TextBlock Text="{Binding Where}" Foreground="{DynamicResource TextDimBrush}" FontSize="12"
+                       FontFamily="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"/>
+            <TextBlock Grid.Column="1" Text="{Binding Message}" Foreground="#F14C4C" FontSize="12"
+                       TextTrimming="CharacterEllipsis"/>
+          </Grid>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+    <!-- Same font as the block editor; colours are ui/Mml.xshd. -->
+    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4">
+      <ae:TextEditor x:Name="Editor" ShowLineNumbers="True" WordWrap="False"
+                     FontFamily="avares://PipeDream/assets/fonts#JetBrains Mono, Cascadia Mono, Consolas, Menlo, monospace" FontSize="13"
+                     Foreground="#D4D4D4" LineNumbersForeground="#6E7681" Padding="4"
+                     HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"/>
+    </Border>
+  </DockPanel>
+</Window>

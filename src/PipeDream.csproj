@@ -66,6 +66,7 @@
     <EmbeddedResource Include="data\OwPathGlyphs.bin" LogicalName="OwPathGlyphs.bin" />
     <EmbeddedResource Include="data\SpriteMap16.bin" LogicalName="SpriteMap16.bin" />
     <EmbeddedResource Include="ui\Asar.xshd" LogicalName="Asar.xshd" />
+    <EmbeddedResource Include="ui\Mml.xshd" LogicalName="Mml.xshd" />
     <AvaloniaResource Include="..\assets\fonts\*.ttf" Link="assets/fonts/%(Filename)%(Extension)" />
     <EmbeddedResource Include="data\blockdriver\*.asm" LogicalName="blockdriver/%(Filename)%(Extension)" />
     <EmbeddedResource Include="data\spritedriver\*.asm" LogicalName="spritedriver/%(Filename)%(Extension)" />

@@ -1,0 +1,110 @@
+using Avalonia.Controls;
+using Avalonia.Interactivity;
+using PipeDream.Services;
+using PipeDream.Ui;
+using Xunit;
+
+namespace PipeDream.Tests;
+
+/// <summary>The Music window and the song editor (reference/AMK_PORT.md): what they list and show after
+/// session operations, which buttons wait for a selection, and that Save reaches the project.</summary>
+public class MusicWindowTests
+{
+    private static readonly RoutedEventArgs Click = new(Button.ClickEvent);
+
+    private static EditorSession Project()
+    {
+        string dir = Directory.CreateTempSubdirectory("pipedream-proj-").FullName;
+        var s = new EditorSession();
+        Assert.True(s.NewProject(Path.Combine(dir, "proj"), ReferenceRoms.Vanilla), s.Status);
+        return s;
+    }
+
+    private static MusicWindow Open(EditorSession s)
+    {
+        var w = new MusicWindow(s);
+        w.Show();
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        return w;
+    }
+
+    private static List<T> Rows<T>(ListBox list) => [.. ((System.Collections.IEnumerable)list.ItemsSource!).Cast<T>()];
+
+    [Avalonia.Headless.XUnit.AvaloniaFact]
+    public void the_music_window_lists_songs_and_samples_and_waits_for_a_selection()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla)) return;
+        var s = Project();
+        s.NewSong("good", out _);
+        s.NewSong("bad", out _);
+        s.SetSongText("bad.mml", "#0 c d e zzz\n");
+        s.SetSongNumber("good.mml", 0x35, global: false);
+        string brr = Path.Combine(Path.GetTempPath(), $"pd-{Guid.NewGuid():N}.brr");
+        File.WriteAllBytes(brr, new byte[18]);
+        s.ImportSampleFile(brr, out var sample);
+
+        var w = Open(s);
+        var songs = w.GetControl<ListBox>("SongList");
+        var rows = Rows<MusicWindow.SongRow>(songs);
+        Assert.Equal(["bad.mml", "good.mml"], rows.Select(r => r.Path));
+        Assert.Equal(["", "local 35"], rows.Select(r => r.Number));
+        Assert.Equal("error", rows[0].Size);
+        Assert.EndsWith(" bytes", rows[1].Size);
+        Assert.Equal([new MusicWindow.SampleRow(sample!, "18 bytes")], Rows<MusicWindow.SampleRow>(w.GetControl<ListBox>("SampleList")));
+
+        string[] needsSong = ["EditButton", "NumberButton", "DeleteButton"];
+        Assert.All(needsSong, b => Assert.False(w.GetControl<Button>(b).IsEnabled));
+        Assert.False(w.GetControl<Button>("DeleteSampleButton").IsEnabled);
+        songs.SelectedIndex = 1;
+        Assert.All(needsSong, b => Assert.True(w.GetControl<Button>(b).IsEnabled));
+        w.GetControl<ListBox>("SampleList").SelectedIndex = 0;
+        w.GetControl<Button>("DeleteSampleButton").RaiseEvent(Click);
+        Assert.Empty(s.MusicSamples);
+        Assert.Equal($"deleted {sample}", w.GetControl<TextBlock>("Hint").Text);
+        Assert.False(w.GetControl<Button>("DeleteSampleButton").IsEnabled);
+        w.Close();
+    }
+
+    [Avalonia.Headless.XUnit.AvaloniaFact]
+    public void the_song_editor_shows_problems_for_a_bad_song_and_a_size_for_a_good_one()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla)) return;
+        var s = Project();
+        s.NewSong("tune", out _);
+        s.SetSongText("tune.mml", "#0 c d e zzz\n");
+
+        var w = new SongEditWindow(s, "tune.mml");
+        w.Show();
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        var list = w.GetControl<ListBox>("Problems");
+        var found = Rows<SongEditWindow.Problem>(list);
+        Assert.NotEmpty(found);
+        Assert.All(found, p => Assert.Equal(1, p.Line));
+        Assert.Contains("problem", w.GetControl<TextBlock>("Size").Text);
+
+        // Typing re-checks after a pause; CheckNow is that pause's work.
+        var editor = w.GetControl<AvaloniaEdit.TextEditor>("Editor");
+        editor.Text = "#amk 2\n#0 @0 v255 o5 l8\nc d e f\n";
+        w.CheckNow();
+        Assert.Empty(Rows<SongEditWindow.Problem>(list));
+        Assert.Matches(@"^\d[\d,]* bytes$", w.GetControl<TextBlock>("Size").Text!);
+
+        w.GetControl<Button>("Save").RaiseEvent(Click);
+        Assert.Equal("#amk 2\n#0 @0 v255 o5 l8\nc d e f\n", s.SongText("tune.mml"));
+    }
+
+    [Avalonia.Headless.XUnit.AvaloniaFact]
+    public void cancelling_the_song_editor_leaves_the_song_alone()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla)) return;
+        var s = Project();
+        s.NewSong("tune", out _);
+        string before = s.SongText("tune.mml")!;
+        var w = new SongEditWindow(s, "tune.mml");
+        w.Show();
+        w.GetControl<AvaloniaEdit.TextEditor>("Editor").Text = "; nothing";
+        w.GetControl<Button>("OpenButton");                       // present, even with no editor configured
+        w.Close();
+        Assert.Equal(before, s.SongText("tune.mml"));
+    }
+}
