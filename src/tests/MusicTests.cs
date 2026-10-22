@@ -180,6 +180,20 @@ public class MusicTests
         foreach (string d in Directory.GetDirectories(from)) CopyTree(d, Path.Combine(to, Path.GetFileName(d)));
     }
 
+    [Fact]
+    public void a_songs_path_is_where_its_samples_are_found_and_kept()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla)) return;
+        var s = new Services.EditorSession();
+        Assert.True(s.NewProject(Path.Combine(Temp(), "proj"), ReferenceRoms.Vanilla), s.Status);
+        string dir = Temp();
+        Directory.CreateDirectory(Path.Combine(dir, "kit"));
+        File.WriteAllBytes(Path.Combine(dir, "kit", "snare.brr"), [7, 7]);
+        File.WriteAllText(Path.Combine(dir, "Kit.txt"), "#path \"kit\"\n#samples\n{\n\t\"snare.brr\"\n}\n#0 c4\n");
+        Assert.Equal("added Kit.txt with 1 sample(s)", s.ImportSongFile(Path.Combine(dir, "Kit.txt"), out _));
+        Assert.Contains(s.MusicSamples, x => x.Path == "kit/snare.brr");             // where layout looks for it first
+    }
+
     [RealRomFact]
     public void the_library_through_the_session()
     {

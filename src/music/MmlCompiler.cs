@@ -350,6 +350,7 @@ public static class MmlCompiler
                             loopState.Used.Add(groupBase + index);
                             break;
                         }
+                    case BendToNoteCmd b: buf.Bytes.AddRange(Scaled([0xDD, b.Delay, b.Duration, (byte)NoteByte(b.Target)])); break;
                     case HexCmd h:
                         // $EF's parameters are written channels, left, right and stored left, right, channels.
                         if (h.Bytes[0] == 0xEF) buf.Bytes.AddRange([0xEF, h.Bytes[2], h.Bytes[3], h.Bytes[1]]);

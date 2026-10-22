@@ -73,8 +73,11 @@ public sealed partial class EditorSession
         var m = Project!.Data.Music;
         int copied = 0;
         List<string> missing = [];
-        foreach (string sample in SampleNames(text!).Distinct())
+        // A song's #path is the folder its samples are in, beside it; they are kept under "folder/name", where layout looks first.
+        string folder = Regex.Match(text!, "(?im)^\\s*#path\\s+\"([^\"\\r\\n]*)\"") is { Success: true } p ? p.Groups[1].Value.Trim('/') : "";
+        foreach (string name in SampleNames(text!).Distinct())
         {
+            string sample = folder.Length > 0 && File.Exists(Path.Combine(beside, folder, name)) ? $"{folder}/{name}" : name;
             if (m.Samples.ContainsKey(sample)) continue;
             string file = Path.Combine(beside, sample.Replace('/', Path.DirectorySeparatorChar));
             if (!AmkImport.SafePath(sample) || !File.Exists(file)) { missing.Add(sample); continue; }

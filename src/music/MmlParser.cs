@@ -23,8 +23,9 @@ public static class MmlParser
 
     // ---- the preprocessor ----
 
-    /// <summary>#define #undef #ifdef #ifndef #if #endif #error, each alone on its line. Directive lines and the lines of an
-    /// untaken branch become empty so line numbers are unchanged.</summary>
+    /// <summary>#define #undef #error alone on their line; #ifdef #ifndef #if #endif there or inside one ("#if PANNING == 1 y12
+    /// #endif", as newer AddmusicK reads them; 1.0.5 refuses). Directives and untaken text become blanks so line numbers are
+    /// unchanged.</summary>
     internal static string Preprocess(string text, List<MmlDiagnostic> problems)
     {
         var defines = new Dictionary<string, int?>(StringComparer.OrdinalIgnoreCase);
@@ -54,23 +55,11 @@ public static class MmlParser
             {
                 if (Active()) defines.Remove(body[7..].Trim());
             }
-            else if (lower.StartsWith("#ifdef "))
-                taken.Push(Active() && defines.ContainsKey(body[7..].Trim()));
-            else if (lower.StartsWith("#ifndef "))
-                taken.Push(Active() && !defines.ContainsKey(body[8..].Trim()));
-            else if (lower.StartsWith("#if "))
+            else if (Conditional.IsMatch(body))
             {
-                bool yes = false;
-                var p = body[4..].Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries);
-                if (p.Length == 3 && int.TryParse(p[2], out int rhs) && defines.TryGetValue(p[0], out var lhs) && lhs is { } l)
-                    yes = p[1] switch { "==" => l == rhs, "!=" => l != rhs, "<" => l < rhs, ">" => l > rhs, "<=" => l <= rhs, ">=" => l >= rhs, _ => false };
-                else if (p.Length != 3) problems.Add(new(n, 1, "Error parsing #if directive."));
-                taken.Push(Active() && yes);
-            }
-            else if (lower == "#endif")
-            {
-                if (taken.Count == 0) problems.Add(new(n, 1, "#endif found without a matching #if."));
-                else taken.Pop();
+                sb.Append(Conditionals(body, n));
+                sb.Append('\n');
+                continue;
             }
             else if (lower.StartsWith("#error"))
             {
@@ -84,7 +73,51 @@ public static class MmlParser
         if (taken.Count > 0) problems.Add(new(n, 1, "Missing #endif."));
         sb.Length--;
         return sb.ToString();
+
+        // A line with conditionals in it: each takes its operands, and the text between them stays while its branch is taken.
+        string Conditionals(string body, int n)
+        {
+            var kept = new StringBuilder();
+            string rest = body;
+            string Next()
+            {
+                rest = rest.TrimStart();
+                int end = rest.IndexOfAny([' ', '\t']);
+                string token = end < 0 ? rest : rest[..end];
+                rest = end < 0 ? "" : rest[end..];
+                return token;
+            }
+            while (true)
+            {
+                var m = Conditional.Match(rest);
+                if (Active()) kept.Append(m.Success ? rest[..m.Index] : rest).Append(' ');
+                if (!m.Success) break;
+                rest = rest[(m.Index + m.Length)..];
+                switch (m.Value.ToLowerInvariant())
+                {
+                    case "#ifdef": taken.Push(Active() && defines.ContainsKey(Next())); break;
+                    case "#ifndef": taken.Push(Active() && !defines.ContainsKey(Next())); break;
+                    case "#if":
+                        {
+                            string a = Next(), op = Next(), b = Next();
+                            bool yes = false;
+                            if (b.Length == 0) problems.Add(new(n, 1, "Error parsing #if directive."));
+                            else if (int.TryParse(b, out int rhs) && defines.TryGetValue(a, out var lhs) && lhs is { } l)
+                                yes = op switch { "==" => l == rhs, "!=" => l != rhs, "<" => l < rhs, ">" => l > rhs, "<=" => l <= rhs, ">=" => l >= rhs, _ => false };
+                            taken.Push(Active() && yes);
+                            break;
+                        }
+                    default:
+                        if (taken.Count == 0) problems.Add(new(n, 1, "#endif found without a matching #if."));
+                        else taken.Pop();
+                        break;
+                }
+            }
+            return kept.ToString().TrimEnd();
+        }
     }
+
+    private static readonly Regex Conditional = new(@"#(?:ifdef|ifndef|if|endif)(?=\s|$)", RegexOptions.IgnoreCase);
 
     // ---- hex commands: the byte after $ and how many parameter bytes follow ----
 
@@ -650,6 +683,20 @@ public static class MmlParser
             for (int i = 0; i < need || need < 0; i++)
             {
                 SkipTrivia();
+                int shifts = 0;
+                while (Peek(shifts) is '<' or '>') shifts++;
+                if (bytes[0] == 0xDD && i == 2 && IsNoteLetter(char.ToLowerInvariant(Peek(shifts))))
+                {
+                    while (Peek() is '<' or '>') { into.Add(new OctaveShiftCmd(line, col, Peek() == '<' ? -1 : 1)); Advance(); }   // they last, as anywhere
+                    int nl = line, nc = col;
+                    char letter = char.ToLowerInvariant(Peek());
+                    Advance();
+                    int acc = 0;
+                    if (Peek() == '+') { Advance(); acc = 1; }
+                    else if (Peek() == '-') { Advance(); acc = -1; }
+                    into.Add(new BendToNoteCmd(l, cc, bytes[1], bytes[2], new NoteCmd(nl, nc, Semitone[letter - 'a'], acc, MmlLength.None)));
+                    return;
+                }
                 if (Peek() != '$') { Error("Unknown hex command type.", l, cc); return; }
                 int? v = ReadHexToken();
                 if (v is null) { Error("Unknown hex command type.", l, cc); return; }

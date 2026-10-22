@@ -23,6 +23,10 @@ public sealed record NoteCmd(int Line, int Column, int Letter, int Accidental, M
 public sealed record RestCmd(int Line, int Column, MmlLength Length) : Cmd(Line, Column);
 /// <param name="BeforeBend">Written straight against a <c>$DD</c> ("^16$DD"): AddmusicK writes it on its own, not into the note's
 /// length (measured; a space between and it does not).</param>
+/// <summary><c>$DD $XX $YY</c> with the target written as a note ("$DD $00 $0C a+"), as newer AddmusicK allows: the note's byte in
+/// the octave and transposition at that point.</summary>
+public sealed record BendToNoteCmd(int Line, int Column, byte Delay, byte Duration, NoteCmd Target) : Cmd(Line, Column);
+
 public sealed record TieCmd(int Line, int Column, MmlLength Length, bool BeforeBend = false) : Cmd(Line, Column);
 public sealed record OctaveCmd(int Line, int Column, int Octave) : Cmd(Line, Column);
 public sealed record OctaveShiftCmd(int Line, int Column, int By) : Cmd(Line, Column);

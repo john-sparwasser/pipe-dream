@@ -187,6 +187,15 @@ public class MmlTests
         => Assert.Contains("no loop to recall", Assert.Single(Compile("#amk 2\n(!1)[$F4 $09]\n#0 c4 *2").Diagnostics).Message);
 
     [Fact]
+    public void newer_addmusick_syntax_reads_as_its_long_form()
+    {
+        // #if ... #endif inside a line, and a $DD bend's target written as a note (with octave changes before it, which last).
+        Assert.Equal(Hex(Compile("#amk 2\n#define P 1\n#0 c4\n#if P == 1\ny12\n#endif\nd4").Bytes),
+                     Hex(Compile("#amk 2\n#define P 1\n#0 c4\n#if P == 0 y10 #endif\n#if P == 1 y12 #endif\nd4").Bytes));
+        Assert.Equal(Hex(Compile("#amk 2\n#0 o4 c4 $DD $00 $0C $B0 o3 d4").Bytes), Hex(Compile("#amk 2\n#0 o4 c4 $dd$00$0c >c <<d4").Bytes));
+    }
+
+    [Fact]
     public void a_negative_tick_length_is_an_error()
     {
         Assert.Contains("note length", Assert.Single(MmlParser.Parse("#amk 2\n#0 c=-5 d4").Diagnostics).Message);
