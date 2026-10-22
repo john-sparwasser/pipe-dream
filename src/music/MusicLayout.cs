@@ -15,7 +15,9 @@ public sealed record AramImage(byte[] Ram, int SongBase, int InstrumentTable, in
 /// <code>
 /// $0000-$00EF  direct page          $0100-$01FF  stack
 /// $0200-$03EF  per-channel state    $03F0        song info: song (word), instrument table (word), directory page
-/// $0400        the engine           next page    the sample directory, four bytes a sample (start, loop)
+///                                   $03F5        effect info: instruments, $1DF9 table, $1DFC table (words), their sizes
+/// $0400        the engine           then         the sound effects (SoundEffects.Place)
+///              next page            the sample directory, four bytes a sample (start, loop)
 ///              the song             then         its samples, one after another
 /// top          the echo buffer: 2 KB a unit of the song's longest delay ($FF00 for none)
 /// </code>
@@ -23,12 +25,14 @@ public sealed record AramImage(byte[] Ram, int SongBase, int InstrumentTable, in
 /// </summary>
 public static class MusicLayout
 {
-    public const int EngineBase = 0x0400, SongInfo = 0x03F0;
+    public const int EngineBase = 0x0400, SongInfo = 0x03F0, SfxInfo = 0x03F5;
 
     /// <param name="engine">The assembled engine, loaded at $0400.</param>
     /// <param name="groupSamples">A sample group's samples by name ("default" etc.), or null if there is no such group.</param>
     /// <param name="sample">A sample file by the name a song gives it, or null.</param>
-    public static AramImage Build(byte[] engine, MmlSong song, Func<string, IReadOnlyList<byte[]>?> groupSamples, Func<string, byte[]?> sample)
+    /// <param name="sfx">The sound effects, placed after the engine (none if null).</param>
+    public static AramImage Build(byte[] engine, MmlSong song, Func<string, IReadOnlyList<byte[]>?> groupSamples, Func<string, byte[]?> sample,
+        SoundEffects? sfx = null)
     {
         var problems = new List<MmlDiagnostic>(song.Diagnostics);
         var empty = new AramImage([], 0, 0, 0, 0, 0, 0, problems);
@@ -55,6 +59,13 @@ public static class MusicLayout
         var ram = new byte[0x10000];
         int engineEnd = EngineBase + engine.Length;
         Array.Copy(engine, 0, ram, EngineBase, engine.Length);
+        if (sfx is not null)
+        {
+            var (block, info) = sfx.Place(engineEnd);
+            Array.Copy(block, 0, ram, engineEnd, block.Length);
+            Array.Copy(info, 0, ram, SfxInfo, info.Length);
+            engineEnd += block.Length;
+        }
         int dir = (engineEnd + 0xFF) & ~0xFF;
         int songBase = dir + 4 * brrs.Count;
 

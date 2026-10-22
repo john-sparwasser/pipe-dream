@@ -27,6 +27,20 @@ public static class SmwSound
         return ram;
     }
 
+    /// <summary>SMW's sound engine, effects and samples as the game uploads them at power-on (engine, effect data and tables from
+    /// $0E8000, samples from $0F8000): an ARAM image that starts at $0500 and plays SMW's sound effects from its ports.</summary>
+    public static byte[] VanillaAram(Rom rom)
+    {
+        var ram = Upload(rom, EngineStream);
+        var samples = Upload(rom, SampleStream);
+        Array.Copy(samples, 0x8000, ram, 0x8000, 0x8000);
+        return ram;
+    }
+
+    /// <summary>SMW's sound engine upload: code at $0500, sound-effect instruments and data at $5570, and more.</summary>
+    public const int EngineStream = 0x0E8000;
+    public const int VanillaEntry = 0x0500;
+
     /// <summary>SMW's samples in AddmusicK's .brr form (a two-byte loop offset, then the BRR blocks up to the one marked last),
     /// in directory order: index i is what <c>#default</c> calls sample i.</summary>
     public static List<byte[]> StockSamples(Rom rom)

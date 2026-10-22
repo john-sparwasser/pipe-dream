@@ -18,6 +18,29 @@ base $0400
 
 !SongInfo = $03F0                 ; the song as music/MusicLayout.cs placed it: its address (word), its instrument table (word),
                                   ; the sample directory's page
+!SfxInfo = $03F5                  ; the sound effects: instruments (word), the $1DF9 table (word), the $1DFC table (word), how many
+                                  ; of each table there are (two bytes)
+
+; ---- sound-effect channels: two-byte arrays, index 0 = voice 6 ($1DF9), 1 = voice 7 ($1DFC and $1DFA)
+!s_ptrL = $0100                   ; (the bottom of the stack page: the stack itself stays near $01EF)
+!s_ptrH = $0102
+!s_startL = $0104                 ; where the effect began, for $FE
+!s_startH = $0106
+!s_wait = $0108                   ; ticks until the next read; 0: no effect playing
+!s_koff = $010A                   ; ticks until the note is released
+!s_volL = $010C
+!s_volR = $010E
+!s_tune = $0110
+!s_note = $0112                   ; the note sounding (whole semitones) and its fraction, for slides
+!s_frac = $0114
+!s_stepL = $0116                  ; a slide: the step a tick (1/256 semitone, signed), ticks left, ticks before it starts
+!s_stepH = $0118
+!s_slLeft = $011A
+!s_slDelay = $011C
+!s_dur = $011E                    ; the length notes are given
+!s_target = $0120                 ; where the slide ends (it lands there exactly)
+!s_lastL = $0122                  ; where the last note byte was, for $FF
+!s_lastH = $0124
 
 ; ---- direct page ----
 !t0 = $00
@@ -74,6 +97,14 @@ base $0400
 !syncOn = $36                           ; $F4 $05: the song's tick count goes out on ports 0 and 1
 !syncL = $37
 !syncH = $38
+!sfxAcc = $39                           ; sound effects: their tick accumulator (a fixed tempo, 55),
+!sfxBusy = $3A                          ;   the voices they hold ($40, $80): music leaves those alone,
+!lastP0 = $3B                           ;   and the ports as last read, so a new value starts one
+!lastP1 = $3C
+!lastP3 = $3D
+!sfxEcho = $3E                          ;   $1DFA $06: effects echo as the song does ($05: they do not, the default)
+!sfxNon = $3F                           ;   the effect voices playing noise
+!paused = $E0                           ; $1DF9 $11 (pause): the song stands still, every voice off, until $12
 !c_offL = $40                           ; per channel (eight bytes each, in the direct page): the pitch effects' offset last sent
 !c_offH = $48
 !c_arpType = $50                        ; $FB, per channel in the direct page: 0 none, 1 arpeggio, 2 trill, 3 glissando,
@@ -181,6 +212,11 @@ Start:
     bne .clear
     mov $00,a
     call InitDsp
+    mov a,#$00
+    mov x,#$25
+-   mov !s_ptrL+x,a
+    dec x
+    bpl -
     mov $FA,#16                         ; timer 0: 8 kHz / 16 = 500 ticks a second
     mov $F1,#$01
     mov a,#$C0
@@ -233,8 +269,19 @@ Main:
 
 ; One 500 Hz tick: the tempo accumulator decides whether it is also a song tick.
 Tick:
-    mov a,!playing
+    mov a,!sfxAcc                       ; sound effects keep their own time: tempo 55 whatever the song does (measured)
+    clrc
+    adc a,#56
+    mov !sfxAcc,a
+    bcc +
+    mov x,#$00
+    call SfxTick
+    mov x,#$01
+    call SfxTick
++   mov a,!playing
     beq .done
+    mov a,!paused
+    bne .done
     mov a,!tickAcc
     setc
     adc a,!tempo                        ; + tempo + 1
@@ -271,7 +318,28 @@ Effects:
 ; ---------------------------------------------------------------- ports
 ; Port 2 starts a song; the value is echoed on the output port once it has been taken.
 Ports:
-    mov a,$F6
+    mov a,$F4                           ; port 0: a $1DF9 effect on voice 6
+    cmp a,!lastP0
+    beq +
+    mov !lastP0,a
+    cmp a,#$00
+    beq +
+    mov x,#$00
+    call SfxStart
++   mov a,$F7                           ; port 3: a $1DFC effect on voice 7
+    cmp a,!lastP3
+    beq +
+    mov !lastP3,a
+    cmp a,#$00
+    beq +
+    mov x,#$01
+    call SfxStart
++   mov a,$F5                           ; port 1: $1DFA
+    cmp a,!lastP1
+    beq +
+    mov !lastP1,a
+    call Port1
++   mov a,$F6
     cmp a,!lastP2
     beq .out
     mov !lastP2,a
@@ -509,10 +577,14 @@ SongTick:
 
 ; Tell the DSP what this tick decided: voices to release, then voices to start.
 FlushDsp:
-    mov a,!koffMask
+    mov a,!sfxBusy                      ; voices a sound effect holds are the effect's
+    eor a,#$FF
+    and a,!koffMask
     mov $F2,#$5C
     mov $F3,a
-    mov a,!konMask
+    mov a,!sfxBusy
+    eor a,#$FF
+    and a,!konMask
     beq .done
     mov $F2,#$5C
     mov $F3,#$00
@@ -643,6 +715,11 @@ KeyOffVoice:                            ; X = channel: add its voice to this tic
     call VoiceBit
     or a,!koffMask
     mov !koffMask,a
+    ret
+
+Muted:                                  ; X = channel -> Z clear when a sound effect holds its voice
+    call VoiceBit
+    and a,!sfxBusy
     ret
 
 VoiceBit:                               ; X = channel -> A = 1 << X (X kept)
@@ -880,6 +957,8 @@ PercussionOn:
 SendInstrument:                         ; X = channel
     mov a,!c_dirty+x
     beq .done
+    call Muted
+    bne .done                           ; (still dirty: sent once the effect is over)
     mov a,#$00
     mov !c_dirty+x,a
     call VoiceBase                      ; A = voice * 16
@@ -943,40 +1022,10 @@ NoteValue:
 ; interpolating between neighbours there; each octave below is half of the one above; the instrument's tuning multiplies it:
 ; pitch = P1 x whole + (P1 x fraction >> 8).
 ComputePitch:                           ; A = note byte, X = channel -> !t0/!t1 = pitch
-    setc
-    sbc a,#$80
-    mov !t2,x
-    mov y,#$00
-    mov x,#$0C
-    div ya,x                            ; A = octave 0-5, Y = semitone
-    mov x,!t2
-    mov !t3,a
-    mov a,PitchLo+1+y                   ; the step to the next semitone, times the fraction
-    setc
-    sbc a,PitchLo+y
-    mov !t4,y
-    mov y,!frac
-    mul ya
-    mov !t5,y                           ; (step x fraction) >> 8
-    mov y,!t4
-    mov a,PitchLo+y
-    clrc
-    adc a,!t5
-    mov !t0,a
-    mov a,PitchHi+y
-    adc a,#$00
-    mov !t1,a
-    mov a,#$05
-    setc
-    sbc a,!t3                           ; shifts down: 5 - octave
-    mov y,a
-    beq .tuned
-.shift:
-    lsr !t1
-    ror !t0
-    dec y
-    bne .shift
-.tuned:
+    call TablePitch
+    ; fall into TunePitch
+
+TunePitch:                              ; !t0/!t1 times the channel's tuning
     mov a,!c_tdd+x
     mov !t6,a
     mov a,!c_tee+x
@@ -1012,6 +1061,44 @@ ComputePitch:                           ; A = note byte, X = channel -> !t0/!t1 
     mov a,!t5
     adc a,!t3
     mov !t1,a
+    ret
+
+; Note byte and !frac -> the pitch before tuning in !t0/!t1 (X kept).
+TablePitch:
+    setc
+    sbc a,#$80
+    mov !t2,x
+    mov y,#$00
+    mov x,#$0C
+    div ya,x                            ; A = octave 0-5, Y = semitone
+    mov x,!t2
+    mov !t3,a
+    mov a,PitchLo+1+y                   ; the step to the next semitone, times the fraction
+    setc
+    sbc a,PitchLo+y
+    mov !t4,y
+    mov y,!frac
+    mul ya
+    mov !t5,y                           ; (step x fraction) >> 8
+    mov y,!t4
+    mov a,PitchLo+y
+    clrc
+    adc a,!t5
+    mov !t0,a
+    mov a,PitchHi+y
+    adc a,#$00
+    mov !t1,a
+    mov a,#$05
+    setc
+    sbc a,!t3                           ; shifts down: 5 - octave
+    mov y,a
+    beq .done
+.shift:
+    lsr !t1
+    ror !t0
+    dec y
+    bne .shift
+.done:
     ret
 
 ; Pitch effects, every timer tick: the note moved by the bend and the vibrato. t is song ticks since key-on plus the tempo
@@ -1409,6 +1496,8 @@ CmdVibratoOff:                          ; $DF: and the note back where it was
 +   jmp ReadData
 
 SendPitch:                              ; X = channel, !t0/!t1 = pitch
+    call Muted
+    bne +
     call VoiceBase
     clrc
     adc a,#$02
@@ -1418,11 +1507,14 @@ SendPitch:                              ; X = channel, !t0/!t1 = pitch
     inc $F2
     mov a,!t1
     mov $F3,a
-    ret
++   ret
 
 ; Voice volumes: P = ((((v x velocity) >> 8) x master) >> 8)^2 >> 9, then each side is P x pan >> 7.
 SendVolume:                             ; X = channel
-    mov a,!c_vel+x
+    call Muted
+    beq +
+    ret
++   mov a,!c_vel+x
     mov y,a
     mov a,!nspcVel
     beq +
@@ -2018,10 +2110,19 @@ GlobalFades:                            ; each song tick
     call EchoFadeTick
 +   mov a,!pmon                         ; PMON, NON and EON every tick, as AddmusicK's
     %dsp($2D)
-    mov a,!non
+    mov a,!sfxBusy
+    eor a,#$FF
+    and a,!non
+    or a,!sfxNon
     %dsp($3D)
+    mov a,!sfxEcho                      ; effects' voices echo only when $1DFA $06 said so
+    beq +
     mov a,!eon
-    %dsp($4D)
+    bra ++
++   mov a,!sfxBusy
+    eor a,#$FF
+    and a,!eon
+++  %dsp($4D)
     ret
 
 MasterFadeTick:
@@ -2551,6 +2652,446 @@ CommandTable:                           ; $DA ... $FC
 
 ParamCount:                             ; $DA ... $FC: how many bytes follow each command; $FF where TieFollows stops looking
     db 1,1,2,3,3,0, 1,2,1,2,1,3, $FF,1,2,$FF,1,3, 3,2,1,3,0,3, 3,2,1,8,2,$FF, 1,2,2,$FF,4
+
+; ---------------------------------------------------------------- sound effects
+; $1DF9 effects play on voice 6, $1DFC and $1DFA's on voice 7, as AddmusicK puts them (SMW's own engine used 4, 6 and 7). The
+; bytecode is SMW's: a length (under $80) with one or two volumes after it, notes from $80, $DA instrument, $DD note delay
+; length note (a slide), $EB delay length note (a slide from the note sounding), $FF the last note again, $FE from the start,
+; $00 the end. An instrument is the voice's eight registers (volume, pitch, sample, ADSR, GAIN) and a tuning: nine bytes.
+; Notes are released two ticks before they end; slides move a step a tick. While an effect plays, the music on that voice
+; goes on unheard and its next note puts its own instrument back.
+
+SfxVoice:   db $60,$70                  ; X = effect channel -> the voice's registers and its bit
+SfxBit:     db $40,$80
+
+SfxStart:                               ; A = effect number, X = effect channel
+    mov !t0,a
+    cmp a,#$00                          ; (MOV to memory sets no flags; the caller's MOV X did)
+    beq .none
+    cmp a,!SfxInfo+6+x                  ; past the end of the table: nothing
+    bcs .none
+    mov a,x
+    asl a
+    mov y,a
+    mov a,!SfxInfo+2+y                  ; the table: $1DF9's or $1DFC's
+    mov !t2,a
+    mov a,!SfxInfo+3+y
+    mov !t3,a
+    mov a,!t0
+    asl a
+    mov y,a
+    mov a,(!t2)+y
+    mov !s_ptrL+x,a
+    mov !s_startL+x,a
+    inc y
+    mov a,(!t2)+y
+    mov !s_ptrH+x,a
+    mov !s_startH+x,a
+    mov a,#$01                          ; read on the next effect tick
+    mov !s_wait+x,a
+    mov a,#$00
+    mov !s_koff+x,a
+    mov !s_slLeft+x,a
+    mov a,SfxBit+x                      ; the voice is the effect's: released now
+    or a,!sfxBusy
+    mov !sfxBusy,a
+    mov a,SfxBit+x
+    %dsp($5C)
+.none:
+    ret
+
+SfxTick:                                ; X = effect channel, every effect tick
+    mov a,!s_wait+x
+    beq .ret
+    mov a,!s_slLeft+x                   ; a slide
+    beq .koff
+    mov a,!s_slDelay+x
+    beq +
+    dec a
+    mov !s_slDelay+x,a
+    bra .koff
++   call SfxSlideStep
+.koff:
+    mov a,!s_koff+x
+    beq +
+    dec a
+    mov !s_koff+x,a
+    bne +
+    mov a,!s_slLeft+x                   ; still sliding: no release
+    bne +
+    mov a,SfxBit+x
+    %dsp($5C)
++   mov a,!s_wait+x
+    dec a
+    mov !s_wait+x,a
+    bne .ret
+    call SfxRead
+.ret:
+    ret
+
+SfxSlideStep:                           ; one step of the slide, and the pitch sent
+    mov a,!s_frac+x
+    clrc
+    adc a,!s_stepL+x
+    mov !s_frac+x,a
+    mov a,!s_note+x
+    adc a,!s_stepH+x
+    mov !s_note+x,a
+    mov a,!s_slLeft+x
+    dec a
+    mov !s_slLeft+x,a
+    bne +
+    mov a,!s_target+x                   ; the last step lands on the target
+    mov !s_note+x,a
+    mov a,#$00
+    mov !s_frac+x,a
++   jmp SfxSendPitch
+
+SfxGet:                                 ; A = the effect's next byte (X = effect channel), Z and N from it
+    mov a,!s_ptrL+x
+    mov !t0,a
+    mov a,!s_ptrH+x
+    mov !t1,a
+    mov y,#$00
+    mov a,(!t0)+y
+    push a
+    incw !t0
+    mov a,!t0
+    mov !s_ptrL+x,a
+    mov a,!t1
+    mov !s_ptrH+x,a
+    pop a
+    cmp a,#$00
+    ret
+
+SfxPeek:                                ; A = the next byte without taking it
+    mov a,!s_ptrL+x
+    mov !t0,a
+    mov a,!s_ptrH+x
+    mov !t1,a
+    mov y,#$00
+    mov a,(!t0)+y
+    ret
+
+SfxRead:
+    call SfxGet
+    bne +
+    jmp SfxEnd
++   bmi .cmd
+    mov !s_dur+x,a                      ; a length, and maybe one volume (both sides) or two: bytes under $80, 0 included
+    call SfxPeek
+    bmi SfxRead
+    call SfxGet
+    mov !s_volL+x,a
+    mov !s_volR+x,a
+    call SfxPeek
+    bmi SfxRead
+    call SfxGet
+    mov !s_volR+x,a
+    bra SfxRead
+.cmd:
+    cmp a,#$DA
+    bne +
+    jmp .instrument
++   cmp a,#$DD
+    bne +
+    jmp .slide
++   cmp a,#$EB
+    bne +
+    jmp .slideOn
++   cmp a,#$FF
+    bne +
+    jmp .again
++   cmp a,#$FE
+    bne +
+    jmp .restart
++   cmp a,#$C6
+    bcc +
+    jmp .rest
++   push a                              ; a note: remember where it was
+    mov a,!s_ptrL+x
+    setc
+    sbc a,#$01
+    mov !s_lastL+x,a
+    mov a,!s_ptrH+x
+    sbc a,#$00
+    mov !s_lastH+x,a
+    pop a
+    jmp SfxNote
+.instrument:                            ; $DA n, or $DA ($80 | noise clock) n: noise from the instrument's voice
+    call SfxGet
+    bpl .tone
+    and a,#$1F
+    %dsp($6C)
+    mov a,SfxBit+x
+    or a,!sfxNon
+    mov !sfxNon,a
+    call SfxGet
+    call SfxInstrument
+    jmp SfxRead
+.tone:
+    push a
+    mov a,SfxBit+x
+    eor a,#$FF
+    and a,!sfxNon
+    mov !sfxNon,a
+    pop a
+    call SfxInstrument
+    jmp SfxRead
+.slide:                                 ; $DD note x length target: the note, sliding from its first tick (the second byte,
+    call SfxGet                         ; documented as a delay, does not delay it: measured)
+    push a
+    call SfxGet
+    mov a,#$00
+    mov !s_slDelay+x,a
+    call SfxGet
+    mov !s_slLeft+x,a
+    call SfxGet
+    mov !t4,a
+    pop a
+    push a
+    call SfxSlideTo
+    pop a
+    jmp SfxNote
+.slideOn:                               ; $EB x length target: the note sounding goes on (not keyed again), sliding to the target
+    call SfxGet
+    mov a,#$00
+    mov !s_slDelay+x,a
+    call SfxGet
+    mov !s_slLeft+x,a
+    call SfxGet
+    mov !t4,a
+    mov a,!s_note+x
+    call SfxSlideTo
+    call SfxVolume
+    call SfxArmRelease
+    mov a,!s_slLeft+x
+    beq +
+    call SfxSlideStep
++   ret
+.again:                                 ; $FF: back to the last note, read again on the next tick, and so on (Drumroll ends so)
+    mov a,!s_lastL+x
+    mov !s_ptrL+x,a
+    mov a,!s_lastH+x
+    mov !s_ptrH+x,a
+    mov a,#$01
+    mov !s_wait+x,a
+    ret
+.restart:                               ; $FE: from the start
+    mov a,!s_startL+x
+    mov !s_ptrL+x,a
+    mov a,!s_startH+x
+    mov !s_ptrH+x,a
+    jmp SfxRead
+.rest:                                  ; $C6: the note sounding keyed on again (as Jump and Egg hatch end); $C7 and up: a rest
+    bne +
+    mov a,!s_note+x
+    jmp SfxNote
++   cmp a,#$FD
+    beq .pause
+    mov a,SfxBit+x
+    %dsp($5C)
+    mov a,!s_dur+x
+    mov !s_wait+x,a
+    ret
+.pause:                                 ; $FD n (ours, from SfxCompiler): 1 pauses the song, 0 lets it go on
+    call SfxGet
+    call Pause
+    jmp SfxRead
+
+; A = the note to slide from, !t4 the target; the delay and length are set: the step is (target - from) x 256 / length.
+SfxSlideTo:
+    mov !t3,a
+    mov a,!t4
+    mov !s_target+x,a
+    mov a,!t4
+    setc
+    sbc a,!t3
+    mov !t3,a                           ; signed semitones
+    mov a,!s_slLeft+x
+    beq .none
+    push x
+    mov y,a                             ; FadeStep wants from/to in !t2/!t3 and the length in Y: use it on (0, difference)
+    mov a,!t3
+    mov !t5,a
+    mov a,#$00
+    mov !t2,a
+    mov a,!t5
+    bpl +
+    eor a,#$FF                          ; (FadeStep is unsigned: do the size, then the sign)
+    inc a
++   mov !t3,a
+    call FadeStep
+    pop x
+    mov a,!t5
+    bpl +
+    mov a,!t0
+    eor a,#$FF
+    clrc
+    adc a,#$01
+    mov !t0,a
+    mov a,!t1
+    eor a,#$FF
+    adc a,#$00
+    mov !t1,a
++   mov a,!t0
+    mov !s_stepL+x,a
+    mov a,!t1
+    mov !s_stepH+x,a
+.none:
+    ret
+
+; A = note: its pitch and volume to the voice, keyed on; released two ticks before its length is up.
+SfxNote:
+    mov !s_note+x,a
+    mov a,#$00
+    mov !s_frac+x,a
+    call SfxSendPitch
+    call SfxVolume
+    mov a,SfxBit+x
+    %dsp($4C)
+    call SfxArmRelease
+    mov a,!s_slLeft+x                   ; a slide with no delay moves on the note's own tick
+    beq +
+    mov a,!s_slDelay+x
+    bne +
+    call SfxSlideStep
++   ret
+
+; The note lasts its length and is released two ticks before the end, unless a slide is still moving then (SfxTick): one as
+; long as its note runs on into what follows (measured: Koopaling defeated's slides never let go, Lose Yoshi's shorter ones do).
+SfxArmRelease:
+    mov a,!s_dur+x
+    mov !s_wait+x,a
+    setc
+    sbc a,#$02
+    bcs +
+    mov a,#$00
++   mov !s_koff+x,a
+    ret
+
+SfxVolume:
+    mov a,SfxVoice+x
+    mov $F2,a
+    mov a,!s_volL+x
+    mov $F3,a
+    inc $F2
+    mov a,!s_volR+x
+    mov $F3,a
+    ret
+
+; $1DF9 $11 and $12's pause and unpause: every voice off and the song held; then on again from where it stood.
+Pause:                                  ; A = 1 pause, 0 go on
+    mov !paused,a
+    beq +
+    %dspi($5C,$FF)
++   ret
+
+SfxSendPitch:                           ; the note (and fraction) at the instrument's tuning to the voice
+    mov a,!s_frac+x
+    mov !frac,a
+    mov a,!s_note+x
+    call TablePitch
+    mov a,!s_tune+x                     ; x the tuning (whole numbers only)
+    mov y,a
+    mov a,!t0
+    mul ya
+    mov !t4,a
+    mov !t5,y
+    mov a,!s_tune+x
+    mov y,a
+    mov a,!t1
+    mul ya
+    clrc
+    adc a,!t5
+    mov !t5,a
+    mov a,SfxVoice+x
+    or a,#$02
+    mov $F2,a
+    mov a,!t4
+    mov $F3,a
+    inc $F2
+    mov a,!t5
+    mov $F3,a
+    ret
+
+; A = effect instrument: its eight registers to the voice as they are, and its tuning.
+SfxInstrument:
+    mov y,#$09
+    mul ya
+    clrc
+    adc a,!SfxInfo
+    mov !t0,a
+    mov a,y
+    adc a,!SfxInfo+1
+    mov !t1,a
+    mov a,SfxVoice+x
+    mov !t2,a
+    mov y,#$00
+-   mov a,!t2
+    mov $F2,a
+    mov a,(!t0)+y
+    mov $F3,a
+    inc !t2
+    inc y
+    cmp y,#$08
+    bne -
+    mov a,(!t0)+y
+    mov !s_tune+x,a
+    mov y,#$00                          ; the instrument's volume is the effect's until a length says otherwise
+    mov a,(!t0)+y
+    mov !s_volL+x,a
+    inc y
+    mov a,(!t0)+y
+    mov !s_volR+x,a
+    ret
+
+; The effect is over: the voice goes back to the music, whose next note sends its instrument and volume again.
+SfxEnd:
+    mov a,#$00
+    mov !s_wait+x,a
+    mov a,SfxBit+x
+    eor a,#$FF
+    push a
+    and a,!sfxBusy
+    mov !sfxBusy,a
+    pop a
+    and a,!sfxNon
+    mov !sfxNon,a
+    mov a,x
+    push x
+    clrc
+    adc a,#$06                          ; the music channel on that voice
+    mov x,a
+    mov a,#$01
+    mov !c_dirty+x,a
+    mov !c_vdirty+x,a
+    pop x
+    ret
+
+; $1DFA: $01 the jump on voice 7, $04 (girder) on voice 7, $05/$06 effects' echo off/on, $07/$08 $1DF9's $11/$12
+; (pause/unpause sounds) on voice 6, $FF back to the IPL ROM for an upload.
+Port1:
+    cmp a,#$FF
+    bne +
+    jmp ToIpl
++   cmp a,#$05
+    bne +
+    mov a,#$00
+    mov !sfxEcho,a
+    ret
++   cmp a,#$06
+    bne +
+    mov a,#$01
+    mov !sfxEcho,a
+    ret
++   ret
+
+ToIpl:                                  ; everything off and over to the boot ROM, which waits for the main CPU to upload
+    %dspi($6C,$E0)
+    %dspi($5C,$FF)
+    mov $F1,#$B0                        ; the ROM back at $FFC0, ports cleared
+    jmp $FFC0
 
 ; ---------------------------------------------------------------- tables
 FirTables:                              ; $F1's filters (measured; 3 repeats 0)

@@ -907,7 +907,11 @@ static class DebugCommands
 
     private static int SpcEvents(string path, double seconds)
     {
-        var cpu = Spc700.FromSpc(SpcFile.Parse(File.ReadAllBytes(path)));
+        // A ROM instead of an .spc: SMW's own sound engine, as the game uploads it at power-on (the oracle for sound effects).
+        var cpu = path.EndsWith(".smc", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".sfc", StringComparison.OrdinalIgnoreCase)
+            ? new Spc700 { Pc = Music.SmwSound.VanillaEntry, Sp = 0xEF }
+            : Spc700.FromSpc(SpcFile.Parse(File.ReadAllBytes(path)));
+        if (cpu.Pc == Music.SmwSound.VanillaEntry && !path.EndsWith(".spc")) Array.Copy(Music.SmwSound.VanillaAram(Rom.Load(path)), cpu.Ram, 0x10000);
         var last = new Dictionary<int, byte>(cpu.Dsp.Select((b, i) => KeyValuePair.Create(i, b)));   // the state before the run
         // PIPEDREAM_POKES="1.0:1=02,1.017:1=00": at each time (seconds), set an input port, as the main CPU would.
         var pokes = (Environment.GetEnvironmentVariable("PIPEDREAM_POKES") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)
@@ -919,8 +923,11 @@ static class DebugCommands
         {
             t = new SpcTrace();
             long done = 0;
+            bool first = true;
             foreach (var (at, port, value) in pokes.Append((At: (long)(seconds * 1_024_000), Port: -1, Value: (byte)0)))
             {
+                if (!first && Environment.GetEnvironmentVariable("PIPEDREAM_READS") is not null && cpu.ReadCounts is null) cpu.ReadCounts = new int[0x10000];
+                first = false;
                 var part = SpcTrace.Run(cpu, at - done);
                 t.Append(part, done);
                 done = at;
@@ -944,6 +951,14 @@ static class DebugCommands
         lines.AddRange(t.Ports.Select(p => (p.Cycle, $"t={p.Cycle,9} PORT{p.Port} {p.Value:X2}")));
         foreach (var (_, text) in lines.OrderBy(l => l.Item1)) Console.WriteLine(text);
         if (cpu.Halted) Console.WriteLine($"HALTED at PC {cpu.Pc:X4}");
+        if (Environment.GetEnvironmentVariable("PIPEDREAM_READS") is { } rr)          // "from-to": RAM read after the pokes, as address ranges
+        {
+            var counts = cpu.ReadCounts!;
+            var runs = new List<string>();
+            for (int a = 0x200; a < 0x10000; a++)
+                if (counts[a] > 0) { int b = a; while (b + 1 < 0x10000 && counts[b + 1] > 0) b++; runs.Add($"{a:X4}-{b:X4}"); a = b; }
+            Console.WriteLine("READS " + string.Join(" ", runs));
+        }
         return 0;
     }
 }

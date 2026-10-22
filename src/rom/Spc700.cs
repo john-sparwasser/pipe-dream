@@ -52,10 +52,13 @@ public sealed class Spc700
 
     // ---- memory ----
 
+    /// <summary>When set, every RAM read outside the I/O page is counted here by address (for finding where a program keeps its data).</summary>
+    public int[]? ReadCounts;
+
     public byte Read(int a)
     {
         a &= 0xFFFF;
-        if (a < 0xF0 || a > 0xFF) return Ram[a];
+        if (a < 0xF0 || a > 0xFF) { if (ReadCounts is not null) ReadCounts[a]++; return Ram[a]; }
         switch (a)
         {
             case 0xF2: return (byte)dspAddr;
