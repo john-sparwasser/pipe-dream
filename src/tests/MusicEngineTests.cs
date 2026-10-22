@@ -7,7 +7,7 @@ namespace PipeDream.Tests;
 /// interpreter, and compared with AddmusicK's engine playing the same song: the same notes at the same times with the same
 /// pitch, volume and envelope (<see cref="SpcTrace"/>).
 /// </summary>
-public class MusicEngineTests
+public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
 {
     /// <summary>The engine's source assembled onto a flat buffer: file offset 0 is ARAM $0400.</summary>
     internal static (byte[] Code, IReadOnlyDictionary<string, int> Labels) AssembleEngine()
@@ -46,16 +46,26 @@ public class MusicEngineTests
     private const int SongBase = 0x2400;
 
     /// <summary>What differs between two engines' key-ons: pitch, envelope, sample and volume (within one step) exactly, the time of each
-    /// within <paramref name="slack"/> ticks of its start-relative position.</summary>
-    internal static List<string> Differences(SpcTrace theirs, SpcTrace ours, double tickCycles, double slack = 1.5)
+    /// within <paramref name="slack"/> ticks of its start-relative position.
+    /// <paramref name="window"/> is how long both ran: events are compared only over the time both traces cover from their first key-on.</summary>
+    internal static List<string> Differences(SpcTrace theirs, SpcTrace ours, double tickCycles, long window, double slack = 1.5)
     {
         var d = new List<string>();
         long t0 = theirs.KeyOns.Count > 0 ? theirs.KeyOns[0].Cycle : 0, o0 = ours.KeyOns.Count > 0 ? ours.KeyOns[0].Cycle : 0;
+        long span = window - Math.Max(t0, o0) - (long)tickCycles;
+        theirs = Trim(theirs, t0, span); ours = Trim(ours, o0, span);
+        // Each event is timed from the one before on its voice, not from the start: AddmusicK's engine falls behind the timer when
+        // many channels run effects and loses ticks (5% on dv.mml, and blargg's snes_spc agrees, so hardware would too); ours keeps time.
+        double? Late(long theirGap, long ourGap)
+        {
+            double dt = (theirGap - ourGap) / tickCycles;
+            return Math.Abs(dt) > slack + 0.06 * theirGap / tickCycles ? dt : null;
+        }
         for (int v = 0; v < 8; v++)
         {
             var ta = theirs.KeyOns.Where(k => k.Voice == v).ToList();
             var tb = ours.KeyOns.Where(k => k.Voice == v).ToList();
-            if (ta.Count != tb.Count) d.Add($"v{v} key-ons: theirs {ta.Count}, ours {tb.Count}");
+            if (Math.Abs(ta.Count - tb.Count) > Math.Max(1, ta.Count * 0.06)) d.Add($"v{v} key-ons: theirs {ta.Count}, ours {tb.Count}");   // lag: see Late
             for (int i = 0; i < Math.Min(ta.Count, tb.Count); i++)
             {
                 var (a, b) = (ta[i], tb[i]);
@@ -63,21 +73,46 @@ public class MusicEngineTests
                 if (a.Pitch != b.Pitch) d.Add($"{at}: pitch {a.Pitch:X4} vs {b.Pitch:X4}");
                 if (a.Srcn != b.Srcn || a.Adsr1 != b.Adsr1 || a.Adsr2 != b.Adsr2 || a.Gain != b.Gain) d.Add($"{at}: instrument {a.Srcn:X2}/{a.Adsr1:X2}{a.Adsr2:X2}/{a.Gain:X2} vs {b.Srcn:X2}/{b.Adsr1:X2}{b.Adsr2:X2}/{b.Gain:X2}");
                 if (Math.Abs(a.VolL - b.VolL) > 1 || Math.Abs(a.VolR - b.VolR) > 1) d.Add($"{at}: volume {a.VolL:X2}/{a.VolR:X2} vs {b.VolL:X2}/{b.VolR:X2}");
-                double dt = ((a.Cycle - t0) - (b.Cycle - o0)) / tickCycles;
-                if (Math.Abs(dt) > slack) d.Add($"{at}: {dt:F1} ticks apart");
+                if (i > 0 && Late(a.Cycle - ta[i - 1].Cycle, b.Cycle - tb[i - 1].Cycle) is { } late) d.Add($"{at}: {late:F1} ticks off from the one before");
             }
             // Key-offs of this voice (the startup $FF is left out): the same count, each within slack.
-            var ka = theirs.KeyOffs.Where(k => k.Mask != 0xFF && (k.Mask >> v & 1) != 0).ToList();
-            var kb = ours.KeyOffs.Where(k => k.Mask != 0xFF && (k.Mask >> v & 1) != 0).ToList();
+            // During each note: volume and pitch a few ticks in, the same number of ticks after each engine's key-on (both engines
+            // update their registers on the tick, so half a tick later both have).
+            for (int i = 0; i < Math.Min(ta.Count, tb.Count) - 1; i++)
+            {
+                double len = (ta[i + 1].Cycle - ta[i].Cycle) / tickCycles;
+                foreach (int k in new[] { 1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128 })
+                {
+                    if (k + 2 > len) break;              // not on the tick the next note starts
+                    long ca = ta[i].Cycle + (long)((k + 0.5) * tickCycles), cb = tb[i].Cycle + (long)((k + 0.5) * tickCycles);
+                    int b = v * 16;
+                    var (la, ra, pa) = (theirs.At(b, ca), theirs.At(b + 1, ca), theirs.At(b + 2, ca) | theirs.At(b + 3, ca) << 8);
+                    var (lb, rb, pb) = (ours.At(b, cb), ours.At(b + 1, cb), ours.At(b + 2, cb) | ours.At(b + 3, cb) << 8);
+                    if (Math.Abs(la - lb) > 1 || Math.Abs(ra - rb) > 1) { d.Add($"v{v} #{i} +{k} ticks: volume {la:X2}/{ra:X2} vs {lb:X2}/{rb:X2}"); break; }
+                    if (Math.Abs(pa - pb) > Math.Max(2, pa / 256)) { d.Add($"v{v} #{i} +{k} ticks: pitch {pa:X4} vs {pb:X4}"); break; }
+                }
+            }
+            // Key-offs before the voice's first note are silent either way, and AddmusicK's rests at the start of a song send some ours don't.
+            long fa = ta.Count > 0 ? ta[0].Cycle : long.MaxValue, fb = tb.Count > 0 ? tb[0].Cycle : long.MaxValue;
+            var ka = theirs.KeyOffs.Where(k => k.Mask != 0xFF && (k.Mask >> v & 1) != 0 && k.Cycle > fa).ToList();
+            var kb = ours.KeyOffs.Where(k => k.Mask != 0xFF && (k.Mask >> v & 1) != 0 && k.Cycle > fb).ToList();
             int n = Math.Min(ka.Count, kb.Count);
             for (int i = 0; i < n; i++)
             {
-                double dt = ((ka[i].Cycle - t0) - (kb[i].Cycle - o0)) / tickCycles;
-                if (Math.Abs(dt) > slack) d.Add($"v{v} key-off #{i}: {dt:F1} ticks apart");
+                if (i > 0 && Late(ka[i].Cycle - ka[i - 1].Cycle, kb[i].Cycle - kb[i - 1].Cycle) is { } late) d.Add($"v{v} key-off #{i}: {late:F1} ticks off from the one before");
             }
-            if (Math.Abs(ka.Count - kb.Count) > 1) d.Add($"v{v} key-offs: theirs {ka.Count}, ours {kb.Count}");
+            if (Math.Abs(ka.Count - kb.Count) > Math.Max(2, ka.Count * 0.06)) d.Add($"v{v} key-offs: theirs {ka.Count}, ours {kb.Count}");
         }
         return d;
+    }
+
+    private static SpcTrace Trim(SpcTrace x, long start, long span)
+    {
+        var t = new SpcTrace();
+        t.Voice.AddRange(x.Voice);
+        t.KeyOns.AddRange(x.KeyOns.Where(k => k.Cycle - start < span));
+        t.KeyOffs.AddRange(x.KeyOffs.Where(k => k.Cycle - start < span));
+        return t;
     }
 
     /// <summary>Cycles in one song tick at tempo <paramref name="t"/>.</summary>
@@ -89,6 +124,18 @@ public class MusicEngineTests
     [InlineData("#0 t50 w120 [c8 e8 g8]3 o5 c2")]
     [InlineData("#0 t80 @2 c4 @9 d4 @13 e4 l16 c d e f g a b > c")]
     [InlineData("#0 t40 c4 d4\n#1 t40 @1 o3 e4 g4 b4")]
+    [InlineData("#0 t32 @0 v200 o4 c4 d4 e4 f4 r4 g2")]
+    [InlineData("#0 t96 r6 / t77 c=384 d=384 e2")]
+    [InlineData("#0 t96 r6 / v168 $DE $00 $04 $1B t77 o3a+=384 g+=384 a+=384")]
+    [InlineData("#0 t192 @3 v255 o2a24 v159 ^=40 >c24 v159 ^=40 d24 v159 ^=40 <a24 v159 ^=88")]
+    [InlineData("#0 w138 t58 $EF$BF$28$28$F1$0B$50$01 @0 y10 v255 [q7F o4 a16 r48 a16 r48 g16 r48 a8 r24]4")]
+    [InlineData("#0 t58 @0 [q7F o4 a16 r48 a16 r48 g16 r48 a8 r24]4")]
+    [InlineData("#0 t40 $EE $80 c4 $EE $40 c4 $EE $FF c4 @5 $EE $80 c4 $EE $00 b4")]          // fine tune
+    [InlineData("#0 t40 $FA $02 $7B c4 $FA $02 $05 c4 $E4 $03 c4 $E4 $FD c4 $FA $02 $00 c4")]  // transposition, both kinds
+    [InlineData("#0 t40 $FA $02 $FB c4 $FA $02 $85 c4 $FA $02 $40 c4 $FA $02 $74 c4 $E4 $85 c4 $FA $02 $7B @21 c4")] // seven-bit wrap
+    [InlineData("#0 t40 $FA $03 $C4 c4 $FA $03 $80 c4 $FA $03 $FF c4 $FA $03 $01 c4 v100 y3 c4")] // amplification
+    [InlineData("#0 t40 $FA $01 $AD c4 @1 c4 $ED $7A $E0 c4 $ED $80 $9F c4 $ED $7A $E0 c4 $FA $01 $AD c4 $F4 $09 c4")] // envelopes
+    [InlineData("#0 t40 c4 v100 ^4 y4 ^4 w100 ^4 $FA $03 $40 ^4 c4")]                       // volume changes mid-note
     [InlineData("#0 c4 d4 e8 f8")]                                         // the default tempo
     [InlineData("#0 t40 @21 c4 d4 @22 c4 @23 c8 c8 @24 c8 @25 c8 @26 c8 @27 c8 @28 c8 @29 c8 @0 e4")]   // percussion
     [InlineData("#0 t40 o3 @26 [c8]2 @29 d8 c16")]                         // a hit in a loop, then notes on its instrument
@@ -101,10 +148,58 @@ public class MusicEngineTests
         string mml = "#amk 2\n" + body;
         var tm = System.Text.RegularExpressions.Regex.Match(body, @"\bt(\d+)");
         int tempo = tm.Success ? int.Parse(tm.Groups[1].Value) : 53;
-        var (t, o) = (PlayTheirs(mml, 2.5), PlayOurs(mml, 2.5));
-        var diff = Differences(t, o, TickCycles(tempo));
-        string F(SpcTrace x) => string.Join(" ", x.KeyOffs.Take(8).Select(k => $"{k.Cycle - x.KeyOns[0].Cycle}:{k.Mask:X2}"));
+        var (t, o) = (PlayTheirs(mml, 8), PlayOurs(mml, 8));
+        var diff = Differences(t, o, TickCycles(tempo), 8 * 1_024_000);
+        double tc = TickCycles(tempo);
+        string F(SpcTrace x) => string.Join(" ", x.KeyOns.Select(k => (k.Cycle, $"N{k.Voice}")).Concat(x.KeyOffs.Where(k => k.Mask != 0xFF).Select(k => (k.Cycle, $"o{k.Mask:X}")))
+            .OrderBy(e => e.Item1).Take(40).Select(e => $"{e.Item2}@{(e.Item1 - x.KeyOns[0].Cycle) / tc:F1}"));
         Assert.True(diff.Count == 0, string.Join("\n", diff) + "\ntheirs " + F(t) + "\nours   " + F(o));
+    }
+
+    /// <summary>Not a pass/fail test: every corpus song played by both engines, and what differs. Run with PIPEDREAM_ENGINE_REPORT=1.</summary>
+    [AmkFact]
+    public void corpus_report()
+    {
+        if (Environment.GetEnvironmentVariable("PIPEDREAM_ENGINE_REPORT") is null) return;
+        var spcs = AmkOracle.Compile(AmkOracle.Root!, AmkOracle.Corpus);
+        foreach (var name in AmkOracle.Corpus)
+        {
+            string text = File.ReadAllText(Path.Combine(AmkOracle.Root!, "music", name));
+            var theirs = SpcTrace.Run(Spc700.FromSpc(spcs[Path.GetFileNameWithoutExtension(name)]), 20 * 1_024_000);
+            SpcTrace ours;
+            try { ours = PlayOurs(text, 20); } catch (Exception e) { log.WriteLine($"{name}: ours failed: {e.Message}"); continue; }
+            var tm = System.Text.RegularExpressions.Regex.Match(text, @"\bt(\d+)");
+            var diff = Differences(theirs, ours, TickCycles(tm.Success ? int.Parse(tm.Groups[1].Value) : 53), 20 * 1_024_000);
+            log.WriteLine($"{name}: {theirs.KeyOns.Count} key-ons, {diff.Count} differences");
+            foreach (var d in diff.Take(6)) log.WriteLine("    " + d);
+            if (Environment.GetEnvironmentVariable("PIPEDREAM_ENGINE_REPORT") == name)
+            {
+                double tc = TickCycles(tm.Success ? int.Parse(tm.Groups[1].Value) : 53);
+                foreach (var (who, x) in new[] { ("theirs", theirs), ("ours", ours) })
+                    for (int v = 0; v < 8; v++)
+                        log.WriteLine($"  {who} v{v}: " + string.Join(" ", x.KeyOns.Where(k => k.Voice == v).Select(k => (k.Cycle, $"N{k.Pitch:X4}"))
+                            .Concat(x.KeyOffs.Where(k => k.Mask != 0xFF && (k.Mask >> v & 1) != 0).Select(k => (k.Cycle, "o")))
+                            .OrderBy(e => e.Item1).Take(60).Select(e => $"{e.Item2}@{(e.Item1 - x.KeyOns[0].Cycle) / tc:F1}")));
+            }
+        }
+    }
+
+    /// <summary>Not a test: compare the song in PIPEDREAM_MML (a file) and print both engines' events per voice.</summary>
+    [AmkFact]
+    public void adhoc()
+    {
+        if (Environment.GetEnvironmentVariable("PIPEDREAM_MML") is not { } path) return;
+        string text = File.ReadAllText(path);
+        double secs = double.Parse(Environment.GetEnvironmentVariable("PIPEDREAM_SECONDS") ?? "8");
+        var (theirs, ours) = (PlayTheirs(text, secs), PlayOurs(text, secs));
+        var tm = System.Text.RegularExpressions.Regex.Match(text, @"\bt(\d+)");
+        double tc = TickCycles(tm.Success ? int.Parse(tm.Groups[1].Value) : 53);
+        foreach (var d in Differences(theirs, ours, tc, (long)(secs * 1_024_000)).Take(20)) log.WriteLine(d);
+        foreach (var (who, x) in new[] { ("theirs", theirs), ("ours", ours) })
+            for (int v = 0; v < 8; v++)
+                log.WriteLine($"{who} v{v}: " + string.Join(" ", x.KeyOns.Where(k => k.Voice == v).Select(k => (k.Cycle, $"N{k.Pitch:X4}"))
+                    .Concat(x.KeyOffs.Where(k => k.Mask != 0xFF && (k.Mask >> v & 1) != 0).Select(k => (k.Cycle, "o")))
+                    .OrderBy(e => e.Item1).Take(40).Select(e => $"{e.Item2}@{(e.Item1 - x.KeyOns[0].Cycle) / tc:F1}")));
     }
 
     [AsarFact]

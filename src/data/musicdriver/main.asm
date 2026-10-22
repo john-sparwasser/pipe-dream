@@ -41,6 +41,8 @@ base $0400
 !instr = $15                           ; address of the song's custom instrument table (word)
 !ticks = $17                           ; timer ticks still to run in the main loop
 !rerun = $18                           ; set once a phrase has restarted within this tick
+!gtrans = $19                           ; $E4: semitones every channel is transposed by
+!frac = $1A                             ; ComputePitch: the fraction of a semitone above the note
 
 ; ---- per-channel arrays, eight bytes each ----
 !c_ptrl = $0200
@@ -72,6 +74,11 @@ base $0400
 !c_dirty = $02D0                         ; instrument registers to send with the next note
 !c_koff2 = $02E0                        ; the key-off every note gets two ticks before it ends
 !c_perc = $02D8                         ; percussion note to play at the next note byte, $FF none
+!c_note = $02E8                         ; the note byte last played, before transposition
+!c_trans = $02F0                        ; $FA $02: semitones this channel is transposed by
+!c_fine = $02F8                         ; $EE: fraction of a semitone added to every note
+!c_amp = $0300                          ; $FA $03: volume amplification, P + (P x amp >> 8)
+!c_vdirty = $0308                       ; the voice volume is to be sent at the end of this tick
 
 macro dsp(reg)                          ; write A to a DSP register
     mov $F2,#<reg>
@@ -201,6 +208,8 @@ StartSong:
     mov !tickAcc,a
     mov a,#$C0
     mov !master,a
+    mov a,#$00
+    mov !gtrans,a
     mov a,!SongInfo
     mov y,!SongInfo+1
     movw !instr,ya
@@ -300,6 +309,10 @@ ResetChannel:                           ; X = channel
     mov a,#$00
     mov !c_surr+x,a
     mov !c_len+x,a
+    mov !c_trans+x,a
+    mov !c_fine+x,a
+    mov !c_amp+x,a
+    mov !c_vdirty+x,a
     mov a,#$00                          ; a song that never says @n plays instrument 0
     jmp SetInstrument
 
@@ -318,6 +331,13 @@ SongTick:
     mov !cur,x
     call ChannelTick
     mov x,!cur
+    mov a,!c_act+x
+    beq .skip
+    mov a,!c_vdirty+x                   ; a volume, pan or amplification change takes effect on its tick, mid-note too
+    beq .skip
+    mov a,#$00
+    mov !c_vdirty+x,a
+    call SendVolume
 .skip:
     inc x
     cmp x,#$08
@@ -393,7 +413,8 @@ CutIfNoTie:                             ; a tie carries the note on: no key-off
 .ret:
     ret
 
-; Z clear when the channel's next data is a tie (a duration and quantisation byte may come first).
+; Z clear when the channel's next data is a tie. Durations, quantisation and commands before it are stepped over; a call, a loop,
+; an arpeggio or the end of the data is taken as no tie.
 TieFollows:
     mov a,!c_ptrl+x
     mov !t0,a
@@ -406,8 +427,26 @@ TieFollows:
     beq .yes
     cmp a,#$00
     beq .no
-    bmi .no
-    incw !t0                            ; a duration or quantisation byte
+    bpl .skip1                          ; a duration or quantisation byte
+    cmp a,#$DA
+    bcc .no                             ; a note, rest or percussion
+    push x
+    setc
+    sbc a,#$DA
+    mov x,a
+    mov a,ParamCount+x
+    pop x
+    cmp a,#$FF
+    beq .no
+    inc a                               ; the command and its parameters
+    clrc
+    adc a,!t0
+    mov !t0,a
+    bcc .next
+    inc !t1
+    bra .next
+.skip1:
+    incw !t0
     bra .next
 .yes:
     mov a,#$01
@@ -493,10 +532,9 @@ ArmKeyOff:
     mov y,a
     mov a,!c_len+x
     mul ya                              ; YA = length x fraction
-    mov a,y                             ; >> 8
-    cmp a,!c_len+x
-    bcc .set
-    mov a,#$00                          ; not before the note ends
+    mov a,y                             ; >> 8, and at least 1
+    bne .set
+    inc a
 .set:
     mov !c_koff+x,a
     mov a,!c_len+x
@@ -542,11 +580,12 @@ EndOfData:
 ; ---------------------------------------------------------------- notes
 ; A = note byte $80-$C5. Sets the voice's registers and starts it.
 NoteOn:
-    mov !t4,a
+    mov !c_note+x,a
     call SendInstrument
-    mov a,!t4
-    call ComputePitch                   ; !t0/!t1 = the pitch
+    call NotePitch
     call SendPitch
+    mov a,#$00
+    mov !c_vdirty+x,a
     call SendVolume
     call VoiceBit
     or a,!konMask
@@ -601,8 +640,28 @@ VoiceBase:                              ; X = channel -> A = X * 16
     asl a
     ret
 
-; Note byte -> pitch. The top octave comes from a table of twelve; each octave below is half of the one above;
-; the instrument's tuning multiplies it: pitch = P1 x whole + (P1 x fraction >> 8).
+; The channel's note as it sounds: the note byte, both transpositions and the fine tuning -> !t0/!t1.
+NotePitch:                              ; X = channel
+    mov a,!c_fine+x
+    mov !frac,a
+    mov a,!c_note+x
+    clrc
+    adc a,!c_trans+x
+    clrc
+    adc a,!gtrans
+    and a,#$7F                          ; the sum wraps in seven bits, so $85 is +5 as much as $05 is (measured)
+    cmp a,#$48
+    bcc +
+    mov a,#$00                          ; above the top note: silent, pitch 0 (measured)
+    mov !t0,a
+    mov !t1,a
+    ret
++   or a,#$80
+    ; fall into ComputePitch
+
+; Note byte and !frac -> pitch. The top octave comes from a table of twelve (and the next C), a fraction of a semitone
+; interpolating between neighbours there; each octave below is half of the one above; the instrument's tuning multiplies it:
+; pitch = P1 x whole + (P1 x fraction >> 8).
 ComputePitch:                           ; A = note byte, X = channel -> !t0/!t1 = pitch
     setc
     sbc a,#$80
@@ -612,9 +671,20 @@ ComputePitch:                           ; A = note byte, X = channel -> !t0/!t1 
     div ya,x                            ; A = octave 0-5, Y = semitone
     mov x,!t2
     mov !t3,a
+    mov a,PitchLo+1+y                   ; the step to the next semitone, times the fraction
+    setc
+    sbc a,PitchLo+y
+    mov !t4,y
+    mov y,!frac
+    mul ya
+    mov !t5,y                           ; (step x fraction) >> 8
+    mov y,!t4
     mov a,PitchLo+y
+    clrc
+    adc a,!t5
     mov !t0,a
     mov a,PitchHi+y
+    adc a,#$00
     mov !t1,a
     mov a,#$05
     setc
@@ -696,6 +766,14 @@ SendVolume:                             ; X = channel
     mov a,!t3                           ; >> 9: the high byte, halved
     lsr a
     mov !t6,a                           ; P
+    mov a,!c_amp+x                      ; $FA $03: P + (P x amp >> 8)
+    mov y,a
+    mov a,!t6
+    mul ya
+    mov a,y
+    clrc
+    adc a,!t6
+    mov !t6,a
     mov a,!c_pan+x                      ; left = P x pan[y] >> 7
     mov y,a
     mov a,PanTable+y
@@ -839,11 +917,25 @@ CmdPan:                                 ; $DB p: low five bits the pan, bit 7 an
     mov a,!t0
     and a,#$C0
     mov !c_surr+x,a
-    jmp ReadData
+    jmp VolumeChanged
 
 CmdGlobalVolume:                        ; $E0 w
     call GetByte
     mov !master,a
+    ; fall into AllVolumesChanged
+
+AllVolumesChanged:                      ; every channel's volume depends on the global one
+    mov y,#$07
+    mov a,#$01
+.c:
+    mov !c_vdirty+y,a
+    dec y
+    bpl .c
+    jmp ReadData
+
+VolumeChanged:
+    mov a,#$01
+    mov !c_vdirty+x,a
     jmp ReadData
 
 CmdTempo:                               ; $E2 t
@@ -854,6 +946,70 @@ CmdTempo:                               ; $E2 t
 CmdVolume:                              ; $E7 v
     call GetByte
     mov !c_vol+x,a
+    jmp VolumeChanged
+
+CmdFineTune:                            ; $EE f: a fraction of a semitone on every note
+    call GetByte
+    mov !c_fine+x,a
+    jmp ReadData
+
+CmdTranspose:                           ; $E4 n: every channel, signed semitones
+    call GetByte
+    mov !gtrans,a
+    jmp ReadData
+
+CmdEnvelope:                            ; $ED: ADSR (aa < $80: ADSR1 = aa | $80, ADSR2) or $80 gg: GAIN (ADSR1 cleared)
+    call GetByte
+    bmi .gain
+    or a,#$80
+    mov !c_ad1+x,a
+    call GetByte
+    mov !c_ad2+x,a
+    bra .dirty
+.gain:
+    mov a,#$00
+    mov !c_ad1+x,a
+    call GetByte
+    mov !c_gain+x,a
+.dirty:
+    mov a,#$01
+    mov !c_dirty+x,a
+    jmp ReadData
+
+CmdFA:                                  ; $FA n v
+    call GetByte
+    mov !t0,a
+    call GetByte
+    mov y,!t0
+    cmp y,#$01
+    beq .gain
+    cmp y,#$02
+    beq .transpose
+    cmp y,#$03
+    beq .amplify
+    jmp ReadData                        ; $00 pitch modulation, $04 echo reserve: later
+.gain:                                  ; GAIN instead of the ADSR
+    mov !c_gain+x,a
+    mov a,!c_ad1+x
+    and a,#$7F
+    mov !c_ad1+x,a
+    mov a,#$01
+    mov !c_dirty+x,a
+    jmp ReadData
+.transpose:                             ; signed semitones, this channel
+    mov !c_trans+x,a
+    jmp ReadData
+.amplify:
+    mov !c_amp+x,a
+    jmp VolumeChanged
+
+CmdF4:                                  ; $F4 n
+    call GetByte
+    cmp a,#$09
+    bne .done
+    mov a,!c_ins+x                      ; $09: the instrument again, undoing $ED and $FA $01
+    call SetInstrument
+.done:
     jmp ReadData
 
 CmdSubloop:                             ; $E6 n: 0 starts a loop, n repeats it n more times
@@ -928,17 +1084,20 @@ Skip0: jmp ReadData
 
 CommandTable:                           ; $DA ... $FC
     dw CmdInstrument, CmdPan, Skip2, Skip3, Skip3, Skip0           ; DA DB DC DD DE DF
-    dw CmdGlobalVolume, Skip2, CmdTempo, Skip2, Skip1, Skip3       ; E0 E1 E2 E3 E4 E5
+    dw CmdGlobalVolume, Skip2, CmdTempo, Skip2, CmdTranspose, Skip3 ; E0 E1 E2 E3 E4 E5
     dw CmdSubloop, CmdVolume, Skip2, CmdCall, Skip1, Skip3         ; E6 E7 E8 E9 EA EB
-    dw Skip3, Skip2, Skip1, Skip3, Skip0, Skip3                    ; EC ED EE EF F0 F1
-    dw Skip3, Skip2, Skip1, Skip8, Skip2, Unknown                  ; F2 F3 F4 F5 F6 F7
-    dw Skip1, Skip2, Skip2, SkipArpeggio, Skip4                    ; F8 F9 FA FB FC
+    dw Skip3, CmdEnvelope, CmdFineTune, Skip3, Skip0, Skip3        ; EC ED EE EF F0 F1
+    dw Skip3, Skip2, CmdF4, Skip8, Skip2, Unknown                  ; F2 F3 F4 F5 F6 F7
+    dw Skip1, Skip2, CmdFA, SkipArpeggio, Skip4                    ; F8 F9 FA FB FC
+
+ParamCount:                             ; $DA ... $FC: how many bytes follow each command; $FF where TieFollows stops looking
+    db 1,1,2,3,3,0, 1,2,1,2,1,3, $FF,1,2,$FF,1,3, 3,2,1,3,0,3, 3,2,1,8,2,$FF, 1,2,2,$FF,4
 
 ; ---------------------------------------------------------------- tables
-PitchLo: db $5F,$DE,$65,$F4,$8C,$2C,$D6,$8B,$4A,$14,$EB,$CD
-PitchHi: db $08,$08,$09,$09,$0A,$0B,$0B,$0C,$0D,$0E,$0E,$0F
+PitchLo: db $5F,$DE,$65,$F4,$8C,$2C,$D6,$8B,$4A,$14,$EB,$CD,$BE   ; and the C above, for interpolating from B
+PitchHi: db $08,$08,$09,$09,$0A,$0B,$0B,$0C,$0D,$0E,$0E,$0F,$10
 
-QTable:    db $33,$66,$80,$99,$B3,$CC,$E6,$FC
+QTable:    db $33,$66,$80,$99,$B3,$CC,$E6,$FF
 VelTable:  db $19,$32,$4C,$65,$72,$7F,$8C,$98,$A5,$B2,$BF,$CB,$D8,$E5,$F2,$FC
 PanTable:  db $00,$01,$03,$07,$0D,$15,$1E,$29,$34,$42,$51,$5E,$67,$6E,$73,$77,$7A,$7C,$7D,$7E,$7F
 

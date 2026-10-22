@@ -920,6 +920,7 @@ static class DebugCommands
         lines.AddRange(t.KeyOns.Select(k => (k.Cycle, k.ToString())));
         lines.AddRange(t.KeyOffs.Select(k => (k.Cycle, $"t={k.Cycle,9} KOFF {k.Mask:X2}")));
         foreach (var (_, text) in lines.OrderBy(l => l.Item1)) Console.WriteLine(text);
+        if (cpu.Halted) Console.WriteLine($"HALTED at PC {cpu.Pc:X4}");
         return 0;
     }
 }

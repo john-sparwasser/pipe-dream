@@ -18,6 +18,24 @@ public sealed class SpcTrace
     public readonly List<(long Cycle, int Mask)> KeyOffs = [];
     /// <summary>The writes that are not per-voice note events: master and echo volume, FIR, flags, directory, echo start and delay.</summary>
     public readonly List<(long Cycle, int Reg, byte Value)> Global = [];
+    /// <summary>Every write to a voice's own registers ($v0-$v7: volume, pitch, sample, envelope), for what changes during a note.</summary>
+    public readonly List<(long Cycle, int Reg, byte Value)> Voice = [];
+
+    /// <summary>The value voice register <paramref name="reg"/> held at <paramref name="cycle"/> (the last write at or before it; 0 before any).</summary>
+    public int At(int reg, long cycle)
+    {
+        if (byReg is null)
+        {
+            byReg = new List<(long, byte)>[0x80];
+            foreach (var (c, r, v) in Voice) (byReg[r] ??= []).Add((c, v));
+        }
+        var list = byReg[reg];
+        if (list is null) return 0;
+        int lo = 0, hi = list.Count - 1, found = -1;
+        while (lo <= hi) { int mid = (lo + hi) / 2; if (list[mid].Item1 <= cycle) { found = mid; lo = mid + 1; } else hi = mid - 1; }
+        return found < 0 ? 0 : list[found].Item2;
+    }
+    private List<(long, byte)>[]? byReg;
 
     /// <summary>Run <paramref name="cpu"/> for <paramref name="cycles"/> and trace the DSP writes it made.</summary>
     public static SpcTrace Run(Spc700 cpu, long cycles)
@@ -41,6 +59,7 @@ public sealed class SpcTrace
                     }
             }
             else if (reg == 0x5C) { if (value != 0) t.KeyOffs.Add((at, value)); }
+            else if ((reg & 0x0F) <= 7) t.Voice.Add((at, reg, value));
             else if ((reg & 0x0F) > 7 || reg is 0x0C or 0x1C or 0x2C or 0x3C or 0x6C or 0x7C) t.Global.Add((at, reg, value));
         }
         return t;
