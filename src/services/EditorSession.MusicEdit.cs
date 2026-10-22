@@ -1,0 +1,13 @@
+namespace PipeDream.Services;
+
+// EditorSession — a song in the user's own text editor, as a block or patch opens.
+public sealed partial class EditorSession
+{
+    /// <summary>Open a song in the user's text editor (<see cref="OpenBlockExternally"/>): a temp copy,
+    /// saves read back on the next <see cref="Tick"/>.</summary>
+    public string OpenSongExternally(string path)
+    {
+        if (SongText(path) is not { } mml) return Report2(Project is null ? "no project open" : $"{path} is not in the project");
+        return OpenExternally("song:" + path, Path.GetFileName(path), mml, text => SetSongText(path, text));
+    }
+}

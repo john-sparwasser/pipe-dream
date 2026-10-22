@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<!-- Syntax colours for AddmusicK's MML in the song editor (SongEditWindow), on the dark theme.
+     Rules run in order, first match wins. Patterns ignore whitespace, so a literal # is \#. -->
+<SyntaxDefinition name="MML" xmlns="http://icsharpcode.net/sharpdevelop/syntaxdefinition/2008">
+  <Color name="Comment"   foreground="#6A9955"/>
+  <Color name="String"    foreground="#CE9178"/>
+  <Color name="Directive" foreground="#C586C0"/>
+  <Color name="Channel"   foreground="#4EC9B0" fontWeight="bold"/>
+  <Color name="Hex"       foreground="#E5C07B"/>
+  <Color name="Command"   foreground="#4FC1FF"/>
+  <Color name="Note"      foreground="#569CD6"/>
+  <Color name="Number"    foreground="#E5C07B"/>
+
+  <RuleSet>
+    <Span color="Comment" begin=";"/>
+    <Span color="String" begin="&quot;" end="&quot;"/>
+    <Rule color="Channel">^\s*\#\d+</Rule>
+    <Rule color="Directive">\#[A-Za-z_]\w*</Rule>
+    <Rule color="Hex">\$[0-9A-Fa-f]+</Rule>
+    <!-- A note or rest with its accidental (a word's letters are not notes); then the other commands. -->
+    <Rule color="Note">(?&lt;![A-Za-z_])[a-gr][+\-]?(?![A-Za-z_])</Rule>
+    <Rule color="Command">[@vtloqyp&lt;&gt;\[\]\(\)\{\}\*\|/%!?]</Rule>
+    <Rule color="Number">\b\d+\b</Rule>
+  </RuleSet>
+</SyntaxDefinition>

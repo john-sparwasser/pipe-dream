@@ -239,6 +239,15 @@ public partial class MainWindow
         UpdateTitle();                               // every change dirties the project
     }
 
+    /// <summary>ASM ▸ Music: the project's AddmusicK-style songs and samples — new, import, edit,
+    /// number, delete, and whole AddmusicK folders in and out.</summary>
+    private async void OnMusic(object? sender, RoutedEventArgs e)
+    {
+        if (!session.HasProject) return;
+        await new MusicWindow(session).ShowDialog(this);
+        UpdateTitle();                               // every change dirties the project
+    }
+
     /// <summary>ASM ▸ Custom sprites: the project's PIXI-style sprites — new, import (a sprite or
     /// a PIXI folder), slots, edit, remove.</summary>
     private async void OnCustomSprites(object? sender, RoutedEventArgs e)

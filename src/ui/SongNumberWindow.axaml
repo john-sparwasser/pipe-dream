@@ -1,0 +1,22 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PipeDream.Ui.SongNumberWindow"
+        Title="Song number" Width="340" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+  <StackPanel Margin="16" Spacing="12">
+    <TextBlock Text="The number the song plays under (hex 01-FF), and its section."
+               TextWrapping="Wrap" Foreground="{DynamicResource TextBrush}"/>
+    <StackPanel Orientation="Horizontal" Spacing="12">
+      <TextBox x:Name="Entry" Width="70" MaxLength="2"/>
+      <RadioButton x:Name="GlobalButton" Content="global" GroupName="section"/>
+      <RadioButton x:Name="LocalButton" Content="local" GroupName="section" IsChecked="True"/>
+    </StackPanel>
+    <TextBlock x:Name="Problem" Foreground="#F14C4C" FontSize="12" IsVisible="False"/>
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button x:Name="ClearButton" Content="Clear" Click="OnClear" ToolTip.Tip="Take the song out of the numbered list"/>
+      <Button Content="Cancel" Click="OnCancel" IsCancel="True"/>
+      <Button Content="OK" Click="OnOk" IsDefault="True"/>
+    </StackPanel>
+  </StackPanel>
+</Window>
