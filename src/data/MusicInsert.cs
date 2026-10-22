@@ -34,12 +34,7 @@ public static class MusicInsert
         if (asmErrors.Length > 0) return Fail(["the music engine: " + string.Join("; ", asmErrors)]);
 
         var stock = SmwSound.StockSamples(rom);
-        IReadOnlyList<byte[]>? Group(string name)
-        {
-            var g = m.Groups.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-            if (g is not null && g.Samples.All(e => m.Samples.ContainsKey(e.Path))) return g.Samples.Select(e => m.Samples[e.Path]).ToList();
-            return name.ToLowerInvariant() is "default" or "optimized" ? stock : null;     // SMW's own, from the ROM
-        }
+        var Group = Groups(m, stock);
         byte[]? Sample(string name) => m.Samples.GetValueOrDefault(name);
 
         var sfx = Effects(rom, m, warnings);
@@ -159,6 +154,35 @@ public static class MusicInsert
             if (now == vanilla) asm.Append($"org ${at:X6}\n    db ${bank[vanilla]:X2}\n");
             else if (now != bank[vanilla]) warnings.Add($"${at:X6} asks for song {now:X2}, not SMW's {vanilla:X2}: left as it is");
         }
+    }
+
+    /// <summary>A sample group by name: the project's, or SMW's own from the ROM for default and optimized.</summary>
+    private static Func<string, IReadOnlyList<byte[]>?> Groups(MusicState m, List<byte[]> stock) => name =>
+    {
+        var g = m.Groups.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (g is not null && g.Samples.All(e => m.Samples.ContainsKey(e.Path))) return g.Samples.Select(e => m.Samples[e.Path]).ToList();
+        return name.ToLowerInvariant() is "default" or "optimized" ? stock : null;
+    };
+
+    /// <summary>A song as an .spc, laid out with the project's samples and effects as the build lays a local song out: the engine at its
+    /// start and port 2 asking for the song, so a player boots it as the game would. ID666 tags from its #SPC block and #length.</summary>
+    public static (SpcFile? Spc, string[] Errors) Spc(Rom rom, ProjectFile data, string name, string mml)
+    {
+        var m = data.Music;
+        var (engine, labels, asmErrors) = MusicEngine.Assemble();
+        if (asmErrors.Length > 0) return (null, asmErrors);
+        var song = MmlParser.Parse(mml);
+        var image = MusicLayout.Build(engine, song, Groups(m, SmwSound.StockSamples(rom)), s => m.Samples.GetValueOrDefault(s), Effects(rom, m, []));
+        if (!image.Ok) return (null, [.. image.Problems.Select(p => p.ToString())]);
+        var f = new SpcFile { Pc = labels["Start"], Sp = 0xEF, Dumper = "Pipe Dream" };
+        image.Ram.CopyTo(f.Ram, 0);
+        f.Ram[0xF6] = 1;                                                  // port 2: the local song
+        f.Title = song.Spc.GetValueOrDefault("title") ?? Path.GetFileNameWithoutExtension(name);
+        f.Game = song.Spc.GetValueOrDefault("game") ?? "";
+        f.Artist = song.Spc.GetValueOrDefault("author") ?? "";
+        f.Comment = song.Spc.GetValueOrDefault("comment") ?? "";
+        if (song.Length?.Split(':') is [var min, var sec] && int.TryParse(min, out int mi) && int.TryParse(sec, out int se)) f.Seconds = mi * 60 + se;
+        return (f, []);
     }
 
     /// <summary>The samples that stay in ARAM: every group's important ones (the "!" in AddmusicK's list), so a song change does not

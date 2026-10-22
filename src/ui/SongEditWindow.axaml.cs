@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using AvaloniaEdit;
 using AvaloniaEdit.Highlighting;
@@ -107,6 +108,16 @@ public partial class SongEditWindow : Window
     }
 
     private void OnOpen(object? sender, RoutedEventArgs e) => size.Text = session.OpenSongExternally(path);
+
+    private async void OnExportSpc(object? sender, RoutedEventArgs e)
+    {
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Export .spc", SuggestedFileName = Path.ChangeExtension(Path.GetFileName(path), ".spc"),
+            FileTypeChoices = [new FilePickerFileType("SPC") { Patterns = ["*.spc"] }],
+        });
+        if (file?.TryGetLocalPath() is { } to) size.Text = session.ExportSpc(path, editor.Text ?? "", to);
+    }
 
     private void OnSave(object? sender, RoutedEventArgs e)
     {

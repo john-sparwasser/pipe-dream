@@ -69,6 +69,20 @@ public class MusicSnesTests(Xunit.Abstractions.ITestOutputHelper log)
         Assert.Contains("$0080E8", Assert.Single(f.Errors));
     }
 
+    [Fact]
+    public void a_song_exports_as_an_spc_that_plays_from_the_file_alone()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla)) return;
+        var rom = Rom.Load(ReferenceRoms.Vanilla);
+        const string mml = "#amk 2\n#SPC\n{\n#title \"Tune\"\n#author \"Someone\"\n#length \"1:05\"\n}\n#0 t60 @0 o4 c4 d4";
+        var (spc, errors) = MusicInsert.Spc(rom, new ProjectFile(), "tune.mml", mml);
+        Assert.True(spc is not null, string.Join("; ", errors));
+        var f = SpcFile.Parse(spc.ToBytes());
+        Assert.Equal(("Tune", "Someone", "Pipe Dream"), (f.Title, f.Artist, f.Dumper));
+        var t = SpcTrace.Run(Spc700.FromSpc(f), 1_024_000);
+        Assert.Equal([0x0C8A, 0x0E16], t.KeyOns.Where(k => k.Voice == 0).Take(2).Select(k => k.Pitch));
+    }
+
     /// <summary>Frames of the game: the NMI's music part once a frame (17066 SPC cycles), what the SPC keyed on meanwhile.</summary>
     private static SpcTrace Frames(Cpu65816 cpu, Spc700 spc, int nmi, int frames)
     {
