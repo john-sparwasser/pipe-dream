@@ -20,6 +20,8 @@ public sealed class Spc700
 
     /// <summary>Every DSP register write: cycle, register, value. Null to not record.</summary>
     public List<(long Cycle, int Reg, byte Value)>? DspWrites = [];
+    /// <summary>Every write to the four output ports ($F4-$F7), when a run asks for them.</summary>
+    public List<(long Cycle, int Port, byte Value)>? PortWrites;
 
     // PSW: N V P B H I Z C
     private bool fN, fV, fP, fB, fH, fI, fZ, fC;
@@ -86,7 +88,7 @@ public sealed class Spc700
                     DspWrites?.Add((Cycles, dspAddr, b));
                 }
                 break;
-            case >= 0xF4 and <= 0xF7: ToCpu[a - 0xF4] = b; break;
+            case >= 0xF4 and <= 0xF7: ToCpu[a - 0xF4] = b; PortWrites?.Add((Cycles, a - 0xF4, b)); break;
             case >= 0xFA and <= 0xFC: target[a - 0xFA] = b; break;
         }
     }

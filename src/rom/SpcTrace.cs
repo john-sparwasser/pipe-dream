@@ -18,6 +18,8 @@ public sealed class SpcTrace
     public readonly List<(long Cycle, int Mask)> KeyOffs = [];
     /// <summary>The writes that are not per-voice note events: master and echo volume, FIR, flags, directory, echo start and delay.</summary>
     public readonly List<(long Cycle, int Reg, byte Value)> Global = [];
+    /// <summary>What the engine told the main CPU: each write to an output port that changed it.</summary>
+    public readonly List<(long Cycle, int Port, byte Value)> Ports = [];
     /// <summary>Every write to a voice's own registers ($v0-$v7: volume, pitch, sample, envelope), for what changes during a note.</summary>
     public readonly List<(long Cycle, int Reg, byte Value)> Voice = [];
 
@@ -68,14 +70,29 @@ public sealed class SpcTrace
         return found;
     }
 
+    /// <summary>Add a later stretch of the same run, its times moved on by <paramref name="offset"/>.</summary>
+    public void Append(SpcTrace part, long offset)
+    {
+        KeyOns.AddRange(part.KeyOns.Select(k => k with { Cycle = k.Cycle + offset }));
+        KeyOffs.AddRange(part.KeyOffs.Select(k => (k.Cycle + offset, k.Mask)));
+        Global.AddRange(part.Global.Select(g => (g.Cycle + offset, g.Reg, g.Value)));
+        Voice.AddRange(part.Voice.Select(g => (g.Cycle + offset, g.Reg, g.Value)));
+        Ports.AddRange(part.Ports.Select(g => (g.Cycle + offset, g.Port, g.Value)));
+        byReg = null;
+    }
+
     /// <summary>Run <paramref name="cpu"/> for <paramref name="cycles"/> and trace the DSP writes it made.</summary>
     public static SpcTrace Run(Spc700 cpu, long cycles)
     {
         var shadow = (byte[])cpu.Dsp.Clone();
         cpu.DspWrites = [];
+        cpu.PortWrites = [];
+        var ports = (byte[])cpu.ToCpu.Clone();
         long start = cpu.Cycles;
         cpu.Run(cycles);
         var t = new SpcTrace();
+        foreach (var (cycle, port, value) in cpu.PortWrites)
+            if (ports[port] != value) { ports[port] = value; t.Ports.Add((cycle - start, port, value)); }
         foreach (var (cycle, reg, value) in cpu.DspWrites)
         {
             shadow[reg] = value;

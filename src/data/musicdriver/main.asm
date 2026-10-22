@@ -70,6 +70,9 @@ base $0400
 !nspcVel = $33                          ; $F4 $08: the N-SPC velocity table instead of SMW's
 !lstacc = $34                           ; $F4 $02: light staccato, every channel
 !inRemote = $35                         ; set while remote code runs: its $00 returns instead of ending the channel
+!syncOn = $36                           ; $F4 $05: the song's tick count goes out on ports 0 and 1
+!syncL = $37
+!syncH = $38
 !c_offL = $40                           ; per channel (eight bytes each, in the direct page): the pitch effects' offset last sent
 !c_offH = $48
 !c_arpType = $50                        ; $FB, per channel in the direct page: 0 none, 1 arpeggio, 2 trill, 3 glissando,
@@ -312,6 +315,7 @@ StartSong:
     mov !nspcVel,a
     mov !lstacc,a
     mov !inRemote,a
+    mov !syncOn,a
     mov !eon,a
     mov !pmon,a
     mov !non,a
@@ -477,6 +481,18 @@ SongTick:
     mov !konMask,a                      ; a channel ended this tick: notes the others began are dropped with the phrase
 .flush:
     call FlushDsp
+    mov a,!syncOn                       ; $F4 $05: one more tick, told to the main CPU (after the channels, from the next tick)
+    beq +
+    cmp a,#$01
+    beq ++
+    incw !syncL
+    mov a,!syncL
+    mov $F4,a
+    mov a,!syncH
+    mov $F5,a
+    bra +
+++  inc !syncOn                         ; (2: counting)
++
     mov a,!active
     bne .done
     call NextPhrase                     ; a channel has ended: the next phrase starts on this very tick
@@ -2301,6 +2317,13 @@ NoiseOn:                                ; A = clock, X = channel
     %dsp($3D)
     ret
 
+CmdDataSend:                            ; $F9 a b: b to port 0, a to port 1, for the main CPU
+    call GetByte
+    mov $F5,a
+    call GetByte
+    mov $F4,a
+    jmp ReadData
+
 CmdDspWrite:                            ; $F6 register value
     call GetByte
     mov !t0,a
@@ -2401,6 +2424,21 @@ CmdF4:                                  ; $F4 n
     eor a,#$01
     mov !lstacc,a
     jmp ReadData
++   cmp a,#$05
+    bne +
+    mov a,!syncOn                       ; $05: count the song's ticks out on ports 0 and 1 from here, or stop (and say 0)
+    beq +++
+    mov a,#$FF
++++ inc a
+    mov !syncOn,a
+    mov a,#$00
+    mov !syncL,a
+    mov !syncH,a
+    mov a,!syncOn
+    bne ++
+    mov $F4,a
+    mov $F5,a
+++  jmp ReadData
 +   cmp a,#$08
     bne +
     mov a,#$01                          ; $08: the N-SPC velocity table from now on
@@ -2496,7 +2534,7 @@ CommandTable:                           ; $DA ... $FC
     dw CmdSubloop, CmdVolume, CmdVolumeFade, CmdCall, CmdVibratoFade, CmdEnvelopeRelease ; E6 E7 E8 E9 EA EB
     dw CmdEnvelopeAttack, CmdEnvelope, CmdFineTune, CmdEchoOn, CmdEchoOff, CmdEchoSetup ; EC ED EE EF F0 F1
     dw CmdEchoFade, Skip2, CmdF4, CmdFir, CmdDspWrite, Unknown     ; F2 F3 F4 F5 F6 F7
-    dw CmdNoise, Skip2, CmdFA, CmdArpeggio, CmdRemote              ; F8 F9 FA FB FC
+    dw CmdNoise, CmdDataSend, CmdFA, CmdArpeggio, CmdRemote        ; F8 F9 FA FB FC
 
 ParamCount:                             ; $DA ... $FC: how many bytes follow each command; $FF where TieFollows stops looking
     db 1,1,2,3,3,0, 1,2,1,2,1,3, $FF,1,2,$FF,1,3, 3,2,1,3,0,3, 3,2,1,8,2,$FF, 1,2,2,$FF,4

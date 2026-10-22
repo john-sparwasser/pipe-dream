@@ -113,6 +113,17 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
             }
             if (Math.Abs(ka.Count - kb.Count) > Math.Max(2, ka.Count * 0.06)) d.Add($"v{v} key-offs: theirs {ka.Count}, ours {kb.Count}");
         }
+        // What the engine tells the main CPU on ports 0 and 1 ($F9, $F4 $05): the values in order.
+        foreach (int port in new[] { 0, 1 })
+        {
+            var (pa, pb) = (theirs.Ports.Where(p => p.Port == port).Select(p => p.Value).ToList(), ours.Ports.Where(p => p.Port == port).Select(p => p.Value).ToList());
+            int n = Math.Min(pa.Count, pb.Count);
+            if (!pa.Take(n).SequenceEqual(pb.Take(n)) || Math.Abs(pa.Count - pb.Count) > Math.Max(2, pa.Count / 16))
+            {
+                int at = Enumerable.Range(0, n).FirstOrDefault(i => pa[i] != pb[i], n);
+                d.Add($"port {port} from #{at}: {string.Join(" ", pa.Skip(at).Take(10).Select(b => b.ToString("X2")))} vs {string.Join(" ", pb.Skip(at).Take(10).Select(b => b.ToString("X2")))} ({pa.Count} vs {pb.Count})");
+            }
+        }
         // The DSP's song-wide registers: each one's values in order (repeats and timing left out).
         foreach (int reg in new[] { 0x0C, 0x1C, 0x2C, 0x3C, 0x0D, 0x2D, 0x3D, 0x4D, 0x5D, 0x6D, 0x7D, 0x0F, 0x1F, 0x2F, 0x3F, 0x4F, 0x5F, 0x6F, 0x7F })
         {
@@ -128,6 +139,7 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
         var t = new SpcTrace();
         t.Voice.AddRange(x.Voice);
         t.Global.AddRange(x.Global.Where(g => g.Cycle - start < span));
+        t.Ports.AddRange(x.Ports.Where(g => g.Cycle - start < span));
         t.KeyOns.AddRange(x.KeyOns.Where(k => k.Cycle - start < span));
         t.KeyOffs.AddRange(x.KeyOffs.Where(k => k.Cycle - start < span));
         return t;
@@ -172,6 +184,8 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
     [InlineData("#0 t40 $FB $02 $06 $04 $07 c2 d4 $FB $00 $00 e4")]        // arpeggio
     [InlineData("#0 t40 $FB $03 $04 $04 $80 $07 c2 e4")]                   // arpeggio with a loop point
     [InlineData("#0 t40 $FB $80 $06 $02 c2 $FB $81 $04 $01 d2 e4")]       // trill, glissando
+    [InlineData("#0 t40 c4 $F9 $12 $34 d4 $F9 $56 $78 e4")]                 // data to the main CPU
+    [InlineData("#0 t40 c4 $F4 $05 c1 c1 c1 c1 c1 c1")]                     // the tick count on the ports (one tick apart where a loop turns it off)
     [InlineData("#0 c4 d4 e8 f8")]                                         // the default tempo
     [InlineData("#0 t40 @21 c4 d4 @22 c4 @23 c8 c8 @24 c8 @25 c8 @26 c8 @27 c8 @28 c8 @29 c8 @0 e4")]   // percussion
     [InlineData("#0 t40 o3 @26 [c8]2 @29 d8 c16")]                         // a hit in a loop, then notes on its instrument

@@ -909,7 +909,24 @@ static class DebugCommands
     {
         var cpu = Spc700.FromSpc(SpcFile.Parse(File.ReadAllBytes(path)));
         var last = new Dictionary<int, byte>(cpu.Dsp.Select((b, i) => KeyValuePair.Create(i, b)));   // the state before the run
-        var t = SpcTrace.Run(cpu, (long)(seconds * 1_024_000));
+        // PIPEDREAM_POKES="1.0:1=02,1.017:1=00": at each time (seconds), set an input port, as the main CPU would.
+        var pokes = (Environment.GetEnvironmentVariable("PIPEDREAM_POKES") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => { var a = p.Split(':', '='); return (At: (long)(double.Parse(a[0]) * 1_024_000), Port: int.Parse(a[1]), Value: Convert.ToByte(a[2], 16)); })
+            .OrderBy(p => p.At).ToList();
+        SpcTrace t;
+        if (pokes.Count == 0) t = SpcTrace.Run(cpu, (long)(seconds * 1_024_000));
+        else
+        {
+            t = new SpcTrace();
+            long done = 0;
+            foreach (var (at, port, value) in pokes.Append((At: (long)(seconds * 1_024_000), Port: -1, Value: (byte)0)))
+            {
+                var part = SpcTrace.Run(cpu, at - done);
+                t.Append(part, done);
+                done = at;
+                if (port >= 0) cpu.FromCpu[port] = value;
+            }
+        }
         var lines = new List<(long, string)>();
         foreach (var (c, r, v) in t.Global)
         {
@@ -924,6 +941,7 @@ static class DebugCommands
             lines.AddRange(t.Voice.Where(w => w.Reg >> 4 == v && (w.Reg & 0x0F) < 4).Select(w => (w.Cycle, $"t={w.Cycle,9} V{v} {w.Reg & 0x0F:X} {w.Value:X2}")));
         }
         lines.AddRange(t.KeyOffs.Select(k => (k.Cycle, $"t={k.Cycle,9} KOFF {k.Mask:X2}")));
+        lines.AddRange(t.Ports.Select(p => (p.Cycle, $"t={p.Cycle,9} PORT{p.Port} {p.Value:X2}")));
         foreach (var (_, text) in lines.OrderBy(l => l.Item1)) Console.WriteLine(text);
         if (cpu.Halted) Console.WriteLine($"HALTED at PC {cpu.Pc:X4}");
         return 0;
