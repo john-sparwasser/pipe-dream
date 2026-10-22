@@ -48,6 +48,16 @@ public sealed class SpcTrace
         return At(b, at) | At(b + 1, at) << 8;
     }
 
+    /// <summary>Voice <paramref name="voice"/>'s left and right volume at <paramref name="cycle"/>, read after both bytes of a write pair.</summary>
+    public (int L, int R) VolumeAt(int voice, long cycle)
+    {
+        At(0, 0);
+        int b = voice * 16;
+        long last = Math.Max(LastWrite(b, cycle), LastWrite(b + 1, cycle));
+        long at = last < 0 ? cycle : last + 64;
+        return (At(b, at), At(b + 1, at));
+    }
+
     private long LastWrite(int reg, long cycle)
     {
         var list = byReg![reg];

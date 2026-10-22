@@ -67,6 +67,8 @@ base $0400
 !efRStepH = $30
 !pmon = $31                             ; pitch modulation and noise channels, written every tick
 !non = $32
+!c_offL = $40                           ; per channel (eight bytes each, in the direct page): the pitch effects' offset last sent
+!c_offH = $48
 
 ; ---- per-channel arrays, eight bytes each ----
 !c_ptrl = $0200
@@ -199,6 +201,7 @@ Main:
     call Tick
     dec !ticks
     bne .tick
+    call Effects                        ; once however many ticks it was, so a busy moment cannot snowball
 .ports:
     call Ports
     bra Main
@@ -211,9 +214,15 @@ Tick:
     setc
     adc a,!tempo                        ; + tempo + 1
     mov !tickAcc,a
-    bcc .effects
+    bcc .done
     call SongTick
-.effects:                               ; pitch effects move every timer tick, between song ticks too, as AddmusicK's do
+.done:
+    ret
+
+; Pitch and volume effects move every timer tick, between song ticks too, as AddmusicK's do.
+Effects:
+    mov a,!playing
+    beq .done
     mov x,#$07
 .e:
     mov a,!c_act+x
@@ -686,6 +695,8 @@ NoteOn:
     mov !c_note+x,a
     mov a,#$00
     mov !c_age+x,a
+    mov !c_offL+x,a                     ; keyed at the plain note: no offset sent yet
+    mov !c_offH+x,a
     mov !c_bendLen+x,a
     mov a,!c_envType+x                  ; $EB/$EC: every note bends
     beq +
@@ -867,7 +878,17 @@ PitchEffects:                           ; X = channel
 +   mov a,!c_vibDepth+x
     beq +
     call Vibrato
-+   push x
++   mov a,!t6                           ; the same offset as last time: nothing to send
+    cmp a,!c_offL+x
+    bne +
+    mov a,!t7
+    cmp a,!c_offH+x
+    beq .ret
++   mov a,!t6
+    mov !c_offL+x,a
+    mov a,!t7
+    mov !c_offH+x,a
+    push x
     call NoteValue
     pop x
     bcs .ret
@@ -1054,15 +1075,20 @@ Vibrato:                                ; X = channel
     bpl +
     eor a,#$FF
     inc a
-+   mov !t5,a
++   cmp a,#$40
+    bne +
+    call VibratoDepth                   ; the very top: the whole depth
+    mov !t0,a
+    bra ++
++   asl a                               ; |position| x 4: depth x that >> 8 is depth x |position| >> 6
+    asl a
+    mov !t5,a
     call VibratoDepth
     mov y,!t5
-    mul ya                              ; depth x |position|, >> 6
-    movw !t0,ya
-    mov y,#$06
--   lsr !t1
-    ror !t0
-    dbnz y,-
+    mul ya
+    mov !t0,y
+++  mov a,#$00
+    mov !t1,a
     mov a,!t3
     bmi .down
     mov a,!t6
@@ -1222,10 +1248,17 @@ CmdVibrato:                             ; $DE delay rate depth
     mov !c_vibDepth+x,a
     jmp ReadData
 
-CmdVibratoOff:                          ; $DF
+CmdVibratoOff:                          ; $DF: and the note back where it was
     mov a,#$00
     mov !c_vibDepth+x,a
-    jmp ReadData
+    mov a,!c_bendLen+x
+    bne +                               ; (a bend carries on sending its own)
+    mov a,#$00
+    mov !c_offL+x,a
+    mov !c_offH+x,a
+    call NotePitch
+    call SendPitch
++   jmp ReadData
 
 SendPitch:                              ; X = channel, !t0/!t1 = pitch
     call VoiceBase

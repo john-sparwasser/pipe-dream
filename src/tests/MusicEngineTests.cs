@@ -89,8 +89,8 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
                     int b = v * 16;
                     // Theirs over a quarter tick either side: where in its tick an engine keys on moves a fast bend or fade that much.
                     var around = new[] { -0.25, 0, 0.25 }.Select(f => ca + (long)(f * tickCycles))
-                        .Select(c => (L: theirs.At(b, c), R: theirs.At(b + 1, c), P: theirs.PitchAt(v, c))).ToList();
-                    var (lb, rb, pb) = (ours.At(b, cb), ours.At(b + 1, cb), ours.PitchAt(v, cb));
+                        .Select(c => (L: theirs.VolumeAt(v, c).L, R: theirs.VolumeAt(v, c).R, P: theirs.PitchAt(v, c))).ToList();
+                    var ((lb, rb), pb) = (ours.VolumeAt(v, cb), ours.PitchAt(v, cb));
                     bool Near(Func<(int L, int R, int P), int> f, int ourValue, int tol) => ourValue >= around.Min(f) - tol && ourValue <= around.Max(f) + tol;
                     var mid = around[1];
                     if (!Near(a => a.L, lb, 1) || !Near(a => a.R, rb, 1)) { d.Add($"v{v} #{i} +{k} ticks: volume {mid.L:X2}/{mid.R:X2} vs {lb:X2}/{rb:X2}"); break; }
@@ -100,8 +100,8 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
             }
             // Key-offs before the voice's first note are silent either way, and AddmusicK's rests at the start of a song send some ours don't.
             long fa = ta.Count > 0 ? ta[0].Cycle : long.MaxValue, fb = tb.Count > 0 ? tb[0].Cycle : long.MaxValue;
-            var ka = theirs.KeyOffs.Where(k => k.Mask != 0xFF && (k.Mask >> v & 1) != 0 && k.Cycle > fa).ToList();
-            var kb = ours.KeyOffs.Where(k => k.Mask != 0xFF && (k.Mask >> v & 1) != 0 && k.Cycle > fb).ToList();
+            var ka = theirs.KeyOffs.Where(k => (k.Mask >> v & 1) != 0 && k.Cycle > fa).ToList();
+            var kb = ours.KeyOffs.Where(k => (k.Mask >> v & 1) != 0 && k.Cycle > fb).ToList();
             int n = Math.Min(ka.Count, kb.Count);
             for (int i = 0; i < n; i++)
             {
@@ -141,7 +141,7 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
     [InlineData("#0 t32 @0 v200 o4 c4 d4 e4 f4 r4 g2")]
     [InlineData("#0 t96 r6 / t77 c=384 d=384 e2")]
     [InlineData("#0 t96 r6 / v168 $DE $00 $04 $1B t77 o3a+=384 g+=384 a+=384")]
-    [InlineData("#0 t192 @3 v255 o2a24 v159 ^=40 >c24 v159 ^=40 d24 v159 ^=40 <a24 v159 ^=88")]
+    [InlineData("#0 t120 @3 v255 o2a24 v159 ^=40 >c24 v159 ^=40 d24 v159 ^=40 <a24 v159 ^=88")]
     [InlineData("#0 w138 t58 $EF$BF$28$28$F1$0B$50$01 @0 y10 v255 [q7F o4 a16 r48 a16 r48 g16 r48 a8 r24]4")]
     [InlineData("#0 t58 @0 [q7F o4 a16 r48 a16 r48 g16 r48 a8 r24]4")]
     [InlineData("#0 t40 $EE $80 c4 $EE $40 c4 $EE $FF c4 @5 $EE $80 c4 $EE $00 b4")]          // fine tune
@@ -217,7 +217,19 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
         var (theirs, ours) = (PlayTheirs(text, secs), PlayOurs(text, secs));
         var tm = System.Text.RegularExpressions.Regex.Match(text, @"\bt(\d+)");
         double tc = TickCycles(tm.Success ? int.Parse(tm.Groups[1].Value) : 53);
-        foreach (var d in Differences(theirs, ours, tc, (long)(secs * 1_024_000)).Take(20)) log.WriteLine(d);
+        var all = Differences(theirs, ours, tc, (long)(secs * 1_024_000));
+        foreach (var d in all.Where(d => Environment.GetEnvironmentVariable("PIPEDREAM_NOTIMING") is null || !(d.Contains("ticks off") || d.Contains("key-ons:") || d.Contains("key-offs:"))).Take(20)) log.WriteLine(d);
+        if (Environment.GetEnvironmentVariable("PIPEDREAM_WINDOW") is { } win)     // "from-to" in ticks: every KON/KOFF write, zeros too
+        {
+            var (from, to) = (double.Parse(win.Split('-')[0]), double.Parse(win.Split('-')[1]));
+            foreach (var (who, x) in new[] { ("theirs", theirs), ("ours", ours) })
+            {
+                long s0 = x.KeyOns[0].Cycle;
+                log.WriteLine($"{who} writes: " + string.Join(" ", x.Global.Concat(x.KeyOffs.Select(k => (k.Cycle, Reg: 0x5C, Value: (byte)k.Mask))).Concat(x.KeyOns.Select(k => (k.Cycle, Reg: 0x4C, Value: (byte)(1 << k.Voice))))
+                    .Where(w => (w.Cycle - s0) / tc >= from && (w.Cycle - s0) / tc <= to && w.Reg is 0x4C or 0x5C or 0x6C or 0x7D)
+                    .OrderBy(w => w.Cycle).Select(w => $"{(w.Cycle - s0) / tc:F2}:{w.Reg:X2}={w.Value:X2}")));
+            }
+        }
         if (Environment.GetEnvironmentVariable("PIPEDREAM_PITCH") is { } pv)          // voice n's pitch half a tick into each tick
         {
             int v = int.Parse(pv);
@@ -238,7 +250,7 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
             for (int v = 0; v < 8; v++)
                 log.WriteLine($"{who} v{v}: " + string.Join(" ", x.KeyOns.Where(k => k.Voice == v).Select(k => (k.Cycle, $"N{k.Pitch:X4}"))
                     .Concat(x.KeyOffs.Where(k => k.Mask != 0xFF && (k.Mask >> v & 1) != 0).Select(k => (k.Cycle, "o")))
-                    .OrderBy(e => e.Item1).Take(40).Select(e => $"{e.Item2}@{(e.Item1 - x.KeyOns[0].Cycle) / tc:F1}")));
+                    .OrderBy(e => e.Item1).Take(80).Select(e => $"{e.Item2}@{(e.Item1 - x.KeyOns[0].Cycle) / tc:F1}")));
     }
 
     /// <summary>Not a test: how much of the SPC's time our engine spends working, for the song in PIPEDREAM_MML.</summary>
@@ -257,6 +269,7 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
         int main = labels["Main"];
         long idle = 0, start = cpu.Cycles, worst = 0, busySince = -1;
         var byPc = new long[0x10000];
+        List<(int Pc, long C)> gapPcs = new(), worstPcs = new();
         while (cpu.Cycles - start < 4 * 1_024_000)
         {
             long before = cpu.Cycles;
@@ -265,7 +278,12 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
             cpu.Run(1);
             byPc[pc] += cpu.Cycles - before;
             if (atMain && cpu.Ram[0xFD] == 0) { }                   // (the counter reads as 0 when there is nothing to do)
-            if (atMain) { if (busySince >= 0) worst = Math.Max(worst, before - busySince); busySince = before; }
+            if (!atMain) gapPcs.Add((pc, cpu.Cycles - before));
+            if (atMain)
+            {
+                if (busySince >= 0 && before - busySince > worst) { worst = before - busySince; worstPcs = gapPcs; }
+                busySince = before; gapPcs = new();
+            }
         }
         log.WriteLine($"longest gap between visits to Main: {worst} cycles ({worst / 2048.0:F2} timer ticks)");
         var sorted = labels.Where(l => !l.Key.Contains('.') && !l.Key.Contains(':') && l.Value >= 0x400).OrderBy(l => l.Value).ToList();
@@ -277,6 +295,8 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
             share[sorted[i].Key] = sum;
         }
         foreach (var (k, v) in share.OrderByDescending(x => x.Value).Take(14)) log.WriteLine($"  {k,-20} {v * 100.0 / (4 * 1_024_000):F1}%");
+        string LabelOf(int pc) => sorted.LastOrDefault(l => l.Value <= pc).Key ?? "?";
+        log.WriteLine("worst gap: " + string.Join(" ", worstPcs.GroupBy(p => LabelOf(p.Pc)).Select(g => (g.Key, S: g.Sum(x => x.C))).OrderByDescending(g => g.S).Take(10).Select(g => $"{g.Key}={g.S}")));
     }
 
     [AsarFact]
