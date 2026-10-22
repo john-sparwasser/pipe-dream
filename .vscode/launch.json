@@ -20,7 +20,12 @@
       // launch takes its vanilla ROM from here when nothing is saved, so a wiped config.json
       // can no longer put the first-run prompt in front of F5. Windows keeps ReferenceRoms'
       // C:\SMW\Projects default — an env override here would replace it.
-      "osx": { "env": { "PIPEDREAM_SMW_ROOT": "${env:HOME}/smw" } },
+      // PIPEDREAM_ASAR: where tools/asar/build.sh ~/.local/share/pipedream-asar puts the library (VS Code
+      // only sees ~/.zshenv's copy if it was started after the line went in).
+      "osx": { "env": {
+        "PIPEDREAM_SMW_ROOT": "${env:HOME}/smw",
+        "PIPEDREAM_ASAR": "${env:HOME}/.local/share/pipedream-asar/libasar.dylib"
+      } },
       "console": "internalConsole",
       "logging": { "moduleLoad": false }
     }
