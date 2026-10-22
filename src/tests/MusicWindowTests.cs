@@ -100,6 +100,42 @@ public class MusicWindowTests
     }
 
     [Avalonia.Headless.XUnit.AvaloniaFact]
+    public void sound_effects_are_listed_edited_and_emptied()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla)) return;
+        var s = Project();
+        string file = Path.Combine(Path.GetTempPath(), $"fx-{Guid.NewGuid():N}.txt");
+        File.WriteAllText(file, "$DA $0A $18 $A4");
+        Assert.Equal($"1DF9 22 is {Path.GetFileName(file)}", s.ImportEffectFile(file, "1DF9", 0x22));
+        Assert.StartsWith("an effect goes in", s.ImportEffectFile(file, "1DFA", 1));
+
+        var w = Open(s);
+        var list = w.GetControl<ListBox>("EffectList");
+        var row = Assert.Single(Rows<MusicWindow.EffectRow>(list));
+        Assert.Equal(("1DF9 22", "5 bytes"), (row.Where, row.Size));
+        Assert.False(w.GetControl<Button>("EditEffectButton").IsEnabled);
+        list.SelectedIndex = 0;
+        Assert.True(w.GetControl<Button>("EditEffectButton").IsEnabled);
+
+        var ed = new SongEditWindow(s, "1DF9", Path.GetFileName(file));
+        ed.Show();
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        Assert.Equal("5 bytes", ed.GetControl<TextBlock>("Size").Text);
+        Assert.False(ed.GetControl<Button>("ExportButton").IsVisible);
+        ed.GetControl<AvaloniaEdit.TextEditor>("Editor").Text = "@10 c8 zz";
+        ed.CheckNow();
+        Assert.Equal("1 problem", ed.GetControl<TextBlock>("Size").Text);
+        ed.GetControl<AvaloniaEdit.TextEditor>("Editor").Text = "@10 c8 d8";
+        ed.GetControl<Button>("Save").RaiseEvent(Click);
+        Assert.Equal("@10 c8 d8", s.EffectText("1DF9", Path.GetFileName(file)));
+
+        w.GetControl<Button>("DeleteEffectButton").RaiseEvent(Click);
+        Assert.Empty(s.MusicEffects);
+        Assert.Null(s.EffectText("1DF9", Path.GetFileName(file)));               // no slot names it any more
+        w.Close();
+    }
+
+    [Avalonia.Headless.XUnit.AvaloniaFact]
     public void cancelling_the_song_editor_leaves_the_song_alone()
     {
         if (!File.Exists(ReferenceRoms.Vanilla)) return;

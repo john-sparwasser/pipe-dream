@@ -9,7 +9,7 @@ namespace PipeDream.Ui;
 
 /// <summary>
 /// The project's AddmusicK-style music (reference/AMK_PORT.md): its songs, with the number each plays
-/// under and what it compiles to, and its samples. New and Import add songs, Edit opens
+/// under and what it compiles to, its sound effects, and its samples. New and Import add songs, Edit opens
 /// <see cref="SongEditWindow"/>, Number sets the slot, and the folder buttons read and write an AddmusicK
 /// folder whole. Each button says what happened on the status line.
 /// </summary>
@@ -17,13 +17,18 @@ public partial class MusicWindow : Window
 {
     public sealed record SongRow(string Path, string Number, string Size);
     public sealed record SampleRow(string Path, string Size);
+    public sealed record EffectRow(string Port, int Slot, string File, string Size)
+    {
+        public string Where => $"{Port} {Slot:X2}";
+    }
 
     /// <summary>Where a song's data would start in the ARAM — only for the size, which does not depend on it.</summary>
     internal const int SizeBase = 0x238D;
 
     private readonly EditorSession session = null!;
-    private ListBox songs = null!, samples = null!;
+    private ListBox songs = null!, samples = null!, effects = null!;
     private Button editButton = null!, numberButton = null!, deleteButton = null!, deleteSampleButton = null!;
+    private Button editEffectButton = null!, deleteEffectButton = null!;
     private TextBlock hint = null!;
 
     /// <summary>Parameterless for the XAML loader; the real entry point is the other one.</summary>
@@ -38,12 +43,16 @@ public partial class MusicWindow : Window
         numberButton = this.GetControl<Button>("NumberButton");
         deleteButton = this.GetControl<Button>("DeleteButton");
         deleteSampleButton = this.GetControl<Button>("DeleteSampleButton");
+        effects = this.GetControl<ListBox>("EffectList");
+        editEffectButton = this.GetControl<Button>("EditEffectButton");
+        deleteEffectButton = this.GetControl<Button>("DeleteEffectButton");
         hint = this.GetControl<TextBlock>("Hint");
         Refresh();
     }
 
     private string? SelectedSong => (songs.SelectedItem as SongRow)?.Path;
     private string? SelectedSample => (samples.SelectedItem as SampleRow)?.Path;
+    private EffectRow? SelectedEffect => effects.SelectedItem as EffectRow;
 
     /// <summary>Refill both lists, landing on <paramref name="song"/> and <paramref name="sample"/> if they are there.</summary>
     private void Refresh(string? song = null, string? sample = null)
@@ -54,6 +63,10 @@ public partial class MusicWindow : Window
         var sampleRows = session.MusicSamples.Select(s => new SampleRow(s.Path, $"{s.Bytes:N0} bytes")).ToList();
         samples.ItemsSource = sampleRows;
         samples.SelectedItem = sampleRows.FirstOrDefault(r => r.Path == sample);
+        var keep = SelectedEffect;
+        var effectRows = session.MusicEffects.Select(x => new EffectRow(x.Port, x.Slot, x.File, x.Size)).ToList();
+        effects.ItemsSource = effectRows;
+        effects.SelectedItem = effectRows.FirstOrDefault(r => r.Port == keep?.Port && r.Slot == keep.Slot);
         UpdateButtons();
     }
 
@@ -72,6 +85,7 @@ public partial class MusicWindow : Window
     {
         editButton.IsEnabled = numberButton.IsEnabled = deleteButton.IsEnabled = SelectedSong is not null;
         deleteSampleButton.IsEnabled = SelectedSample is not null;
+        editEffectButton.IsEnabled = deleteEffectButton.IsEnabled = SelectedEffect is not null;
     }
 
     private async void OnNew(object? sender, RoutedEventArgs e)
@@ -173,6 +187,36 @@ public partial class MusicWindow : Window
         if (SelectedSample is not { } path) return;
         hint.Text = session.DeleteSample(path);
         Refresh(SelectedSong);
+    }
+
+    private async void OnImportEffect(object? sender, RoutedEventArgs e)
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Add a sound effect", FileTypeFilter = [new FilePickerFileType("AddmusicK sound effect") { Patterns = ["*.txt"] }],
+        });
+        if (files.Count == 0 || files[0].TryGetLocalPath() is not { } path) return;
+        var ask = new TextPromptWindow("Port and slot, e.g. 1DF9 22", "1DF9 ");
+        await ask.ShowDialog(this);
+        if (ask.Result?.Split(' ', StringSplitOptions.RemoveEmptyEntries) is not [var port, var slot]
+            || !int.TryParse(slot, System.Globalization.NumberStyles.HexNumber, null, out int n))
+        { hint.Text = "a port (1DF9 or 1DFC) and a hex slot, e.g. 1DF9 22"; return; }
+        hint.Text = session.ImportEffectFile(path, port.ToUpperInvariant(), n);
+        Refresh(SelectedSong, SelectedSample);
+    }
+
+    private async void OnEditEffect(object? sender, RoutedEventArgs e)
+    {
+        if (SelectedEffect is not { } fx) return;
+        await new SongEditWindow(session, fx.Port, fx.File).ShowDialog(this);
+        Refresh(SelectedSong, SelectedSample);
+    }
+
+    private void OnDeleteEffect(object? sender, RoutedEventArgs e)
+    {
+        if (SelectedEffect is not { } fx) return;
+        hint.Text = session.DeleteEffect(fx.Port, fx.Slot);
+        Refresh(SelectedSong, SelectedSample);
     }
 
     private void OnClose(object? sender, RoutedEventArgs e) => Close();

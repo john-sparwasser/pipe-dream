@@ -42,6 +42,35 @@ public class MusicSnesTests(Xunit.Abstractions.ITestOutputHelper log)
     }
 
     [Fact]
+    public void a_project_effect_takes_its_slot_and_smws_keep_the_rest()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla)) return;
+        var rom = Rom.Load(ReferenceRoms.Vanilla);
+        var p = new ProjectFile();
+        p.Music.Songs["a.mml"] = "#amk 2\n#0 r1";
+        p.Music.SongList.Add(new MusicState.SongSlot { Number = 0x0A, Path = "a.mml" });
+        p.Music.SfxSources["1DF9/mine.txt"] = "@10 o4 a8";
+        p.Music.Sfx1DF9.Add(new MusicState.SfxSlot { Slot = 0x01, File = "mine.txt" });
+        var r = MusicInsert.Insert(rom, p);
+        Assert.True(r.Ok, string.Join("\n", r.Errors));
+        var spc = Spc700.PoweredOn();
+        var cpu = Wired(rom, spc);
+        cpu.CallNear(0x0080E8);
+        spc.Run(40_000);
+        int First(byte effect)
+        {
+            cpu.Ram7E[0x1DF9] = effect;
+            var t = Frames(cpu, spc, r.Labels["Nmi"], 20);
+            return t.KeyOns.First(k => k.Voice == 6).Pitch;
+        }
+        int mine = First(0x01);
+        Frames(cpu, spc, r.Labels["Nmi"], 30);
+        int smws = First(0x02);
+        Assert.NotEqual(0x0190, mine);                                   // not SMW's $01 (which starts at $0190)
+        Assert.NotEqual(mine, smws);                                     // and SMW's $02 is still there
+    }
+
+    [Fact]
     public void smws_song_numbers_become_addmusicks()
     {
         if (!File.Exists(ReferenceRoms.Vanilla)) return;

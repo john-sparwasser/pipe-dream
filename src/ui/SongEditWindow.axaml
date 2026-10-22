@@ -10,7 +10,7 @@
                 Spacing="8" Margin="0,12,0,0">
       <TextBlock x:Name="Size" VerticalAlignment="Center" Margin="0,0,8,0" FontSize="12"
                  Foreground="{DynamicResource TextDimBrush}"/>
-      <Button Content="Export .spc…" Click="OnExportSpc"
+      <Button x:Name="ExportButton" Content="Export .spc…" Click="OnExportSpc"
               ToolTip.Tip="The song as it stands here, as an .spc file any SPC player plays"/>
       <Button x:Name="OpenButton" Click="OnOpen"
               ToolTip.Tip="Open the song in your text editor (File ▸ Preferences); saving there updates the project"/>

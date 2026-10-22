@@ -231,15 +231,17 @@ public static class MusicInsert
         return b;
     }
 
-    /// <summary>The project's own sound effects if it has any ($1DF9 and $1DFC lists and their sources), else SMW's from the ROM.
-    /// Their instruments are SMW's either way.</summary>
+    /// <summary>SMW's sound effects from the ROM, with the project's own ($1DF9 and $1DFC lists and their sources) in the slots it
+    /// fills. Their instruments are SMW's either way.</summary>
     private static SoundEffects Effects(Rom rom, MusicState m, List<string> warnings)
     {
         var instruments = SoundEffects.SmwInstruments(rom);
-        if (m.Sfx1DF9.Count == 0 && m.Sfx1DFC.Count == 0) return SmwSound.Effects(rom, instruments);
-        IReadOnlyList<byte[]?> Port(List<MusicState.SfxSlot> slots, string folder)
+        var smw = SmwSound.Effects(rom, instruments);
+        if (m.Sfx1DF9.Count == 0 && m.Sfx1DFC.Count == 0) return smw;
+        IReadOnlyList<byte[]?> Port(List<MusicState.SfxSlot> slots, string folder, IReadOnlyList<byte[]?> theirs)
         {
-            var list = new byte[]?[slots.Count == 0 ? 1 : slots.Max(s => s.Slot) + 1];
+            var list = new byte[]?[Math.Max(theirs.Count, slots.Count == 0 ? 0 : slots.Max(s => s.Slot) + 1)];
+            for (int i = 0; i < theirs.Count; i++) list[i] = theirs[i];
             var byFile = new Dictionary<string, byte[]>();
             foreach (var s in slots.Where(s => s.Flag != "*"))
             {
@@ -251,6 +253,6 @@ public static class MusicInsert
             foreach (var s in slots.Where(s => s.Flag == "*")) list[s.Slot] = byFile.GetValueOrDefault(s.File);
             return list;
         }
-        return new SoundEffects(instruments, Port(m.Sfx1DF9, "1DF9"), Port(m.Sfx1DFC, "1DFC"));
+        return new SoundEffects(instruments, Port(m.Sfx1DF9, "1DF9", smw.Port1DF9), Port(m.Sfx1DFC, "1DFC", smw.Port1DFC));
     }
 }

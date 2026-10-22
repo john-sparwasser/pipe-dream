@@ -179,6 +179,10 @@ refused. `MusicSnesTests` runs SMW's 65816 code and ours against the SPC interpr
   play from the global set, a sound effect plays and cuts a channel.
 
 ### 6. The window and the editor
+**Status (2026-10-22): done.** ASM ▸ Music… lists songs, sound effects and samples. Effects are imported into a slot of `$1DF9`
+or `$1DFC`, edited in the song editor (checked by `SfxCompiler`) and emptied; a slot the project fills replaces SMW's effect there
+and the others stay SMW's. The song editor shows each channel's bytes and an ARAM bar (the room a local song has, as the build
+lays it out). The overworld has no music picker to name.
 - ASM ▸ Music… lists the project's songs, samples and effects to add, import, slot, edit and remove.
 - A song editor: the MML text with colouring, the error list with jump to line, the per-channel
   sizes, an ARAM usage bar, and Open in your editor, as blocks and sprites have.

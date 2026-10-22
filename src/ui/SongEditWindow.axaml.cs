@@ -16,12 +16,12 @@ namespace PipeDream.Ui;
 /// <summary>One song's MML: AvaloniaEdit with <see cref="Highlighting"/>'s colours, and under it what the
 /// compiler says, refreshed a moment after typing stops, with the compiled size once it compiles. Save
 /// writes into the project; Cancel, Esc and closing the window drop the edit, as in
-/// <see cref="BlockEditWindow"/>.</summary>
+/// <see cref="BlockEditWindow"/>. A sound effect opens here too, checked by <see cref="SfxCompiler"/>.</summary>
 public partial class SongEditWindow : Window
 {
     public sealed record Problem(int Line, int Column, string Message)
     {
-        public string Where => $"{Line}:{Column}";
+        public string Where => Line == 0 ? "" : $"{Line}:{Column}";
     }
 
     /// <summary>MML's syntax colours, from ui/Mml.xshd; read once.</summary>
@@ -37,6 +37,7 @@ public partial class SongEditWindow : Window
 
     private readonly EditorSession session = null!;
     private readonly string path = "";
+    private readonly string? effectPort;                 // set when the text is a sound effect in that port's folder
     private TextEditor editor = null!;
     private ListBox problems = null!;
     private TextBlock size = null!;
@@ -48,7 +49,24 @@ public partial class SongEditWindow : Window
     {
         this.session = session;
         this.path = path;
-        Title = path;
+        Init(path, session.SongText(path) ?? "");
+    }
+
+    /// <summary>A sound effect: the file in <paramref name="port"/>'s folder. No .spc, ARAM or outside editor for these.</summary>
+    internal SongEditWindow(EditorSession session, string port, string file) : this()
+    {
+        this.session = session;
+        path = file;
+        effectPort = port;
+        this.GetControl<Button>("ExportButton").IsVisible = false;
+        this.GetControl<Button>("OpenButton").IsVisible = false;
+        this.GetControl<ProgressBar>("AramBar").IsVisible = false;
+        Init($"{port}/{file}", session.EffectText(port, file) ?? "");
+    }
+
+    private void Init(string title, string text)
+    {
+        Title = title;
         editor = this.GetControl<TextEditor>("Editor");
         problems = this.GetControl<ListBox>("Problems");
         size = this.GetControl<TextBlock>("Size");
@@ -59,7 +77,7 @@ public partial class SongEditWindow : Window
         editor.Options.HighlightCurrentLine = true;
         foreach (var m in editor.TextArea.LeftMargins.OfType<AvaloniaEdit.Editing.LineNumberMargin>())
             m.Margin = new Avalonia.Thickness(6, 0, 10, 0);                   // air between the numbers and the code
-        editor.Text = session.SongText(path) ?? "";
+        editor.Text = text;
         CheckNow();
         editor.TextChanged += (_, _) => Debounce();
         Opened += (_, _) => editor.Focus();
@@ -86,6 +104,13 @@ public partial class SongEditWindow : Window
     /// <summary>Parse and compile the text as it stands, and show the problems or the size.</summary>
     internal void CheckNow()
     {
+        if (effectPort is not null)
+        {
+            var (bytes, said) = SfxCompiler.Compile(editor.Text ?? "");
+            problems.ItemsSource = said.Select(m => new Problem(0, 0, m)).ToList();
+            size.Text = said.Count == 0 ? $"{bytes.Length:N0} bytes" : said.Count == 1 ? "1 problem" : $"{said.Count} problems";
+            return;
+        }
         var compiled = MmlCompiler.Compile(MmlParser.Parse(editor.Text ?? ""), MusicWindow.SizeBase);
         problems.ItemsSource = compiled.Diagnostics.Select(d => new Problem(d.Line, d.Column, d.Message)).ToList();
         size.Text = compiled.Ok ? $"{compiled.Bytes.Length:N0} bytes" : compiled.Diagnostics.Count switch { 1 => "1 problem", int n => $"{n} problems" };
@@ -130,7 +155,8 @@ public partial class SongEditWindow : Window
 
     private void OnSave(object? sender, RoutedEventArgs e)
     {
-        session.SetSongText(path, editor.Text ?? "");
+        if (effectPort is not null) session.SetEffectText(effectPort, path, editor.Text ?? "");
+        else session.SetSongText(path, editor.Text ?? "");
         Close();
     }
 
