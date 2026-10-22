@@ -21,6 +21,14 @@ public class MmlTests
     public static readonly TheoryData<string, string> Golden = new()
     {
         { "#amk 2\n#0 c4", "9323FF008D23A3230000000000000000000000000000F408FA0400307FA400" },
+        // AddmusicK's own originals: q written again even unchanged, ? before the channels or as ?0 (?1 does nothing), * recalling
+        // another channel's loop, replacements before the channels.
+        { "#amk 2\n#0 q6d c4 q6d c4 c4", "9323FF008D23A3230000000000000000000000000000F408FA0400306DA4306DA4A400" },
+        { "#amk 2\n?\n#0 c4", "91230000A1230000000000000000000000000000F408FA0400307FA400" },
+        { "#amk 2\n#0 ?0 c4", "91230000A1230000000000000000000000000000F408FA0400307FA400" },
+        { "#amk 2\n#0 ?1 c4", "9323FF008D23A3230000000000000000000000000000F408FA0400307FA400" },
+        { "#amk 2\n#0 (1)[c4]2 [d4]2 \n#1 (1)2 *2", "9323FF008D23A323B123000000000000000000000000F408FA0400E9BA2302E9BE230200E9BA2302E9BE230200307FA400307FA600" },
+        { "#amk 2\n\"NAME=$E7 $80\"\n#0 NAME c4", "9323FF008D23A3230000000000000000000000000000F408FA0400E780307FA400" },
         // A sample load names the sample by its place after the group's samples, as the instrument table does.
         { "#amk 2\n#samples { #default \"06_scores_00.brr\" }\n#0 (\"06_scores_00.brr\",$03) c4", "9323FF008D23A3230000000000000000000000000000F408FA0400F31403307FA400" },
         { "#amk 2\n#samples { #optimized \"06_scores_00.brr\" \"06_scores_01.brr\" }\n#0 (\"06_scores_01.brr\",$03) c4", "9323FF008D23A3230000000000000000000000000000F408FA0400F31503307FA400" },
@@ -158,6 +166,10 @@ public class MmlTests
         Assert.Contains("any data", Assert.Single(MmlParser.Parse("#amk 2").Diagnostics).Message);
         Assert.Contains("inside a channel", MmlParser.Parse("#amk 2\nc4").Diagnostics[0].Message);
     }
+
+    [Fact]
+    public void a_replacement_can_name_a_loop_count()               // AddmusicK 1.0.6's own Special World; 1.0.5 refuses it
+        => Assert.Equal(Hex(Compile("#amk 2\n#0 [c4]8").Bytes), Hex(Compile("#amk 2\n\"N=8\"\n#0 [c4]N").Bytes));
 
     [Fact]
     public void remote_code_is_not_a_loop_to_recall()

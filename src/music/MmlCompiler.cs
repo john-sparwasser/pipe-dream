@@ -139,8 +139,9 @@ public static class MmlCompiler
     /// channel, or a label that may be another channel's).</summary>
     private sealed record Call(bool InSub, int Owner, int Offset, int Sub, int Label, Cmd At);
 
-    /// <summary>What AddmusicK keeps for loop bodies across the whole song: the transposition (h) they use, and whether one was set.</summary>
-    private sealed class LoopState { public int Tune; public bool TuneSet; }
+    /// <summary>What AddmusicK keeps for loop bodies across the whole song: the transposition (h) they use, whether one was set, and
+    /// the loop defined last, which <c>*</c> recalls from any channel (measured).</summary>
+    private sealed class LoopState { public int Tune; public bool TuneSet; public (int Ch, int Sub) Last = (-1, -1); public int Recalls; }
 
     /// <summary>One channel's bytes: the main stream, then its subroutines, with the places that call them still to be filled in.</summary>
     private sealed class ChannelOut(int index, List<byte> main, List<List<byte>> subs, List<Call> calls, int? introAt, bool noLoop)
@@ -203,7 +204,6 @@ public static class MmlCompiler
 
         private readonly List<List<byte>> subs = new();
         private readonly List<Call> calls = new();
-        private int lastLoop = -1;
         private int? introAt;
         private bool noLoop;
         private Buf main = new(-1);
@@ -228,9 +228,9 @@ public static class MmlCompiler
                     int sub = Subroutine(d.Body, false);
                     if (!labels.TryAdd(RemoteKey(d.Id), (channelIndex, sub, d.Line, d.Column))) Error(d, "Remote code definitions cannot repeat.");
                 }
-            lastLoop = -1;                                   // remote code is not a loop for * to recall
             if (isFirst)
             {
+                loopState.Last = (-1, -1);                   // remote code is not a loop for * to recall
                 // The N-SPC velocity table ($F4 $08) from parser version 2 on; before that only #louder asks for it, after the reserve.
                 if (song.AmkVersion >= 2) main.Bytes.AddRange([0xF4, 0x08]);
                 main.Bytes.AddRange([0xFA, 0x04, 0x00]);
@@ -328,7 +328,7 @@ public static class MmlCompiler
                     case VolumeCmd v: buf.Bytes.AddRange([0xE7, (byte)v.Value]); break;
                     case GlobalVolumeCmd w: buf.Bytes.AddRange([0xE0, (byte)w.Value]); break;
                     case PanCmd y: buf.Bytes.AddRange([0xDB, (byte)(y.Value | (y.SurroundLeft != 0 ? 0x80 : 0) | (y.SurroundRight != 0 ? 0x40 : 0))]); break;
-                    case QuantCmd q: qv = q.Value; break;
+                    case QuantCmd q: qv = q.Value; buf.LastQv = null; break;   // written again with the next note, even unchanged (measured)
                     case TempoCmd t:
                         {
                             int v = t.Value / Divisor;
@@ -377,8 +377,11 @@ public static class MmlCompiler
                         EmitCall(buf, -1, l.Id, l.Count, l);
                         break;
                     case RecallCmd r:
-                        if (lastLoop < 0) { Error(r, "There is no loop to recall."); break; }
-                        EmitCall(buf, lastLoop, -1, r.Count, r);
+                        if (loopState.Last.Sub < 0) { Error(r, "There is no loop to recall."); break; }
+                        if (loopState.Last.Ch == channelIndex) { EmitCall(buf, loopState.Last.Sub, -1, r.Count, r); break; }
+                        int key = RecallBase + loopState.Recalls++;  // another channel's: called the way a label is
+                        labels[key] = (loopState.Last.Ch, loopState.Last.Sub, r.Line, r.Column);
+                        EmitCall(buf, -1, key, r.Count, r);
                         break;
                     case SuperLoopCmd s:
                         buf.Bytes.AddRange([0xE6, 0x00]);
@@ -394,7 +397,7 @@ public static class MmlCompiler
             }
         }
 
-        private const int RemoteBase = 0x10000;
+        private const int RemoteBase = 0x10000, RecallBase = 0x20000;
         private static int RemoteKey(int id) => RemoteBase + id;
 
         /// <summary><c>(!id, type, arg)</c>: $FC, the address of the code, the event type, and its argument (a hex byte or a note length in ticks).
@@ -498,7 +501,7 @@ public static class MmlCompiler
             subs.Add(sub.Bytes);
             Sequence(body, sub, triplet);
             sub.Bytes.Add(0x00);
-            lastLoop = sub.Sub;
+            loopState.Last = (channelIndex, sub.Sub);
             (loopState.Tune, loopState.TuneSet) = (tune, tuneSet);
             (tune, tuneSet, instrument, pendingPercussion) = (savedTune, savedSet, savedInstrument, savedPercussion);
             return sub.Sub;

@@ -161,6 +161,8 @@ public static class MmlParser
                     }
                     continue;
                 }
+                if (channel < 0 && Peek() == '"') { ParseReplacementDefinition(); continue; }   // names, before any channel
+                if (channel < 0 && Peek() == '?') { ParseItem(song.Channels[0] ??= [], End.Channel); continue; }   // no loop, likewise
                 if (channel < 0)
                 {
                     Error("Note data must be inside a channel!");
@@ -488,7 +490,12 @@ public static class MmlParser
                     if (into.Count == 0 || into[^1] is not (NoteCmd or RestCmd or TieCmd)) { Error("Unexpected character \"&\" found.", l, cc); return; }
                     into.Add(new PitchSlideCmd(l, cc));
                     return;
-                case '?': Advance(); into.Add(new NoLoopCmd(l, cc)); return;
+                case '?':                       // ?0 is ?; another number is read and does nothing (AddmusicK's, measured)
+                    Advance();
+                    int digits = pos;
+                    while (char.IsDigit(Peek())) Advance();
+                    if (pos == digits || src[digits..pos].All(ch => ch == '0')) into.Add(new NoLoopCmd(l, cc));
+                    return;
                 case '/': Advance(); into.Add(new IntroCmd(l, cc)); return;
                 case '$': ParseHex(into); return;
                 case '"': ParseReplacementDefinition(); return;
@@ -524,6 +531,7 @@ public static class MmlParser
 
         private int? ReadCount(int l, int cc, int dflt)
         {
+            Replace();                                  // a named count: "]INTRO_LOOP" (AddmusicK's own Special World)
             if (!char.IsDigit(Peek())) return dflt;
             int? n = ReadInt();
             if (n is null or < 1 or > 255) { Error("Invalid loop count.", l, cc); return null; }
