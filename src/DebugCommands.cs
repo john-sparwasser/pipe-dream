@@ -42,6 +42,7 @@ static class DebugCommands
         ("--mml",               (a, i) => CompileMml(a[i + 1], a.Length > i + 2 ? Convert.ToInt32(a[i + 2], 16) : 0x238D)),
         // --spcevents <song.spc> [seconds] : run an SPC snapshot and print each key-on with the voice registers it used
         // and the global DSP writes, for comparing engines (reference/AMK_PORT.md).
+        ("--spcwav",            (a, i) => SpcWav(a[i + 1], double.Parse(a[i + 2]), a[i + 3])),
         ("--spcevents",         (a, i) => SpcEvents(a[i + 1], a.Length > i + 2 ? double.Parse(a[i + 2]) : 3)),
         // --spcwrites <song.spc> [seconds] : every DSP register write of a run, raw, in order.
         ("--spcwrites",         (a, i) => { var cpu = Spc700.FromSpc(SpcFile.Parse(File.ReadAllBytes(a[i + 1]))); cpu.Run((long)((a.Length > i + 2 ? double.Parse(a[i + 2]) : 1) * 1_024_000));
@@ -902,6 +903,15 @@ static class DebugCommands
             return 1;
         }
         Console.WriteLine(string.Join(' ', result.Bytes.Select(b => b.ToString("X2"))));
+        return 0;
+    }
+
+    /// <summary>An .spc played by the interpreter and <see cref="SpcDsp"/> for some seconds, written as a .wav.</summary>
+    private static int SpcWav(string path, double seconds, string wav)
+    {
+        var cpu = Spc700.FromSpc(SpcFile.Parse(File.ReadAllBytes(path)));
+        cpu.DspWrites = null;
+        File.WriteAllBytes(wav, SpcDsp.Wav(SpcDsp.Render(cpu, (int)(seconds * 32000))));
         return 0;
     }
 

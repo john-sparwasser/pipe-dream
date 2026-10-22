@@ -21,6 +21,8 @@ public sealed class Spc700
 
     /// <summary>Every DSP register write: cycle, register, value. Null to not record.</summary>
     public List<(long Cycle, int Reg, byte Value)>? DspWrites = [];
+    /// <summary>The sound chip, when one is attached (<see cref="SpcDsp"/>): told of KON and ENDX writes.</summary>
+    public SpcDsp? Audio;
     /// <summary>Every write to the four output ports ($F4-$F7), when a run asks for them.</summary>
     public List<(long Cycle, int Port, byte Value)>? PortWrites;
 
@@ -90,6 +92,7 @@ public sealed class Spc700
                 {
                     Dsp[dspAddr] = b;
                     DspWrites?.Add((Cycles, dspAddr, b));
+                    Audio?.Written(dspAddr, b);
                 }
                 break;
             case >= 0xF4 and <= 0xF7: ToCpu[a - 0xF4] = b; PortWrites?.Add((Cycles, a - 0xF4, b)); break;
