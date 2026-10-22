@@ -142,13 +142,13 @@ anything only a later AMK version does.
   the phase that decides whether existing songs work.
 
 ### 4. Samples, instruments and ARAM layout
-**Status (2026-10-22): done, but for dropping unused samples.** `music/MusicLayout.cs` lays one song out: engine at `$0400`, song
+**Status (2026-10-22): done.** `music/MusicLayout.cs` lays one song out: engine at `$0400`, song
 info at `$03F0` (song, instrument table, directory page), the sample directory on the next page, the song, its samples (groups'
 then its own, the compiler's numbering), and the echo buffer at the top for the song's longest delay, refusing a song that runs
 into it with AMK's error. `music/SmwSound.cs` reads SMW's 20 samples from the ROM's own upload at `$0F8000` (byte for byte AMK's
 `samples/default/*.brr`), so no AMK folder is needed for them. `MusicLayoutTests` checks every custom instrument's sample in dv,
-ek and ct against AMK's ARAM. Not done: AMK drops samples a song does not use (unless `-u`); ours keeps them all, which only
-costs ARAM; global songs and sound-effect data are not placed yet (phases 5 and 7).
+ek and ct against AMK's ARAM. A group's sample that is not important (no `!`) and that nothing in the song names (an instrument set
+or defined, `$F3`) is not uploaded, as AMK leaves it out (measured); important ones stay in ARAM from power-on.
 - BRR validation, `#instruments` tables, sample groups, per-song dropping of unused samples,
   duplicate sharing, global songs, the ARAM map (engine, songs, sample table aligned `$100`, samples,
   sound effects, echo buffer) and the echo-bounds check, with AMK's error.
@@ -195,10 +195,16 @@ note syntax as AddmusicK 1.0.5 does (measured, not as its readme says); `#jsr` t
 - Tests: the 93 effects compile to the oracle's bytes.
 
 ### 8. Preview
+**Status (2026-10-22): export done.** The song editor's Export .spc… writes the song as it stands, laid out with our engine and
+the project's samples and effects, with ID666 tags from `#SPC` and `#length`; libgme plays the files. The in-app player is not done.
 - Export `.spc` from any song (the format is public and the oracle gives us files to compare).
 - Optional: an in-app SPC700 + DSP player so a song plays from the editor with no emulator.
 
 ### 9. Compatibility
+**Status (2026-10-22): done but for `.bnk`.** `#am4` and `#amm` songs are converted as AMK converts them (measured): the header's
+echo-buffer writes dropped, `$ED $80`/`$81` (Addmusic 4's own), stray bytes under `$80`, notes before the first channel. Five real
+Addmusic 4 songs compile to AMK's bytes, and so do AMK 1.0.6's 39 originals that 1.0.5 can compile. `.bnk` banks (exactly `$8000`
+bytes, ARAM `$8000-$FFFF`) are not read: the oracle build crashes loading one, so there is nothing to measure against.
 - AM4 and AMM conversion (`-c`), `.bnk` banks, `#amk` versions, the options that change how a song
   is read, as far as the docs describe them.
 
