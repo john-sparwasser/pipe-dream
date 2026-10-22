@@ -86,11 +86,15 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
                     if (k + 2 > len) break;              // not on the tick the next note starts
                     long ca = ta[i].Cycle + (long)((k + 0.5) * tickCycles), cb = tb[i].Cycle + (long)((k + 0.5) * tickCycles);
                     int b = v * 16;
-                    var (la, ra, pa) = (theirs.At(b, ca), theirs.At(b + 1, ca), theirs.At(b + 2, ca) | theirs.At(b + 3, ca) << 8);
+                    // Theirs over a quarter tick either side: where in its tick an engine keys on moves a fast bend or fade that much.
+                    var around = new[] { -0.25, 0, 0.25 }.Select(f => ca + (long)(f * tickCycles))
+                        .Select(c => (L: theirs.At(b, c), R: theirs.At(b + 1, c), P: theirs.At(b + 2, c) | theirs.At(b + 3, c) << 8)).ToList();
                     var (lb, rb, pb) = (ours.At(b, cb), ours.At(b + 1, cb), ours.At(b + 2, cb) | ours.At(b + 3, cb) << 8);
-                    if (Math.Abs(la - lb) > 1 || Math.Abs(ra - rb) > 1) { d.Add($"v{v} #{i} +{k} ticks: volume {la:X2}/{ra:X2} vs {lb:X2}/{rb:X2}"); break; }
+                    bool Near(Func<(int L, int R, int P), int> f, int ourValue, int tol) => ourValue >= around.Min(f) - tol && ourValue <= around.Max(f) + tol;
+                    var mid = around[1];
+                    if (!Near(a => a.L, lb, 1) || !Near(a => a.R, rb, 1)) { d.Add($"v{v} #{i} +{k} ticks: volume {mid.L:X2}/{mid.R:X2} vs {lb:X2}/{rb:X2}"); break; }
                     // Pitch within 1/128 of itself (a seventh of a semitone): AddmusicK moves vibrato on its own grid of timer ticks.
-                    if (Math.Abs(pa - pb) > Math.Max(2, pa / 128)) { d.Add($"v{v} #{i} +{k} ticks: pitch {pa:X4} vs {pb:X4}"); break; }
+                    if (!Near(a => a.P, pb, Math.Max(2, mid.P / 128))) { d.Add($"v{v} #{i} +{k} ticks: pitch {mid.P:X4} vs {pb:X4}"); break; }
                 }
             }
             // Key-offs before the voice's first note are silent either way, and AddmusicK's rests at the start of a song send some ours don't.
@@ -138,6 +142,7 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
     [InlineData("#0 t40 $FA $01 $AD c4 @1 c4 $ED $7A $E0 c4 $ED $80 $9F c4 $ED $7A $E0 c4 $FA $01 $AD c4 $F4 $09 c4")] // envelopes
     [InlineData("#0 t40 c4 v100 ^4 y4 ^4 w100 ^4 $FA $03 $40 ^4 c4")]                       // volume changes mid-note
     [InlineData("#0 t40 $DE $00 $04 $1B c1 $DE $08 $10 $40 c1 $DE $02 $30 $C0 o3 e2 $DF c2 $DE $00 $20 $FF o5 b2")]   // vibrato
+    [InlineData("#0 t40 c2 $DD $04 $08 $B0 d2 $DD $00 $10 $98 o3 c2 $DD $02 $20 $C0 e4 $DE $00 $10 $40 c2 $DD $04 $08 $A8")]   // pitch bends
     [InlineData("#0 c4 d4 e8 f8")]                                         // the default tempo
     [InlineData("#0 t40 @21 c4 d4 @22 c4 @23 c8 c8 @24 c8 @25 c8 @26 c8 @27 c8 @28 c8 @29 c8 @0 e4")]   // percussion
     [InlineData("#0 t40 o3 @26 [c8]2 @29 d8 c16")]                         // a hit in a loop, then notes on its instrument

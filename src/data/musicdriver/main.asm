@@ -83,6 +83,11 @@ base $0400
 !c_vibDelay = $0318                     ; $DE: ticks before vibrato starts, its phase step a tick, its depth (0: off)
 !c_vibRate = $0320
 !c_vibDepth = $0328
+!c_bendDelay = $0330                    ; $DD after a note: ticks before the bend, how many it takes (0: no bend),
+!c_bendLen = $0338
+!c_bendDiff = $0340                     ;   semitones to the target (signed),
+!c_bendStepL = $0348                    ;   and the step a tick in 1/256 semitone (signed word)
+!c_bendStepH = $0350
 
 macro dsp(reg)                          ; write A to a DSP register
     mov $F2,#<reg>
@@ -172,8 +177,9 @@ Tick:
     mov a,!c_act+x
     beq .next
     mov a,!c_vibDepth+x
+    or a,!c_bendLen+x
     beq .next
-    call Vibrato
+    call PitchEffects
 .next:
     dec x
     bpl .e
@@ -528,6 +534,12 @@ ReadData:
     bra .next
 .note:
     call NoteOn
+    mov y,#$00
+    mov a,(!ptr)+y
+    cmp a,#$DD                          ; a pitch bend is read with the note it bends
+    bne .arm
+    incw !ptr
+    call ReadBend
     bra .arm
 .tie:
     bra .arm
@@ -603,6 +615,7 @@ NoteOn:
     mov !c_note+x,a
     mov a,#$00
     mov !c_age+x,a
+    mov !c_bendLen+x,a
     call SendInstrument
     call NotePitch
     call SendPitch
@@ -764,8 +777,171 @@ ComputePitch:                           ; A = note byte, X = channel -> !t0/!t1 
     mov !t1,a
     ret
 
-; Vibrato, every timer tick: t = song ticks since key-on plus the tempo accumulator's fraction; once t passes the delay the phase is
-; (t - delay) x rate, a triangle (up to +depth/256 of a semitone at a quarter, down to -depth/256 at three quarters) on the note.
+; Pitch effects, every timer tick: the note moved by the bend and the vibrato. t is song ticks since key-on plus the tempo
+; accumulator's fraction, so both move smoothly between song ticks as AddmusicK's do.
+PitchEffects:                           ; X = channel
+    mov a,#$00
+    mov !t6,a                           ; !t6/!t7: the offset in 1/256 semitone (signed)
+    mov !t7,a
+    mov a,!c_bendLen+x
+    beq +
+    call Bend
++   mov a,!c_vibDepth+x
+    beq +
+    call Vibrato
++   push x
+    call NoteValue
+    pop x
+    bcs .ret
+    mov !t4,a                           ; the note and !frac, plus the offset
+    mov a,!frac
+    clrc
+    adc a,!t6
+    mov !frac,a
+    mov a,!t4
+    adc a,!t7
+    call ComputePitch
+    jmp SendPitch
+.ret:
+    ret
+
+; The bend's offset so far: step x (t - delay), one timer tick ahead (measured), held at the whole difference once done.
+Bend:                                   ; X = channel -> adds to !t6/!t7
+    mov a,!tickAcc                      ; t + one timer tick - delay: !t1 whole ticks, !t0 the fraction
+    setc
+    adc a,!tempo
+    mov !t0,a
+    mov a,!c_age+x
+    adc a,#$00
+    setc
+    sbc a,!c_bendDelay+x
+    bcc .ret                            ; not yet
+    mov !t1,a
+    cmp a,!c_bendLen+x
+    bcs .done
+    ; |step| x elapsed (whole !t1, fraction !t0) >> 8
+    mov a,!c_bendStepH+x
+    mov !t3,a
+    mov a,!c_bendStepL+x
+    mov !t2,a
+    mov a,!t3
+    bpl +
+    mov a,!t2                           ; |step|
+    eor a,#$FF
+    clrc
+    adc a,#$01
+    mov !t2,a
+    mov a,!t3
+    eor a,#$FF
+    adc a,#$00
+    mov !t3,a
++   mov a,!t2
+    mov y,!t1
+    mul ya                              ; stepL x whole
+    movw !t4,ya
+    mov a,!t3
+    mov y,!t1
+    mul ya                              ; stepH x whole, << 8
+    clrc
+    adc a,!t5
+    mov !t5,a
+    mov a,!t2
+    mov y,!t0
+    mul ya                              ; stepL x fraction >> 8
+    mov a,y
+    clrc
+    adc a,!t4
+    mov !t4,a
+    adc !t5,#$00
+    mov a,!t3
+    mov y,!t0
+    mul ya                              ; stepH x fraction
+    clrc
+    adc a,!t4
+    mov !t4,a
+    mov a,y
+    adc a,!t5
+    mov !t5,a
+    mov a,!c_bendStepH+x
+    bpl .add
+    mov a,!t6                           ; a bend down
+    setc
+    sbc a,!t4
+    mov !t6,a
+    mov a,!t7
+    sbc a,!t5
+    mov !t7,a
+    ret
+.add:
+    mov a,!t6
+    clrc
+    adc a,!t4
+    mov !t6,a
+    mov a,!t7
+    adc a,!t5
+    mov !t7,a
+    ret
+.done:
+    mov a,!c_bendDiff+x                 ; there: the target note
+    clrc
+    adc a,!t7
+    mov !t7,a
+.ret:
+    ret
+
+; $DD delay length note, just after a note: bend from that note to this one. The step is the difference over the length.
+ReadBend:                               ; X = channel, !ptr at the delay
+    call GetByte
+    mov !c_bendDelay+x,a
+    call GetByte
+    mov !c_bendLen+x,a
+    call GetByte
+    setc
+    sbc a,!c_note+x
+    mov !c_bendDiff+x,a                 ; signed semitones
+    mov !t3,a
+    bpl +
+    eor a,#$FF
+    inc a
++   push x                              ; |difference| x 256 / length: the high byte, then the remainder's
+    mov !t2,a
+    mov a,!c_bendLen+x
+    beq .zero
+    mov x,a
+    mov y,#$00
+    mov a,!t2
+    div ya,x
+    mov !t1,a
+    mov a,#$00
+    div ya,x
+    mov !t0,a
+    pop x
+    mov a,!t3
+    bpl .store
+    mov a,!t0                           ; negative
+    eor a,#$FF
+    clrc
+    adc a,#$01
+    mov !t0,a
+    mov a,!t1
+    eor a,#$FF
+    adc a,#$00
+    mov !t1,a
+.store:
+    mov a,!t0
+    mov !c_bendStepL+x,a
+    mov a,!t1
+    mov !c_bendStepH+x,a
+    ret
+.zero:
+    pop x
+    mov a,#$00
+    mov !c_bendStepL+x,a
+    mov !c_bendStepH+x,a
+    ret
+
+; Vibrato: once t passes the delay the phase is (t - delay) x rate, a triangle (up to +depth/256 of a semitone at a quarter, down
+; to -depth/256 at three quarters) added to !t6/!t7.
 Vibrato:                                ; X = channel
     mov a,!c_age+x
     setc
@@ -805,30 +981,24 @@ Vibrato:                                ; X = channel
 -   lsr !t1
     ror !t0
     dbnz y,-
-    push x
-    call NoteValue
-    pop x
-    bcs .ret
-    mov !t4,a                           ; the note, with !frac: add or take away the offset
     mov a,!t3
     bmi .down
-    mov a,!frac
+    mov a,!t6
     clrc
     adc a,!t0
-    mov !frac,a
-    mov a,!t4
+    mov !t6,a
+    mov a,!t7
     adc a,#$00
-    bra .send
+    mov !t7,a
+    ret
 .down:
-    mov a,!frac
+    mov a,!t6
     setc
     sbc a,!t0
-    mov !frac,a
-    mov a,!t4
+    mov !t6,a
+    mov a,!t7
     sbc a,#$00
-.send:
-    call ComputePitch
-    jmp SendPitch
+    mov !t7,a
 .ret:
     ret
 
