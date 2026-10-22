@@ -115,12 +115,26 @@ shipping them (phase 4).
   makes the same ARAM and DSP state.
 
 ### 2. The MML front end
+**Status (2026-10-21): done**, with phase 3 (they were developed together against the oracle). `music/MmlParser.cs` reads
+the preprocessor, every directive, replacements and the whole channel language into the tree in `music/MmlSong.cs`; errors
+carry line and column. Remote code (`(!n)[...]`, `(!n, type, arg)`) is parsed and compiled from the documentation only:
+AddmusicK 1.0.5 cannot compile its own documented syntax, so there is nothing to check it against.
 - Preprocessor, lexer and parser for everything in "What AMK does", to a syntax tree with line and
   column on every node. Errors read as AMK's do and point at the text.
 - Tests: the whole corpus parses; each documented command has a case; each documented error
   (nested loop, bad hex, unknown sample) fails the way the docs say.
 
 ### 3. The back end: songs to N-SPC data
+**Status (2026-10-21): done.** `music/MmlCompiler.cs`. All 13 corpus songs compile to AddmusicK's exact bytes (up to 33 KB),
+65+36 golden vectors run without the oracle, and `tools/amk/fuzz.py` (random songs from the whole command set, compared
+with the oracle) agrees on about 99.5% of songs. What the oracle taught, none of it in its documentation: the layout (phase
+list, pointer tables, instrument table, channels, then every subroutine after every channel), `[ ]` loops compiled as
+subroutines called with `$E9`, the duration/quantisation bytes written only when they changed and forgotten after loops,
+intro markers and channel re-selection, how a long note splits (halves up to 254 ticks, else 127s), a slide (`&`)
+splitting differently and emitting `$DD` before the next note, the loop-versus-text rules for `h` and `@`, empty
+channels, the option bytes living in channel 0, `$EF`'s rotated parameters, tempo division of every duration field,
+and the hex validations. Known gaps: percussion after a pitch-envelope hex command in a superloop (one fuzz case), and
+anything only a later AMK version does.
 - Tree to bytes: note and rest durations, ties, triplets, quantisation, loops, superloops, remote
   code, replacements, hex commands, intro and `?`, tempo and `#halvetempo`/`dividetempo`.
 - A per-channel size report (what `-v` prints).
