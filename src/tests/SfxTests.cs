@@ -87,6 +87,69 @@ public class SfxTests(Xunit.Abstractions.ITestOutputHelper log)
         return d;
     }
 
+    /// <summary>Run with the ports set at times (seconds), each for a frame, as SMW's NMI writes them.</summary>
+    internal static SpcTrace WithPokes(Spc700 cpu, double seconds, params (double At, int Port, byte Value)[] pokes)
+    {
+        var t = new SpcTrace();
+        long done = 0;
+        foreach (var (at, port, value) in pokes.OrderBy(p => p.At))
+        {
+            long c = (long)(at * 1_024_000);
+            t.Append(SpcTrace.Run(cpu, c - done), done); done = c;
+            cpu.FromCpu[port] = value;
+            t.Append(SpcTrace.Run(cpu, 17_066), done); done += 17_066;
+            cpu.FromCpu[port] = 0;
+        }
+        t.Append(SpcTrace.Run(cpu, (long)(seconds * 1_024_000) - done), done);
+        return t;
+    }
+
+    private static Spc700 OursPlaying(string mml, SoundEffects sfx)
+    {
+        var (code, labels) = MusicEngineTests.AssembleEngine();
+        var image = MusicLayout.Build(code, MmlParser.Parse(mml), MusicEngineTests.GroupSamples, MusicEngineTests.SampleFile, sfx);
+        Assert.True(image.Ok, string.Join("; ", image.Problems));
+        var cpu = new Spc700 { Pc = labels["Start"], Sp = 0xEF };
+        Array.Copy(image.Ram, cpu.Ram, 0x10000);
+        cpu.Run(20_000);
+        cpu.FromCpu[2] = 1;
+        return cpu;
+    }
+
+    [AmkTheory]
+    [InlineData("#0 t50 [c8 e8 g8]8\n#6 t50 o3 [c4 e4]6\n#7 t50 o4 [g8 b8]12", "0.5:0=01 1.2:3=02 2.0:3=01 2.3:0=0A")]   // effects over channels 6 and 7
+    [InlineData("#0 t50 [c8]40\n#5 t50 $F4 $00 o3 [g8]40\n#3 t50 $F4 $06 o2 [c4]20", "1.0:1=02 2.0:1=03")]         // Yoshi's drums
+    [InlineData("#0 t50 [c8 d8]20\n#6 t50 [e4]10", "0.8:1=07 1.6:1=08")]                                           // pause and unpause
+    public void songs_and_effects_share_the_voices_as_in_addmusick(string body, string pokes)
+    {
+        string mml = "#amk 2\n" + body;
+        var p = pokes.Split(' ').Select(x => { var a = x.Split(':', '='); return (double.Parse(a[0]), int.Parse(a[1]), Convert.ToByte(a[2], 16)); }).ToArray();
+        var amkSpc = AmkOracle.CompileText(AmkOracle.Root!, mml);
+        var sfx = AmkEffects(Instruments(AmkOracle.CompileText(AmkOracle.Root!, "#amk 2\n#0 r1").Ram));
+        var theirs = WithPokes(Spc700.FromSpc(amkSpc), 3.5, p);
+        // The pokes at the same point of the song in both: ours starts it sooner after boot than AddmusicK's snapshot does.
+        double shift = (SpcTrace.Run(OursPlaying(mml, sfx), 1_024_000).KeyOns[0].Cycle - theirs.KeyOns[0].Cycle) / 1_024_000.0;
+        var ours = WithPokes(OursPlaying(mml, sfx), 3.5, p.Select(x => (x.Item1 + shift, x.Item2, x.Item3)).ToArray());
+        var d = MusicEngineTests.Differences(theirs, ours, MusicEngineTests.TickCycles(50), (long)(3.5 * 1_024_000));
+        string Ev(SpcTrace x, int v) => string.Join(" ", x.KeyOns.Where(k => k.Voice == v).Select(k => (k.Cycle, $"N{k.Pitch:X4}"))
+            .Concat(x.KeyOffs.Where(k => (k.Mask >> v & 1) != 0).Select(k => (k.Cycle, "o"))).OrderBy(e => e.Item1).Where(e => e.Item1 / 2048 > 850).Take(30).Select(e => $"{e.Item2}@{e.Item1 / 2048}"));
+        Assert.True(d.Count == 0, string.Join("\n", d.Take(12)) + "\n" + string.Join("\n", new[] { 3, 5, 6, 7 }.Select(v => $"theirs v{v}: {Ev(theirs, v)}\nours   v{v}: {Ev(ours, v)}")));
+    }
+
+    [AmkFact]
+    public void the_1dfa_sounds_play_as_in_addmusick()
+    {
+        var amkSpc = AmkOracle.CompileText(AmkOracle.Root!, "#amk 2\n#0 r1");
+        var sfx = AmkEffects(Instruments(amkSpc.Ram));
+        var failures = new List<string>();
+        foreach (var (value, voice) in new[] { (1, 7), (4, 7), (7, 6), (8, 6) })
+        {
+            var d = Compare(Poke(Spc700.FromSpc(amkSpc), 1, (byte)value), Poke(Ours(sfx), 1, (byte)value), voice);
+            if (d.Count > 0) failures.Add($"1DFA {value:X2}: " + string.Join("; ", d.Take(4)));
+        }
+        Assert.True(failures.Count == 0, string.Join("\n", failures));
+    }
+
     [AmkFact]
     public void every_addmusick_sound_effect_plays_as_in_addmusick()
     {

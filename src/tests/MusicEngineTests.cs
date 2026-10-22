@@ -114,15 +114,23 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
             // Key-offs before the voice's first note are silent either way, and AddmusicK's rests at the start of a song send some ours don't.
             long fa = ta.Count > 0 ? ta[0].Cycle : long.MaxValue, fb = tb.Count > 0 ? tb[0].Cycle : long.MaxValue;
             // (Two key-offs of a voice in one tick are one to a listener; AddmusicK writes some of them twice.)
-            List<(long Cycle, int Mask)> OnceOff(IEnumerable<(long Cycle, int Mask)> ks) { var l = new List<(long Cycle, int Mask)>(); foreach (var k in ks) if (l.Count == 0 || k.Cycle - l[^1].Cycle > 2048) l.Add(k); return l; }
+            List<(long Cycle, int Mask)> OnceOff(IEnumerable<(long Cycle, int Mask)> ks) { var l = new List<(long Cycle, int Mask)>(); foreach (var k in ks) if (l.Count == 0 || k.Cycle - l[^1].Cycle > 3072) l.Add(k); return l; }
             var ka = OnceOff(theirs.KeyOffs.Where(k => (k.Mask >> v & 1) != 0 && k.Cycle > fa));
             var kb = OnceOff(ours.KeyOffs.Where(k => (k.Mask >> v & 1) != 0 && k.Cycle > fb));
-            int n = Math.Min(ka.Count, kb.Count);
-            for (int i = 0; i < n; i++)
+            // Each of theirs matched to ours at the same point of the song (from the voice's first key-on), within the slack; an engine
+            // a timer tick either side of the other on a knife edge (a release just before or after an effect lets go) loses one.
+            var used = new bool[kb.Count];
+            int unmatched = 0;
+            foreach (var k in ka)
             {
-                if (i > 0 && Late(ka[i].Cycle - ka[i - 1].Cycle, kb[i].Cycle - kb[i - 1].Cycle) is { } late) d.Add($"v{v} key-off #{i}: {late:F1} ticks off from the one before");
+                double at = (k.Cycle - fa) / tickCycles;
+                int best = -1;
+                for (int j = 0; j < kb.Count; j++)
+                    if (!used[j] && Math.Abs((kb[j].Cycle - fb) / tickCycles - at) <= slack + 0.06 * at) { best = j; break; }
+                if (best >= 0) used[best] = true; else unmatched++;
             }
-            if (Math.Abs(ka.Count - kb.Count) > Math.Max(2, ka.Count * 0.06)) d.Add($"v{v} key-offs: theirs {ka.Count}, ours {kb.Count}");
+            int extra = used.Count(u => !u);
+            if (unmatched + extra > Math.Max(2, ka.Count * 0.06)) d.Add($"v{v} key-offs: {unmatched} of theirs unmatched, {extra} of ours extra ({ka.Count} vs {kb.Count})");
         }
         // What the engine tells the main CPU on ports 0 and 1 ($F9, $F4 $05): the values in order.
         foreach (int port in new[] { 0, 1 })

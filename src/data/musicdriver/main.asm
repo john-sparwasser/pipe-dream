@@ -41,6 +41,7 @@ base $0400
 !s_target = $0120                 ; where the slide ends (it lands there exactly)
 !s_lastL = $0122                  ; where the last note byte was, for $FF
 !s_lastH = $0124
+!s_claim = $0126                  ; set when an effect has been asked for but not yet taken its voice
 
 ; ---- direct page ----
 !t0 = $00
@@ -105,6 +106,8 @@ base $0400
 !sfxEcho = $3E                          ;   $1DFA $06: effects echo as the song does ($05: they do not, the default)
 !sfxNon = $3F                           ;   the effect voices playing noise
 !paused = $E0                           ; $1DF9 $11 (pause): the song stands still, every voice off, until $12
+!drums = $E1                            ; $1DFA $02/$03: Yoshi's drums heard (channels marked with $F4 $00 or $F4 $06)
+!c_yoshi = $E8                          ; per channel (eight bytes): this channel is Yoshi's drums
 !c_offL = $40                           ; per channel (eight bytes each, in the direct page): the pitch effects' offset last sent
 !c_offH = $48
 !c_arpType = $50                        ; $FB, per channel in the direct page: 0 none, 1 arpeggio, 2 trill, 3 glissando,
@@ -213,7 +216,7 @@ Start:
     mov $00,a
     call InitDsp
     mov a,#$00
-    mov x,#$25
+    mov x,#$27
 -   mov !s_ptrL+x,a
     dec x
     bpl -
@@ -385,6 +388,7 @@ StartSong:
     mov !nspcVel,a
     mov !lstacc,a
     mov !inRemote,a
+    mov !drums,a
     mov !syncOn,a
     mov !eon,a
     mov !pmon,a
@@ -509,6 +513,7 @@ ResetChannel:                           ; X = channel
     mov !c_trmDepth+x,a
     mov !c_envType+x,a
     mov !c_legato+x,a
+    mov !c_yoshi+x,a
     mov !c_remKonH+x,a
     mov !c_remType+x,a
     mov !c_remWait+x,a
@@ -933,6 +938,16 @@ NoteOn:
     beq +
     mov a,#$81
     mov !c_legato+x,a
++   mov a,!c_yoshi+x                    ; Yoshi's drums stay silent until he is there ($1DFA $02); the first note after
+    beq +                               ; that is still silent, as in AddmusicK
+    mov a,!drums
+    beq ++
+    mov a,!c_yoshi+x
+    cmp a,#$02
+    beq +
+    mov a,#$02
+    mov !c_yoshi+x,a
+++  ret
 +   call VoiceBit
     or a,!konMask
     mov !konMask,a
@@ -2525,7 +2540,22 @@ CmdFA:                                  ; $FA n v
 
 CmdF4:                                  ; $F4 n
     call GetByte
-    cmp a,#$01
+    cmp a,#$00
+    bne +
+    mov a,#$01                          ; $00: channel 5 is Yoshi's drums (silent till he comes)
+    mov !c_yoshi+5,a
+    push x
+    mov x,#$05
+    call KeyOffVoice
+    pop x
+    jmp ReadData
++   cmp a,#$06
+    bne +
+    mov a,#$01                          ; $06: this channel is
+    mov !c_yoshi+x,a
+    call KeyOffVoice
+    jmp ReadData
++   cmp a,#$01
     bne +
     mov a,!c_legato+x                   ; $01: legato on or off for this channel (off: the next note keys on again)
     eor a,#$01
@@ -2681,28 +2711,44 @@ SfxStart:                               ; A = effect number, X = effect channel
     asl a
     mov y,a
     mov a,(!t2)+y
-    mov !s_ptrL+x,a
-    mov !s_startL+x,a
+    push a
     inc y
     mov a,(!t2)+y
+    mov y,a
+    pop a
+    jmp SfxBegin
+.none:
+    ret
+
+SfxBegin:                               ; YA = the effect's data, X = effect channel
+    mov !s_ptrL+x,a
+    mov !s_startL+x,a
+    mov a,y
     mov !s_ptrH+x,a
     mov !s_startH+x,a
-    mov a,#$01                          ; read on the next effect tick
+    mov a,#$03                          ; it takes the voice on the next effect tick and starts on the third (measured)
     mov !s_wait+x,a
+    mov a,#$01
+    mov !s_claim+x,a
     mov a,#$00
     mov !s_koff+x,a
     mov !s_slLeft+x,a
-    mov a,SfxBit+x                      ; the voice is the effect's: released now
-    or a,!sfxBusy
-    mov !sfxBusy,a
-    mov a,SfxBit+x
-    %dsp($5C)
 .none:
     ret
 
 SfxTick:                                ; X = effect channel, every effect tick
     mov a,!s_wait+x
     beq .ret
+    mov a,!s_claim+x
+    beq +
+    mov a,#$00
+    mov !s_claim+x,a
+    mov a,SfxBit+x                      ; the voice is the effect's from now: released
+    or a,!sfxBusy
+    mov !sfxBusy,a
+    mov a,SfxBit+x
+    %dsp($5C)
++
     mov a,!s_slLeft+x                   ; a slide
     beq .koff
     mov a,!s_slDelay+x
@@ -2864,11 +2910,7 @@ SfxRead:
     mov a,!s_note+x
     call SfxSlideTo
     call SfxVolume
-    call SfxArmRelease
-    mov a,!s_slLeft+x
-    beq +
-    call SfxSlideStep
-+   ret
+    jmp SfxArmRelease                   ; (its slide moves from the next tick: measured on the jump)
 .again:                                 ; $FF: back to the last note, read again on the next tick, and so on (Drumroll ends so)
     mov a,!s_lastL+x
     mov !s_ptrL+x,a
@@ -3064,8 +3106,7 @@ SfxEnd:
     adc a,#$06                          ; the music channel on that voice
     mov x,a
     mov a,#$01
-    mov !c_dirty+x,a
-    mov !c_vdirty+x,a
+    mov !c_dirty+x,a                    ; (the volume too, at that note: until then the effect's stays, as in AddmusicK)
     pop x
     ret
 
@@ -3075,6 +3116,51 @@ Port1:
     cmp a,#$FF
     bne +
     jmp ToIpl
++   cmp a,#$01
+    bne +
+    mov x,#$01                          ; the jump
+    mov a,#(JumpSfx&$FF)
+    mov y,#(JumpSfx>>8)
+    jmp SfxBegin
++   cmp a,#$04
+    bne +
+    mov x,#$01
+    mov a,#(Sfx1DFA04&$FF)
+    mov y,#(Sfx1DFA04>>8)
+    jmp SfxBegin
++   cmp a,#$02
+    bne +
+    mov a,#$01                          ; Yoshi's drums on
+    mov !drums,a
+    ret
++   cmp a,#$03
+    bne +
+    mov a,#$00                          ; and off: the drums' channels released, back to waiting a note
+    mov !drums,a
+    mov !t0,a
+    mov x,#$07
+-   mov a,!c_yoshi+x
+    beq ++
+    mov a,#$01
+    mov !c_yoshi+x,a
+    call VoiceBit
+    or a,!t0
+    mov !t0,a
+++  dec x
+    bpl -
+    mov a,!t0
+    %dsp($5C)
+    ret
++   cmp a,#$07
+    bne +
+    mov x,#$00                          ; $1DF9's pause sound (and the pause), as AddmusicK plays $07
+    mov a,#$11
+    jmp SfxStart
++   cmp a,#$08
+    bne +
+    mov x,#$00
+    mov a,#$12
+    jmp SfxStart
 +   cmp a,#$05
     bne +
     mov a,#$00
@@ -3086,6 +3172,10 @@ Port1:
     mov !sfxEcho,a
     ret
 +   ret
+
+; $1DFA's own sounds, in the effects' bytecode, written to sound as AddmusicK's (and SMW's) do: measured, not copied.
+JumpSfx:    db $DA,$08,$05,$38,$38,$DD,$B2,$00,$05,$B5,$2B,$EB,$00,$12,$B9,$00
+Sfx1DFA04:  db $DA,$07,$0C,$28,$DD,$A4,$00,$0C,$A4,$DA,$07,$0C,$28,$A4,$00
 
 ToIpl:                                  ; everything off and over to the boot ROM, which waits for the main CPU to upload
     %dspi($6C,$E0)
