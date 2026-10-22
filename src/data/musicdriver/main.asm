@@ -69,6 +69,7 @@ base $0400
 !non = $32
 !nspcVel = $33                          ; $F4 $08: the N-SPC velocity table instead of SMW's
 !lstacc = $34                           ; $F4 $02: light staccato, every channel
+!inRemote = $35                         ; set while remote code runs: its $00 returns instead of ending the channel
 !c_offL = $40                           ; per channel (eight bytes each, in the direct page): the pitch effects' offset last sent
 !c_offH = $48
 !c_arpType = $50                        ; $FB, per channel in the direct page: 0 none, 1 arpeggio, 2 trill, 3 glissando,
@@ -82,6 +83,13 @@ base $0400
 !c_arpSemis = $90                       ;   the trill's or glissando's interval,
 !c_arpOff = $98                         ;   the semitones the note sounds away from itself (signed),
 !c_arpKoff = $A0                        ;   and ticks until this step is released (two before the next, measured)
+!c_remKonL = $A8                        ; $FC remote code: what runs at each key-on (high byte 0: none),
+!c_remKonH = $B0
+!c_remL = $B8                           ;   the other event's code,
+!c_remH = $C0
+!c_remType = $C8                        ;   its type (0 none, 1 after the key-on, 2 before the release, 3 at the release),
+!c_remArg = $D0                         ;   its ticks,
+!c_remWait = $D8                        ;   and ticks until it runs
 
 ; ---- per-channel arrays, eight bytes each ----
 !c_ptrl = $0200
@@ -303,6 +311,7 @@ StartSong:
     mov a,#$00
     mov !nspcVel,a
     mov !lstacc,a
+    mov !inRemote,a
     mov !eon,a
     mov !pmon,a
     mov !non,a
@@ -426,6 +435,9 @@ ResetChannel:                           ; X = channel
     mov !c_trmDepth+x,a
     mov !c_envType+x,a
     mov !c_legato+x,a
+    mov !c_remKonH+x,a
+    mov !c_remType+x,a
+    mov !c_remWait+x,a
     mov !c_volF+x,a
     mov !c_vfLeft+x,a
     mov !c_panF+x,a
@@ -494,6 +506,16 @@ FlushDsp:
 ; ---------------------------------------------------------------- a channel tick (X = channel)
 ChannelTick:
     call ChannelFades
+    mov a,!c_remWait+x                  ; remote code that is due
+    beq +
+    dec a
+    mov !c_remWait+x,a
+    bne +
+    mov a,!c_remH+x
+    mov y,a
+    mov a,!c_remL+x
+    call RunRemote
++
     mov a,!c_arpKoff+x                  ; an arpeggio step's release
     beq +
     dec a
@@ -516,7 +538,15 @@ ChannelTick:
     dec a
     mov !c_koff+x,a
     bne .dur
-    call CutIfNoTie
+    mov a,!c_remType+x                  ; $FC event 3: code instead of this release (the one two ticks before the end stays)
+    cmp a,#$03
+    bne +
+    mov a,!c_remH+x
+    mov y,a
+    mov a,!c_remL+x
+    call RunRemote
+    bra .dur
++   call CutIfNoTie
 .dur:
     mov a,!c_koff2+x
     beq .dur2
@@ -614,8 +644,9 @@ VoiceBit:                               ; X = channel -> A = 1 << X (X kept)
 ReadData:
 .next:
     call GetByte
-    cmp a,#$00
-    beq .end
+    bne +
+    jmp .end
++   cmp a,#$00
     cmp a,#$80
     bcc .length
     cmp a,#$C6
@@ -647,10 +678,23 @@ ReadData:
     mov y,#$00
     mov a,(!ptr)+y
     cmp a,#$DD                          ; a pitch bend is read with the note it bends
-    bne .arm
+    bne .armNote
     incw !ptr
     call ReadBend
-    bra .arm
+.armNote:
+    mov a,!c_len+x
+    mov !c_dur+x,a
+    call ArmKeyOff
+    mov a,!c_remType+x                  ; $FC event 2: code so many ticks before this note's release
+    cmp a,#$02
+    bne +
+    mov a,!c_koff+x
+    setc
+    sbc a,!c_remArg+x
+    beq +
+    bcc +
+    mov !c_remWait+x,a
++   ret
 .tie:
     bra .arm
 .rest:
@@ -670,7 +714,10 @@ ReadData:
     call ArmKeyOff
     ret
 .end:
-    jmp EndOfData
+    mov a,!inRemote
+    beq +
+    ret                                 ; the end of remote code
++   jmp EndOfData
 
 ; A note is released ((length x fraction) >> 8) ticks in, and again two ticks before it ends; under legato, neither.
 ArmKeyOff:
@@ -740,6 +787,17 @@ EndOfData:
 ; A = note byte $80-$C5. Sets the voice's registers and starts it.
 NoteOn:
     mov !c_note+x,a
+    mov a,!c_remKonH+x                  ; $FC event -1: code at every key-on, before the note's registers go out
+    beq +
+    mov y,a
+    mov a,!c_remKonL+x
+    call RunRemote
++   mov a,!c_remType+x                  ; event 1: code so many ticks after the key-on
+    cmp a,#$01
+    bne +
+    mov a,!c_remArg+x
+    mov !c_remWait+x,a
++   mov a,!c_note+x
     mov a,#$00
     mov !c_age+x,a
     mov !c_offL+x,a                     ; keyed at the plain note: no offset sent yet
@@ -2163,6 +2221,72 @@ EchoFadeTick:
     %dsp($3C)
     ret
 
+; $FC lo hi type ticks: remote code (written from the readme; the AddmusicK build the oracle uses cannot compile it). -1 ($FF)
+; runs at every key-on, 1 so many ticks after it, 2 so many before the release, 3 at the release instead of it, 4 once now,
+; 0 turns them all off. One of 1-3 at a time, beside the key-on one.
+CmdRemote:
+    call GetByte
+    mov !t0,a
+    call GetByte
+    mov !t1,a
+    call GetByte
+    mov !t2,a
+    call GetByte
+    mov !t3,a
+    mov a,!t2
+    beq .off
+    cmp a,#$FF
+    beq .keyon
+    cmp a,#$04
+    beq .now
+    mov !c_remType+x,a
+    mov a,!t0
+    mov !c_remL+x,a
+    mov a,!t1
+    mov !c_remH+x,a
+    mov a,!t3
+    mov !c_remArg+x,a
+    mov a,#$00
+    mov !c_remWait+x,a
+    jmp ReadData
+.keyon:
+    mov a,!t0
+    mov !c_remKonL+x,a
+    mov a,!t1
+    mov !c_remKonH+x,a
+    jmp ReadData
+.now:
+    movw ya,!t0
+    call RunRemote
+    jmp ReadData
+.off:
+    mov !c_remKonH+x,a
+    mov !c_remType+x,a
+    mov !c_remWait+x,a
+    jmp ReadData
+
+; Run the commands at YA (up to their $00) for channel X, then carry on where the channel was.
+RunRemote:
+    movw !t0,ya
+    mov a,!ptr
+    push a
+    mov a,!ptr+1
+    push a
+    mov a,!inRemote
+    push a
+    movw ya,!t0
+    movw !ptr,ya
+    mov a,#$01
+    mov !inRemote,a
+    call ReadData                       ; commands only: it returns at the $00
+    pop a
+    mov !inRemote,a
+    pop a
+    mov !ptr+1,a
+    pop a
+    mov !ptr,a
+    ret
+
 CmdNoise:                               ; $F8 n: noise at clock n on this channel, until an instrument without it
     call GetByte
     call NoiseOn
@@ -2372,7 +2496,7 @@ CommandTable:                           ; $DA ... $FC
     dw CmdSubloop, CmdVolume, CmdVolumeFade, CmdCall, CmdVibratoFade, CmdEnvelopeRelease ; E6 E7 E8 E9 EA EB
     dw CmdEnvelopeAttack, CmdEnvelope, CmdFineTune, CmdEchoOn, CmdEchoOff, CmdEchoSetup ; EC ED EE EF F0 F1
     dw CmdEchoFade, Skip2, CmdF4, CmdFir, CmdDspWrite, Unknown     ; F2 F3 F4 F5 F6 F7
-    dw CmdNoise, Skip2, CmdFA, CmdArpeggio, Skip4                  ; F8 F9 FA FB FC
+    dw CmdNoise, Skip2, CmdFA, CmdArpeggio, CmdRemote              ; F8 F9 FA FB FC
 
 ParamCount:                             ; $DA ... $FC: how many bytes follow each command; $FF where TieFollows stops looking
     db 1,1,2,3,3,0, 1,2,1,2,1,3, $FF,1,2,$FF,1,3, 3,2,1,3,0,3, 3,2,1,8,2,$FF, 1,2,2,$FF,4

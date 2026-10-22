@@ -152,6 +152,8 @@ public static class MmlParser
                 {
                     var defs = new List<Cmd>();
                     ParseItem(defs, End.Channel);
+                    // (The AddmusicK 1.0.5 build the oracle uses refuses every remote call, even the readme's own examples, so remote
+                    // code follows the readme here, not the oracle: defined before the first channel.)
                     foreach (var d in defs)
                     {
                         if (d is RemoteDefCmd r) song.RemoteDefs.Add(r);

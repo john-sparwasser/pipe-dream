@@ -312,6 +312,39 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
         log.WriteLine("worst gap: " + string.Join(" ", worstPcs.GroupBy(p => LabelOf(p.Pc)).Select(g => (g.Key, S: g.Sum(x => x.C))).OrderByDescending(g => g.S).Take(10).Select(g => $"{g.Key}={g.S}")));
     }
 
+    // Remote code: the AddmusicK build the oracle uses cannot compile it, so these check our engine against the readme.
+    private static List<int> LeftVolumes(SpcTrace t, double tc, params double[] ticks)
+        => ticks.Select(k => t.VolumeAt(0, t.KeyOns[0].Cycle + (long)(k * tc)).L).ToList();
+
+    [AsarFact]
+    public void remote_code_runs_some_ticks_after_each_key_on()
+    {
+        var t = PlayOurs("#amk 2\n(!1)[v100]\n(!2)[v255]\n#0 t40 (!2, -1) (!1, 1, 8) c2 d4 r4 e4 ^4", 4);
+        double tc = TickCycles(40);
+        // v255 at each key-on, v100 an eighth (24 ticks) in; the rest and the tie start nothing.
+        Assert.Equal([0x2B, 0x2B, 0x06, 0x2B, 0x06, 0x2B, 0x06, 0x06], LeftVolumes(t, tc, 1, 23, 25, 97, 121, 193, 217, 250));
+    }
+
+    [AsarFact]
+    public void remote_code_runs_before_the_release_or_instead_of_it()
+    {
+        double tc = TickCycles(40);
+        var before = PlayOurs("#amk 2\n(!1)[v100]\n(!2)[v255]\n#0 t40 (!2, -1) (!1, 2, 16) c4 d4", 3);
+        // c4 is released 47 ticks in; 12 before that, v100.
+        Assert.Equal([0x2B, 0x06, 0x2B], LeftVolumes(before, tc, 33, 36, 49));
+        var at = PlayOurs("#amk 2\n(!1)[v100]\n(!2)[v255]\n#0 t40 (!2, -1) (!1, 3) c4 d4", 3);
+        Assert.Equal([0x2B, 0x06, 0x2B], LeftVolumes(at, tc, 46, 47.5, 49));
+        Assert.Equal(1, at.KeyOffs.Count(k => k.Cycle > at.KeyOns[0].Cycle && k.Cycle < at.KeyOns[0].Cycle + 48 * tc));   // only the one two ticks before the end
+    }
+
+    [AsarFact]
+    public void remote_code_runs_once_now_and_can_be_turned_off()
+    {
+        double tc = TickCycles(40);
+        var t = PlayOurs("#amk 2\n(!1)[v100]\n(!2)[v255]\n#0 t40 c4 (!1, 4) d4 (!2, -1) e4 (!2, 0) v100 f4", 4);
+        Assert.Equal([0x2B, 0x06, 0x2B, 0x06], LeftVolumes(t, tc, 10, 58, 106, 154));
+    }
+
     [AsarFact]
     public void the_engine_assembles()
     {
