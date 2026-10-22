@@ -89,7 +89,8 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
                     var (la, ra, pa) = (theirs.At(b, ca), theirs.At(b + 1, ca), theirs.At(b + 2, ca) | theirs.At(b + 3, ca) << 8);
                     var (lb, rb, pb) = (ours.At(b, cb), ours.At(b + 1, cb), ours.At(b + 2, cb) | ours.At(b + 3, cb) << 8);
                     if (Math.Abs(la - lb) > 1 || Math.Abs(ra - rb) > 1) { d.Add($"v{v} #{i} +{k} ticks: volume {la:X2}/{ra:X2} vs {lb:X2}/{rb:X2}"); break; }
-                    if (Math.Abs(pa - pb) > Math.Max(2, pa / 256)) { d.Add($"v{v} #{i} +{k} ticks: pitch {pa:X4} vs {pb:X4}"); break; }
+                    // Pitch within 1/128 of itself (a seventh of a semitone): AddmusicK moves vibrato on its own grid of timer ticks.
+                    if (Math.Abs(pa - pb) > Math.Max(2, pa / 128)) { d.Add($"v{v} #{i} +{k} ticks: pitch {pa:X4} vs {pb:X4}"); break; }
                 }
             }
             // Key-offs before the voice's first note are silent either way, and AddmusicK's rests at the start of a song send some ours don't.
@@ -136,6 +137,7 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
     [InlineData("#0 t40 $FA $03 $C4 c4 $FA $03 $80 c4 $FA $03 $FF c4 $FA $03 $01 c4 v100 y3 c4")] // amplification
     [InlineData("#0 t40 $FA $01 $AD c4 @1 c4 $ED $7A $E0 c4 $ED $80 $9F c4 $ED $7A $E0 c4 $FA $01 $AD c4 $F4 $09 c4")] // envelopes
     [InlineData("#0 t40 c4 v100 ^4 y4 ^4 w100 ^4 $FA $03 $40 ^4 c4")]                       // volume changes mid-note
+    [InlineData("#0 t40 $DE $00 $04 $1B c1 $DE $08 $10 $40 c1 $DE $02 $30 $C0 o3 e2 $DF c2 $DE $00 $20 $FF o5 b2")]   // vibrato
     [InlineData("#0 c4 d4 e8 f8")]                                         // the default tempo
     [InlineData("#0 t40 @21 c4 d4 @22 c4 @23 c8 c8 @24 c8 @25 c8 @26 c8 @27 c8 @28 c8 @29 c8 @0 e4")]   // percussion
     [InlineData("#0 t40 o3 @26 [c8]2 @29 d8 c16")]                         // a hit in a loop, then notes on its instrument
@@ -195,6 +197,19 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
         var tm = System.Text.RegularExpressions.Regex.Match(text, @"\bt(\d+)");
         double tc = TickCycles(tm.Success ? int.Parse(tm.Groups[1].Value) : 53);
         foreach (var d in Differences(theirs, ours, tc, (long)(secs * 1_024_000)).Take(20)) log.WriteLine(d);
+        if (Environment.GetEnvironmentVariable("PIPEDREAM_PITCH") is { } pv)          // voice n's pitch half a tick into each tick
+        {
+            int v = int.Parse(pv);
+            foreach (var (who, x) in new[] { ("theirs", theirs), ("ours", ours) })
+            {
+                long s0 = x.KeyOns.First(k => k.Voice == v).Cycle;
+                int lastP = -1;
+                log.WriteLine($"{who} raw v{v}: " + string.Join(" ", x.Voice.Where(w => w.Reg == v * 16 + 3 || w.Reg == v * 16 + 2).Select(w => (w.Cycle, P: x.At(v * 16 + 2, w.Cycle) | x.At(v * 16 + 3, w.Cycle) << 8))
+                    .Where(w => w.Cycle >= s0 && w.P != lastP && (lastP = w.P) >= 0).Take(40).Select(w => $"{(w.Cycle - s0) / tc:F2}:{w.P:X4}")));
+                log.WriteLine($"{who} pitch v{v}: " + string.Join(" ", Enumerable.Range(0, 48).Select(k =>
+                    { long c = s0 + (long)((k + 0.5) * tc); return $"{x.At(v * 16 + 2, c) | x.At(v * 16 + 3, c) << 8:X4}/{x.At(v * 16, c):X2}"; })));
+            }
+        }
         foreach (var (who, x) in new[] { ("theirs", theirs), ("ours", ours) })
             for (int v = 0; v < 8; v++)
                 log.WriteLine($"{who} v{v}: " + string.Join(" ", x.KeyOns.Where(k => k.Voice == v).Select(k => (k.Cycle, $"N{k.Pitch:X4}"))

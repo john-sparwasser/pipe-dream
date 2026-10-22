@@ -918,6 +918,11 @@ static class DebugCommands
             last[r] = v;
         }
         lines.AddRange(t.KeyOns.Select(k => (k.Cycle, k.ToString())));
+        if (Environment.GetEnvironmentVariable("PIPEDREAM_SPCVOICE") is { } vs)          // the voice's own registers too (vibrato, fades)
+        {
+            int v = int.Parse(vs);
+            lines.AddRange(t.Voice.Where(w => w.Reg >> 4 == v && (w.Reg & 0x0F) < 4).Select(w => (w.Cycle, $"t={w.Cycle,9} V{v} {w.Reg & 0x0F:X} {w.Value:X2}")));
+        }
         lines.AddRange(t.KeyOffs.Select(k => (k.Cycle, $"t={k.Cycle,9} KOFF {k.Mask:X2}")));
         foreach (var (_, text) in lines.OrderBy(l => l.Item1)) Console.WriteLine(text);
         if (cpu.Halted) Console.WriteLine($"HALTED at PC {cpu.Pc:X4}");

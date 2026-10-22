@@ -79,6 +79,10 @@ base $0400
 !c_fine = $02F8                         ; $EE: fraction of a semitone added to every note
 !c_amp = $0300                          ; $FA $03: volume amplification, P + (P x amp >> 8)
 !c_vdirty = $0308                       ; the voice volume is to be sent at the end of this tick
+!c_age = $0310                          ; song ticks since the note was keyed on (stops at 255)
+!c_vibDelay = $0318                     ; $DE: ticks before vibrato starts, its phase step a tick, its depth (0: off)
+!c_vibRate = $0320
+!c_vibDepth = $0328
 
 macro dsp(reg)                          ; write A to a DSP register
     mov $F2,#<reg>
@@ -160,8 +164,19 @@ Tick:
     setc
     adc a,!tempo                        ; + tempo + 1
     mov !tickAcc,a
-    bcc .done
+    bcc .effects
     call SongTick
+.effects:                               ; pitch effects move every timer tick, between song ticks too, as AddmusicK's do
+    mov x,#$07
+.e:
+    mov a,!c_act+x
+    beq .next
+    mov a,!c_vibDepth+x
+    beq .next
+    call Vibrato
+.next:
+    dec x
+    bpl .e
 .done:
     ret
 
@@ -313,6 +328,7 @@ ResetChannel:                           ; X = channel
     mov !c_fine+x,a
     mov !c_amp+x,a
     mov !c_vdirty+x,a
+    mov !c_vibDepth+x,a
     mov a,#$00                          ; a song that never says @n plays instrument 0
     jmp SetInstrument
 
@@ -375,7 +391,11 @@ FlushDsp:
 
 ; ---------------------------------------------------------------- a channel tick (X = channel)
 ChannelTick:
-    mov a,!c_koff+x                     ; the note is cut short by quantisation
+    mov a,!c_age+x
+    inc a
+    beq +
+    mov !c_age+x,a
++   mov a,!c_koff+x                     ; the note is cut short by quantisation
     beq .dur
     dec a
     mov !c_koff+x,a
@@ -581,6 +601,8 @@ EndOfData:
 ; A = note byte $80-$C5. Sets the voice's registers and starts it.
 NoteOn:
     mov !c_note+x,a
+    mov a,#$00
+    mov !c_age+x,a
     call SendInstrument
     call NotePitch
     call SendPitch
@@ -642,6 +664,12 @@ VoiceBase:                              ; X = channel -> A = X * 16
 
 ; The channel's note as it sounds: the note byte, both transpositions and the fine tuning -> !t0/!t1.
 NotePitch:                              ; X = channel
+    call NoteValue
+    bcc ComputePitch
+    ret
+
+; The note as it sounds, before effects: A = note byte, !frac = fraction; C set (and !t0/!t1 = 0) when it is above the top note.
+NoteValue:
     mov a,!c_fine+x
     mov !frac,a
     mov a,!c_note+x
@@ -655,9 +683,11 @@ NotePitch:                              ; X = channel
     mov a,#$00                          ; above the top note: silent, pitch 0 (measured)
     mov !t0,a
     mov !t1,a
+    setc
     ret
 +   or a,#$80
-    ; fall into ComputePitch
+    clrc
+    ret
 
 ; Note byte and !frac -> pitch. The top octave comes from a table of twelve (and the next C), a fraction of a semitone
 ; interpolating between neighbours there; each octave below is half of the one above; the instrument's tuning multiplies it:
@@ -733,6 +763,88 @@ ComputePitch:                           ; A = note byte, X = channel -> !t0/!t1 
     adc a,!t3
     mov !t1,a
     ret
+
+; Vibrato, every timer tick: t = song ticks since key-on plus the tempo accumulator's fraction; once t passes the delay the phase is
+; (t - delay) x rate, a triangle (up to +depth/256 of a semitone at a quarter, down to -depth/256 at three quarters) on the note.
+Vibrato:                                ; X = channel
+    mov a,!c_age+x
+    setc
+    sbc a,!c_vibDelay+x
+    bcc .ret                            ; still waiting
+    mov !t1,a
+    mov a,!c_vibRate+x
+    mov y,a
+    mov a,!t1
+    mul ya
+    mov !t2,a                           ; whole ticks x rate (the low byte is the phase)
+    mov a,!c_vibRate+x
+    mov y,a
+    mov a,!tickAcc
+    mul ya
+    mov a,y
+    clrc
+    adc a,!t2                           ; + the fraction's share: the phase
+    cmp a,#$40
+    bcc .tri
+    cmp a,#$C0
+    bcs .tri
+    eor a,#$FF                          ; the falling half: $80 - phase
+    clrc
+    adc a,#$81
+.tri:                                   ; A = signed position on the triangle, -64 ... 64
+    mov !t3,a
+    cmp a,#$00                          ; (MOV to memory sets no flags)
+    bpl +
+    eor a,#$FF
+    inc a
++   mov y,a
+    mov a,!c_vibDepth+x
+    mul ya                              ; depth x |position|, >> 6
+    movw !t0,ya
+    mov y,#$06
+-   lsr !t1
+    ror !t0
+    dbnz y,-
+    push x
+    call NoteValue
+    pop x
+    bcs .ret
+    mov !t4,a                           ; the note, with !frac: add or take away the offset
+    mov a,!t3
+    bmi .down
+    mov a,!frac
+    clrc
+    adc a,!t0
+    mov !frac,a
+    mov a,!t4
+    adc a,#$00
+    bra .send
+.down:
+    mov a,!frac
+    setc
+    sbc a,!t0
+    mov !frac,a
+    mov a,!t4
+    sbc a,#$00
+.send:
+    call ComputePitch
+    jmp SendPitch
+.ret:
+    ret
+
+CmdVibrato:                             ; $DE delay rate depth
+    call GetByte
+    mov !c_vibDelay+x,a
+    call GetByte
+    mov !c_vibRate+x,a
+    call GetByte
+    mov !c_vibDepth+x,a
+    jmp ReadData
+
+CmdVibratoOff:                          ; $DF
+    mov a,#$00
+    mov !c_vibDepth+x,a
+    jmp ReadData
 
 SendPitch:                              ; X = channel, !t0/!t1 = pitch
     call VoiceBase
@@ -1083,7 +1195,7 @@ Skip4: %skip(4)
 Skip0: jmp ReadData
 
 CommandTable:                           ; $DA ... $FC
-    dw CmdInstrument, CmdPan, Skip2, Skip3, Skip3, Skip0           ; DA DB DC DD DE DF
+    dw CmdInstrument, CmdPan, Skip2, Skip3, CmdVibrato, CmdVibratoOff ; DA DB DC DD DE DF
     dw CmdGlobalVolume, Skip2, CmdTempo, Skip2, CmdTranspose, Skip3 ; E0 E1 E2 E3 E4 E5
     dw CmdSubloop, CmdVolume, Skip2, CmdCall, Skip1, Skip3         ; E6 E7 E8 E9 EA EB
     dw Skip3, CmdEnvelope, CmdFineTune, Skip3, Skip0, Skip3        ; EC ED EE EF F0 F1
