@@ -30,7 +30,7 @@ public sealed class TileArrangeView : Panel
     public Action<(int I, int X, int Y)[]> MoveTo { get; set; } = _ => { };
     public Action Delete { get; set; } = () => { };
     /// <summary>The tiles drawn on a clear w×h canvas with the cell's top-left at (ox, oy).</summary>
-    public Func<int, int, int, int, uint[]> Render { get; set; } = (w, h, _, _) => new uint[w * h];
+    public Func<int, int, int, int, uint[]> RenderTiles { get; set; } = (w, h, _, _) => new uint[w * h];
 
     private readonly PixelImage image = new() { Stretch = true };
     private readonly Canvas overlay = new() { IsHitTestVisible = false };
@@ -146,7 +146,7 @@ public sealed class TileArrangeView : Panel
     /// <summary>Draw the tiles again, with the dashed placement cell, the pick and any lasso.</summary>
     public void Redraw()
     {
-        image.Source = LevelBitmap.FromPixels(Render(PreviewPx, PreviewPx, OriginX, OriginY), PreviewPx, PreviewPx);
+        image.Source = LevelBitmap.FromPixels(RenderTiles(PreviewPx, PreviewPx, OriginX, OriginY), PreviewPx, PreviewPx);
         overlay.Children.Clear();
         overlay.Children.Add(Box(OriginX, OriginY, 16, Scale, UiColors.Band, dashed: true));
         foreach (int i in Picked())

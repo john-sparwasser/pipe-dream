@@ -33,7 +33,7 @@ public partial class TilePickerWindow : Window
     private int editFileId = -1;
 
     private readonly List<SheetSource> sources = [];
-    private readonly int[] offsets;
+    private readonly int[] offsets = [];
     private int sheetTiles, sheetCols = 16, limit;
     private const int Scale = 3;
     private ComboBox source = null!;

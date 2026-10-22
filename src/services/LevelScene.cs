@@ -302,11 +302,11 @@ public sealed class LevelScene
             Map16.ComposeInto(TileCaches[p], rom, Level.Header, tiles, pal, set);
             if (bgEdited) BgCaches[p] = Map16.ComposeAllBg(rom, tiles, pal);
         });
-        // A background image is drawn from those caches, so the level shows the edit too.
+        // A background image is drawn from those caches, so the level shows the edit too. (Every phase's palette was set above.)
         if (bgEdited && BgImage is not null)
             for (int p = 0; p < 4; p++)
                 Phases[p] = Map16.ComposeLevelInto(Phases[p] ?? new uint[Width * Height], TileCaches[p],
-                                                   Palettes[p].Rgba[0], Grid, BgImage, BgCaches[p], Layer2, VisibleRows);
+                                                   Palettes[p]!.Rgba[0], Grid, BgImage, BgCaches[p], Layer2, VisibleRows);
 
         // The grid is small (a full-width level is under 14k cells) and scanning it beats
         // tracking a tile→cells index that every object edit would have to maintain.

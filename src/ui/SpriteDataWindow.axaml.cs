@@ -27,8 +27,8 @@ public partial class SpriteDataWindow : Window
         numberBox.Text = s.Number.ToString("X2");
         extraBox.Text = s.Extra.ToString();
         bytesBox.Text = s.ExtraBytes is { } eb ? string.Join(' ', eb.Select(b => b.ToString("X2"))) : "";
-        foreach (var box in new[] { numberBox, extraBox, bytesBox }) box.TextChanged += (_, _) => Show();
-        Show();
+        foreach (var box in new[] { numberBox, extraBox, bytesBox }) box.TextChanged += (_, _) => ShowRecordSize();
+        ShowRecordSize();
     }
 
     /// <summary>Parse the fields; null when the extra bytes are not hex or exceed LM's cap (0xF
@@ -45,7 +45,7 @@ public partial class SpriteDataWindow : Window
         return (n, x, eb.Length > 0 ? eb : null);
     }
 
-    private void Show()
+    private void ShowRecordSize()
     {
         var p = Parse(numberBox.Text, extraBox.Text, bytesBox.Text);
         bytes.Text = p is { } d ? $"record: {3 + (d.ExtraBytes?.Length ?? 0)} bytes" : "not a valid record";

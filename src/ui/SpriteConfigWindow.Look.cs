@@ -264,7 +264,7 @@ public partial class SpriteConfigWindow
             RefreshTileList([.. moves.Select(m => m.I)]);
         };
         view.Delete = DeletePicked;
-        view.Render = (w, h, ox, oy) => session.DrawSpriteDisplay(Tiles, config.Map16, w, h, ox, oy);
+        view.RenderTiles = (w, h, ox, oy) => session.DrawSpriteDisplay(Tiles, config.Map16, w, h, ox, oy);
     }
 
     // ---- the sprite Map16 sheet: pick a tile ----

@@ -241,7 +241,6 @@ public sealed class Spc700
     {
         if (Pc >= 0xFFC0 && (control & 0x80) != 0) { IplStep(); return; }
         int op = Fetch(), cyc = Cyc[op];
-        int a, b, r, d;
         switch (op)
         {
             // ---- the eight ALU rows: OR AND EOR CMP ADC SBC, in the common addressing modes ----

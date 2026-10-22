@@ -65,7 +65,7 @@ public sealed partial class EditorSession
     /// <summary>The empty-page tile per phase, for the picker to tile over unallocated pages.</summary>
     public uint[]?[] PlaceholderPhases()
     {
-        var px = new uint[4][];
+        var px = new uint[]?[4];
         if (Rom is { } r && Scene is { } s)
             for (int p = 0; p < 4; p++) px[p] = s.Placeholder(r, LevelNum, p);
         return px;

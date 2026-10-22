@@ -68,7 +68,7 @@ public static class GpsInsert
         // One asm label per distinct file, in tile order: the order gps.exe assembles them in.
         var files = blocks.OrderBy(kv => kv.Key).Select(kv => kv.Value).Distinct().ToList();
         var routines = gpsFiles.Keys.Where(k => k.StartsWith("routines/") && k.EndsWith(".asm") && k.Count(c => c == '/') == 1)
-            .Select(Path.GetFileNameWithoutExtension).Order(StringComparer.Ordinal).ToList();
+            .Select(k => Path.GetFileNameWithoutExtension(k)).Order(StringComparer.Ordinal).ToList();
         if (routines.Count > MaxRoutines) return Fail($"More than {MaxRoutines} routines in routines/");
 
         string gpsDir = VirtualDir, root = Path.Combine(gpsDir, "__pipedream_gps.asm");

@@ -217,7 +217,7 @@ public partial class SpriteTilesWindow : Window
             RefreshTileList([.. moves.Select(m => m.I)]);
         };
         view.Delete = DeletePicked;
-        view.Render = (w, h, ox, oy) => session.DrawSpriteTiles(tiles, files, w, h, ox, oy);
+        view.RenderTiles = (w, h, ox, oy) => session.DrawSpriteTiles(tiles, files, w, h, ox, oy);
     }
 
     private void RedrawPreview()
