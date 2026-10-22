@@ -43,6 +43,16 @@ base $0400
 !rerun = $18                           ; set once a phrase has restarted within this tick
 !gtrans = $19                           ; $E4: semitones every channel is transposed by
 !frac = $1A                             ; ComputePitch: the fraction of a semitone above the note
+!masterF = $1B                          ; $E1 global volume fade: the fraction, ticks left, step (word), target
+!mfLeft = $1C
+!mfStepL = $1D
+!mfStepH = $1E
+!mfTarget = $1F
+!tempoF = $20                           ; $E3 tempo fade, likewise
+!tfLeft = $21
+!tfStepL = $22
+!tfStepH = $23
+!tfTarget = $24
 
 ; ---- per-channel arrays, eight bytes each ----
 !c_ptrl = $0200
@@ -88,6 +98,16 @@ base $0400
 !c_bendDiff = $0340                     ;   semitones to the target (signed),
 !c_bendStepL = $0348                    ;   and the step a tick in 1/256 semitone (signed word)
 !c_bendStepH = $0350
+!c_volF = $0358                         ; $E8 volume fade: the fraction, ticks left, step (word), target
+!c_vfLeft = $0360
+!c_vfStepL = $0368
+!c_vfStepH = $0370
+!c_vfTarget = $0378
+!c_panF = $0380                         ; $DC pan fade, likewise
+!c_pfLeft = $0388
+!c_pfStepL = $0390
+!c_pfStepH = $0398
+!c_pfTarget = $03A0
 
 macro dsp(reg)                          ; write A to a DSP register
     mov $F2,#<reg>
@@ -176,7 +196,10 @@ Tick:
 .e:
     mov a,!c_act+x
     beq .next
-    mov a,!c_vibDepth+x
+    mov a,!c_pfLeft+x
+    beq +
+    call PanGlide
++   mov a,!c_vibDepth+x
     or a,!c_bendLen+x
     beq .next
     call PitchEffects
@@ -231,6 +254,10 @@ StartSong:
     mov !master,a
     mov a,#$00
     mov !gtrans,a
+    mov !masterF,a
+    mov !mfLeft,a
+    mov !tempoF,a
+    mov !tfLeft,a
     mov a,!SongInfo
     mov y,!SongInfo+1
     movw !instr,ya
@@ -335,11 +362,16 @@ ResetChannel:                           ; X = channel
     mov !c_amp+x,a
     mov !c_vdirty+x,a
     mov !c_vibDepth+x,a
+    mov !c_volF+x,a
+    mov !c_vfLeft+x,a
+    mov !c_panF+x,a
+    mov !c_pfLeft+x,a
     mov a,#$00                          ; a song that never says @n plays instrument 0
     jmp SetInstrument
 
 ; ---------------------------------------------------------------- a song tick
 SongTick:
+    call GlobalFades
     mov a,#$00
     mov !rerun,a
 .again:
@@ -397,6 +429,7 @@ FlushDsp:
 
 ; ---------------------------------------------------------------- a channel tick (X = channel)
 ChannelTick:
+    call ChannelFades
     mov a,!c_age+x
     inc a
     beq +
@@ -1056,20 +1089,23 @@ SendVolume:                             ; X = channel
     clrc
     adc a,!t6
     mov !t6,a
-    mov a,!c_pan+x                      ; left = P x pan[y] >> 7
-    mov y,a
-    mov a,PanTable+y
+    mov a,!c_panF+x                     ; left = P x pan[y] >> 7, the table interpolated for a fading pan
+    mov !frac,a
+    mov a,!c_pan+x
+    call PanAt
     mov y,!t6
     mul ya
     asl a
     mov a,y
     rol a
     mov !t0,a
-    mov a,#$14                          ; right = P x pan[20 - y] >> 7
+    mov a,#$00                          ; right = P x pan[20 - y] >> 7
     setc
+    sbc a,!c_panF+x
+    mov !frac,a
+    mov a,#$14
     sbc a,!c_pan+x
-    mov y,a
-    mov a,PanTable+y
+    call PanAt
     mov y,!t6
     mul ya
     asl a
@@ -1096,6 +1132,20 @@ SendVolume:                             ; X = channel
     inc $F2
     mov a,!t1
     mov $F3,a
+    ret
+
+PanAt:                                  ; A = pan 0-20, !frac its fraction -> A = the table there (truncated)
+    mov y,a
+    mov a,PanTable+1+y
+    setc
+    sbc a,PanTable+y
+    mov !t7,y
+    mov y,!frac
+    mul ya
+    mov a,y
+    mov y,!t7
+    clrc
+    adc a,PanTable+y
     ret
 
 ; ---------------------------------------------------------------- commands $DA-$FF
@@ -1196,6 +1246,9 @@ CmdPan:                                 ; $DB p: low five bits the pan, bit 7 an
     mov !t0,a
     and a,#$1F
     mov !c_pan+x,a
+    mov a,#$00
+    mov !c_panF+x,a
+    mov !c_pfLeft+x,a
     mov a,!t0
     and a,#$C0
     mov !c_surr+x,a
@@ -1229,6 +1282,282 @@ CmdVolume:                              ; $E7 v
     call GetByte
     mov !c_vol+x,a
     jmp VolumeChanged
+
+; ---- fades: a value with a fraction moves by a signed step each song tick, the first on the tick the command is read
+
+; !t2 = from, !t3 = to, Y = ticks -> !t0/!t1 = (to - from) x 256 / ticks, signed. X kept.
+FadeStep:
+    push x
+    mov a,y
+    mov x,a
+    mov a,!t3
+    setc
+    sbc a,!t2
+    bcs +
+    mov a,!t2                           ; downwards: the size, and remember the sign
+    setc
+    sbc a,!t3
+    clrc
++   push p
+    mov y,#$00
+    div ya,x
+    mov !t1,a
+    mov a,#$00
+    div ya,x
+    mov !t0,a
+    pop p
+    bcs +
+    mov a,!t0
+    eor a,#$FF
+    clrc
+    adc a,#$01
+    mov !t0,a
+    mov a,!t1
+    eor a,#$FF
+    adc a,#$00
+    mov !t1,a
++   pop x
+    ret
+
+CmdVolumeFade:                          ; $E8 ticks volume
+    call GetByte
+    mov !c_vfLeft+x,a
+    call GetByte
+    mov !c_vfTarget+x,a
+    mov !t3,a
+    mov a,!c_vol+x
+    mov !t2,a
+    mov a,#$00
+    mov !c_volF+x,a
+    mov a,!c_vfLeft+x
+    bne +
+    jmp ReadData                        ; a length of 0 does nothing (measured)
++
+    mov y,a
+    call FadeStep
+    mov a,!t0
+    mov !c_vfStepL+x,a
+    mov a,!t1
+    mov !c_vfStepH+x,a
+    call VolumeFadeTick
+    jmp ReadData
+
+CmdPanFade:                             ; $DC ticks pan
+    call GetByte
+    mov !c_pfLeft+x,a
+    call GetByte
+    and a,#$1F
+    mov !c_pfTarget+x,a
+    mov !t3,a
+    mov a,!c_pan+x
+    mov !t2,a
+    mov a,#$00
+    mov !c_panF+x,a
+    mov a,!c_pfLeft+x
+    bne +
+    jmp ReadData                        ; a length of 0 does nothing (measured)
++
+    mov y,a
+    call FadeStep
+    mov a,!t0
+    mov !c_pfStepL+x,a
+    mov a,!t1
+    mov !c_pfStepH+x,a
+    call PanFadeTick
+    jmp ReadData
+
+CmdGlobalVolumeFade:                    ; $E1 ticks volume
+    call GetByte
+    mov !mfLeft,a
+    call GetByte
+    mov !mfTarget,a
+    mov !t3,a
+    mov a,!master
+    mov !t2,a
+    mov a,#$00
+    mov !masterF,a
+    mov a,!mfLeft
+    bne +
+    jmp ReadData                        ; a length of 0 does nothing (measured)
++
+    mov y,a
+    call FadeStep
+    movw ya,!t0
+    mov !mfStepL,a
+    mov !mfStepH,y
+    call MasterFadeTick
+    jmp ReadData
+
+CmdTempoFade:                           ; $E3 ticks tempo
+    call GetByte
+    mov !tfLeft,a
+    call GetByte
+    mov !tfTarget,a
+    mov !t3,a
+    mov a,!tempo
+    mov !t2,a
+    mov a,#$00
+    mov !tempoF,a
+    mov a,!tfLeft
+    bne +
+    jmp ReadData                        ; a length of 0 does nothing (measured)
++
+    mov y,a
+    call FadeStep
+    movw ya,!t0
+    mov !tfStepL,a
+    mov !tfStepH,y
+    call TempoFadeTick
+    jmp ReadData
+
+; A fading pan between song ticks: the voice volume at pan + step x (fraction + one timer tick), as AddmusicK's moves (measured).
+PanGlide:                               ; X = channel
+    mov a,!c_pan+x
+    push a
+    mov a,!c_panF+x
+    push a
+    mov a,!tickAcc
+    setc
+    adc a,!tempo
+    mov !t5,a
+    bcc +
+    mov a,!c_panF+x                     ; a whole step more
+    clrc
+    adc a,!c_pfStepL+x
+    mov !c_panF+x,a
+    mov a,!c_pan+x
+    adc a,!c_pfStepH+x
+    mov !c_pan+x,a
++   mov a,!c_pfStepL+x                  ; + step x fraction >> 8 (signed)
+    mov y,!t5
+    mul ya
+    mov !t4,y
+    mov a,!c_pfStepH+x
+    mov y,!t5
+    mul ya
+    movw !t2,ya                         ; stepH x f: !t2 adds to the fraction, !t3 to the pan
+    mov a,!c_pfStepH+x
+    bpl +
+    mov a,!t3                           ; a negative step's high byte is -1 + ...: take f off the pan
+    setc
+    sbc a,!t5
+    mov !t3,a
++   mov a,!c_panF+x
+    clrc
+    adc a,!t4
+    mov !t4,a
+    mov a,#$00
+    adc a,!t3
+    mov !t3,a
+    mov a,!t4
+    clrc
+    adc a,!t2
+    mov !c_panF+x,a
+    mov a,!c_pan+x
+    adc a,!t3
+    cmp a,#$15                          ; past either end: hold there
+    bcc +
+    mov a,!c_pfTarget+x
++   mov !c_pan+x,a
+    call SendVolume
+    pop a
+    mov !c_panF+x,a
+    pop a
+    mov !c_pan+x,a
+    ret
+
+ChannelFades:                           ; X = channel, each song tick
+    mov a,!c_vfLeft+x
+    beq +
+    call VolumeFadeTick
++   mov a,!c_pfLeft+x
+    beq +
+    call PanFadeTick
++   ret
+
+VolumeFadeTick:
+    mov a,!c_volF+x
+    clrc
+    adc a,!c_vfStepL+x
+    mov !c_volF+x,a
+    mov a,!c_vol+x
+    adc a,!c_vfStepH+x
+    mov !c_vol+x,a
+    mov a,!c_vfLeft+x
+    dec a
+    mov !c_vfLeft+x,a
+    bne +
+    mov a,!c_vfTarget+x                 ; the last step lands on the target exactly
+    mov !c_vol+x,a
+    mov a,#$00
+    mov !c_volF+x,a
++   mov a,#$01
+    mov !c_vdirty+x,a
+    ret
+
+PanFadeTick:
+    mov a,!c_panF+x
+    clrc
+    adc a,!c_pfStepL+x
+    mov !c_panF+x,a
+    mov a,!c_pan+x
+    adc a,!c_pfStepH+x
+    mov !c_pan+x,a
+    mov a,!c_pfLeft+x
+    dec a
+    mov !c_pfLeft+x,a
+    bne +
+    mov a,!c_pfTarget+x
+    mov !c_pan+x,a
+    mov a,#$00
+    mov !c_panF+x,a
++   mov a,#$01
+    mov !c_vdirty+x,a
+    ret
+
+GlobalFades:                            ; each song tick
+    mov a,!mfLeft
+    beq +
+    call MasterFadeTick
++   mov a,!tfLeft
+    beq +
+    call TempoFadeTick
++   ret
+
+MasterFadeTick:
+    mov a,!masterF
+    clrc
+    adc a,!mfStepL
+    mov !masterF,a
+    mov a,!master
+    adc a,!mfStepH
+    mov !master,a
+    dbnz !mfLeft,+
+    mov a,!mfTarget
+    mov !master,a
+    mov a,#$00
+    mov !masterF,a
++   mov y,#$07                          ; every channel's volume follows
+    mov a,#$01
+-   mov !c_vdirty+y,a
+    dec y
+    bpl -
+    ret
+
+TempoFadeTick:
+    mov a,!tempoF
+    clrc
+    adc a,!tfStepL
+    mov !tempoF,a
+    mov a,!tempo
+    adc a,!tfStepH
+    mov !tempo,a
+    dbnz !tfLeft,+
+    mov a,!tfTarget
+    mov !tempo,a
+    mov a,#$00
+    mov !tempoF,a
++   ret
 
 CmdFineTune:                            ; $EE f: a fraction of a semitone on every note
     call GetByte
@@ -1365,9 +1694,9 @@ Skip4: %skip(4)
 Skip0: jmp ReadData
 
 CommandTable:                           ; $DA ... $FC
-    dw CmdInstrument, CmdPan, Skip2, Skip3, CmdVibrato, CmdVibratoOff ; DA DB DC DD DE DF
-    dw CmdGlobalVolume, Skip2, CmdTempo, Skip2, CmdTranspose, Skip3 ; E0 E1 E2 E3 E4 E5
-    dw CmdSubloop, CmdVolume, Skip2, CmdCall, Skip1, Skip3         ; E6 E7 E8 E9 EA EB
+    dw CmdInstrument, CmdPan, CmdPanFade, Skip3, CmdVibrato, CmdVibratoOff ; DA DB DC DD DE DF
+    dw CmdGlobalVolume, CmdGlobalVolumeFade, CmdTempo, CmdTempoFade, CmdTranspose, Skip3 ; E0 E1 E2 E3 E4 E5
+    dw CmdSubloop, CmdVolume, CmdVolumeFade, CmdCall, Skip1, Skip3 ; E6 E7 E8 E9 EA EB
     dw Skip3, CmdEnvelope, CmdFineTune, Skip3, Skip0, Skip3        ; EC ED EE EF F0 F1
     dw Skip3, Skip2, CmdF4, Skip8, Skip2, Unknown                  ; F2 F3 F4 F5 F6 F7
     dw Skip1, Skip2, CmdFA, SkipArpeggio, Skip4                    ; F8 F9 FA FB FC
@@ -1381,7 +1710,7 @@ PitchHi: db $08,$08,$09,$09,$0A,$0B,$0B,$0C,$0D,$0E,$0E,$0F,$10
 
 QTable:    db $33,$66,$80,$99,$B3,$CC,$E6,$FF
 VelTable:  db $19,$32,$4C,$65,$72,$7F,$8C,$98,$A5,$B2,$BF,$CB,$D8,$E5,$F2,$FC
-PanTable:  db $00,$01,$03,$07,$0D,$15,$1E,$29,$34,$42,$51,$5E,$67,$6E,$73,$77,$7A,$7C,$7D,$7E,$7F
+PanTable:  db $00,$01,$03,$07,$0D,$15,$1E,$29,$34,$42,$51,$5E,$67,$6E,$73,$77,$7A,$7C,$7D,$7E,$7F,$7F   ; (and once more, to interpolate from 20)
 
 ; SMW's stock instruments: sample, ADSR1, ADSR2, GAIN, tuning (whole, fraction).
 StockInstruments:

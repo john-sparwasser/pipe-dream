@@ -88,8 +88,8 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
                     int b = v * 16;
                     // Theirs over a quarter tick either side: where in its tick an engine keys on moves a fast bend or fade that much.
                     var around = new[] { -0.25, 0, 0.25 }.Select(f => ca + (long)(f * tickCycles))
-                        .Select(c => (L: theirs.At(b, c), R: theirs.At(b + 1, c), P: theirs.At(b + 2, c) | theirs.At(b + 3, c) << 8)).ToList();
-                    var (lb, rb, pb) = (ours.At(b, cb), ours.At(b + 1, cb), ours.At(b + 2, cb) | ours.At(b + 3, cb) << 8);
+                        .Select(c => (L: theirs.At(b, c), R: theirs.At(b + 1, c), P: theirs.PitchAt(v, c))).ToList();
+                    var (lb, rb, pb) = (ours.At(b, cb), ours.At(b + 1, cb), ours.PitchAt(v, cb));
                     bool Near(Func<(int L, int R, int P), int> f, int ourValue, int tol) => ourValue >= around.Min(f) - tol && ourValue <= around.Max(f) + tol;
                     var mid = around[1];
                     if (!Near(a => a.L, lb, 1) || !Near(a => a.R, rb, 1)) { d.Add($"v{v} #{i} +{k} ticks: volume {mid.L:X2}/{mid.R:X2} vs {lb:X2}/{rb:X2}"); break; }
@@ -143,6 +143,8 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
     [InlineData("#0 t40 c4 v100 ^4 y4 ^4 w100 ^4 $FA $03 $40 ^4 c4")]                       // volume changes mid-note
     [InlineData("#0 t40 $DE $00 $04 $1B c1 $DE $08 $10 $40 c1 $DE $02 $30 $C0 o3 e2 $DF c2 $DE $00 $20 $FF o5 b2")]   // vibrato
     [InlineData("#0 t40 c2 $DD $04 $08 $B0 d2 $DD $00 $10 $98 o3 c2 $DD $02 $20 $C0 e4 $DE $00 $10 $40 c2 $DD $04 $08 $A8")]   // pitch bends
+    [InlineData("#0 t40 $E8 $10 $40 c1 v40 $E8 $08 $F0 c2 $E8 $00 $80 c2 y3 $DC $10 $14 c1 $DC $08 $05 c2 $E1 $10 $40 c1 $E1 $20 $FF c1")]   // fades
+    [InlineData("#0 t40 c4 $E3 $20 $80 c4 c4 c4 c4 c4 c4 $E3 $10 $20 c4 c4 c4 c4")]   // tempo fade
     [InlineData("#0 c4 d4 e8 f8")]                                         // the default tempo
     [InlineData("#0 t40 @21 c4 d4 @22 c4 @23 c8 c8 @24 c8 @25 c8 @26 c8 @27 c8 @28 c8 @29 c8 @0 e4")]   // percussion
     [InlineData("#0 t40 o3 @26 [c8]2 @29 d8 c16")]                         // a hit in a loop, then notes on its instrument
@@ -210,7 +212,10 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
                 long s0 = x.KeyOns.First(k => k.Voice == v).Cycle;
                 int lastP = -1;
                 log.WriteLine($"{who} raw v{v}: " + string.Join(" ", x.Voice.Where(w => w.Reg == v * 16 + 3 || w.Reg == v * 16 + 2).Select(w => (w.Cycle, P: x.At(v * 16 + 2, w.Cycle) | x.At(v * 16 + 3, w.Cycle) << 8))
-                    .Where(w => w.Cycle >= s0 && w.P != lastP && (lastP = w.P) >= 0).Take(40).Select(w => $"{(w.Cycle - s0) / tc:F2}:{w.P:X4}")));
+                    .Where(w => w.Cycle >= s0 && w.P != lastP && (lastP = w.P) >= 0).Take(600).Select(w => $"{(w.Cycle - s0) / tc:F2}:{w.P:X4}")));
+                int lastV = -1;
+                log.WriteLine($"{who} rawvol v{v}: " + string.Join(" ", x.Voice.Where(w => w.Reg == v * 16 || w.Reg == v * 16 + 1).Select(w => (w.Cycle, V: x.At(v * 16, w.Cycle) | x.At(v * 16 + 1, w.Cycle) << 8))
+                    .Where(w => w.Cycle >= s0 && w.V != lastV && (lastV = w.V) >= 0).Take(60).Select(w => $"{(w.Cycle - s0) / tc:F2}:{w.V & 0xFF:X2}/{w.V >> 8:X2}")));
                 log.WriteLine($"{who} pitch v{v}: " + string.Join(" ", Enumerable.Range(0, 48).Select(k =>
                     { long c = s0 + (long)((k + 0.5) * tc); return $"{x.At(v * 16 + 2, c) | x.At(v * 16 + 3, c) << 8:X4}/{x.At(v * 16, c):X2}"; })));
             }

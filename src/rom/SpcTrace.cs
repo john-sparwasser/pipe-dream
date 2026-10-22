@@ -37,6 +37,27 @@ public sealed class SpcTrace
     }
     private List<(long, byte)>[]? byReg;
 
+    /// <summary>Voice <paramref name="voice"/>'s pitch at <paramref name="cycle"/>, read just after the last write to either byte there, so
+    /// a moment between an engine's low and high byte writes is never seen.</summary>
+    public int PitchAt(int voice, long cycle)
+    {
+        At(0, 0);
+        int b = voice * 16 + 2;
+        long last = Math.Max(LastWrite(b, cycle), LastWrite(b + 1, cycle));
+        long at = last < 0 ? cycle : last + 64;
+        return At(b, at) | At(b + 1, at) << 8;
+    }
+
+    private long LastWrite(int reg, long cycle)
+    {
+        var list = byReg![reg];
+        if (list is null) return -1;
+        long found = -1;
+        int lo = 0, hi = list.Count - 1;
+        while (lo <= hi) { int mid = (lo + hi) / 2; if (list[mid].Item1 <= cycle) { found = list[mid].Item1; lo = mid + 1; } else hi = mid - 1; }
+        return found;
+    }
+
     /// <summary>Run <paramref name="cpu"/> for <paramref name="cycles"/> and trace the DSP writes it made.</summary>
     public static SpcTrace Run(Spc700 cpu, long cycles)
     {
