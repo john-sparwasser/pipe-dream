@@ -37,6 +37,23 @@ public static class SmwSound
         return ram;
     }
 
+    /// <summary>SMW's own sound effects from the ROM, each as its bytecode (from its pointer to the next one up: effects that share
+    /// a pointer share an array, so they share bytes when placed). $1DF9's table is at ARAM $5681 (effects 1-$2A), $1DFC's at
+    /// $5619 (1-$2C), the data after them up to $5FDB.</summary>
+    public static SoundEffects Effects(Rom rom, byte[] instruments)
+    {
+        var ram = Upload(rom, EngineStream);
+        const int dataEnd = 0x5FDB;
+        int Ptr(int table, int i) => ram[table + 2 * i] | ram[table + 2 * i + 1] << 8;
+        var t9 = Enumerable.Range(0, 0x2B).Select(i => i == 0 ? 0 : Ptr(0x5681, i)).ToList();
+        var tC = Enumerable.Range(0, 0x2D).Select(i => i == 0 ? 0 : Ptr(0x5619, i)).ToList();
+        var starts = t9.Concat(tC).Where(p => p is >= 0x561B and < dataEnd).Distinct().Order().ToList();
+        var bytes = new Dictionary<int, byte[]>();
+        for (int i = 0; i < starts.Count; i++) bytes[starts[i]] = ram[starts[i]..(i + 1 < starts.Count ? starts[i + 1] : dataEnd)];
+        IReadOnlyList<byte[]?> Port(List<int> table) => table.Select(p => bytes.GetValueOrDefault(p)).ToList();
+        return new SoundEffects(instruments, Port(t9), Port(tC));
+    }
+
     /// <summary>SMW's sound engine upload: code at $0500, sound-effect instruments and data at $5570, and more.</summary>
     public const int EngineStream = 0x0E8000;
     public const int VanillaEntry = 0x0500;

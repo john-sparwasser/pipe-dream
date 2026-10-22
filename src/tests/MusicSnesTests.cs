@@ -5,7 +5,7 @@ namespace PipeDream.Tests;
 
 /// <summary>The main CPU's side of the music: SMW's code and ours in the 65816 emulator, talking to the SPC700 interpreter
 /// through the four ports, the SPC's boot ROM modelled from its documented behaviour.</summary>
-public class MusicSnesTests
+public class MusicSnesTests(Xunit.Abstractions.ITestOutputHelper log)
 {
     /// <summary>A 65816 and an SPC700 wired together, the SPC running a couple of cycles per 65816 instruction.</summary>
     internal static Cpu65816 Wired(Rom rom, Spc700 spc)
@@ -23,5 +23,69 @@ public class MusicSnesTests
         Assert.Equal(want[0x0500..0x1000], spc.Ram[0x0500..0x1000]);
         Assert.Equal(want[0x5570..0x5FD0], spc.Ram[0x5570..0x5FD0]);
         Assert.InRange(spc.Pc, 0x0500, 0x1400);                  // jumped into the engine it loaded
+    }
+
+    /// <summary>A vanilla ROM with music inserted: two local songs ($0A, $0B), a global one ($05); SMW's own samples and effects.</summary>
+    internal static (Rom Rom, IReadOnlyDictionary<string, int> Labels) Inserted()
+    {
+        var rom = Rom.Load(ReferenceRoms.Vanilla);
+        var p = new ProjectFile();
+        p.Music.Songs["a.mml"] = "#amk 2\n#0 t60 @0 o4 c4 d4 e4 f4";
+        p.Music.Songs["b.mml"] = "#amk 2\n#0 t60 @1 o5 g8 a8 b8";
+        p.Music.Songs["star.mml"] = "#amk 2\n#0 t80 @2 o3 c16 c16 c16";
+        p.Music.SongList.Add(new MusicState.SongSlot { Number = 0x0A, Path = "a.mml" });
+        p.Music.SongList.Add(new MusicState.SongSlot { Number = 0x0B, Path = "b.mml" });
+        p.Music.SongList.Add(new MusicState.SongSlot { Number = 0x05, Path = "star.mml", Global = true });
+        var r = MusicInsert.Insert(rom, p);
+        Assert.True(r.Ok, string.Join("\n", r.Errors));
+        return (rom, r.Labels);
+    }
+
+    /// <summary>Frames of the game: the NMI's music part once a frame (17066 SPC cycles), what the SPC keyed on meanwhile.</summary>
+    private static SpcTrace Frames(Cpu65816 cpu, Spc700 spc, int nmi, int frames)
+    {
+        var t = new SpcTrace();
+        long start = spc.Cycles;
+        for (int f = 0; f < frames; f++)
+        {
+            cpu.PresetWidths(true, true);
+            cpu.PresetDbr(0);
+            long before = spc.Cycles;
+            cpu.CallLong(nmi);                                    // (an upload runs the SPC inside this)
+            long after = spc.Cycles;
+            t.Append(SpcTrace.Run(spc, Math.Max(0, 17_066 - (after - before))), after - start);
+        }
+        return t;
+    }
+
+    [AsarFact]
+    public void a_built_rom_boots_our_engine_and_plays_its_songs_and_effects()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla)) return;
+        var (rom, labels) = Inserted();
+        var spc = Spc700.PoweredOn();
+        var cpu = Wired(rom, spc);
+        cpu.CallNear(0x0080E8);                                   // power-on: UploadSPCEngine, now ours
+        spc.Run(40_000);
+        Assert.InRange(spc.Pc, 0x0400, 0x3000);                   // in our engine
+
+        int nmi = labels["Nmi"];
+        cpu.Ram7E[0x1DFB] = 0x0A;                                 // the level's song: uploaded, then played
+        var a = Frames(cpu, spc, nmi, 90);
+        Assert.Equal([0x0C8A, 0x0E16], a.KeyOns.Where(k => k.Voice == 0).Take(2).Select(k => k.Pitch));
+
+        cpu.Ram7E[0x1DFB] = 0x0B;                                 // another: a new upload
+        var b = Frames(cpu, spc, nmi, 60);
+        Assert.Equal(0x01, b.KeyOns.First(k => k.Voice == 0).Srcn);
+
+        cpu.Ram7E[0x1DFB] = 0x05;                                 // the global one: no upload, straight away
+        var c = Frames(cpu, spc, nmi, 30);
+        Assert.Equal(0x02, c.KeyOns.First(k => k.Voice == 0).Srcn);
+
+        cpu.Ram7E[0x1DF9] = 0x01;                                 // a sound effect on voice 6
+        var d = Frames(cpu, spc, nmi, 20);
+        Assert.Contains(d.KeyOns, k => k.Voice == 6);
+        foreach (var (name, t) in new[] { ("a", a), ("b", b), ("c", c), ("d", d) })
+            log.WriteLine($"{name}: {string.Join(" ", t.KeyOns.Take(6).Select(k => $"v{k.Voice}:{k.Pitch:X4}/{k.Srcn:X2}@{k.Cycle / 17066}"))}");
     }
 }

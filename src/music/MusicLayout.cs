@@ -14,9 +14,15 @@ public sealed record AramImage(byte[] Ram, int SongBase, int InstrumentTable, in
 /// <param name="Ram">Engine, effects, the global-song table and the global songs (the rest zero).</param>
 /// <param name="LocalBase">Where a local song's sample directory goes: the page after all that.</param>
 /// <param name="EchoDelay">The longest echo delay a global song asks for: its buffer must be free whatever local song is in.</param>
-public sealed record BaseImage(byte[] Ram, int LocalBase, int EchoDelay, IReadOnlyList<MmlDiagnostic> Problems)
+/// <param name="Resident">Samples that stay in ARAM (AddmusicK's "important" ones), by their bytes: where each starts. A song's
+/// directory points at these instead of uploading them again.</param>
+public sealed record BaseImage(byte[] Ram, int LocalBase, int EchoDelay, IReadOnlyList<MmlDiagnostic> Problems,
+    IReadOnlyDictionary<string, int>? Resident = null)
 {
     public bool Ok => Problems.Count == 0;
+
+    /// <summary>The key a sample's bytes are known by in <see cref="Resident"/>.</summary>
+    public static string Key(byte[] brr) => Convert.ToBase64String(System.Security.Cryptography.SHA256.HashData(brr));
 }
 
 /// <summary>
@@ -28,7 +34,8 @@ public sealed record BaseImage(byte[] Ram, int LocalBase, int EchoDelay, IReadOn
 ///                                   $03FD        the global-song table (word)
 /// $0400        the engine           then         the sound effects (SoundEffects.Place)
 ///              the global-song table: a count, then five bytes a song (number, song word, instrument table word)
-///              the global songs     next page    LocalBase: the local song's sample directory, four bytes a sample
+///              the global songs     then         the resident samples (each song's directory points at them)
+///              next page            LocalBase: the local song's sample directory, four bytes a sample
 ///              the local song       then         its samples, one after another
 /// top          the echo buffer: 2 KB a unit of the longest delay a song in ARAM asks for ($FF00 for none)
 /// </code>
@@ -52,8 +59,9 @@ public static class MusicLayout
     /// <param name="sfx">The sound effects, placed after the engine (none if null).</param>
     /// <param name="globals">The global songs by number.</param>
     /// <param name="groupSamples">A sample group's samples by name ("default" etc.), or null if there is no such group.</param>
+    /// <param name="resident">Samples to keep in ARAM for good (null: none).</param>
     public static BaseImage Base(byte[] engine, SoundEffects? sfx, IReadOnlyList<(int Number, MmlSong Song)> globals,
-        Func<string, IReadOnlyList<byte[]>?> groupSamples)
+        Func<string, IReadOnlyList<byte[]>?> groupSamples, IEnumerable<byte[]>? resident = null)
     {
         var ram = new byte[0x10000];
         int at = EngineBase + engine.Length;
@@ -84,7 +92,15 @@ public static class MusicLayout
             at += compiled.Bytes.Length;
             delay = Math.Max(delay, EchoDelay(song));
         }
-        return new BaseImage(ram, (at + 0xFF) & ~0xFF, delay, []);
+        var placed = new Dictionary<string, int>();
+        foreach (var brr in resident ?? [])
+        {
+            if (!placed.TryAdd(BaseImage.Key(brr), at)) continue;
+            if (at + brr.Length - 2 > 0x10000) return new BaseImage([], 0, 0, [new MmlDiagnostic(1, 1, "The resident samples do not fit in ARAM.")]);
+            Array.Copy(brr, 2, ram, at, brr.Length - 2);
+            at += brr.Length - 2;
+        }
+        return new BaseImage(ram, (at + 0xFF) & ~0xFF, delay, [], placed);
     }
 
     /// <param name="sample">A sample file by the name a song gives it, or null.</param>
@@ -125,12 +141,16 @@ public static class MusicLayout
         for (int i = 0; i < brrs.Count; i++)
         {
             var data = brrs[i].Data;
-            int start = at, loop = start + (data[0] | data[1] << 8);
             int len = data.Length - 2;
-            if (start + len <= 0x10000) Array.Copy(data, 2, ram, start, len);
+            if (b.Resident?.TryGetValue(BaseImage.Key(data), out int start) != true)
+            {
+                start = at;                                        // the song's own copy, uploaded with it
+                if (start + len <= 0x10000) Array.Copy(data, 2, ram, start, len);
+                at += len;
+            }
+            int loop = start + (data[0] | data[1] << 8);
             ram[dir + 4 * i] = (byte)start; ram[dir + 4 * i + 1] = (byte)(start >> 8);
             ram[dir + 4 * i + 2] = (byte)loop; ram[dir + 4 * i + 3] = (byte)(loop >> 8);
-            at += len;
         }
 
         int delay = Math.Max(EchoDelay(song), b.EchoDelay);

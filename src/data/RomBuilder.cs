@@ -166,6 +166,17 @@ internal static class RomBuilder
     /// A patch writing over bytes Pipe Dream's prep, the block driver or an earlier patch wrote is
     /// a warning, not a failure (reference/PATCHES.md). Returns a build failure, or null.
     /// </summary>
+    private static string? InsertMusic(Rom rom, Project project, List<PatchInsert.Owned> owned, List<string> warnings)
+    {
+        if (project.Data.Music.SongList.Count == 0) return null;
+        if (!Asar.Available) { warnings.Add("music skipped (Asar library not found)"); return null; }
+        var r = MusicInsert.Insert(rom, project.Data);
+        if (!r.Ok) return "build failed: music: " + string.Join("; ", r.Errors);
+        warnings.AddRange(r.Warnings.Select(w => "music: " + w));
+        owned.AddRange(r.Written.Select(b => new PatchInsert.Owned("the music engine", Rom.SnesToPc(b.Snes), b.Length)));
+        return null;
+    }
+
     private static string? ApplyPatches(Rom rom, Project project, List<PatchInsert.Owned> owned, List<string> warnings)
     {
         var on = project.Data.Patches.Where(p => p.Enabled).ToList();
@@ -214,6 +225,7 @@ internal static class RomBuilder
             if (InsertGps(rom, project, owned, warnings) is { } gpsErr) return (gpsErr, null);
             if (InsertSprites(rom, project, owned, warnings) is { } spriteErr) return (spriteErr, null);
             if (ApplyPatches(rom, project, owned, warnings) is { } patchErr) return (patchErr, null);
+            if (InsertMusic(rom, project, owned, warnings) is { } musicErr) return (musicErr, null);
             if (ReplayMap16(rom, project.Data) is { } err) return (err, null);
             ReplayEntrances(rom, project.Data);
             WriteGfx(rom, project.Data, warnings);
