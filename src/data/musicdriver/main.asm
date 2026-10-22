@@ -20,6 +20,7 @@ base $0400
                                   ; the sample directory's page
 !SfxInfo = $03F5                  ; the sound effects: instruments (word), the $1DF9 table (word), the $1DFC table (word), how many
                                   ; of each table there are (two bytes)
+!GlobalInfo = $03FD               ; the global songs' table (word): a count, then number, song (word), instrument table (word)
 
 ; ---- sound-effect channels: two-byte arrays, index 0 = voice 6 ($1DF9), 1 = voice 7 ($1DFC and $1DFA)
 !s_ptrL = $0100                   ; (the bottom of the stack page: the stack itself stays near $01EF)
@@ -372,11 +373,54 @@ StopSong:
     ret
 
 ; ---------------------------------------------------------------- songs
+; A = the song asked for on port 2: a global one (always in ARAM) by its number, else the local one the main CPU uploaded.
 StartSong:
-    mov a,!SongInfo
+    mov !t0,a
+    mov a,!GlobalInfo
+    mov !t2,a
+    mov a,!GlobalInfo+1
+    mov !t3,a
+    beq .local
+    mov y,#$00
+    mov a,(!t2)+y                       ; how many
+    beq .local
+    mov !t1,a
+    inc y
+.find:
+    mov a,(!t2)+y
+    cmp a,!t0
+    beq .global
+    mov a,y
+    clrc
+    adc a,#$05
+    mov y,a
+    dbnz !t1,.find
+.local:
+    mov a,!SongInfo+1
+    bne +
+    ret                                 ; no local song uploaded: nothing to play
++   mov a,!SongInfo
     mov y,!SongInfo+1
     movw !phrase,ya
-    mov a,!SongInfo+4                   ; the sample directory
+    mov a,!SongInfo+2
+    mov y,!SongInfo+3
+    movw !instr,ya
+    bra .start
+.global:
+    inc y
+    mov a,(!t2)+y
+    mov !phrase,a
+    inc y
+    mov a,(!t2)+y
+    mov !phrase+1,a
+    inc y
+    mov a,(!t2)+y
+    mov !instr,a
+    inc y
+    mov a,(!t2)+y
+    mov !instr+1,a
+.start:
+    mov a,!SongInfo+4                   ; the sample directory (a global song plays the local one's samples)
     %dsp($5D)
     mov a,#$35
     mov !tempo,a                        ; until the song sets one: 53, as measured
@@ -403,9 +447,6 @@ StartSong:
     mov !mfLeft,a
     mov !tempoF,a
     mov !tfLeft,a
-    mov a,!SongInfo+2
-    mov y,!SongInfo+3
-    movw !instr,ya
     mov x,#$07
 .reset:
     call ResetChannel

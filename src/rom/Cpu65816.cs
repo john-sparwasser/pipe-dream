@@ -16,10 +16,17 @@ public sealed class Cpu65816(Rom rom)
     private int DBR, PBR, PC;
     private bool NF, VF, ZF, CF, M = true, XF = true;   // start in 8-bit M/X (SEP #$30 state)
 
+    /// <summary>The APU ports $2140-$2143, when a test connects an SPC700 to them (port, value).</summary>
+    public Func<int, byte>? ApuRead;
+    public Action<int, byte>? ApuWrite;
+    /// <summary>Called before every instruction, so a test can run the SPC700 alongside.</summary>
+    public Action? EachStep;
+
     public byte Read(int bank, int addr)
     {
         bank &= 0xFF; addr &= 0xFFFF;
         if (bank == 0x7E) return Ram7E[addr];
+        if (ApuRead is not null && addr is >= 0x2140 and <= 0x2143 && (bank < 0x40 || (bank >= 0x80 && bank < 0xC0))) return ApuRead(addr - 0x2140);
         if (bank == 0x7F) return Ram7F[addr];
         if (addr < 0x2000 && (bank < 0x40 || (bank >= 0x80 && bank < 0xC0))) return Ram7E[addr];
         if (addr is >= 0x4214 and <= 0x4217 && (bank < 0x40 || (bank >= 0x80 && bank < 0xC0)))
@@ -84,6 +91,7 @@ public sealed class Cpu65816(Rom rom)
     private void Write(int bank, int addr, byte v)
     {
         bank &= 0xFF; addr &= 0xFFFF;
+        if (ApuWrite is not null && addr is >= 0x2140 and <= 0x2143 && (bank < 0x40 || (bank >= 0x80 && bank < 0xC0))) ApuWrite(addr - 0x2140, v);
         if (WatchLog is not null && addr == WatchAddr && (bank == 0x7E || bank < 0x40 || (bank >= 0x80 && bank < 0xC0)))
             WatchLog.Add(((PBR << 16) | PC, v));
         if (OamLog is not null && addr is >= 0x200 and < 0x500 &&
@@ -286,6 +294,7 @@ public sealed class Cpu65816(Rom rom)
 
     private void Step()
     {
+        EachStep?.Invoke();
         ring[ringPos++ & 63] = (PBR << 16) | PC;
         BankTrace?.Add(PBR);
         if (PcHot is not null && ((PBR & 0x7F) is not (0x00 or 0x01 or 0x05 or 0x07)

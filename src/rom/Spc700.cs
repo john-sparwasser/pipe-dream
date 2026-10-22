@@ -4,7 +4,8 @@ namespace PipeDream;
 /// An SPC700 interpreter: 64 KB of ARAM, the four I/O ports to the main CPU, the three timers and a DSP
 /// register file that records what is written to it and when. It exists to run the music engine
 /// (AMK_PORT.md) against AddmusicK's output and to say what the DSP was told, as <see cref="Cpu65816"/> does
-/// for the main CPU. It makes no sound, has no IPL ROM and does not model the DSP's voices.
+/// for the main CPU. It makes no sound and does not model the DSP's voices. The boot ROM at $FFC0 is not its
+/// code but its documented behaviour (<see cref="IplStep"/>): reached with the ROM enabled, it takes uploads.
 /// Cycle counts are the documented ones: branches taken add 2; there is no bus-wait or page-cross penalty.
 /// </summary>
 public sealed class Spc700
@@ -166,6 +167,60 @@ public sealed class Spc700
 
     private static byte[] Table(string s) => [.. s.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(byte.Parse)];
 
+    // ---- the boot ROM, as it behaves (not its code) ----
+    // It says $AA/$BB on ports 0/1 and waits for $CC on port 0. Each block then starts with an address on ports 2-3 and on
+    // port 1 a command: 0 jumps there, anything else is data to it. Data comes a byte at a time on port 1 with a counter from 0
+    // on port 0, each echoed on port 0; port 0 moving to any other value starts the next block. (The main CPU's side is SMW's
+    // own routine at $008079.)
+    private enum Ipl { Off, Ready, Data }
+    private Ipl ipl;
+    private int iplAddr, iplExpected;
+
+    /// <summary>Power on: the boot ROM waiting for an upload.</summary>
+    public static Spc700 PoweredOn()
+    {
+        var s = new Spc700 { Pc = 0xFFC0, Sp = 0xEF };
+        s.Write(0xF1, 0xB0);
+        return s;
+    }
+
+    private void IplStep()
+    {
+        Tick(8);
+        switch (ipl)
+        {
+            case Ipl.Off:                                               // entered: the stack, the direct page cleared, ready
+                Sp = 0xEF;
+                for (int i = 1; i <= 0xEF; i++) Ram[i] = 0;
+                Write(0xF4, 0xAA); Write(0xF5, 0xBB);
+                ipl = Ipl.Ready;
+                break;
+            case Ipl.Ready:
+                if (FromCpu[0] == 0xCC) IplBlock();
+                break;
+            case Ipl.Data:
+                int v = FromCpu[0];
+                if (v == iplExpected)
+                {
+                    Ram[iplAddr & 0xFFFF] = FromCpu[1];
+                    iplAddr++;
+                    iplExpected = (iplExpected + 1) & 0xFF;
+                    Write(0xF4, v);
+                }
+                else if (v != ToCpu[0]) IplBlock();
+                break;
+        }
+    }
+
+    private void IplBlock()
+    {
+        iplAddr = FromCpu[2] | FromCpu[3] << 8;
+        Write(0xF4, FromCpu[0]);
+        if (FromCpu[1] == 0) { ipl = Ipl.Off; Pc = iplAddr; return; }   // the jump
+        iplExpected = 0;
+        ipl = Ipl.Data;
+    }
+
     public void Run(long cycles)
     {
         long stop = Cycles + cycles;
@@ -181,6 +236,7 @@ public sealed class Spc700
 
     public void Step()
     {
+        if (Pc >= 0xFFC0 && (control & 0x80) != 0) { IplStep(); return; }
         int op = Fetch(), cyc = Cyc[op];
         int a, b, r, d;
         switch (op)

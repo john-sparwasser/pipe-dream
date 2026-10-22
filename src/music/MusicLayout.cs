@@ -10,29 +10,85 @@ public sealed record AramImage(byte[] Ram, int SongBase, int InstrumentTable, in
     public bool Ok => Problems.Count == 0;
 }
 
+/// <summary>What stays in ARAM whatever song plays: uploaded once at power-on.</summary>
+/// <param name="Ram">Engine, effects, the global-song table and the global songs (the rest zero).</param>
+/// <param name="LocalBase">Where a local song's sample directory goes: the page after all that.</param>
+/// <param name="EchoDelay">The longest echo delay a global song asks for: its buffer must be free whatever local song is in.</param>
+public sealed record BaseImage(byte[] Ram, int LocalBase, int EchoDelay, IReadOnlyList<MmlDiagnostic> Problems)
+{
+    public bool Ok => Problems.Count == 0;
+}
+
 /// <summary>
 /// Our ARAM map, chosen here rather than copied from AddmusicK (reference/AMK_ENGINE.md):
 /// <code>
-/// $0000-$00EF  direct page          $0100-$01FF  stack
+/// $0000-$00EF  direct page          $0100-$01FF  stack (the sound effects' state at its foot)
 /// $0200-$03EF  per-channel state    $03F0        song info: song (word), instrument table (word), directory page
 ///                                   $03F5        effect info: instruments, $1DF9 table, $1DFC table (words), their sizes
+///                                   $03FD        the global-song table (word)
 /// $0400        the engine           then         the sound effects (SoundEffects.Place)
-///              next page            the sample directory, four bytes a sample (start, loop)
-///              the song             then         its samples, one after another
-/// top          the echo buffer: 2 KB a unit of the song's longest delay ($FF00 for none)
+///              the global-song table: a count, then five bytes a song (number, song word, instrument table word)
+///              the global songs     next page    LocalBase: the local song's sample directory, four bytes a sample
+///              the local song       then         its samples, one after another
+/// top          the echo buffer: 2 KB a unit of the longest delay a song in ARAM asks for ($FF00 for none)
 /// </code>
-/// A song's samples are its groups' (in order) then its own, which is how the compiler numbers them.
+/// The part up to LocalBase goes in at power-on (Base); a local song's part goes in when it is asked for (Local). A song's
+/// samples are its groups' (in order) then its own, which is how the compiler numbers them; a global song uses whatever
+/// samples the local one brought, as in AddmusicK (#default's always come first unless a song says otherwise).
 /// </summary>
 public static class MusicLayout
 {
-    public const int EngineBase = 0x0400, SongInfo = 0x03F0, SfxInfo = 0x03F5;
+    public const int EngineBase = 0x0400, SongInfo = 0x03F0, SfxInfo = 0x03F5, GlobalInfo = 0x03FD;
 
-    /// <param name="engine">The assembled engine, loaded at $0400.</param>
-    /// <param name="groupSamples">A sample group's samples by name ("default" etc.), or null if there is no such group.</param>
-    /// <param name="sample">A sample file by the name a song gives it, or null.</param>
-    /// <param name="sfx">The sound effects, placed after the engine (none if null).</param>
+    /// <summary>One local song with nothing global: <see cref="Base"/> then <see cref="Local"/>.</summary>
     public static AramImage Build(byte[] engine, MmlSong song, Func<string, IReadOnlyList<byte[]>?> groupSamples, Func<string, byte[]?> sample,
         SoundEffects? sfx = null)
+    {
+        var b = Base(engine, sfx, [], groupSamples);
+        return b.Ok ? Local(b, song, groupSamples, sample) : new AramImage([], 0, 0, 0, 0, 0, 0, b.Problems);
+    }
+
+    /// <param name="engine">The assembled engine, loaded at $0400.</param>
+    /// <param name="sfx">The sound effects, placed after the engine (none if null).</param>
+    /// <param name="globals">The global songs by number.</param>
+    /// <param name="groupSamples">A sample group's samples by name ("default" etc.), or null if there is no such group.</param>
+    public static BaseImage Base(byte[] engine, SoundEffects? sfx, IReadOnlyList<(int Number, MmlSong Song)> globals,
+        Func<string, IReadOnlyList<byte[]>?> groupSamples)
+    {
+        var ram = new byte[0x10000];
+        int at = EngineBase + engine.Length;
+        Array.Copy(engine, 0, ram, EngineBase, engine.Length);
+        if (sfx is not null)
+        {
+            var (block, info) = sfx.Place(at);
+            Array.Copy(block, 0, ram, at, block.Length);
+            Array.Copy(info, 0, ram, SfxInfo, info.Length);
+            at += block.Length;
+        }
+        int table = at;
+        ram[GlobalInfo] = (byte)table; ram[GlobalInfo + 1] = (byte)(table >> 8);
+        ram[table] = (byte)globals.Count;
+        at += 1 + 5 * globals.Count;
+        int delay = 0;
+        for (int i = 0; i < globals.Count; i++)
+        {
+            var (number, song) = globals[i];
+            var compiled = MmlCompiler.Compile(song, at, g => groupSamples(g)?.Count ?? 0);
+            if (!compiled.Ok) return new BaseImage([], 0, 0, compiled.Diagnostics.Select(d => d with { Message = $"global song {number:X2}: {d.Message}" }).ToList());
+            if (at + compiled.Bytes.Length > 0x10000) return new BaseImage([], 0, 0, [new MmlDiagnostic(1, 1, "The global songs do not fit in ARAM.")]);
+            Array.Copy(compiled.Bytes, 0, ram, at, compiled.Bytes.Length);
+            int e = table + 1 + 5 * i;
+            ram[e] = (byte)number;
+            ram[e + 1] = (byte)at; ram[e + 2] = (byte)(at >> 8);
+            ram[e + 3] = (byte)compiled.InstrumentTable; ram[e + 4] = (byte)(compiled.InstrumentTable >> 8);
+            at += compiled.Bytes.Length;
+            delay = Math.Max(delay, EchoDelay(song));
+        }
+        return new BaseImage(ram, (at + 0xFF) & ~0xFF, delay, []);
+    }
+
+    /// <param name="sample">A sample file by the name a song gives it, or null.</param>
+    public static AramImage Local(BaseImage b, MmlSong song, Func<string, IReadOnlyList<byte[]>?> groupSamples, Func<string, byte[]?> sample)
     {
         var problems = new List<MmlDiagnostic>(song.Diagnostics);
         var empty = new AramImage([], 0, 0, 0, 0, 0, 0, problems);
@@ -56,17 +112,8 @@ public static class MusicLayout
             if (data.Length < 11 || (data.Length - 2) % 9 != 0) problems.Add(new MmlDiagnostic(1, 1, $"\"{name}\" is not a BRR sample (its length is not 2 + a multiple of 9)."));
         if (problems.Count > 0) return empty;
 
-        var ram = new byte[0x10000];
-        int engineEnd = EngineBase + engine.Length;
-        Array.Copy(engine, 0, ram, EngineBase, engine.Length);
-        if (sfx is not null)
-        {
-            var (block, info) = sfx.Place(engineEnd);
-            Array.Copy(block, 0, ram, engineEnd, block.Length);
-            Array.Copy(info, 0, ram, SfxInfo, info.Length);
-            engineEnd += block.Length;
-        }
-        int dir = (engineEnd + 0xFF) & ~0xFF;
+        var ram = (byte[])b.Ram.Clone();
+        int dir = b.LocalBase;
         int songBase = dir + 4 * brrs.Count;
 
         var compiled = MmlCompiler.Compile(song, songBase, g => groupSamples(g)?.Count ?? 0);
@@ -86,7 +133,7 @@ public static class MusicLayout
             at += len;
         }
 
-        int delay = EchoDelay(song);
+        int delay = Math.Max(EchoDelay(song), b.EchoDelay);
         int echoStart = delay == 0 ? 0xFF00 : 0x10000 - delay * 0x800;
         if (at > echoStart)
             return empty with { Problems = [new MmlDiagnostic(1, 1, $"Echo buffer exceeded total space in ARAM. (The song and its samples end at ${at:X4}; the echo buffer starts at ${echoStart:X4}.)")] };
