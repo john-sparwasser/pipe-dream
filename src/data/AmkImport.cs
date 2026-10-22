@@ -179,7 +179,7 @@ internal static class AmkImport
         return path;
     }
 
-    private static IEnumerable<(string Key, string Path)> Tree(string dir, string folder)
+    internal static IEnumerable<(string Key, string Path)> Tree(string dir, string folder)
     {
         string root = Path.Combine(dir, folder);
         if (!Directory.Exists(root)) yield break;
@@ -188,7 +188,7 @@ internal static class AmkImport
     }
 
     /// <summary>A file by name, whatever its case: AMK is Windows-born and Linux is not.</summary>
-    private static string? FindFile(string dir, string name)
+    internal static string? FindFile(string dir, string name)
         => Directory.Exists(dir)
            ? Directory.EnumerateFiles(dir).FirstOrDefault(f => Path.GetFileName(f).Equals(name, StringComparison.OrdinalIgnoreCase)) : null;
 }
