@@ -87,6 +87,40 @@ public class SfxTests(Xunit.Abstractions.ITestOutputHelper log)
         return d;
     }
 
+    /// <summary>What AddmusicK 1.0.5 compiled these to (tools/amk/amk_sfx_compile.py), without the oracle.</summary>
+    [Theory]
+    [InlineData("$DA $0A $07 $23 $DD $93 $00 $04 $B7", "DA 0A 07 23 DD 93 00 04 B7 00")]
+    [InlineData("@10 c8", "DA 0A 18 A4 00")]
+    [InlineData("@10 v80 c8 d8", "DA 0A 18 A4 18 A6 00")]
+    [InlineData("@10 l16 o4 c d e", "DA 0A 0C A4 0C A6 0C A8 00")]
+    [InlineData("@10 v40,60 c4 r8 c^8", "DA 0A 30 A4 18 C7 18 A4 18 C6 00")]
+    [InlineData("@10,1F c4", "DA 81 0A 30 A4 00")]
+    [InlineData("@10 c8 & e8", "DA 0A 18 A4 18 A8 00")]
+    [InlineData("@10 c+8 d-8 >c8 <<c8", "DA 0A 18 A5 18 A5 18 A4 18 A4 00")]
+    [InlineData("@10 o3 c=10", "DA 0A 0A A4 00")]
+    [InlineData("@10 b8 a8 g8", "DA 0A 18 AF 18 AD 18 AB 00")]
+    [InlineData("@10 l8 c c4 c", "DA 0A 18 A4 30 A4 18 A4 00")]
+    [InlineData("@10,5 c4 @3 c4", "DA 85 0A 30 A4 DA 03 30 A4 00")]
+    [InlineData("@10,25 c4", "DA 99 0A 30 A4 00")]
+    [InlineData("@10 c4. c16.", "DA 0A 48 A4 12 A4 00")]
+    [InlineData("c8", "18 A4 00")]
+    [InlineData("@10 c1 c2 c=200", "DA 0A 7F A4 41 C6 60 A4 7F A4 49 C6 00")]
+    [InlineData("@10 h2 c8", "DA 0A 18 A4 00")]
+    [InlineData("@10 {c8 c8 c8}", "DA 0A 10 A4 10 A4 10 A4 00")]
+    [InlineData("@10 q7F c8", "DA 0A 18 A4 00")]
+    [InlineData("@3 l12 c d e f g", "DA 03 10 A4 10 A6 10 A8 10 A9 10 AB 00")]
+    [InlineData("@5,10 c4 r4 c4", "DA 8A 05 30 A4 30 C7 30 A4 00")]
+    [InlineData("@0 o5 a+8. b-16", "DA 00 24 AE 0C AE 00")]
+    [InlineData("@2 c8 c8 $DD $A4 $00 $08 $B0 c4", "DA 02 18 A4 18 A4 DD A4 00 08 B0 30 A4 00")]
+    [InlineData("c24 c32 c64 c6", "08 A4 06 A4 03 A4 20 A4 00")]
+    [InlineData("@10 l4 c. ^8 r16.", "DA 0A 48 A4 18 C6 12 C7 00")]
+    public void sound_effects_compile_as_addmusick_compiles_them(string text, string expected)
+    {
+        var (bytes, problems) = SfxCompiler.Compile(text);
+        Assert.Empty(problems);
+        Assert.Equal(expected, string.Join(" ", bytes.Select(b => b.ToString("X2"))));
+    }
+
     /// <summary>Run with the ports set at times (seconds), each for a frame, as SMW's NMI writes them.</summary>
     internal static SpcTrace WithPokes(Spc700 cpu, double seconds, params (double At, int Port, byte Value)[] pokes)
     {
