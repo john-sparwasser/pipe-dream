@@ -64,8 +64,10 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
         }
         for (int v = 0; v < 8; v++)
         {
-            var ta = theirs.KeyOns.Where(k => k.Voice == v).ToList();
-            var tb = ours.KeyOns.Where(k => k.Voice == v).ToList();
+            // AddmusicK keys an arpeggio's steps on twice a millisecond apart: one key-on to a listener.
+            List<KeyOn> Once(IEnumerable<KeyOn> ks) { var l = new List<KeyOn>(); foreach (var k in ks) { if (l.Count > 0 && k.Cycle - l[^1].Cycle <= 2048) l[^1] = k; else l.Add(k); } return l; }
+            var ta = Once(theirs.KeyOns.Where(k => k.Voice == v));
+            var tb = Once(ours.KeyOns.Where(k => k.Voice == v));
             if (Math.Abs(ta.Count - tb.Count) > Math.Max(1, ta.Count * 0.06)) d.Add($"v{v} key-ons: theirs {ta.Count}, ours {tb.Count}");   // lag: see Late
             for (int i = 0; i < Math.Min(ta.Count, tb.Count); i++)
             {
@@ -100,8 +102,10 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
             }
             // Key-offs before the voice's first note are silent either way, and AddmusicK's rests at the start of a song send some ours don't.
             long fa = ta.Count > 0 ? ta[0].Cycle : long.MaxValue, fb = tb.Count > 0 ? tb[0].Cycle : long.MaxValue;
-            var ka = theirs.KeyOffs.Where(k => (k.Mask >> v & 1) != 0 && k.Cycle > fa).ToList();
-            var kb = ours.KeyOffs.Where(k => (k.Mask >> v & 1) != 0 && k.Cycle > fb).ToList();
+            // (Two key-offs of a voice in one tick are one to a listener; AddmusicK writes some of them twice.)
+            List<(long Cycle, int Mask)> OnceOff(IEnumerable<(long Cycle, int Mask)> ks) { var l = new List<(long Cycle, int Mask)>(); foreach (var k in ks) if (l.Count == 0 || k.Cycle - l[^1].Cycle > 2048) l.Add(k); return l; }
+            var ka = OnceOff(theirs.KeyOffs.Where(k => (k.Mask >> v & 1) != 0 && k.Cycle > fa));
+            var kb = OnceOff(ours.KeyOffs.Where(k => (k.Mask >> v & 1) != 0 && k.Cycle > fb));
             int n = Math.Min(ka.Count, kb.Count);
             for (int i = 0; i < n; i++)
             {
@@ -165,6 +169,9 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
     [InlineData("#amk 1\n#0 t40 v255 w255 q7F c4 q75 c4 q7C c4")]           // SMW's velocity table
     [InlineData("#amk 2\n#instruments { @0 $8F $E0 $B8 $03 $00 n1F $8F $E0 $B8 $03 $00 }\n#0 t40 @30 c4 @31 d4 @30 e4")]   // noise instruments
     [InlineData("#0 t40 c4 $F8 $1C d4 e4 @1 f4 $FA $00 $06 c4 $F6 $0C $40 d4")]   // noise, pitch modulation, DSP write
+    [InlineData("#0 t40 $FB $02 $06 $04 $07 c2 d4 $FB $00 $00 e4")]        // arpeggio
+    [InlineData("#0 t40 $FB $03 $04 $04 $80 $07 c2 e4")]                   // arpeggio with a loop point
+    [InlineData("#0 t40 $FB $80 $06 $02 c2 $FB $81 $04 $01 d2 e4")]       // trill, glissando
     [InlineData("#0 c4 d4 e8 f8")]                                         // the default tempo
     [InlineData("#0 t40 @21 c4 d4 @22 c4 @23 c8 c8 @24 c8 @25 c8 @26 c8 @27 c8 @28 c8 @29 c8 @0 e4")]   // percussion
     [InlineData("#0 t40 o3 @26 [c8]2 @29 d8 c16")]                         // a hit in a loop, then notes on its instrument
@@ -303,14 +310,6 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
         foreach (var (k, v) in share.OrderByDescending(x => x.Value).Take(14)) log.WriteLine($"  {k,-20} {v * 100.0 / (4 * 1_024_000):F1}%");
         string LabelOf(int pc) => sorted.LastOrDefault(l => l.Value <= pc).Key ?? "?";
         log.WriteLine("worst gap: " + string.Join(" ", worstPcs.GroupBy(p => LabelOf(p.Pc)).Select(g => (g.Key, S: g.Sum(x => x.C))).OrderByDescending(g => g.S).Take(10).Select(g => $"{g.Key}={g.S}")));
-    }
-
-    [AsarFact]
-    public void an_arpeggio_is_stepped_over_whole()
-    {
-        // $FB carries its notes after the count and length; reading only two bytes would take $04 as a length and $07 as a q byte.
-        var t = PlayOurs("#amk 2\n#0 t40 c4 $FB $02 $0C $04 $07 d4 e4", 2);
-        Assert.Equal([0x0C8A, 0x0E16, 0x0FD2], t.KeyOns.Take(3).Select(k => (int)k.Pitch));
     }
 
     [AsarFact]

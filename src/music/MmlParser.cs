@@ -625,7 +625,7 @@ public static class MmlParser
                 if (v is null) { Error("Unknown hex command type.", l, cc); return; }
                 bytes.Add((byte)v);
                 if (need < 0 && bytes.Count == 3)                // $FB: the count, the length, then that many notes
-                    need = bytes[1] < 0x80 ? 2 + bytes[1] : 2;
+                    need = bytes[1] < 0x80 ? 2 + bytes[1] : 3;  // ($80 trill and $81 glissando: length, interval)
             }
             // The subcommands of $F4 and $FA that exist, and the echo delay $F1 can ask for before the buffer outgrows ARAM.
             if (bytes[0] == 0xF4 && bytes[1] is not (0 or 1 or 2 or 3 or 5 or 6 or 7 or 8 or 9)) { Error("Unknown $F4 hex command type.", l, cc); return; }

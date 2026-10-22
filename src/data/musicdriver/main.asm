@@ -71,6 +71,17 @@ base $0400
 !lstacc = $34                           ; $F4 $02: light staccato, every channel
 !c_offL = $40                           ; per channel (eight bytes each, in the direct page): the pitch effects' offset last sent
 !c_offH = $48
+!c_arpType = $50                        ; $FB, per channel in the direct page: 0 none, 1 arpeggio, 2 trill, 3 glissando,
+!c_arpLen = $58                         ;   ticks a step, how many notes, where the list loops to,
+!c_arpCount = $60
+!c_arpLoop = $68
+!c_arpPtrL = $70                        ;   the list (in the song's data),
+!c_arpPtrH = $78
+!c_arpIdx = $80                         ;   the step it is on, ticks to the next,
+!c_arpWait = $88
+!c_arpSemis = $90                       ;   the trill's or glissando's interval,
+!c_arpOff = $98                         ;   the semitones the note sounds away from itself (signed),
+!c_arpKoff = $A0                        ;   and ticks until this step is released (two before the next, measured)
 
 ; ---- per-channel arrays, eight bytes each ----
 !c_ptrl = $0200
@@ -483,6 +494,19 @@ FlushDsp:
 ; ---------------------------------------------------------------- a channel tick (X = channel)
 ChannelTick:
     call ChannelFades
+    mov a,!c_arpKoff+x                  ; an arpeggio step's release
+    beq +
+    dec a
+    mov !c_arpKoff+x,a
+    bne +
+    call KeyOffVoice
++   mov a,!c_arpWait+x                  ; an arpeggio's next step
+    beq +
+    dec a
+    mov !c_arpWait+x,a
+    bne +
+    call ArpStep
++
     mov a,!c_age+x
     inc a
     beq +
@@ -630,6 +654,9 @@ ReadData:
 .tie:
     bra .arm
 .rest:
+    mov a,#$00
+    mov !c_arpWait+x,a                  ; no arpeggio steps through a rest
+    mov !c_arpKoff+x,a
     mov a,!c_legato+x
     and a,#$01
     mov !c_legato+x,a                   ; a rest ends a run of legato notes
@@ -721,6 +748,21 @@ NoteOn:
     mov a,!c_envType+x                  ; $EB/$EC: every note bends
     beq +
     call EnvelopeBend
++   mov a,#$00
+    mov !c_arpOff+x,a
+    mov !c_arpKoff+x,a                  ; (a step that fell on this tick is the new note's now)
+    mov a,!c_arpType+x                  ; $FB: the note starts on the pattern's first step
+    beq +
+    cmp a,#$03
+    bne ++
+    mov a,!c_arpWait+x                  ; a glissando is over once its note is: off for this one
+    beq ++
+    mov a,#$00
+    mov !c_arpType+x,a
+    mov !c_arpWait+x,a
+    bra +
+++  mov a,!c_arpType+x
+    call ArpStart
 +
     call SendInstrument
     call NotePitch
@@ -807,6 +849,8 @@ NoteValue:
     adc a,!c_trans+x
     clrc
     adc a,!gtrans
+    clrc
+    adc a,!c_arpOff+x
     and a,#$7F                          ; the sum wraps in seven bits, so $85 is +5 as much as $05 is (measured)
     cmp a,#$48
     bcc +
@@ -1407,18 +1451,133 @@ Command:
 Unknown:
     jmp ReadData
 
-SkipArpeggio:                           ; $FB count length, then count notes ($80 and up: trill or glissando, no notes)
+; $FB count length notes... (arpeggio; a $80 among the notes is where it loops back to), $FB $80 length interval (trill),
+; $FB $81 length interval (glissando, for one note). A count of 0 turns it off.
+CmdArpeggio:
     call GetByte
     mov !t0,a
     call GetByte
+    mov !c_arpLen+x,a
     mov a,!t0
-    bmi .done
-    beq .done
-.note:
-    call GetByte
-    dbnz !t0,.note
-.done:
+    beq .off
+    bmi .special
+    mov !c_arpCount+x,a
+    mov a,!ptr                          ; the notes are read from where they are
+    mov !c_arpPtrL+x,a
+    mov a,!ptr+1
+    mov !c_arpPtrH+x,a
+    mov a,#$00
+    mov !c_arpLoop+x,a
+    mov y,#$00
+-   mov a,(!ptr)+y                      ; find the loop point, and step past the notes
+    cmp a,#$80
+    bne +
+    mov a,y
+    inc a
+    mov !c_arpLoop+x,a
++   inc y
+    mov a,y
+    cmp a,!t0
+    bne -
+    mov a,!ptr
+    clrc
+    adc a,!t0
+    mov !ptr,a
+    bcc +
+    inc !ptr+1
++   mov a,#$01
+    mov !c_arpType+x,a
     jmp ReadData
+.special:
+    and a,#$01
+    clrc
+    adc a,#$02                          ; $80 trill (2), $81 glissando (3)
+    mov !c_arpType+x,a
+    mov a,#$00
+    mov !c_arpWait+x,a                  ; (not yet used on a note)
+    call GetByte
+    mov !c_arpSemis+x,a
+    jmp ReadData
+.off:
+    mov !c_arpType+x,a
+    mov !c_arpWait+x,a
+    jmp ReadData
+
+; The note's first step: arpeggio the first note of the list, trill and glissando the interval.
+ArpStart:                               ; X = channel
+    mov a,#$00
+    mov !c_arpIdx+x,a
+    mov a,!c_arpType+x
+    cmp a,#$01
+    bne +
+    call ArpNote
+    bra ++
++   mov a,!c_arpSemis+x
+++  mov !c_arpOff+x,a
+    mov a,!c_arpLen+x
+    mov !c_arpWait+x,a
+    ; fall into ArpRelease
+
+ArpRelease:                             ; this step is released two ticks before the next
+    mov a,!c_arpLen+x
+    setc
+    sbc a,#$02
+    beq +
+    bcs ++
++   mov a,#$00
+++  mov !c_arpKoff+x,a
+    ret
+
+ArpNote:                                ; A = the list's note at c_arpIdx (a $80 is stepped over)
+    mov a,!c_arpPtrL+x
+    mov !t0,a
+    mov a,!c_arpPtrH+x
+    mov !t1,a
+    mov y,!c_arpIdx+x
+    mov a,(!t0)+y
+    cmp a,#$80
+    bne +
+    inc y
+    mov !c_arpIdx+x,y
+    mov a,(!t0)+y
++   ret
+
+; Each step re-keys the voice at the next pitch of the pattern.
+ArpStep:                                ; X = channel
+    mov a,!c_arpLen+x
+    mov !c_arpWait+x,a
+    mov a,!c_arpType+x
+    cmp a,#$02
+    beq .trill
+    bcs .gliss
+    mov a,!c_arpIdx+x                   ; arpeggio: the next note, back to the loop point at the end
+    inc a
+    cmp a,!c_arpCount+x
+    bcc +
+    mov a,!c_arpLoop+x
++   mov !c_arpIdx+x,a
+    call ArpNote
+    bra .set
+.trill:
+    mov a,!c_arpOff+x                   ; trill: the interval and back
+    beq +
+    mov a,#$00
+    bra .set
++   mov a,!c_arpSemis+x
+    bra .set
+.gliss:
+    mov a,!c_arpOff+x                   ; glissando: one interval further each step
+    clrc
+    adc a,!c_arpSemis+x
+.set:
+    mov !c_arpOff+x,a
+    call ArpRelease
+    call NotePitch
+    call SendPitch
+    call VoiceBit
+    or a,!konMask
+    mov !konMask,a
+    ret
 
 CmdInstrument:                          ; $DA n
     call GetByte
@@ -2213,7 +2372,7 @@ CommandTable:                           ; $DA ... $FC
     dw CmdSubloop, CmdVolume, CmdVolumeFade, CmdCall, CmdVibratoFade, CmdEnvelopeRelease ; E6 E7 E8 E9 EA EB
     dw CmdEnvelopeAttack, CmdEnvelope, CmdFineTune, CmdEchoOn, CmdEchoOff, CmdEchoSetup ; EC ED EE EF F0 F1
     dw CmdEchoFade, Skip2, CmdF4, CmdFir, CmdDspWrite, Unknown     ; F2 F3 F4 F5 F6 F7
-    dw CmdNoise, Skip2, CmdFA, SkipArpeggio, Skip4                 ; F8 F9 FA FB FC
+    dw CmdNoise, Skip2, CmdFA, CmdArpeggio, Skip4                  ; F8 F9 FA FB FC
 
 ParamCount:                             ; $DA ... $FC: how many bytes follow each command; $FF where TieFollows stops looking
     db 1,1,2,3,3,0, 1,2,1,2,1,3, $FF,1,2,$FF,1,3, 3,2,1,3,0,3, 3,2,1,8,2,$FF, 1,2,2,$FF,4
