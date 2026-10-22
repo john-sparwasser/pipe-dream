@@ -200,7 +200,11 @@ note syntax as AddmusicK 1.0.5 does (measured, not as its readme says); `#jsr` t
 
 ### 8. Preview
 **Status (2026-10-22): export done.** The song editor's Export .spc… writes the song as it stands, laid out with our engine and
-the project's samples and effects, with ID666 tags from `#SPC` and `#length`; libgme plays the files. The in-app player is not done.
+the project's samples and effects, with ID666 tags from `#SPC` and `#length`; libgme plays the files. **The in-app player is done
+too:** `rom/SpcDsp.cs` is the S-DSP written from fullsnes (sample by sample, not cycle-exact), and its audio matches libgme's
+(correlation ≥ 0.99 on our songs and on AddmusicK's own .spc files, echo included: `SpcDspTests`). The song editor's Play renders
+the song's `#length` (two minutes without one) at about 100× real time and hands the .wav to the system's player (afplay, paplay or
+aplay, PowerShell); no audio library, so no streaming.
 - Export `.spc` from any song (the format is public and the oracle gives us files to compare).
 - Optional: an in-app SPC700 + DSP player so a song plays from the editor with no emulator.
 

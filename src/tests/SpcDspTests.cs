@@ -35,6 +35,17 @@ public class SpcDspTests(Xunit.Abstractions.ITestOutputHelper log)
         Assert.All(SpcDsp.Render(cpu, 100), s => Assert.Equal(0, s));
     }
 
+    [AsarFact]
+    public void the_player_renders_the_songs_length_as_a_wav()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla)) return;
+        var (spc, _) = MusicInsert.Spc(Rom.Load(ReferenceRoms.Vanilla), new ProjectFile(), "t",
+            "#amk 2\n#SPC\n{\n#length \"0:03\"\n}\n#0 t40 @0 v255 o4 c4 d4");
+        var wav = File.ReadAllBytes(Services.SongPlayer.Render(spc!));
+        Assert.Equal("RIFF", System.Text.Encoding.ASCII.GetString(wav, 0, 4));
+        Assert.Equal(44 + 3 * 32000 * 4, wav.Length);                // three seconds of 16-bit stereo at 32 kHz
+    }
+
     [GmeFact]
     public void songs_sound_as_libgme_plays_them()
     {

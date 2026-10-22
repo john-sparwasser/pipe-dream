@@ -10,6 +10,9 @@
                 Spacing="8" Margin="0,12,0,0">
       <TextBlock x:Name="Size" VerticalAlignment="Center" Margin="0,0,8,0" FontSize="12"
                  Foreground="{DynamicResource TextDimBrush}"/>
+      <Button x:Name="PlayButton" Content="▶ Play" Click="OnPlay"
+              ToolTip.Tip="Plays the song as it stands here, as the game would (its #length, or two minutes)"/>
+      <Button x:Name="StopButton" Content="Stop" Click="OnStop"/>
       <Button x:Name="ExportButton" Content="Export .spc…" Click="OnExportSpc"
               ToolTip.Tip="The song as it stands here, as an .spc file any SPC player plays"/>
       <Button x:Name="OpenButton" Click="OnOpen"

@@ -59,6 +59,7 @@ public partial class SongEditWindow : Window
         path = file;
         effectPort = port;
         this.GetControl<Button>("ExportButton").IsVisible = false;
+        this.GetControl<Button>("PlayButton").IsVisible = this.GetControl<Button>("StopButton").IsVisible = false;
         this.GetControl<Button>("OpenButton").IsVisible = false;
         this.GetControl<ProgressBar>("AramBar").IsVisible = false;
         Init($"{port}/{file}", session.EffectText(port, file) ?? "");
@@ -81,7 +82,7 @@ public partial class SongEditWindow : Window
         CheckNow();
         editor.TextChanged += (_, _) => Debounce();
         Opened += (_, _) => editor.Focus();
-        Closed += (_, _) => debounce?.Stop();
+        Closed += (_, _) => { debounce?.Stop(); session.StopSong(); };
     }
 
     /// <summary>Wait for a pause in the typing before compiling; a 100 KB song compiles in well under a
@@ -142,6 +143,21 @@ public partial class SongEditWindow : Window
     }
 
     private void OnOpen(object? sender, RoutedEventArgs e) => size.Text = session.OpenSongExternally(path);
+
+    private async void OnPlay(object? sender, RoutedEventArgs e)
+    {
+        var play = this.GetControl<Button>("PlayButton");
+        play.IsEnabled = false;
+        size.Text = "rendering…";
+        try { size.Text = await session.PlaySong(path, editor.Text ?? ""); }
+        finally { play.IsEnabled = true; }
+    }
+
+    private void OnStop(object? sender, RoutedEventArgs e)
+    {
+        session.StopSong();
+        size.Text = "stopped";
+    }
 
     private async void OnExportSpc(object? sender, RoutedEventArgs e)
     {
