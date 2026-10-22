@@ -17,6 +17,15 @@
       <Button Content="Cancel" Click="OnCancel" IsCancel="True"/>
       <Button x:Name="Save" Content="Save" Click="OnSave"/>
     </StackPanel>
+    <!-- The compiled song: each channel's bytes, and how much of the ARAM a local song may use it takes. -->
+    <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto,140" ColumnSpacing="10" Margin="0,10,0,0">
+      <TextBlock x:Name="Channels" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                 Foreground="{DynamicResource TextDimBrush}" FontFamily="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"/>
+      <TextBlock x:Name="AramText" Grid.Column="1" FontSize="12" VerticalAlignment="Center"
+                 Foreground="{DynamicResource TextDimBrush}"/>
+      <ProgressBar x:Name="AramBar" Grid.Column="2" Minimum="0" Maximum="1" Height="8" VerticalAlignment="Center"
+                   ToolTip.Tip="The song and its samples, against the room between where local songs start and the echo buffer"/>
+    </Grid>
     <!-- What the compiler says, one per row; Enter or a double-click puts the caret on its line. -->
     <ListBox x:Name="Problems" DockPanel.Dock="Bottom" Height="130" Margin="0,10,0,0"
              DoubleTapped="OnJump" KeyDown="OnProblemKey">

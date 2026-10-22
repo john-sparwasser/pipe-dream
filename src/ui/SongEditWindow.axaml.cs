@@ -89,6 +89,15 @@ public partial class SongEditWindow : Window
         var compiled = MmlCompiler.Compile(MmlParser.Parse(editor.Text ?? ""), MusicWindow.SizeBase);
         problems.ItemsSource = compiled.Diagnostics.Select(d => new Problem(d.Line, d.Column, d.Message)).ToList();
         size.Text = compiled.Ok ? $"{compiled.Bytes.Length:N0} bytes" : compiled.Diagnostics.Count switch { 1 => "1 problem", int n => $"{n} problems" };
+        var channels = this.GetControl<TextBlock>("Channels");
+        var aramText = this.GetControl<TextBlock>("AramText");
+        var bar = this.GetControl<ProgressBar>("AramBar");
+        channels.Text = compiled.ChannelBytes is { } c
+            ? string.Join("  ", c.Select((n, i) => (n, i)).Where(x => x.n > 0).Select(x => $"#{x.i} {x.n:N0}")) : "";
+        if (!compiled.Ok) { aramText.Text = ""; bar.Value = 0; return; }
+        var (used, room, error) = session.SongAram(editor.Text ?? "");
+        aramText.Text = error ?? $"ARAM {used / 1024.0:0.0} of {room / 1024.0:0.0} KB";
+        bar.Value = room > 0 ? Math.Min(1, (double)used / room) : 0;
     }
 
     private void OnJump(object? sender, RoutedEventArgs e)

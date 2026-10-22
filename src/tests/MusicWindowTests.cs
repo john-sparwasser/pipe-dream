@@ -88,6 +88,12 @@ public class MusicWindowTests
         w.CheckNow();
         Assert.Empty(Rows<SongEditWindow.Problem>(list));
         Assert.Matches(@"^\d[\d,]* bytes$", w.GetControl<TextBlock>("Size").Text!);
+        Assert.Matches(@"^#0 \d+$", w.GetControl<TextBlock>("Channels").Text!);
+        if (Asar.Available)
+        {
+            Assert.Matches(@"^ARAM \d+\.\d of \d+\.\d KB$", w.GetControl<TextBlock>("AramText").Text!);
+            Assert.InRange(w.GetControl<ProgressBar>("AramBar").Value, 0.001, 1);
+        }
 
         w.GetControl<Button>("Save").RaiseEvent(Click);
         Assert.Equal("#amk 2\n#0 @0 v255 o5 l8\nc d e f\n", s.SongText("tune.mml"));

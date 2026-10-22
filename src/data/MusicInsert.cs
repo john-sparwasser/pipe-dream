@@ -30,23 +30,8 @@ public static class MusicInsert
 
         if (ForeignSoundCode(rom) is { } at)
             return Fail([$"the ROM's sound code at ${at:X6} is not SMW's (AddmusicK or another music patch already in it?): build from a ROM without one"]);
-        var (engine, _, asmErrors) = MusicEngine.Assemble();
-        if (asmErrors.Length > 0) return Fail(["the music engine: " + string.Join("; ", asmErrors)]);
-
-        var stock = SmwSound.StockSamples(rom);
-        var Group = Groups(m, stock);
-        byte[]? Sample(string name) => m.Samples.GetValueOrDefault(name);
-
-        var sfx = Effects(rom, m, warnings);
-        var songs = new Dictionary<int, MmlSong>();
-        foreach (var slot in slots)
-        {
-            if (!m.Songs.TryGetValue(slot.Path, out var text)) { warnings.Add($"song {slot.Number:X2} names {slot.Path}, which is not in the project"); continue; }
-            songs[slot.Number] = MmlParser.Parse(text);
-        }
-        var globals = slots.Where(s => s.Global && songs.ContainsKey(s.Number)).Select(s => (s.Number, songs[s.Number])).ToList();
-        var image = MusicLayout.Base(engine, sfx, globals, Group, Resident(m, stock));
-        if (!image.Ok) return Fail([.. image.Problems.Select(p => p.ToString())]);
+        var (image, Group, Sample, songs, globals, errs) = Prepare(rom, m, slots, warnings);
+        if (errs.Length > 0) return Fail(errs);
 
         // Power-on: the base, and SMW's samples (with an empty song) so effects and global songs sound before a local song comes.
         var boot = MusicLayout.Local(image, MmlParser.Parse("#amk 2\n#0 r1"), Group, Sample);
@@ -93,6 +78,40 @@ public static class MusicInsert
         var r = Asar.Patch(rom, Path.Combine(VirtualDir, "music.asm"), mem);
         if (!r.Ok) return Fail([.. r.Errors.Select(e => "music: " + e)]);
         return new(true, [], [.. warnings], r.Blocks, songs.Count, r.Labels);
+    }
+
+    /// <summary>What every local song is laid out on: the engine, the effects, the global songs and the resident samples; and the
+    /// project's songs in the list, parsed.</summary>
+    private static (BaseImage Image, Func<string, IReadOnlyList<byte[]>?> Group, Func<string, byte[]?> Sample,
+        Dictionary<int, MmlSong> Songs, List<(int Number, MmlSong Song)> Globals, string[] Errors)
+        Prepare(Rom rom, MusicState m, List<MusicState.SongSlot> slots, List<string> warnings)
+    {
+        var (engine, _, asmErrors) = MusicEngine.Assemble();
+        if (asmErrors.Length > 0) return (null!, null!, null!, [], [], ["the music engine: " + string.Join("; ", asmErrors)]);
+        var stock = SmwSound.StockSamples(rom);
+        var songs = new Dictionary<int, MmlSong>();
+        foreach (var slot in slots)
+        {
+            if (!m.Songs.TryGetValue(slot.Path, out var text)) { warnings.Add($"song {slot.Number:X2} names {slot.Path}, which is not in the project"); continue; }
+            songs[slot.Number] = MmlParser.Parse(text);
+        }
+        var globals = slots.Where(s => s.Global && songs.ContainsKey(s.Number)).Select(s => (s.Number, songs[s.Number])).ToList();
+        var group = Groups(m, stock);
+        var image = MusicLayout.Base(engine, Effects(rom, m, warnings), globals, group, Resident(m, stock));
+        return (image, group, name => m.Samples.GetValueOrDefault(name), songs, globals, [.. image.Problems.Select(p => p.ToString())]);
+    }
+
+    /// <summary>How much of the ARAM a local song may use <paramref name="mml"/> takes, laid out as the build lays it out: from where
+    /// local songs start to the echo buffer. The song stands in for any of the project's (a global one is counted as if local).</summary>
+    public static (int Used, int Room, string? Error) Aram(Rom rom, ProjectFile data, string mml)
+    {
+        var m = data.Music;
+        var slots = m.SongList.Where(s => s.Number is > 0 and < 0xFF).ToList();
+        var (image, group, sample, _, _, errs) = Prepare(rom, m, slots, []);
+        if (errs.Length > 0) return (0, 0, errs[0]);
+        var local = MusicLayout.Local(image, MmlParser.Parse(mml), group, sample);
+        if (!local.Ok) return (0, 0, local.Problems[0].Message);
+        return (local.SamplesEnd - image.LocalBase, local.SamplesEnd + local.Free - image.LocalBase, null);
     }
 
     /// <summary>The first place data/musicdriver/snes.asm hooks that does not hold SMW's own code, or null.</summary>

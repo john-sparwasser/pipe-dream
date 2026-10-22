@@ -16,7 +16,11 @@ public static class MusicEngine
     }
 
     /// <summary>The engine's bytes and labels, or the assembler's errors.</summary>
-    public static (byte[] Code, IReadOnlyDictionary<string, int> Labels, string[] Errors) Assemble()
+    public static (byte[] Code, IReadOnlyDictionary<string, int> Labels, string[] Errors) Assemble() => assembled.Value;
+
+    private static readonly Lazy<(byte[], IReadOnlyDictionary<string, int>, string[])> assembled = new(AssembleNow);
+
+    private static (byte[] Code, IReadOnlyDictionary<string, int> Labels, string[] Errors) AssembleNow()
     {
         var rom = Rom.FromBytes(new byte[0x80000]);
         string path = Path.Combine(VirtualDir, "main.asm");

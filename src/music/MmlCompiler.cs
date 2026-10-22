@@ -6,8 +6,9 @@ namespace PipeDream.Music;
 /// <param name="InstrumentTable">Where the song's custom instruments (six bytes each: sample, ADSR1, ADSR2, GAIN, tuning) start: after the phrase list.</param>
 /// <param name="UsedSamples">The places in the song's sample table that something names: an instrument it sets, any instrument it
 /// defines, a sample load. AddmusicK uploads no other sample but the ones marked important (measured).</param>
+/// <param name="ChannelBytes">Each channel's own bytes and its loops' (what AddmusicK's -v reports), 0 for a channel not in the song.</param>
 public sealed record CompiledSong(byte[] Bytes, int Base, IReadOnlyList<MmlDiagnostic> Diagnostics, int InstrumentTable = 0,
-    IReadOnlySet<int>? UsedSamples = null)
+    IReadOnlySet<int>? UsedSamples = null, int[]? ChannelBytes = null)
 {
     public bool Ok => Diagnostics.Count == 0;
 }
@@ -134,7 +135,8 @@ public static class MmlCompiler
             }
         foreach (var (_, ch, sub) in order) bytes.AddRange(channels[ch]!.Subs[sub]);
         if (problems.Count > 0) return new CompiledSong([], baseAddress, problems);
-        return new CompiledSong(bytes.ToArray(), baseAddress, problems, baseAddress + header, loopState.Used);
+        var sizes = channels.Select(c => c is null ? 0 : c.MainLength + c.Subs.Sum(x => x.Count)).ToArray();
+        return new CompiledSong(bytes.ToArray(), baseAddress, problems, baseAddress + header, loopState.Used, sizes);
     }
 
     /// <summary>A call to a subroutine still to be filled in: where it is, and the subroutine it names (a loop of this

@@ -11,6 +11,14 @@ public sealed partial class EditorSession
         return OpenExternally("song:" + path, Path.GetFileName(path), mml, text => SetSongText(path, text));
     }
 
+    /// <summary>The ARAM a local song may use and how much of it <paramref name="mml"/> takes, as the build would lay it out.</summary>
+    public (int Used, int Room, string? Error) SongAram(string mml)
+    {
+        if (Project is null || Rom is null) return (0, 0, "no project open");
+        if (!Asar.Available) return (0, 0, "no ARAM figure without the Asar library");
+        return MusicInsert.Aram(Rom, Project.Data, mml);
+    }
+
     /// <summary>The song <paramref name="mml"/> (as it stands in the editor) as an .spc at <paramref name="file"/>.</summary>
     public string ExportSpc(string path, string mml, string file)
     {
