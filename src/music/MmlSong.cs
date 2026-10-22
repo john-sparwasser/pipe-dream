@@ -87,6 +87,9 @@ public sealed class MmlSong
     /// <summary>Each channel's commands, <c>#0</c> to <c>#7</c>; null for one the song never names.</summary>
     public List<Cmd>?[] Channels { get; } = new List<Cmd>?[8];
 
+    /// <summary>Remote code definitions, which come before any channel's text.</summary>
+    public List<RemoteDefCmd> RemoteDefs { get; } = new();
+
     public List<MmlDiagnostic> Diagnostics { get; } = new();
     public bool HasErrors => Diagnostics.Count > 0;
 }

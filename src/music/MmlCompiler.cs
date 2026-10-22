@@ -21,6 +21,15 @@ public static class MmlCompiler
     /// <summary>Per instrument, how far AMK moves a note's byte so the sample plays at pitch.</summary>
     private static int InstrumentOffset(int instrument) => instrument switch { 2 => -5, 9 => 5, 10 => -6, 12 => 5, 15 => -8, _ => 0 };
 
+    /// <summary>Whether a channel has anything that plays: a note, rest or tie of some length. Commands alone are not data.</summary>
+    private static bool HasNotes(IEnumerable<Cmd> cmds) => cmds.Any(c => c switch
+    {
+        NoteCmd { Length.Ticks: 0 } or RestCmd { Length.Ticks: 0 } or TieCmd { Length.Ticks: 0 } => false,
+        NoteCmd or RestCmd or TieCmd => true,
+        LoopCmd l => HasNotes(l.Body), LabelLoopCmd l => HasNotes(l.Body), SuperLoopCmd l => HasNotes(l.Body), TripletCmd t => HasNotes(t.Body),
+        _ => false,
+    });
+
     /// <summary>The sample index SMW's own instrument @n plays (its slot in the stock sample table).</summary>
     private static readonly int[] StockSample = [0, 1, 2, 3, 4, 7, 8, 9, 5, 10, 11, 1, 16, 12, 13, 18, 12, 17, 1, 0, 0, 15, 6, 6, 14, 14, 11, 11, 11, 14];
 
@@ -33,16 +42,32 @@ public static class MmlCompiler
         groupSize ??= StockGroupSize;
         var problems = new List<MmlDiagnostic>(song.Diagnostics);
         if (problems.Count > 0) return new CompiledSong([], baseAddress, problems);
+        if (!song.Channels.Any(c => c is not null && HasNotes(c)))
+            return new CompiledSong([], baseAddress, [new MmlDiagnostic(1, 1, "This song doesn't seem to have any data.")]);
 
+        // A channel whose text compiles to nothing (an octave change and no notes) is not in the song at all.
+        int first = -1;
+        for (int i = 0; i < 8 && first < 0; i++)
+            if (song.Channels[i] is { Count: > 0 } probe
+                && !new ChannelCompiler(song, new List<MmlDiagnostic>(), false, i, new(), new LoopState()).Run(probe).IsEmpty) first = i;
         var channels = new ChannelOut?[8];
-        var labels = new Dictionary<int, (int Ch, int Sub)>();
-        int first = Array.FindIndex(song.Channels, c => c is { Count: > 0 });
+        var labels = new Dictionary<int, (int Ch, int Sub, int Line, int Col)>();
+        var loopState = new LoopState();
         for (int i = 0; i < 8; i++)
             if (song.Channels[i] is { Count: > 0 } cmds)
             {
-                var c = new ChannelCompiler(song, problems, i == first, i, labels);
-                channels[i] = c.Run(cmds);
+                var c = new ChannelCompiler(song, problems, i == first, i, labels, loopState).Run(cmds);
+                if (!c.IsEmpty || i == first) channels[i] = c;
             }
+        if (first < 0) return new CompiledSong([], baseAddress, [new MmlDiagnostic(1, 1, "This song doesn't seem to have any data.")]);
+        // The song's options are bytes at the start of channel 0, which exists for them when the song has no #0 of its own.
+        if (first > 0 && song.OptionOrder.Count > 0)
+        {
+            var bytes0 = new List<byte>();
+            ChannelCompiler.OptionBytes(song, bytes0);
+            bytes0.Add(0x00);
+            channels[0] = new ChannelOut(0, bytes0, [], [], null, false);
+        }
         if (problems.Count > 0) return new CompiledSong([], baseAddress, problems);
 
         // The sample table the song's instruments name.
@@ -61,13 +86,12 @@ public static class MmlCompiler
             }
             table.Add((byte)index); table.AddRange(ins.Bytes);
         }
-        if (first < 0) return new CompiledSong([], baseAddress, [new MmlDiagnostic(1, 1, "This song doesn't seem to have any data.")]);
 
         bool noLoop = song.NoLoop || channels.Any(c => c?.NoLoop == true);
         bool intro = channels.Any(c => c?.IntroAt is not null);
 
         // Layout: the phase list, a pointer table per phrase, then every channel's bytes in order.
-        int header = noLoop ? 4 : intro ? 8 : 6;
+        int header = noLoop ? (intro ? 6 : 4) : intro ? 8 : 6;
         int tables = intro ? 2 : 1;
         int at = baseAddress + header + table.Count + tables * 16;
         var starts = new int?[8];
@@ -80,7 +104,8 @@ public static class MmlCompiler
         var bytes = new List<byte>();
         void W16(int v) { bytes.Add((byte)v); bytes.Add((byte)(v >> 8)); }
         int firstTable = baseAddress + header + table.Count;
-        if (noLoop) { W16(firstTable); W16(0); }
+        if (noLoop && intro) { W16(firstTable); W16(firstTable + 16); W16(0); }
+        else if (noLoop) { W16(firstTable); W16(0); }
         else if (intro) { W16(firstTable); W16(firstTable + 16); W16(0x00FF); W16(baseAddress + 2); }
         else { W16(firstTable); W16(0x00FF); W16(baseAddress); }
         bytes.AddRange(table);
@@ -111,11 +136,16 @@ public static class MmlCompiler
     /// channel, or a label that may be another channel's).</summary>
     private sealed record Call(bool InSub, int Owner, int Offset, int Sub, int Label, Cmd At);
 
+    /// <summary>What AddmusicK keeps for loop bodies across the whole song: the transposition (h) they use, and whether one was set.</summary>
+    private sealed class LoopState { public int Tune; public bool TuneSet; }
+
     /// <summary>One channel's bytes: the main stream, then its subroutines, with the places that call them still to be filled in.</summary>
     private sealed class ChannelOut(int index, List<byte> main, List<List<byte>> subs, List<Call> calls, int? introAt, bool noLoop)
     {
         public int? IntroAt => introAt;
         public bool NoLoop => noLoop;
+        /// <summary>Nothing but the terminator: the channel played nothing.</summary>
+        public bool IsEmpty => main.Count <= 1 && subs.Count == 0 && main.All(b => b == 0);
         public int MainLength => main.Count;
         public int SubLength => subs.Sum(s => s.Count);
 
@@ -127,7 +157,7 @@ public static class MmlCompiler
             return result;
         }
 
-        public List<MmlDiagnostic> Resolve(int[][] subAddr, Dictionary<int, (int Ch, int Sub)> labels, out byte[] mainBytes, out byte[] subBytes)
+        public List<MmlDiagnostic> Resolve(int[][] subAddr, Dictionary<int, (int Ch, int Sub, int Line, int Col)> labels, out byte[] mainBytes, out byte[] subBytes)
         {
             var errors = new List<MmlDiagnostic>();
             foreach (var c in calls)
@@ -135,7 +165,8 @@ public static class MmlCompiler
                 int target;
                 if (c.Label >= 0)
                 {
-                    if (!labels.TryGetValue(c.Label, out var l)) { errors.Add(new MmlDiagnostic(c.At.Line, c.At.Column, "A loop with that label has not been defined.")); continue; }
+                    if (!labels.TryGetValue(c.Label, out var l) || (l.Line, l.Col).CompareTo((c.At.Line, c.At.Column)) > 0)
+                    { errors.Add(new MmlDiagnostic(c.At.Line, c.At.Column, "Label not yet defined.")); continue; }
                     target = subAddr[l.Ch][l.Sub];
                 }
                 else target = subAddr[index][c.Sub];
@@ -155,13 +186,16 @@ public static class MmlCompiler
         public readonly List<byte> Bytes = new();
         public readonly int Sub = sub;                // -1 for the main stream
         public int? LastDuration, LastQv;
+        public bool Slide;                // a pending "&", carried to the next note written to THIS stream
+
         public void Forget() { LastDuration = null; LastQv = null; }
     }
 
-    private sealed class ChannelCompiler(MmlSong song, List<MmlDiagnostic> problems, bool isFirst, int channelIndex, Dictionary<int, (int Ch, int Sub)> labels)
+    private sealed class ChannelCompiler(MmlSong song, List<MmlDiagnostic> problems, bool isFirst, int channelIndex, Dictionary<int, (int Ch, int Sub, int Line, int Col)> labels, LoopState loopState)
     {
         // What the channel is set to as the text is read.
         private int octave = 4, defaultLength = 8, tune, instrument = -1, qv = 0x7F;
+        private bool tuneSet;                // h has been used here, so it stands in for the instrument's own offset
         private int pendingPercussion = -1;
 
         private readonly List<List<byte>> subs = new();
@@ -173,16 +207,28 @@ public static class MmlCompiler
 
         private void Error(Cmd c, string message) { if (problems.Count < 200) problems.Add(new MmlDiagnostic(c.Line, c.Column, message)); }
 
+        /// <summary>What the song's #option lines put at the start of channel 0, in the order they were written.</summary>
+        public static void OptionBytes(MmlSong song, List<byte> into)
+        {
+            foreach (string option in song.OptionOrder)
+            {
+                if (option == "tempoimmunity") into.AddRange([0xF4, 0x07]);
+                else if (option == "smwvtable") into.AddRange([0xFA, 0x06, 0x00]);
+            }
+        }
+
         public ChannelOut Run(List<Cmd> cmds)
         {
+            if (isFirst)                                     // remote code lives with the first channel's subroutines
+                foreach (var d in song.RemoteDefs)
+                {
+                    int sub = Subroutine(d.Body, false);
+                    if (!labels.TryAdd(RemoteKey(d.Id), (channelIndex, sub, d.Line, d.Column))) Error(d, "Remote code definitions cannot repeat.");
+                }
             if (isFirst)
             {
                 main.Bytes.AddRange([0xF4, 0x08, 0xFA, 0x04, 0x00]);
-                foreach (string option in song.OptionOrder)          // in the order the song wrote them
-                {
-                    if (option == "tempoimmunity") main.Bytes.AddRange([0xF4, 0x07]);
-                    else if (option == "smwvtable") main.Bytes.AddRange([0xFA, 0x06, 0x00]);
-                }
+                if (channelIndex == 0) OptionBytes(song, main.Bytes);
             }
             Sequence(cmds, main, false);
             main.Bytes.Add(0x00);
@@ -201,7 +247,16 @@ public static class MmlCompiler
             return t;
         }
 
-        private int Round(double ticks) => Math.Max(1, (int)Math.Floor(ticks / Divisor + 0.5));
+        private int Round(double ticks) => (int)Math.Floor(ticks / Divisor + 0.5);
+
+        /// <summary>The way a note's length is cut when a slide (&) comes straight after it: what is left over first, then 127s.</summary>
+        private static List<int> SplitBeforeSlide(int total)
+        {
+            var parts = new List<int>();
+            if (total % 127 != 0) parts.Add(total % 127);
+            for (int i = 0; i < total / 127; i++) parts.Add(127);
+            return parts;
+        }
 
         private static List<int> Split(int total)
         {
@@ -215,7 +270,7 @@ public static class MmlCompiler
 
         private int NoteByte(NoteCmd n)
         {
-            int b = 0x80 + (octave - 1) * 12 + n.Letter + n.Accidental + tune + InstrumentOffset(instrument);
+            int b = 0x80 + (octave - 1) * 12 + n.Letter + n.Accidental + (tuneSet ? tune : InstrumentOffset(instrument));
             if (b is < 0x80 or > 0xC5) { Error(n, "Note's pitch is out of range."); return 0x80; }
             return b;
         }
@@ -229,25 +284,29 @@ public static class MmlCompiler
                 {
                     case NoteCmd or RestCmd or TieCmd:
                         {
-                            double sum = 0;
+                            double sum = 0, lastTicks = 0;
                             int end = i;
                             sum += TicksOf(cmds[i], triplet);
                             // A note takes the ties after it; a rest takes the ties and rests after it.
                             while (end + 1 < cmds.Count && (cmds[end + 1] is TieCmd || (c is RestCmd && cmds[end + 1] is RestCmd)))
-                            { sum += TicksOf(cmds[end + 1], triplet); end++; }
-                            int total = Round(sum);
-                            Group(c, total, buf);
-                            // A pitch slide: the note just played bends into the next one.
-                            if (c is NoteCmd && end + 1 < cmds.Count && cmds[end + 1] is PitchSlideCmd ps)
+                            { lastTicks = TicksOf(cmds[end + 1], triplet); sum += lastTicks; end++; }
+                            bool slideNext = end + 1 < cmds.Count && cmds[end + 1] is PitchSlideCmd;
+                            if (slideNext)
                             {
-                                if (end + 2 < cmds.Count && cmds[end + 2] is NoteCmd target)
+                                // The last thing before a slide is written on its own.
+                                if (end > i)
                                 {
-                                    int nb = NoteByte(target);
-                                    buf.Bytes.AddRange([0xDD, 0x00, (byte)Math.Min(total, 127), (byte)nb]);
-                                    end++;
+                                    int head = Round(sum - lastTicks), tail = Round(lastTicks);
+                                    if (head > 0) Group(c, head, buf);
+                                    if (tail > 0) Group(cmds[end], tail, buf, true);
                                 }
-                                else { Error(ps, "A pitch slide (\"&\") must be followed by a note."); end++; }
+                                else if (Round(sum) > 0) Group(c, Round(sum), buf, true);
+                                i = end;
+                                break;
                             }
+                            int total = Round(sum);
+                            if (total == 0) { i = end; break; }                // too short to write: AddmusicK leaves it out
+                            Group(c, total, buf);
                             i = end;
                             break;
                         }
@@ -257,7 +316,7 @@ public static class MmlCompiler
                         if (octave is < 1 or > 6) { Error(s, "Octave out of range."); octave = Math.Clamp(octave, 1, 6); }
                         break;
                     case DefaultLengthCmd l: defaultLength = l.Denominator; break;
-                    case TuneCmd h: tune = h.Semitones; break;
+                    case TuneCmd h: tune = h.Semitones; tuneSet = true; break;
                     case InstrumentCmd n: Instrument(n, buf); break;
                     case VolumeCmd v: buf.Bytes.AddRange([0xE7, (byte)v.Value]); break;
                     case GlobalVolumeCmd w: buf.Bytes.AddRange([0xE0, (byte)w.Value]); break;
@@ -289,7 +348,12 @@ public static class MmlCompiler
                     case HexCmd h:
                         // $EF's parameters are written channels, left, right and stored left, right, channels.
                         if (h.Bytes[0] == 0xEF) buf.Bytes.AddRange([0xEF, h.Bytes[2], h.Bytes[3], h.Bytes[1]]);
-                        else buf.Bytes.AddRange(Scaled(h.Bytes));
+                        else
+                        {
+                            var scaled = Scaled(h.Bytes);
+                            if ((scaled[0] == 0xE2 && scaled[1] == 0) || (scaled[0] == 0xE3 && scaled[2] == 0)) { Error(h, "Tempo has been zeroed out."); break; }
+                            buf.Bytes.AddRange(scaled);
+                        }
                         if (h.Bytes[0] == 0xDA) { instrument = h.Bytes[1]; pendingPercussion = -1; }
                         if (h.Bytes[0] is 0xE6 or 0xE9) buf.Forget();           // a subloop edge or loop call, written by hand
                         break;
@@ -298,7 +362,7 @@ public static class MmlCompiler
                     case LabelLoopCmd l:
                         {
                             int sub = Subroutine(l.Body, triplet);
-                            labels[l.Id] = (channelIndex, sub);
+                            if (!labels.TryAdd(l.Id, (channelIndex, sub, l.Line, l.Column))) Error(l, "Label redefinition.");
                             EmitCall(buf, sub, -1, l.Count, l);
                             break;
                         }
@@ -316,10 +380,30 @@ public static class MmlCompiler
                         buf.Bytes.AddRange([0xE6, (byte)(s.Count - 1)]);
                         buf.Forget();
                         break;
-                    case PitchSlideCmd p: Error(p, "A pitch slide (\"&\") must come after a note."); break;
-                    case RemoteDefCmd or RemoteCallCmd: Error(c, "Remote code is not supported yet."); break;
+                    case PitchSlideCmd: buf.Slide = true; break;
+                    case RemoteDefCmd d: Error(d, "Remote code definitions must come before any channel's text."); break;
+                    case RemoteCallCmd r: RemoteCall(r, buf, triplet); break;
                 }
             }
+        }
+
+        private const int RemoteBase = 0x10000;
+        private static int RemoteKey(int id) => RemoteBase + id;
+
+        /// <summary><c>(!id, type, arg)</c>: $FC, the address of the code, the event type, and its argument (a hex byte or a note length in ticks).
+        /// Written from the documentation: AddmusicK 1.0.5 does not compile it, so there is nothing to check it against.</summary>
+        private void RemoteCall(RemoteCallCmd r, Buf buf, bool triplet)
+        {
+            int arg = r.ArgByte ?? (r.Arg is { } len ? Round(NoteTicks(len, triplet)) : 0);
+            buf.Bytes.Add(0xFC);
+            if (r.Type == 0) buf.Bytes.AddRange([0x00, 0x00]);
+            else
+            {
+                calls.Add(new Call(buf.Sub >= 0, buf.Sub, buf.Bytes.Count, -1, RemoteKey(r.Id), r));
+                buf.Bytes.AddRange([0x00, 0x00]);
+            }
+            buf.Bytes.Add((byte)r.Type);
+            buf.Bytes.Add((byte)arg);
         }
 
         private double TicksOf(Cmd c, bool triplet) => c switch
@@ -342,9 +426,9 @@ public static class MmlCompiler
 
         /// <summary>A note, rest or tie, with the ties after it already added to the length: the duration (and
         /// quantisation) bytes when they changed, then the note, then a tie or rest byte for each further part.</summary>
-        private void Group(Cmd head, int total, Buf buf)
+        private void Group(Cmd head, int total, Buf buf, bool beforeSlide = false)
         {
-            var parts = Split(total);
+            var parts = beforeSlide ? SplitBeforeSlide(total) : Split(total);
             int noteByte = head switch
             {
                 NoteCmd n => pendingPercussion >= 0 ? 0xBB + pendingPercussion : NoteByte(n),
@@ -352,6 +436,12 @@ public static class MmlCompiler
                 _ => 0xC6,
             };
             if (head is NoteCmd) pendingPercussion = -1;
+            if (buf.Slide)
+            {
+                // The note before bent into this one: over the length last written (nothing, after a loop or an intro), to where this one is.
+                buf.Bytes.AddRange([0xDD, 0x00, (byte)(buf.LastDuration ?? 0), (byte)noteByte]);
+                buf.Slide = false;
+            }
             for (int i = 0; i < parts.Count; i++)
             {
                 int d = parts[i];
@@ -380,7 +470,7 @@ public static class MmlCompiler
             byte Div(byte v) => (byte)(v / d);
             switch (b[0])
             {
-                case 0xDC or 0xE1 or 0xE8 or 0xEA or 0xF2: r[1] = Div(b[1]); break;
+                case 0xDC or 0xE1 or 0xE8 or 0xEA or 0xF2 or 0xE2: r[1] = Div(b[1]); break;
                 case 0xE3: r[1] = Div(b[1]); r[2] = Div(b[2]); break;
                 case 0xDD or 0xEB or 0xEC: r[1] = Div(b[1]); r[2] = Div(b[2]); break;
                 case 0xDE or 0xE5: r[1] = Div(b[1]); r[2] = (byte)Math.Min(255, b[2] * d); break;
@@ -390,13 +480,20 @@ public static class MmlCompiler
             return r;
         }
 
+        /// <summary>A loop's body, compiled into a subroutine. Its notes use the loops' own transposition (h, kept from loop to loop and apart from the
+        /// text's), and what the body does to the instrument and a pending percussion hit is undone once it ends; octave, default length and quantisation
+        /// carry in and out, as they do through the text.</summary>
         private int Subroutine(List<Cmd> body, bool triplet)
         {
+            var (savedTune, savedSet, savedInstrument, savedPercussion) = (tune, tuneSet, instrument, pendingPercussion);
+            (tune, tuneSet) = (loopState.Tune, loopState.TuneSet);   // the loops' own transposition, which carries from one loop to the next
             var sub = new Buf(subs.Count);
             subs.Add(sub.Bytes);
             Sequence(body, sub, triplet);
             sub.Bytes.Add(0x00);
             lastLoop = sub.Sub;
+            (loopState.Tune, loopState.TuneSet) = (tune, tuneSet);
+            (tune, tuneSet, instrument, pendingPercussion) = (savedTune, savedSet, savedInstrument, savedPercussion);
             return sub.Sub;
         }
 

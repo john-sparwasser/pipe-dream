@@ -148,6 +148,17 @@ public static class MmlParser
                 SkipTrivia();
                 if (Eof) break;
                 if (Peek() == '#') { ParseDirective(ref channel); continue; }
+                if (channel < 0 && Peek() == '(' && Peek(1) == '!')
+                {
+                    var defs = new List<Cmd>();
+                    ParseItem(defs, End.Channel);
+                    foreach (var d in defs)
+                    {
+                        if (d is RemoteDefCmd r) song.RemoteDefs.Add(r);
+                        else Error("Remote code must be defined before any channel's text.", d.Line, d.Column);
+                    }
+                    continue;
+                }
                 if (channel < 0)
                 {
                     Error("Note data must be inside a channel!");
@@ -444,7 +455,9 @@ public static class MmlParser
                         int start = pos;
                         while (pos - start < 2 && Uri.IsHexDigit(Peek())) Advance();
                         if (pos - start != 2 || src[start] > '7') { Error("Error parsing quantization (\"q\") command.", l, cc); return; }
-                        into.Add(new QuantCmd(l, cc, Convert.ToInt32(src.Substring(start, 2), 16)));
+                        int qv = Convert.ToInt32(src.Substring(start, 2), 16);
+                        if (qv == 0) { Error("Illegal value for quantization (\"q\") command.", l, cc); return; }
+                        into.Add(new QuantCmd(l, cc, qv));
                         return;
                     }
                 case 'n':
@@ -467,7 +480,12 @@ public static class MmlParser
                         into.Add(args.Count == 2 ? new VibratoCmd(l, cc, 0, args[0], args[1]) : new VibratoCmd(l, cc, args[0], args[1], args[2]));
                         return;
                     }
-                case '&': Advance(); into.Add(new PitchSlideCmd(l, cc)); return;
+                case '&':
+                    Advance();
+                    // AddmusicK reads a slide only straight after a note, rest or tie.
+                    if (into.Count == 0 || into[^1] is not (NoteCmd or RestCmd or TieCmd)) { Error("Unexpected character \"&\" found.", l, cc); return; }
+                    into.Add(new PitchSlideCmd(l, cc));
+                    return;
                 case '?': Advance(); into.Add(new NoLoopCmd(l, cc)); return;
                 case '/': Advance(); into.Add(new IntroCmd(l, cc)); return;
                 case '$': ParseHex(into); return;
@@ -521,6 +539,7 @@ public static class MmlParser
             Advance();                                  // ']'
             if (super) Advance();                       // the second ']'
             if (!super && body.Any(x => x is LoopCmd or LabelLoopCmd)) Error("Loops may not be nested; use [[ ]] around them.", l, cc);
+            if (super && !char.IsDigit(Peek())) { Error("Error parsing subloop (\"[[ ]]\") command: it needs a count.", l, cc); return; }
             int? count = ReadCount(l, cc, 1);
             if (count is null) return;
             into.Add(super ? new SuperLoopCmd(l, cc, body, count.Value) : new LoopCmd(l, cc, body, count.Value));
@@ -567,7 +586,7 @@ public static class MmlParser
             }
             if (Peek() != ')') { Error("Error parsing a loop label.", l, cc); return; }
             Advance();
-            SkipTrivia();
+            // "(1)[" with nothing between is a definition; "(1) [" is a call followed by an ordinary loop.
             if (Peek() == '[' && Peek(1) != '[')
             {
                 Advance();
@@ -575,7 +594,13 @@ public static class MmlParser
                 ParseSequence(body, remote ? End.Remote : End.Loop);
                 if (Eof) return;
                 Advance();                              // ']'
-                if (remote) { into.Add(new RemoteDefCmd(l, cc, id.Value, body)); return; }
+                if (remote)
+                {
+                    foreach (var b in body)
+                        if (b is NoteCmd or RestCmd or TieCmd) { Error("Remote definitions cannot contain note data!", b.Line, b.Column); return; }
+                    into.Add(new RemoteDefCmd(l, cc, id.Value, body));
+                    return;
+                }
                 int? count = ReadCount(l, cc, 1);
                 if (count is null) return;
                 into.Add(new LabelLoopCmd(l, cc, id.Value, body, count.Value));
@@ -602,6 +627,10 @@ public static class MmlParser
                 if (need < 0 && bytes.Count == 3)                // $FB: the count, the length, then that many notes
                     need = bytes[1] < 0x80 ? 2 + bytes[1] : 2;
             }
+            // The subcommands of $F4 and $FA that exist, and the echo delay $F1 can ask for before the buffer outgrows ARAM.
+            if (bytes[0] == 0xF4 && bytes[1] is not (0 or 1 or 2 or 3 or 5 or 6 or 7 or 8 or 9)) { Error("Unknown $F4 hex command type.", l, cc); return; }
+            if (bytes[0] == 0xFA && bytes[1] is not (0 or 1 or 2 or 3 or 4 or 6)) { Error("Unknown $FA hex command type.", l, cc); return; }
+            if (bytes[0] == 0xF1 && bytes[1] > 0x0F) { Error("Echo buffer exceeded total space in ARAM.", l, cc); return; }
             into.Add(new HexCmd(l, cc, bytes.ToArray()));
         }
 
