@@ -34,3 +34,4 @@ ui/**/obj/
 # Local dev project (created by the --dev F5 launch; never shared)
 /dev/
 reference/lm-strings.txt
+__pycache__/
