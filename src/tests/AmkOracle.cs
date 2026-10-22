@@ -53,6 +53,26 @@ internal static class AmkOracle
         return result;
     }
 
+    /// <summary>Compile one song given as text (the file is written into the copy's music/ folder as t.mml).</summary>
+    public static SpcFile CompileText(string root, string mml)
+    {
+        var work = Path.Combine(Path.GetTempPath(), "pipedream-amk-" + Guid.NewGuid().ToString("N"));
+        CopyDir(root, work);
+        try
+        {
+            foreach (var f in Directory.GetFiles(Path.Combine(work, "SPCs"), "*.spc")) File.Delete(f);
+            File.WriteAllText(Path.Combine(work, "music", "t.mml"), mml);
+            var psi = new ProcessStartInfo(Path.Combine(work, "addmusick")) { WorkingDirectory = work, RedirectStandardOutput = true, RedirectStandardError = true };
+            foreach (var a in new[] { "-norom", "-noblock", "t.mml" }) psi.ArgumentList.Add(a);
+            using var p = Process.Start(psi)!;
+            string output = p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd();
+            if (!p.WaitForExit(60_000)) { p.Kill(); throw new TimeoutException("addmusick did not finish"); }
+            if (!output.Contains("Success!")) throw new InvalidOperationException("addmusick failed:\n" + output);
+            return SpcFile.Parse(File.ReadAllBytes(Path.Combine(work, "SPCs", "t.spc")));
+        }
+        finally { Directory.Delete(work, true); }
+    }
+
     private static void CopyDir(string from, string to)
     {
         Directory.CreateDirectory(to);
@@ -68,6 +88,14 @@ internal static class AmkOracle
 public sealed class AmkFactAttribute : FactAttribute
 {
     public AmkFactAttribute()
+    {
+        if (AmkOracle.Root is null) Skip = "AddmusicK oracle not present (set PIPEDREAM_AMK to a folder like AMK's test/)";
+    }
+}
+
+public sealed class AmkTheoryAttribute : TheoryAttribute
+{
+    public AmkTheoryAttribute()
     {
         if (AmkOracle.Root is null) Skip = "AddmusicK oracle not present (set PIPEDREAM_AMK to a folder like AMK's test/)";
     }

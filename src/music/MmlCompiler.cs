@@ -3,7 +3,8 @@ using System.Text;
 namespace PipeDream.Music;
 
 /// <summary>A song compiled to the bytes the engine plays, addressed as if loaded at <see cref="Base"/>.</summary>
-public sealed record CompiledSong(byte[] Bytes, int Base, IReadOnlyList<MmlDiagnostic> Diagnostics)
+/// <param name="InstrumentTable">Where the song's custom instruments (six bytes each: sample, ADSR1, ADSR2, GAIN, tuning) start: after the phrase list.</param>
+public sealed record CompiledSong(byte[] Bytes, int Base, IReadOnlyList<MmlDiagnostic> Diagnostics, int InstrumentTable = 0)
 {
     public bool Ok => Diagnostics.Count == 0;
 }
@@ -129,7 +130,7 @@ public static class MmlCompiler
             }
         bytes.AddRange(subData);
         if (problems.Count > 0) return new CompiledSong([], baseAddress, problems);
-        return new CompiledSong(bytes.ToArray(), baseAddress, problems);
+        return new CompiledSong(bytes.ToArray(), baseAddress, problems, baseAddress + header);
     }
 
     /// <summary>A call to a subroutine still to be filled in: where it is, and the subroutine it names (a loop of this

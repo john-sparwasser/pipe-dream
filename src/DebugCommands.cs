@@ -43,6 +43,9 @@ static class DebugCommands
         // --spcevents <song.spc> [seconds] : run an SPC snapshot and print each key-on with the voice registers it used
         // and the global DSP writes, for comparing engines (reference/AMK_PORT.md).
         ("--spcevents",         (a, i) => SpcEvents(a[i + 1], a.Length > i + 2 ? double.Parse(a[i + 2]) : 3)),
+        // --spcwrites <song.spc> [seconds] : every DSP register write of a run, raw, in order.
+        ("--spcwrites",         (a, i) => { var cpu = Spc700.FromSpc(SpcFile.Parse(File.ReadAllBytes(a[i + 1]))); cpu.Run((long)((a.Length > i + 2 ? double.Parse(a[i + 2]) : 1) * 1_024_000));
+                                    foreach (var (c, r, v) in cpu.DspWrites!) Console.WriteLine($"{c,9} {r:X2}={v:X2}"); return 0; }),
         ("--pixitrace",         PixiTrace),
         ("--sprites",           DumpSprites),
         ("--tilepng",           TilePng),
