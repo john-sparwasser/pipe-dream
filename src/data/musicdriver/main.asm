@@ -53,6 +53,20 @@ base $0400
 !tfStepL = $22
 !tfStepH = $23
 !tfTarget = $24
+!eon = $25                              ; echo: channels, volume left and right, the delay set, the delay reserved ($FA $04)
+!evolL = $26
+!evolR = $27
+!edl = $28
+!reserved = $29
+!efLeft = $2A                           ; $F2 echo volume fade: ticks left, fractions, steps (words)
+!evolLF = $2B
+!evolRF = $2C
+!efLStepL = $2D
+!efLStepH = $2E
+!efRStepL = $2F
+!efRStepH = $30
+!pmon = $31                             ; pitch modulation and noise channels, written every tick
+!non = $32
 
 ; ---- per-channel arrays, eight bytes each ----
 !c_ptrl = $0200
@@ -264,6 +278,14 @@ StartSong:
     mov a,#$C0
     mov !master,a
     mov a,#$00
+    mov !eon,a
+    mov !pmon,a
+    mov !non,a
+    mov !evolL,a
+    mov !evolR,a
+    mov !efLeft,a
+    call EchoReset
+    mov a,#$00
     mov !gtrans,a
     mov !masterF,a
     mov !mfLeft,a
@@ -298,6 +320,8 @@ NextPhrase:
     beq .end
     cmp a,#$FF
     bne .end                            ; only the jump is understood
+    call EchoReset                      ; AddmusicK's empties the echo buffer each time round
+    mov y,#$00
     mov a,(!phrase)+y                   ; the address to carry on from
     mov !t2,a
     incw !phrase
@@ -1676,7 +1700,16 @@ GlobalFades:                            ; each song tick
 +   mov a,!tfLeft
     beq +
     call TempoFadeTick
-+   ret
++   mov a,!efLeft
+    beq +
+    call EchoFadeTick
++   mov a,!pmon                         ; PMON, NON and EON every tick, as AddmusicK's
+    %dsp($2D)
+    mov a,!non
+    %dsp($3D)
+    mov a,!eon
+    %dsp($4D)
+    ret
 
 MasterFadeTick:
     mov a,!masterF
@@ -1712,6 +1745,199 @@ TempoFadeTick:
     mov a,#$00
     mov !tempoF,a
 +   ret
+
+; ---- echo
+
+CmdEchoOn:                              ; $EF channels left right (as compiled)
+    call GetByte
+    mov !eon,a
+    %dsp($4D)
+    call GetByte
+    mov !evolL,a
+    %dsp($2C)
+    call GetByte
+    mov !evolR,a
+    %dsp($3C)
+    jmp ReadData
+
+CmdEchoOff:                             ; $F0
+    mov a,#$00
+    mov !eon,a
+    mov !evolL,a
+    mov !evolR,a
+    mov !efLeft,a
+    %dsp($4D)
+    %dsp($2C)
+    %dsp($3C)
+    %dspi($6C,$20)                      ; echo writes off
+    jmp ReadData
+
+; $F1 delay feedback filter. A delay beyond the buffer $FA $04 reserved moves the buffer and waits for it to clear, the song
+; standing still meanwhile (as AddmusicK's does: 13 timer ticks per unit of delay, twice).
+CmdEchoSetup:
+    call GetByte
+    mov !edl,a
+    cmp a,!reserved
+    beq +
+    bcc +
+    call EchoBuffer
+    bra ++
++   %dsp($7D)
+++  %dspi($6C,$00)
+    call GetByte
+    %dsp($0D)                           ; feedback
+    call GetByte                        ; the filter: eight coefficients from the table
+    and a,#$03
+    asl a
+    asl a
+    asl a
+    mov y,a
+    mov a,#$0F
+-   mov $F2,a
+    push a
+    mov a,FirTables+y
+    mov $F3,a
+    pop a
+    inc y
+    clrc
+    adc a,#$10
+    bpl -
+    mov a,!evolL
+    %dsp($2C)
+    mov a,!evolR
+    %dsp($3C)
+    jmp ReadData
+
+; The echo buffer back to nothing, as AddmusicK's does at the start and at each loop: muted with writes off, $FF00 and
+; no delay, then writes on and unmuted. The next delay set has to make its buffer again.
+EchoReset:
+    mov a,#$00
+    mov !edl,a
+    mov !reserved,a
+    %dspi($6C,$60)
+    %dspi($6D,$FF)
+    %dspi($7D,$00)
+    %dspi($6C,$40)
+    %dspi($6C,$00)
+    ret
+
+; A = the delay: point the buffer to the top of ARAM for it and let it clear. It stays that big until EchoReset.
+EchoBuffer:
+    mov !reserved,a
+    mov !t4,a
+    %dspi($6C,$60)
+    mov a,!t4
+    asl a
+    asl a
+    asl a
+    eor a,#$FF
+    inc a                               ; $100 - delay x 8, and $FF for no delay
+    bne +
+    dec a
++   %dsp($6D)
+    mov a,!t4
+    %dsp($7D)
+    call EchoWait
+    %dspi($6C,$40)
+    call EchoWait
+    %dspi($6C,$00)
+    ret
+
+EchoWait:                               ; 13 timer ticks per unit of the delay in !t4
+    mov a,!t4
+    mov y,#13
+    mul ya
+    mov !t5,a
+    cmp a,#$00                          ; (MUL sets Z from the high byte)
+    beq .done
+-   mov a,$FD
+    beq -
+    mov !t6,a
+    mov a,!t5
+    setc
+    sbc a,!t6
+    mov !t5,a
+    beq .done
+    bcs -
+.done:
+    ret
+
+CmdEchoReserve:                         ; $FA $04 n: the buffer for the longest delay, made now unless it is already that big
+    cmp a,!reserved
+    beq +
+    bcc +
+    mov !edl,a
+    call EchoBuffer
++   jmp ReadData
+
+CmdEchoFade:                            ; $F2 ticks left right
+    call GetByte
+    mov !efLeft,a
+    call GetByte
+    mov !t3,a
+    mov a,!evolL
+    mov !t2,a
+    mov y,!efLeft
+    beq .none
+    call FadeStep
+    movw ya,!t0
+    mov !efLStepL,a
+    mov !efLStepH,y
+    call GetByte
+    mov !t3,a
+    mov a,!evolR
+    mov !t2,a
+    mov y,!efLeft
+    call FadeStep
+    movw ya,!t0
+    mov !efRStepL,a
+    mov !efRStepH,y
+    mov a,#$00
+    mov !evolLF,a
+    mov !evolRF,a
+    call EchoFadeTick
+    jmp ReadData
+.none:
+    call GetByte
+    jmp ReadData
+
+; One step of the echo volume fade. AddmusicK's takes one step fewer than the length and stops short of the target (measured).
+EchoFadeTick:
+    dec !efLeft
+    beq .done
+    mov a,!evolLF
+    clrc
+    adc a,!efLStepL
+    mov !evolLF,a
+    mov a,!evolL
+    adc a,!efLStepH
+    mov !evolL,a
+    mov a,!evolRF
+    clrc
+    adc a,!efRStepL
+    mov !evolRF,a
+    mov a,!evolR
+    adc a,!efRStepH
+    mov !evolR,a
+.done:
+    mov a,!evolL
+    %dsp($2C)
+    mov a,!evolR
+    %dsp($3C)
+    ret
+
+CmdFir:                                 ; $F5 c0 ... c7
+    mov a,#$0F
+-   push a
+    call GetByte
+    pop y
+    mov $F2,y
+    mov $F3,a
+    mov a,y
+    clrc
+    adc a,#$10
+    bpl -
+    jmp ReadData
 
 CmdFineTune:                            ; $EE f: a fraction of a semitone on every note
     call GetByte
@@ -1752,7 +1978,10 @@ CmdFA:                                  ; $FA n v
     beq .transpose
     cmp y,#$03
     beq .amplify
-    jmp ReadData                        ; $00 pitch modulation, $04 echo reserve: later
+    cmp y,#$04
+    bne +
+    jmp CmdEchoReserve
++   jmp ReadData                        ; $00 pitch modulation: later
 .gain:                                  ; GAIN instead of the ADSR
     mov !c_gain+x,a
     mov a,!c_ad1+x
@@ -1770,7 +1999,14 @@ CmdFA:                                  ; $FA n v
 
 CmdF4:                                  ; $F4 n
     call GetByte
-    cmp a,#$09
+    cmp a,#$03
+    bne +
+    call VoiceBit                       ; $03: this channel's echo on or off
+    eor a,!eon
+    mov !eon,a
+    %dsp($4D)
+    jmp ReadData
++   cmp a,#$09
     bne .done
     mov a,!c_ins+x                      ; $09: the instrument again, undoing $ED and $FA $01
     call SetInstrument
@@ -1851,14 +2087,20 @@ CommandTable:                           ; $DA ... $FC
     dw CmdInstrument, CmdPan, CmdPanFade, Skip3, CmdVibrato, CmdVibratoOff ; DA DB DC DD DE DF
     dw CmdGlobalVolume, CmdGlobalVolumeFade, CmdTempo, CmdTempoFade, CmdTranspose, CmdTremolo ; E0 E1 E2 E3 E4 E5
     dw CmdSubloop, CmdVolume, CmdVolumeFade, CmdCall, CmdVibratoFade, CmdEnvelopeRelease ; E6 E7 E8 E9 EA EB
-    dw CmdEnvelopeAttack, CmdEnvelope, CmdFineTune, Skip3, Skip0, Skip3 ; EC ED EE EF F0 F1
-    dw Skip3, Skip2, CmdF4, Skip8, Skip2, Unknown                  ; F2 F3 F4 F5 F6 F7
+    dw CmdEnvelopeAttack, CmdEnvelope, CmdFineTune, CmdEchoOn, CmdEchoOff, CmdEchoSetup ; EC ED EE EF F0 F1
+    dw CmdEchoFade, Skip2, CmdF4, CmdFir, Skip2, Unknown           ; F2 F3 F4 F5 F6 F7
     dw Skip1, Skip2, CmdFA, SkipArpeggio, Skip4                    ; F8 F9 FA FB FC
 
 ParamCount:                             ; $DA ... $FC: how many bytes follow each command; $FF where TieFollows stops looking
     db 1,1,2,3,3,0, 1,2,1,2,1,3, $FF,1,2,$FF,1,3, 3,2,1,3,0,3, 3,2,1,8,2,$FF, 1,2,2,$FF,4
 
 ; ---------------------------------------------------------------- tables
+FirTables:                              ; $F1's filters (measured; 3 repeats 0)
+    db $FF,$08,$17,$24,$24,$17,$08,$FF
+    db $7F,$00,$00,$00,$00,$00,$00,$00
+    db $5F,$08,$DE,$08,$65,$09,$F4,$09
+    db $FF,$08,$17,$24,$24,$17,$08,$FF
+
 PitchLo: db $5F,$DE,$65,$F4,$8C,$2C,$D6,$8B,$4A,$14,$EB,$CD,$BE   ; and the C above, for interpolating from B
 PitchHi: db $08,$08,$09,$09,$0A,$0B,$0B,$0C,$0D,$0E,$0E,$0F,$10
 

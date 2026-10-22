@@ -35,6 +35,7 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
         Array.Copy(code, 0, cpu.Ram, 0x0400, code.Length);
         Array.Copy(song.Bytes, 0, cpu.Ram, SongBase, song.Bytes.Length);
         cpu.Ram[0x03F0] = (byte)song.InstrumentTable; cpu.Ram[0x03F1] = (byte)(song.InstrumentTable >> 8);
+        cpu.Run(20_000);                                              // boot first: AddmusicK's snapshot is taken after its own
         cpu.FromCpu[2] = 1;                                           // play the local song
         return SpcTrace.Run(cpu, (long)(seconds * 1_024_000));
     }
@@ -108,6 +109,13 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
             }
             if (Math.Abs(ka.Count - kb.Count) > Math.Max(2, ka.Count * 0.06)) d.Add($"v{v} key-offs: theirs {ka.Count}, ours {kb.Count}");
         }
+        // The DSP's song-wide registers: each one's values in order (repeats and timing left out).
+        foreach (int reg in new[] { 0x0C, 0x1C, 0x2C, 0x3C, 0x0D, 0x2D, 0x3D, 0x4D, 0x5D, 0x6D, 0x7D, 0x0F, 0x1F, 0x2F, 0x3F, 0x4F, 0x5F, 0x6F, 0x7F })
+        {
+            List<byte> Seq(SpcTrace x) { var l = new List<byte>(); foreach (var g in x.Global.Where(g => g.Reg == reg)) if (l.Count == 0 || l[^1] != g.Value) l.Add(g.Value); return l; }
+            var (ga, gb) = (Seq(theirs), Seq(ours));
+            if (!ga.SequenceEqual(gb)) d.Add($"DSP {reg:X2}: {string.Join(" ", ga.Take(12).Select(b => b.ToString("X2")))} vs {string.Join(" ", gb.Take(12).Select(b => b.ToString("X2")))}");
+        }
         return d;
     }
 
@@ -115,6 +123,7 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
     {
         var t = new SpcTrace();
         t.Voice.AddRange(x.Voice);
+        t.Global.AddRange(x.Global.Where(g => g.Cycle - start < span));
         t.KeyOns.AddRange(x.KeyOns.Where(k => k.Cycle - start < span));
         t.KeyOffs.AddRange(x.KeyOffs.Where(k => k.Cycle - start < span));
         return t;
@@ -147,6 +156,9 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
     [InlineData("#0 t40 c4 $E3 $20 $80 c4 c4 c4 c4 c4 c4 $E3 $10 $20 c4 c4 c4 c4")]   // tempo fade
     [InlineData("#0 t40 $E5 $04 $10 $80 c1 $E5 $00 $08 $C0 c2 $E5 $00 $00 $00 c4 $DE $00 $10 $60 $EA $10 c1 $EA $00 c2")]   // tremolo, vibrato fade
     [InlineData("#0 t40 $EB $04 $08 $0C c2 d2 $EB $00 $00 $00 c4 $EC $02 $06 $F4 c2 d2 $EC $01 $04 $03 e4 $EC $00 $00 $00 c4")]   // pitch envelopes
+    [InlineData("#0 t40 c4 $EF $03 $28 $D8 c4 $F1 $04 $50 $01 c4 $F1 $02 $30 $00 c4 $F5 $11 $22 $33 $44 $55 $66 $77 $88 c4 $F1 $03 $20 $02 c4 $F0 c4")]   // echo
+    [InlineData("#0 t40 $FA $04 $06 c4 $F1 $04 $50 $01 c4 c4 $F1 $06 $50 $00 c4 c4")]    // a reserved echo buffer
+    [InlineData("#0 t40 $EF $01 $10 $20 $F2 $10 $40 $70 c1 $EF $03 $10 $20 c4 $F4 $03 c4 $F4 $03 c4")]    // echo fade, echo toggle
     [InlineData("#0 c4 d4 e8 f8")]                                         // the default tempo
     [InlineData("#0 t40 @21 c4 d4 @22 c4 @23 c8 c8 @24 c8 @25 c8 @26 c8 @27 c8 @28 c8 @29 c8 @0 e4")]   // percussion
     [InlineData("#0 t40 o3 @26 [c8]2 @29 d8 c16")]                         // a hit in a loop, then notes on its instrument
@@ -227,6 +239,44 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
                 log.WriteLine($"{who} v{v}: " + string.Join(" ", x.KeyOns.Where(k => k.Voice == v).Select(k => (k.Cycle, $"N{k.Pitch:X4}"))
                     .Concat(x.KeyOffs.Where(k => k.Mask != 0xFF && (k.Mask >> v & 1) != 0).Select(k => (k.Cycle, "o")))
                     .OrderBy(e => e.Item1).Take(40).Select(e => $"{e.Item2}@{(e.Item1 - x.KeyOns[0].Cycle) / tc:F1}")));
+    }
+
+    /// <summary>Not a test: how much of the SPC's time our engine spends working, for the song in PIPEDREAM_MML.</summary>
+    [AsarFact]
+    public void load()
+    {
+        if (Environment.GetEnvironmentVariable("PIPEDREAM_MML") is not { } path) return;
+        var (code, labels) = AssembleEngine();
+        var song = Music.MmlCompiler.Compile(Music.MmlParser.Parse(File.ReadAllText(path)), SongBase);
+        var cpu = new Spc700 { Pc = labels["Start"], Sp = 0xEF };
+        Array.Copy(code, 0, cpu.Ram, 0x0400, code.Length);
+        Array.Copy(song.Bytes, 0, cpu.Ram, SongBase, song.Bytes.Length);
+        cpu.Ram[0x03F0] = (byte)song.InstrumentTable; cpu.Ram[0x03F1] = (byte)(song.InstrumentTable >> 8);
+        cpu.Run(20_000);
+        cpu.FromCpu[2] = 1;
+        int main = labels["Main"];
+        long idle = 0, start = cpu.Cycles, worst = 0, busySince = -1;
+        var byPc = new long[0x10000];
+        while (cpu.Cycles - start < 4 * 1_024_000)
+        {
+            long before = cpu.Cycles;
+            bool atMain = cpu.Pc == main;
+            int pc = cpu.Pc;
+            cpu.Run(1);
+            byPc[pc] += cpu.Cycles - before;
+            if (atMain && cpu.Ram[0xFD] == 0) { }                   // (the counter reads as 0 when there is nothing to do)
+            if (atMain) { if (busySince >= 0) worst = Math.Max(worst, before - busySince); busySince = before; }
+        }
+        log.WriteLine($"longest gap between visits to Main: {worst} cycles ({worst / 2048.0:F2} timer ticks)");
+        var sorted = labels.Where(l => !l.Key.Contains('.') && !l.Key.Contains(':') && l.Value >= 0x400).OrderBy(l => l.Value).ToList();
+        var share = new Dictionary<string, long>();
+        for (int i = 0; i < sorted.Count; i++)
+        {
+            int end = i + 1 < sorted.Count ? sorted[i + 1].Value : 0x10000;
+            long sum = 0; for (int a = sorted[i].Value; a < end; a++) sum += byPc[a];
+            share[sorted[i].Key] = sum;
+        }
+        foreach (var (k, v) in share.OrderByDescending(x => x.Value).Take(14)) log.WriteLine($"  {k,-20} {v * 100.0 / (4 * 1_024_000):F1}%");
     }
 
     [AsarFact]
