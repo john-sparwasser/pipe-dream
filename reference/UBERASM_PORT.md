@@ -86,6 +86,11 @@ Each phase ends shippable.
 ### 3. The window and Level Properties
 - ASM ▸ UberASM…: resources and library with Edit/Import/Remove, the list per kind, extra bytes per entry.
 - Level Properties: the level's resources (and which `*` ones it skips).
+- **Status (2026-10-22): done.** `ui/UberAsmWindow` (ASM ▸ UberASM…): the files with where the list runs each (New…, Import
+  file…, Edit… in the block editor with Asar colouring, Delete, Import UberASM folder…) and, per kind, the list's lines in
+  list.txt's own syntax (Add…, Edit…, Remove); Level Properties has the level's line under "UberASM", with what `*` runs before
+  it. Session: `UberLine`/`SetUberLine` read a line exactly as the list is read, `UberNumbers`, `NewUberFile`.
+  `tests/UberWindowTests.cs`.
 
 ### 4. Parity and the rest
 - `;>sa1`, `%invoke_sa1`, `%prot_file` with start/size, deprecations, the title-screen NMI switch, `.extmod`.

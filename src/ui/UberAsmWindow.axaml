@@ -1,0 +1,80 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PipeDream.Ui.UberAsmWindow"
+        Title="UberASM" Width="760" Height="680"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+
+  <Window.Styles>
+    <Style Selector="TextBlock.dim">
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+    <Style Selector="TextBlock.mono">
+      <Setter Property="FontFamily" Value="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="TextBlock.head">
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+  </Window.Styles>
+
+  <DockPanel Margin="14">
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right"
+                Spacing="8" Margin="0,12,0,0">
+      <TextBlock x:Name="Hint" Classes="dim" TextWrapping="Wrap" MaxWidth="560"/>
+      <Button Content="Close" Click="OnClose" IsCancel="True"/>
+    </StackPanel>
+
+    <!-- The list: what each level, game mode or map runs, as list.txt lines (* runs everywhere, before a number's own). -->
+    <DockPanel DockPanel.Dock="Bottom" Height="250" Margin="0,12,0,0">
+      <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,6">
+        <TextBlock Text="Runs" Classes="head" VerticalAlignment="Center" Margin="0,0,8,0"/>
+        <ComboBox x:Name="KindBox" SelectedIndex="0" SelectionChanged="OnKind" MinWidth="140">
+          <ComboBoxItem Content="Levels"/>
+          <ComboBoxItem Content="Game modes"/>
+          <ComboBoxItem Content="Overworld maps"/>
+        </ComboBox>
+        <Button Content="Add…" Click="OnAddLine"
+                ToolTip.Tip="A number (or *) and its resources as list.txt has them: 105 waves.asm : 02, gradient.asm"/>
+        <Button x:Name="EditLineButton" Content="Edit…" Click="OnEditLine" IsEnabled="False"/>
+        <Button x:Name="RemoveLineButton" Content="Remove" Click="OnRemoveLine" IsEnabled="False"/>
+      </StackPanel>
+      <ListBox x:Name="LineList" SelectionChanged="OnSelect" DoubleTapped="OnEditLine">
+        <ListBox.ItemTemplate>
+          <DataTemplate>
+            <Grid ColumnDefinitions="60,*" ColumnSpacing="12">
+              <TextBlock Text="{Binding Where}" Classes="mono"/>
+              <TextBlock Grid.Column="1" Text="{Binding Line}" Classes="mono" TextTrimming="CharacterEllipsis"/>
+            </Grid>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </DockPanel>
+
+    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8">
+      <Button Content="New…" Click="OnNew" ToolTip.Tip="A resource or library file: level/waves.asm, library/math.asm …"/>
+      <Button Content="Import file…" Click="OnImportFile"/>
+      <Button x:Name="EditButton" Content="Edit…" Click="OnEdit" IsEnabled="False"/>
+      <Button x:Name="DeleteButton" Content="Delete" Click="OnDelete" IsEnabled="False"/>
+      <Button Content="Import UberASM folder…" Click="OnImportFolder"
+              ToolTip.Tip="Reads UberASM Tool's folder: its resources, library, routines, other/ files and list.txt"/>
+    </StackPanel>
+
+    <ListBox x:Name="FileList" Margin="0,10,0,0" SelectionChanged="OnSelect" DoubleTapped="OnEdit">
+      <ListBox.ItemTemplate>
+        <DataTemplate>
+          <!-- path, where the list runs it, size -->
+          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+            <TextBlock Text="{Binding Path}" Classes="mono"/>
+            <TextBlock Grid.Column="1" Text="{Binding RunsIn}" Classes="dim"/>
+            <TextBlock Grid.Column="2" Text="{Binding Size}" Classes="dim" MinWidth="80" TextAlignment="Right"/>
+          </Grid>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+  </DockPanel>
+</Window>

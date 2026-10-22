@@ -373,6 +373,7 @@
         <MenuItem Header="_Patches…" Click="OnPatches"/>
         <MenuItem Header="Custom _sprites…" Click="OnCustomSprites"/>
         <MenuItem Header="_Music…" Click="OnMusic"/>
+        <MenuItem Header="_UberASM…" Click="OnUberAsm"/>
       </MenuItem>
       <!-- Only in a - -dev launch (the F5 profile): shortcuts for testing, never shipped UI. -->
       <MenuItem x:Name="DebugMenu" Header="De_bug" IsVisible="False">

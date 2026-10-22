@@ -401,10 +401,13 @@ public partial class MainWindow
     private async Task EditLevelProperties()
     {
         if (session.Header is not { } header || session.MainEntrance is not { } entrance) return;
-        var dlg = new LevelPropertiesWindow(header, entrance, session.HasHeaderOverride, session.LevelOptionChoices);
+        string uberLine = session.UberLine("level", session.LevelNum);
+        var dlg = new LevelPropertiesWindow(header, entrance, session.HasHeaderOverride, session.LevelOptionChoices,
+            session.HasProject ? (uberLine, session.UberLine("level", UberEntry.All)) : null);
         await dlg.ShowDialog(this);
 
         if (dlg.RevertRequested) { session.RevertHeader(); AdoptSession(); return; }
+        if (dlg.AppliedUber is { } line && line != uberLine) session.SetUberLine("level", session.LevelNum, line);
         // An entrance change repaints too. Most of its fields are spawn bookkeeping the canvas
         // never draws, but the Layer 3 option is in there — without this, giving a level a
         // layer 3 wrote the byte and left the Background tab still saying it has none.

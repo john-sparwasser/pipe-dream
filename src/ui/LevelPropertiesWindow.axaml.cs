@@ -30,6 +30,8 @@ public partial class LevelPropertiesWindow : Window
 
     /// <summary>Set on Apply: the staged header (null = unchanged) and entry settings.</summary>
     public LevelHeader? AppliedHeader { get; private set; }
+    /// <summary>Set on Apply when the level's UberASM line was offered: what it runs, as list.txt has it.</summary>
+    public string? AppliedUber { get; private set; }
     public MainEntrance? AppliedEntry { get; private set; }
     public bool RevertRequested { get; private set; }
 
@@ -37,15 +39,20 @@ public partial class LevelPropertiesWindow : Window
 
     /// <summary>The choice lists come in already resolved: several are read out of the ROM's
     /// own tables, and this layer holds no ROM (see EditorSession.LevelOptionChoices).</summary>
+    /// <param name="uber">The level's UberASM line and what <c>*</c> runs before it (null: not offered, no project).</param>
     public LevelPropertiesWindow(LevelHeader h, MainEntrance e, bool headerOverridden,
-                                 Services.LevelChoices c) : this()
+                                 Services.LevelChoices c, (string Line, string Star)? uber = null) : this()
     {
         header = h;
         entry = e;
         hasHeaderOverride = headerOverridden;
         choices = c;
+        this.uber = uber;
         Build();
     }
+
+    private readonly (string Line, string Star)? uber;
+    private TextBox? uberBox;
 
     // Avalonia's name generator also emits HeaderBytes/EntryBytes, but those are backed by
     // fields that only InitializeComponent() assigns — this window loads its XAML directly, so
@@ -116,6 +123,21 @@ public partial class LevelPropertiesWindow : Window
                 SetEBit(() => entry.VerticalLevel, 0, v => entry with { VerticalLevel = v })));
         H(Check("Unknown vertical level", (entry.VerticalLevel & 2) != 0,
                 SetEBit(() => entry.VerticalLevel, 1, v => entry with { VerticalLevel = v })));
+
+        // The level's line in the UberASM list (ASM ▸ UberASM… has the files and every other line), in list.txt's own syntax.
+        if (uber is { } u)
+        {
+            H(Section("UberASM"));
+            uberBox = new TextBox { Text = u.Line, MinWidth = 420, Watermark = "waves.asm : 02, gradient.asm",
+                                    FontFamily = new Avalonia.Media.FontFamily("Cascadia Mono,Consolas,DejaVu Sans Mono,monospace") };
+            H(Row("Runs", uberBox));
+            if (u.Star.Length > 0)
+            {
+                var star = new TextBlock { Text = "and before it, as every level: " + u.Star, Margin = new Thickness(LabelWidth + 6, 0, 0, 0) };
+                star.Classes.Add("label");
+                H(star);
+            }
+        }
 
         H(Section("Sprites"));
         H(Choice("Spawn range", entry.SpriteSpawnRange, LevelOptions.SpriteSpawnRange,
@@ -194,6 +216,7 @@ public partial class LevelPropertiesWindow : Window
     {
         AppliedHeader = header;
         AppliedEntry = entry;
+        AppliedUber = uberBox?.Text?.Trim();
         Close();
     }
 

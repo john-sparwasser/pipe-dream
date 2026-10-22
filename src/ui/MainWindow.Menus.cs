@@ -248,6 +248,14 @@ public partial class MainWindow
         UpdateTitle();                               // every change dirties the project
     }
 
+    /// <summary>ASM ▸ UberASM: the project's level, game mode and overworld code — files, the list, a whole UberASM Tool folder.</summary>
+    private async void OnUberAsm(object? sender, RoutedEventArgs e)
+    {
+        if (!session.HasProject) return;
+        await new UberAsmWindow(session).ShowDialog(this);
+        UpdateTitle();                               // every change dirties the project
+    }
+
     /// <summary>ASM ▸ Custom sprites: the project's PIXI-style sprites — new, import (a sprite or
     /// a PIXI folder), slots, edit, remove.</summary>
     private async void OnCustomSprites(object? sender, RoutedEventArgs e)

@@ -168,20 +168,26 @@ internal static class UberImport
         return string.Join('/', parts);
     }
 
+    /// <summary>A line's calls as the list writes them: <c>[-]file [: bytes]</c>, comma separated, each file relative to the
+    /// section's folder (<paramref name="kind"/>: level, gamemode or overworld).</summary>
+    public static string FormatCalls(string kind, IEnumerable<UberCall> calls)
+    {
+        string folder = kind + "/";
+        return string.Join(", ", calls.Select(c => (c.Skip ? "-" : "") + (c.File.StartsWith(folder) ? c.File[folder.Length..] : "../" + c.File)
+            + (c.Bytes.Length > 0 ? " : " + string.Join(' ', c.Bytes.Select(b => b.ToString("X2"))) : "")));
+    }
+
     /// <summary>The list as UberASM Tool 2.1 reads it, for writing a folder back out.</summary>
     public static string FormatList(UberState uber)
     {
         var sb = new StringBuilder();
-        foreach (var (name, entries, folder) in new[] { ("level", uber.Levels, "level/"), ("overworld", uber.Overworlds, "overworld/"), ("gamemode", uber.GameModes, "gamemode/") })
+        foreach (var (name, entries) in new[] { ("level", uber.Levels), ("overworld", uber.Overworlds), ("gamemode", uber.GameModes) })
         {
             sb.Append(name).Append(":\r\n");
             foreach (var e in entries)
             {
                 sb.Append(e.Number == UberEntry.All ? "*" : e.Number.ToString(name == "level" ? "X3" : name == "gamemode" ? "X2" : "X"));
-                sb.Append(' ').Append(string.Join(", ", e.Calls.Select(c =>
-                    (c.Skip ? "-" : "") + (c.File.StartsWith(folder) ? c.File[folder.Length..] : "../" + c.File)
-                    + (c.Bytes.Length > 0 ? " : " + string.Join(' ', c.Bytes.Select(b => b.ToString("X2"))) : ""))));
-                sb.Append("\r\n");
+                sb.Append(' ').Append(FormatCalls(name, e.Calls)).Append("\r\n");
             }
             sb.Append("\r\n");
         }
