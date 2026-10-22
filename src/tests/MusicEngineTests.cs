@@ -159,6 +159,12 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
     [InlineData("#0 t40 c4 $EF $03 $28 $D8 c4 $F1 $04 $50 $01 c4 $F1 $02 $30 $00 c4 $F5 $11 $22 $33 $44 $55 $66 $77 $88 c4 $F1 $03 $20 $02 c4 $F0 c4")]   // echo
     [InlineData("#0 t40 $FA $04 $06 c4 $F1 $04 $50 $01 c4 c4 $F1 $06 $50 $00 c4 c4")]    // a reserved echo buffer
     [InlineData("#0 t40 $EF $01 $10 $20 $F2 $10 $40 $70 c1 $EF $03 $10 $20 c4 $F4 $03 c4 $F4 $03 c4")]    // echo fade, echo toggle
+    [InlineData("#0 t40 c4 $F4 $01 d4 e4 f4 $F4 $01 g4 a4 r4 b4")]           // legato
+    [InlineData("#0 t40 c4 $F4 $02 d4 e4 $F4 $02 f4 g4 c8 c16 c32")]       // light staccato
+    [InlineData("#0 t40 v255 w255 q7F c4 q75 c4 $F4 $08 q7F c4 q75 c4")]   // velocity tables
+    [InlineData("#amk 1\n#0 t40 v255 w255 q7F c4 q75 c4 q7C c4")]           // SMW's velocity table
+    [InlineData("#amk 2\n#instruments { @0 $8F $E0 $B8 $03 $00 n1F $8F $E0 $B8 $03 $00 }\n#0 t40 @30 c4 @31 d4 @30 e4")]   // noise instruments
+    [InlineData("#0 t40 c4 $F8 $1C d4 e4 @1 f4 $FA $00 $06 c4 $F6 $0C $40 d4")]   // noise, pitch modulation, DSP write
     [InlineData("#0 c4 d4 e8 f8")]                                         // the default tempo
     [InlineData("#0 t40 @21 c4 d4 @22 c4 @23 c8 c8 @24 c8 @25 c8 @26 c8 @27 c8 @28 c8 @29 c8 @0 e4")]   // percussion
     [InlineData("#0 t40 o3 @26 [c8]2 @29 d8 c16")]                         // a hit in a loop, then notes on its instrument
@@ -168,7 +174,7 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
     [InlineData("#0 t60 @19 c4 @20 d4 @18 e4")]                             // @19 and @20 play as @0
     public void a_song_plays_as_in_addmusick(string body)
     {
-        string mml = "#amk 2\n" + body;
+        string mml = body.StartsWith("#amk") ? body : "#amk 2\n" + body;
         var tm = System.Text.RegularExpressions.Regex.Match(body, @"\bt(\d+)");
         int tempo = tm.Success ? int.Parse(tm.Groups[1].Value) : 53;
         var (t, o) = (PlayTheirs(mml, 8), PlayOurs(mml, 8));

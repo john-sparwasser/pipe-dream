@@ -231,7 +231,10 @@ public static class MmlCompiler
             lastLoop = -1;                                   // remote code is not a loop for * to recall
             if (isFirst)
             {
-                main.Bytes.AddRange([0xF4, 0x08, 0xFA, 0x04, 0x00]);
+                // The N-SPC velocity table ($F4 $08) from parser version 2 on; before that only #louder asks for it, after the reserve.
+                if (song.AmkVersion >= 2) main.Bytes.AddRange([0xF4, 0x08]);
+                main.Bytes.AddRange([0xFA, 0x04, 0x00]);
+                if (song.Louder) main.Bytes.AddRange([0xF4, 0x08]);
                 if (channelIndex == 0) OptionBytes(song, main.Bytes);
             }
             Sequence(cmds, main, false);

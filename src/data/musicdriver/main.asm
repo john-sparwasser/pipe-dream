@@ -67,6 +67,8 @@ base $0400
 !efRStepH = $30
 !pmon = $31                             ; pitch modulation and noise channels, written every tick
 !non = $32
+!nspcVel = $33                          ; $F4 $08: the N-SPC velocity table instead of SMW's
+!lstacc = $34                           ; $F4 $02: light staccato, every channel
 !c_offL = $40                           ; per channel (eight bytes each, in the direct page): the pitch effects' offset last sent
 !c_offH = $48
 
@@ -132,6 +134,7 @@ base $0400
 !c_envDelay = $03D0
 !c_envLen = $03D8
 !c_envSemis = $03E0
+!c_legato = $03E8                       ; $F4 $01: bit 0 legato on, bit 7 a legato note is sounding
 
 macro dsp(reg)                          ; write A to a DSP register
     mov $F2,#<reg>
@@ -287,6 +290,8 @@ StartSong:
     mov a,#$C0
     mov !master,a
     mov a,#$00
+    mov !nspcVel,a
+    mov !lstacc,a
     mov !eon,a
     mov !pmon,a
     mov !non,a
@@ -409,6 +414,7 @@ ResetChannel:                           ; X = channel
     mov !c_vibFade+x,a
     mov !c_trmDepth+x,a
     mov !c_envType+x,a
+    mov !c_legato+x,a
     mov !c_volF+x,a
     mov !c_vfLeft+x,a
     mov !c_panF+x,a
@@ -624,6 +630,9 @@ ReadData:
 .tie:
     bra .arm
 .rest:
+    mov a,!c_legato+x
+    and a,#$01
+    mov !c_legato+x,a                   ; a rest ends a run of legato notes
     call KeyOffVoice                    ; a rest is released and re-released like a note
     bra .arm
 .percussion:
@@ -636,8 +645,16 @@ ReadData:
 .end:
     jmp EndOfData
 
-; A note is released ((length x fraction) >> 8) ticks in, and again two ticks before it ends.
+; A note is released ((length x fraction) >> 8) ticks in, and again two ticks before it ends; under legato, neither.
 ArmKeyOff:
+    mov a,!c_legato+x
+    and a,#$01
+    beq +
+    mov a,#$00
+    mov !c_koff+x,a
+    mov !c_koff2+x,a
+    ret
++
     mov a,!c_qd+x
     mov y,a
     mov a,QTable+y
@@ -652,7 +669,10 @@ ArmKeyOff:
     mov a,!c_len+x
     setc
     sbc a,#$02
-    bcs .two
+    clrc
+    adc a,!lstacc                       ; light staccato: one tick before the end instead (measured)
+    cmp a,!c_len+x
+    bcc .two
     mov a,#$00
 .two:
     mov !c_koff2+x,a
@@ -711,6 +731,13 @@ NoteOn:
     mov a,!c_trmDepth+x                 ; a tremolo already moving lowers the volume the note starts at
     beq +
     call Tremolo
++   mov a,!c_legato+x                   ; legato: once a note is sounding, the next ones only change its pitch
+    bpl +
+    ret
++   and a,#$01
+    beq +
+    mov a,#$81
+    mov !c_legato+x,a
 +   call VoiceBit
     or a,!konMask
     mov !konMask,a
@@ -743,8 +770,9 @@ SendInstrument:                         ; X = channel
     adc a,#$04
     mov $F2,a
     mov a,!c_srcn+x
+    bmi +                               ; a noise instrument leaves the sample as it was (measured)
     mov $F3,a
-    inc $F2
++   inc $F2
     mov a,!c_ad1+x
     mov $F3,a
     inc $F2
@@ -1276,8 +1304,12 @@ SendPitch:                              ; X = channel, !t0/!t1 = pitch
 SendVolume:                             ; X = channel
     mov a,!c_vel+x
     mov y,a
+    mov a,!nspcVel
+    beq +
     mov a,VelTable+y
-    mov !t0,a
+    bra ++
++   mov a,SmwVelTable+y
+++  mov !t0,a
     mov a,!c_vol+x
     mov y,a
     mov a,!t0
@@ -1435,6 +1467,19 @@ SetInstrument:
     mov y,#$00
     mov a,(!t2)+y
     mov !c_srcn+x,a
+    bpl .tone
+    call NoiseOn                        ; a noise instrument ($80 | clock)
+    bra .rest
+.tone:
+    call VoiceBit                       ; any other: no noise on this channel
+    eor a,#$FF
+    and a,!non
+    cmp a,!non
+    beq .rest
+    mov !non,a
+    %dsp($3D)
+.rest:
+    mov y,#$00
     incw !t2
     mov a,(!t2)+y
     mov !c_ad1+x,a
@@ -1959,6 +2004,29 @@ EchoFadeTick:
     %dsp($3C)
     ret
 
+CmdNoise:                               ; $F8 n: noise at clock n on this channel, until an instrument without it
+    call GetByte
+    call NoiseOn
+    jmp ReadData
+
+NoiseOn:                                ; A = clock, X = channel
+    and a,#$1F
+    %dsp($6C)
+    call VoiceBit
+    or a,!non
+    mov !non,a
+    %dsp($3D)
+    ret
+
+CmdDspWrite:                            ; $F6 register value
+    call GetByte
+    mov !t0,a
+    call GetByte
+    mov y,!t0
+    mov $F2,y
+    mov $F3,a
+    jmp ReadData
+
 CmdFir:                                 ; $F5 c0 ... c7
     mov a,#$0F
 -   push a
@@ -2014,7 +2082,12 @@ CmdFA:                                  ; $FA n v
     cmp y,#$04
     bne +
     jmp CmdEchoReserve
-+   jmp ReadData                        ; $00 pitch modulation: later
++   cmp y,#$00
+    bne +
+    and a,#$FE                          ; $00: pitch modulation channels (not channel 0)
+    mov !pmon,a
+    %dsp($2D)
++   jmp ReadData
 .gain:                                  ; GAIN instead of the ADSR
     mov !c_gain+x,a
     mov a,!c_ad1+x
@@ -2032,7 +2105,25 @@ CmdFA:                                  ; $FA n v
 
 CmdF4:                                  ; $F4 n
     call GetByte
-    cmp a,#$03
+    cmp a,#$01
+    bne +
+    mov a,!c_legato+x                   ; $01: legato on or off for this channel (off: the next note keys on again)
+    eor a,#$01
+    and a,#$01
+    mov !c_legato+x,a
+    jmp ReadData
++   cmp a,#$02
+    bne +
+    mov a,!lstacc                       ; $02: light staccato on or off, every channel
+    eor a,#$01
+    mov !lstacc,a
+    jmp ReadData
++   cmp a,#$08
+    bne +
+    mov a,#$01                          ; $08: the N-SPC velocity table from now on
+    mov !nspcVel,a
+    jmp AllVolumesChanged
++   cmp a,#$03
     bne +
     call VoiceBit                       ; $03: this channel's echo on or off
     eor a,!eon
@@ -2121,8 +2212,8 @@ CommandTable:                           ; $DA ... $FC
     dw CmdGlobalVolume, CmdGlobalVolumeFade, CmdTempo, CmdTempoFade, CmdTranspose, CmdTremolo ; E0 E1 E2 E3 E4 E5
     dw CmdSubloop, CmdVolume, CmdVolumeFade, CmdCall, CmdVibratoFade, CmdEnvelopeRelease ; E6 E7 E8 E9 EA EB
     dw CmdEnvelopeAttack, CmdEnvelope, CmdFineTune, CmdEchoOn, CmdEchoOff, CmdEchoSetup ; EC ED EE EF F0 F1
-    dw CmdEchoFade, Skip2, CmdF4, CmdFir, Skip2, Unknown           ; F2 F3 F4 F5 F6 F7
-    dw Skip1, Skip2, CmdFA, SkipArpeggio, Skip4                    ; F8 F9 FA FB FC
+    dw CmdEchoFade, Skip2, CmdF4, CmdFir, CmdDspWrite, Unknown     ; F2 F3 F4 F5 F6 F7
+    dw CmdNoise, Skip2, CmdFA, SkipArpeggio, Skip4                 ; F8 F9 FA FB FC
 
 ParamCount:                             ; $DA ... $FC: how many bytes follow each command; $FF where TieFollows stops looking
     db 1,1,2,3,3,0, 1,2,1,2,1,3, $FF,1,2,$FF,1,3, 3,2,1,3,0,3, 3,2,1,8,2,$FF, 1,2,2,$FF,4
@@ -2138,6 +2229,7 @@ PitchLo: db $5F,$DE,$65,$F4,$8C,$2C,$D6,$8B,$4A,$14,$EB,$CD,$BE   ; and the C ab
 PitchHi: db $08,$08,$09,$09,$0A,$0B,$0B,$0C,$0D,$0E,$0E,$0F,$10
 
 QTable:    db $33,$66,$80,$99,$B3,$CC,$E6,$FF
+SmwVelTable: db $08,$12,$1B,$24,$2C,$35,$3E,$47,$51,$5A,$62,$6B,$7D,$8F,$A1,$B3   ; SMW's: the default before $F4 $08 (SMW disassembly; fits the measured volumes)
 VelTable:  db $19,$32,$4C,$65,$72,$7F,$8C,$98,$A5,$B2,$BF,$CB,$D8,$E5,$F2,$FC
 PanTable:  db $00,$01,$03,$07,$0D,$15,$1E,$29,$34,$42,$51,$5E,$67,$6E,$73,$77,$7A,$7C,$7D,$7E,$7F,$7F   ; (and once more, to interpolate from 20)
 
