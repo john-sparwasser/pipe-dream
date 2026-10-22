@@ -31,7 +31,7 @@ def one(text, extra_files=None, prefix=True):
         m=re.search(r'^t\.mml: .*?0x([0-9A-F]+) bytes',out,re.M)
         if ok and m:
             size=int(m.group(1),16); spc=open(t+'/SPCs/t.spc','rb').read(); ram=spc[0x100:0x10100]
-            r.update(size=size,ram=ram,song=ram[S0:S0+size],dsp=spc[0x10100:0x10180])
+            r.update(size=size,ram=ram,song=ram[S0:S0+size],dsp=spc[0x10100:0x10180],spc=spc)
         return r
     finally: shutil.rmtree(w)
 def probe(texts, workers=8, **kw):

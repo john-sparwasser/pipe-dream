@@ -40,6 +40,9 @@ static class DebugCommands
         // --mml <song.mml> [base] : compile a song with our own compiler and print its bytes (hex) or its errors,
         // for diffing against AddmusicK's (reference/AMK_PORT.md). base defaults to AMK's song address, $238D.
         ("--mml",               (a, i) => CompileMml(a[i + 1], a.Length > i + 2 ? Convert.ToInt32(a[i + 2], 16) : 0x238D)),
+        // --spcevents <song.spc> [seconds] : run an SPC snapshot and print each key-on with the voice registers it used
+        // and the global DSP writes, for comparing engines (reference/AMK_PORT.md).
+        ("--spcevents",         (a, i) => SpcEvents(a[i + 1], a.Length > i + 2 ? double.Parse(a[i + 2]) : 3)),
         ("--pixitrace",         PixiTrace),
         ("--sprites",           DumpSprites),
         ("--tilepng",           TilePng),
@@ -896,6 +899,24 @@ static class DebugCommands
             return 1;
         }
         Console.WriteLine(string.Join(' ', result.Bytes.Select(b => b.ToString("X2"))));
+        return 0;
+    }
+
+    private static int SpcEvents(string path, double seconds)
+    {
+        var cpu = Spc700.FromSpc(SpcFile.Parse(File.ReadAllBytes(path)));
+        var t = SpcTrace.Run(cpu, (long)(seconds * 1_024_000));
+        var last = new Dictionary<int, byte>(cpu.Dsp.Select((b, i) => KeyValuePair.Create(i, b)));
+        var lines = new List<(long, string)>();
+        foreach (var (c, r, v) in t.Global)
+        {
+            if (last.TryGetValue(r, out byte old) && old == v) continue;
+            lines.Add((c, $"t={c,9} DSP {r:X2}={v:X2}"));
+            last[r] = v;
+        }
+        lines.AddRange(t.KeyOns.Select(k => (k.Cycle, k.ToString())));
+        lines.AddRange(t.KeyOffs.Select(k => (k.Cycle, $"t={k.Cycle,9} KOFF {k.Mask:X2}")));
+        foreach (var (_, text) in lines.OrderBy(l => l.Item1)) Console.WriteLine(text);
         return 0;
     }
 }
