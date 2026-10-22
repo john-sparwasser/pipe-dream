@@ -19,8 +19,9 @@ org $0080FD                             ; UploadSamples: samples come with the s
     RTS
 org $00810E                             ; UploadMusicBank1 (overworld)
     RTS
-org $008134                             ; the level music bank, when entering a level
-    RTS
+org $008148                             ; the level music bank, when a level is entered from the map: the song is
+    STZ !Loaded                         ; uploaded again, which starts the engine afresh as SMW's upload did (the hurry-up
+    RTS                                 ; ends). ponytail: a level whose song is global keeps a hurry-up; never seen in SMW
 org $008159                             ; UploadMusicBank3 (the ending)
     RTS
 
@@ -66,7 +67,6 @@ Nmi:
     BNE .ask
     CPX !Loaded
     BEQ .ask
-    STX !Loaded
     REP #$30
     TXA                                 ; its list: three bytes a song number
     AND #$00FF
@@ -78,8 +78,12 @@ Nmi:
     PLA
     SEP #$20
     LDA.l SongLists+2,x
-    BEQ .none                           ; no such song: ask anyway, the engine finds nothing
-    PHA
+    BNE +
+    SEP #$30
+    LDA #$FF                            ; no such song: the music fades out (AddmusicK's)
+    STA !Pending
+    BRA .send
++   PHA
     LDA.l SongLists+1,x
     PHA
     LDA.l SongLists,x
@@ -91,8 +95,9 @@ Nmi:
     STA $2141
     PLA
     JSR Upload
-.none:
     SEP #$30
+    LDA !Pending
+    STA !Loaded
 .ask:
     LDA !Pending
 .send:

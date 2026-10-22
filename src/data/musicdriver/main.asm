@@ -108,6 +108,7 @@ base $0400
 !sfxNon = $3F                           ;   the effect voices playing noise
 !paused = $E0                           ; $1DF9 $11 (pause): the song stands still, every voice off, until $12
 !drums = $E1                            ; $1DFA $02/$03: Yoshi's drums heard (channels marked with $F4 $00 or $F4 $06)
+!hurry = $E2                            ; $1DF9 $FF: added to the tempo from then on (10), until the engine starts again
 !c_yoshi = $E8                          ; per channel (eight bytes): this channel is Yoshi's drums
 !c_offL = $40                           ; per channel (eight bytes each, in the direct page): the pitch effects' offset last sent
 !c_offH = $48
@@ -286,9 +287,11 @@ Tick:
     beq .done
     mov a,!paused
     bne .done
-    mov a,!tickAcc
+    mov a,!tempo
+    clrc
+    adc a,!hurry
     setc
-    adc a,!tempo                        ; + tempo + 1
+    adc a,!tickAcc                      ; + tempo + 1
     mov !tickAcc,a
     bcc .done
     call SongTick
@@ -328,7 +331,11 @@ Ports:
     mov !lastP0,a
     cmp a,#$00
     beq +
-    mov x,#$00
+    cmp a,#$FF
+    bne ++
+    call Hurry
+    bra +
+++  mov x,#$00
     call SfxStart
 +   mov a,$F7                           ; port 3: a $1DFC effect on voice 7
     cmp a,!lastP3
@@ -350,27 +357,45 @@ Ports:
     cmp a,#$00
     beq .out
     cmp a,#$FF
-    beq .stop
+    beq .fade
     call StartSong
     bra .out
-.stop:
-    call StopSong
+.fade:
+    call FadeOut
 .out:
     mov a,!lastP2
     mov $F6,a
     ret
 
-StopSong:
+; Port 2 $FF (and a song the ROM does not have): the song's volume down to 0 over 240 song ticks, as AddmusicK's fades
+; (measured: the time scales with the tempo, the step with the volume). The song plays on, unheard.
+FadeOut:
+    mov a,#$F0
+    mov !mfLeft,a
+    mov y,a
     mov a,#$00
-    mov !playing,a
-    mov !active,a
-    mov x,#$07
-.c:
-    mov !c_act+x,a
-    dec x
-    bpl .c
-    %dspi($5C,$FF)
+    mov !mfTarget,a
+    mov !t3,a
+    mov !masterF,a
+    mov a,!master
+    mov !t2,a
+    call FadeStep
+    movw ya,!t0
+    mov !mfStepL,a
+    mov !mfStepH,y
     ret
+
+; $1DF9 $FF, SMW's "time is running out": the song 10 faster from now on, and SMW's jingle on both effect voices, $1DF9 $1D
+; and $1DFC $1D (AddmusicK's and SMW's own engine do both, measured).
+Hurry:
+    mov a,#10
+    mov !hurry,a
+    mov a,#$1D
+    mov x,#$00
+    call SfxStart
+    mov a,#$1D
+    mov x,#$01
+    jmp SfxStart
 
 ; ---------------------------------------------------------------- songs
 ; A = the song asked for on port 2: a global one (always in ARAM) by its number, else the local one the main CPU uploaded.
@@ -1197,9 +1222,11 @@ PitchEffects:                           ; X = channel
 
 ; The bend's offset so far: step x (t - delay), one timer tick ahead (measured), held at the whole difference once done.
 Bend:                                   ; X = channel -> adds to !t6/!t7
-    mov a,!tickAcc                      ; t + one timer tick - delay: !t1 whole ticks, !t0 the fraction
+    mov a,!tempo                        ; t + one timer tick - delay: !t1 whole ticks, !t0 the fraction
+    clrc
+    adc a,!hurry
     setc
-    adc a,!tempo
+    adc a,!tickAcc
     mov !t0,a
     mov a,!c_age+x
     adc a,#$00
@@ -2055,9 +2082,11 @@ PanGlide:                               ; X = channel
     push a
     mov a,!c_panF+x
     push a
-    mov a,!tickAcc
+    mov a,!tempo
+    clrc
+    adc a,!hurry
     setc
-    adc a,!tempo
+    adc a,!tickAcc
     mov !t5,a
     bcc +
     mov a,!c_panF+x                     ; a whole step more

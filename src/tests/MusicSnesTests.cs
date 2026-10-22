@@ -85,6 +85,20 @@ public class MusicSnesTests(Xunit.Abstractions.ITestOutputHelper log)
         cpu.Ram7E[0x1DF9] = 0x01;                                 // a sound effect on voice 6
         var d = Frames(cpu, spc, nmi, 20);
         Assert.Contains(d.KeyOns, k => k.Voice == 6);
+
+        cpu.Ram7E[0x1DF9] = 0xFF;                                 // hurry up: the tempo 10 faster
+        Frames(cpu, spc, nmi, 5);
+        Assert.Equal(10, spc.Ram[0xE2]);
+        cpu.CallNear(0x008134);                                   // a level entered from the map: its song uploaded again,
+        cpu.Ram7E[0x1DFB] = 0x0B;                                 // the engine started afresh
+        var e = Frames(cpu, spc, nmi, 60);
+        Assert.Equal(0, spc.Ram[0xE2]);
+        Assert.Contains(e.KeyOns, k => k.Voice == 0 && k.Srcn == 0x01);
+
+        cpu.Ram7E[0x1DFB] = 0x33;                                 // a song the ROM does not have: the music fades
+        Frames(cpu, spc, nmi, 5);
+        Assert.NotEqual(0, spc.Ram[0x1C]);                        // the global volume fade's ticks left
+        Assert.Equal(0x0B, cpu.Ram7E[0x1DFD]);                    // and the song in ARAM is still the one there
         foreach (var (name, t) in new[] { ("a", a), ("b", b), ("c", c), ("d", d) })
             log.WriteLine($"{name}: {string.Join(" ", t.KeyOns.Take(6).Select(k => $"v{k.Voice}:{k.Pitch:X4}/{k.Srcn:X2}@{k.Cycle / 17066}"))}");
     }

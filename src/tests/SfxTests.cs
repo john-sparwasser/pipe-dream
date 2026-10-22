@@ -154,6 +154,9 @@ public class SfxTests(Xunit.Abstractions.ITestOutputHelper log)
     [InlineData("#0 t50 [c8 e8 g8]8\n#6 t50 o3 [c4 e4]6\n#7 t50 o4 [g8 b8]12", "0.5:0=01 1.2:3=02 2.0:3=01 2.3:0=0A")]   // effects over channels 6 and 7
     [InlineData("#0 t50 [c8]40\n#5 t50 $F4 $00 o3 [g8]40\n#3 t50 $F4 $06 o2 [c4]20", "1.0:1=02 2.0:1=03")]         // Yoshi's drums
     [InlineData("#0 t50 [c8 d8]20\n#6 t50 [e4]10", "0.8:1=07 1.6:1=08")]                                           // pause and unpause
+    [InlineData("#0 t10 [c32 e32]20", "0.5:0=FF")]                                                              // hurry up: + 10 tempo
+    [InlineData("#0 t40 w200 v200 [c8 e8]20", "1.0:2=FF")]                                                          // fade out
+    [InlineData("#0 t80 w100 v200 [c8 e8 g8]20\n#1 v150 [o3 c4]20", "0.7:2=FF")]
     public void songs_and_effects_share_the_voices_as_in_addmusick(string body, string pokes)
     {
         string mml = "#amk 2\n" + body;
