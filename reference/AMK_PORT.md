@@ -142,6 +142,13 @@ anything only a later AMK version does.
   the phase that decides whether existing songs work.
 
 ### 4. Samples, instruments and ARAM layout
+**Status (2026-10-22): done, but for dropping unused samples.** `music/MusicLayout.cs` lays one song out: engine at `$0400`, song
+info at `$03F0` (song, instrument table, directory page), the sample directory on the next page, the song, its samples (groups'
+then its own, the compiler's numbering), and the echo buffer at the top for the song's longest delay, refusing a song that runs
+into it with AMK's error. `music/SmwSound.cs` reads SMW's 20 samples from the ROM's own upload at `$0F8000` (byte for byte AMK's
+`samples/default/*.brr`), so no AMK folder is needed for them. `MusicLayoutTests` checks every custom instrument's sample in dv,
+ek and ct against AMK's ARAM. Not done: AMK drops samples a song does not use (unless `-u`); ours keeps them all, which only
+costs ARAM; global songs and sound-effect data are not placed yet (phases 5 and 7).
 - BRR validation, `#instruments` tables, sample groups, per-song dropping of unused samples,
   duplicate sharing, global songs, the ARAM map (engine, songs, sample table aligned `$100`, samples,
   sound effects, echo buffer) and the echo-bounds check, with AMK's error.
@@ -149,6 +156,10 @@ anything only a later AMK version does.
   specified and by region where it is ours to choose.
 
 ### 5. Our engine and the SNES side
+**Status (2026-10-22): the engine is done but for sound effects and the port protocol; the SNES side is not started.**
+`data/musicdriver/main.asm` plays every music command and matches AddmusicK's engine, register by register, on every corpus song
+(`MusicEngineTests`: 53 songs written per command plus the corpus, `reference/AMK_ENGINE.md` for what was measured and where
+AddmusicK is not followed: its lag under load, two hangs, and the remote-code syntax its 1.0.5 build cannot compile).
 - The SPC700 engine in `data/musicdriver/` (Asar `spc700`): the N-SPC command set and AMK's hex
   commands per the reference, the song and sound-effect channels, volume, pan, pitch, vibrato,
   tremolo, echo, the `$1DFA`/`$1DFB` protocol, and `#asm`/`#jsr` slots.

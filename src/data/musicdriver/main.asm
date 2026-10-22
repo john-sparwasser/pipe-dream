@@ -4,8 +4,9 @@
 ; (reference/AMK_ENGINE.md); no part of AddmusicK's engine is used. Assembled with Asar's spc700
 ; mode onto a flat buffer: file offset 0 is ARAM $0400, where the engine starts.
 ;
-; Memory:  $0000-$00EF direct page   $0100-$01FF stack   $0200-$03FF per-channel state, a page of
-;          eight-byte arrays   $0400 this program and its tables   SongBase the song.
+; Memory:  $0000-$00EF direct page (some eight-byte per-channel arrays at $40-$DF)   $0100-$01FF stack
+;          $0200-$03EF per-channel state, eight-byte arrays   $03F0 song info   $0400 this program and its tables,
+;          then the sample directory, the song and its samples (music/MusicLayout.cs), the echo buffer at the top.
 ;
 ; The main CPU talks to it through the four ports (each echoed back once read):
 ;   port 0  sound effect for channel 6   port 1  control   port 2  song to play ($FF stops)   port 3  effect for channel 7
@@ -15,8 +16,8 @@ norom
 org $0000
 base $0400
 
-!SongBase = $2400                 ; where a local song is uploaded
-!SongInfo = $03F0                 ; engine-visible facts about the song: instrument table address (word)
+!SongInfo = $03F0                 ; the song as music/MusicLayout.cs placed it: its address (word), its instrument table (word),
+                                  ; the sample directory's page
 
 ; ---- direct page ----
 !t0 = $00
@@ -201,7 +202,6 @@ InitDsp:
     %dspi($3D,$00)
     %dspi($7D,$00)
     %dspi($6D,$FF)
-    %dspi($5D,$24)                      ; the sample directory
     mov x,#$0F
     mov a,#$00
 .fir:
@@ -302,9 +302,11 @@ StopSong:
 
 ; ---------------------------------------------------------------- songs
 StartSong:
-    mov a,#(!SongBase&$FF)
-    mov y,#(!SongBase>>8)
+    mov a,!SongInfo
+    mov y,!SongInfo+1
     movw !phrase,ya
+    mov a,!SongInfo+4                   ; the sample directory
+    %dsp($5D)
     mov a,#$35
     mov !tempo,a                        ; until the song sets one: 53, as measured
     mov a,#$00
@@ -329,8 +331,8 @@ StartSong:
     mov !mfLeft,a
     mov !tempoF,a
     mov !tfLeft,a
-    mov a,!SongInfo
-    mov y,!SongInfo+1
+    mov a,!SongInfo+2
+    mov y,!SongInfo+3
     movw !instr,ya
     mov x,#$07
 .reset:
@@ -2317,6 +2319,17 @@ NoiseOn:                                ; A = clock, X = channel
     %dsp($3D)
     ret
 
+CmdSampleLoad:                          ; $F3 sample tuning: this sample at this whole tuning, the envelope as it was
+    call GetByte
+    mov !c_srcn+x,a
+    call GetByte
+    mov !c_tdd+x,a
+    mov a,#$00
+    mov !c_tee+x,a
+    inc a
+    mov !c_dirty+x,a
+    jmp ReadData
+
 CmdDataSend:                            ; $F9 a b: b to port 0, a to port 1, for the main CPU
     call GetByte
     mov $F5,a
@@ -2533,7 +2546,7 @@ CommandTable:                           ; $DA ... $FC
     dw CmdGlobalVolume, CmdGlobalVolumeFade, CmdTempo, CmdTempoFade, CmdTranspose, CmdTremolo ; E0 E1 E2 E3 E4 E5
     dw CmdSubloop, CmdVolume, CmdVolumeFade, CmdCall, CmdVibratoFade, CmdEnvelopeRelease ; E6 E7 E8 E9 EA EB
     dw CmdEnvelopeAttack, CmdEnvelope, CmdFineTune, CmdEchoOn, CmdEchoOff, CmdEchoSetup ; EC ED EE EF F0 F1
-    dw CmdEchoFade, Skip2, CmdF4, CmdFir, CmdDspWrite, Unknown     ; F2 F3 F4 F5 F6 F7
+    dw CmdEchoFade, CmdSampleLoad, CmdF4, CmdFir, CmdDspWrite, Unknown ; F2 F3 F4 F5 F6 F7
     dw CmdNoise, CmdDataSend, CmdFA, CmdArpeggio, CmdRemote        ; F8 F9 FA FB FC
 
 ParamCount:                             ; $DA ... $FC: how many bytes follow each command; $FF where TieFollows stops looking

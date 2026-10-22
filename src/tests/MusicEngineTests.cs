@@ -25,26 +25,37 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
 
     private const int Tick500 = 2048;          // cycles in one 500 Hz timer tick
 
-    /// <summary>Our engine playing <paramref name="mml"/>, traced for <paramref name="seconds"/>.</summary>
+    /// <summary>Our engine playing <paramref name="mml"/>, traced for <paramref name="seconds"/>: laid out by MusicLayout with the
+    /// oracle folder's samples when there is one (SMW's own otherwise do not matter: only the registers are compared).</summary>
     internal static SpcTrace PlayOurs(string mml, double seconds)
     {
         var (code, labels) = AssembleEngine();
-        var song = Music.MmlCompiler.Compile(Music.MmlParser.Parse(mml), SongBase);
-        Assert.True(song.Ok, string.Join("; ", song.Diagnostics));
+        var image = Music.MusicLayout.Build(code, Music.MmlParser.Parse(mml), GroupSamples, SampleFile);
+        Assert.True(image.Ok, string.Join("; ", image.Problems));
         var cpu = new Spc700 { Pc = labels["Start"], Sp = 0xEF };
-        Array.Copy(code, 0, cpu.Ram, 0x0400, code.Length);
-        Array.Copy(song.Bytes, 0, cpu.Ram, SongBase, song.Bytes.Length);
-        cpu.Ram[0x03F0] = (byte)song.InstrumentTable; cpu.Ram[0x03F1] = (byte)(song.InstrumentTable >> 8);
+        Array.Copy(image.Ram, cpu.Ram, 0x10000);
         cpu.Run(20_000);                                              // boot first: AddmusicK's snapshot is taken after its own
         cpu.FromCpu[2] = 1;                                           // play the local song
         return SpcTrace.Run(cpu, (long)(seconds * 1_024_000));
     }
 
+    /// <summary>A sample group from the oracle's folder (its manifest's order), or twenty one-block silences without it.</summary>
+    internal static IReadOnlyList<byte[]>? GroupSamples(string group)
+    {
+        var silent = Enumerable.Repeat(new byte[] { 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0 }, 20).ToList();
+        if (AmkOracle.Root is not { } root) return group is "default" or "optimized" ? silent : null;
+        var groups = AmkImport.ParseGroups(File.ReadAllText(Path.Combine(root, "Addmusic_sample groups.txt")), []);
+        var g = groups.FirstOrDefault(x => x.Name.Equals(group, StringComparison.OrdinalIgnoreCase));
+        return g?.Samples.Select(e => File.ReadAllBytes(Path.Combine(root, "samples", e.Path))).ToList();
+    }
+
+    internal static byte[]? SampleFile(string name)
+        => AmkOracle.Root is { } root && File.Exists(Path.Combine(root, "samples", name)) ? File.ReadAllBytes(Path.Combine(root, "samples", name)) : null;
+
     /// <summary>AddmusicK's engine playing the same text.</summary>
     internal static SpcTrace PlayTheirs(string mml, double seconds)
         => SpcTrace.Run(Spc700.FromSpc(AmkOracle.CompileText(AmkOracle.Root!, mml)), (long)(seconds * 1_024_000));
 
-    private const int SongBase = 0x2400;
 
     /// <summary>What differs between two engines' key-ons: pitch, envelope, sample and volume (within one step) exactly, the time of each
     /// within <paramref name="slack"/> ticks of its start-relative position.
@@ -124,8 +135,8 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
                 d.Add($"port {port} from #{at}: {string.Join(" ", pa.Skip(at).Take(10).Select(b => b.ToString("X2")))} vs {string.Join(" ", pb.Skip(at).Take(10).Select(b => b.ToString("X2")))} ({pa.Count} vs {pb.Count})");
             }
         }
-        // The DSP's song-wide registers: each one's values in order (repeats and timing left out).
-        foreach (int reg in new[] { 0x0C, 0x1C, 0x2C, 0x3C, 0x0D, 0x2D, 0x3D, 0x4D, 0x5D, 0x6D, 0x7D, 0x0F, 0x1F, 0x2F, 0x3F, 0x4F, 0x5F, 0x6F, 0x7F })
+        // The DSP's song-wide registers: each one's values in order (repeats and timing left out). Not DIR: where the samples go is ours.
+        foreach (int reg in new[] { 0x0C, 0x1C, 0x2C, 0x3C, 0x0D, 0x2D, 0x3D, 0x4D, 0x6D, 0x7D, 0x0F, 0x1F, 0x2F, 0x3F, 0x4F, 0x5F, 0x6F, 0x7F })
         {
             List<byte> Seq(SpcTrace x) { var l = new List<byte>(); foreach (var g in x.Global.Where(g => g.Reg == reg)) if (l.Count == 0 || l[^1] != g.Value) l.Add(g.Value); return l; }
             var (ga, gb) = (Seq(theirs), Seq(ours));
@@ -186,6 +197,8 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
     [InlineData("#0 t40 $FB $80 $06 $02 c2 $FB $81 $04 $01 d2 e4")]       // trill, glissando
     [InlineData("#0 t40 c4 $F9 $12 $34 d4 $F9 $56 $78 e4")]                 // data to the main CPU
     [InlineData("#0 t40 c4 $F4 $05 c1 c1 c1 c1 c1 c1")]                     // the tick count on the ports (one tick apart where a loop turns it off)
+    [InlineData("#0 t40 $F3 $03 $01 c4 $F3 $03 $08 c4 @3 $F3 $00 $03 c4 @2 c4 $F3 $03 $03 d4")]   // sample loads
+    [InlineData("#amk 2\n#samples { #default \"06_scores_00.brr\" }\n#0 t40 @2 c4 (\"06_scores_00.brr\", $03) c4 d4 @2 e4")]
     [InlineData("#0 c4 d4 e8 f8")]                                         // the default tempo
     [InlineData("#0 t40 @21 c4 d4 @22 c4 @23 c8 c8 @24 c8 @25 c8 @26 c8 @27 c8 @28 c8 @29 c8 @0 e4")]   // percussion
     [InlineData("#0 t40 o3 @26 [c8]2 @29 d8 c16")]                         // a hit in a loop, then notes on its instrument
@@ -286,15 +299,13 @@ public class MusicEngineTests(Xunit.Abstractions.ITestOutputHelper log)
     {
         if (Environment.GetEnvironmentVariable("PIPEDREAM_MML") is not { } path) return;
         var (code, labels) = AssembleEngine();
-        var song = Music.MmlCompiler.Compile(Music.MmlParser.Parse(File.ReadAllText(path)), SongBase);
+        var image = Music.MusicLayout.Build(code, Music.MmlParser.Parse(File.ReadAllText(path)), GroupSamples, SampleFile);
         var cpu = new Spc700 { Pc = labels["Start"], Sp = 0xEF };
-        Array.Copy(code, 0, cpu.Ram, 0x0400, code.Length);
-        Array.Copy(song.Bytes, 0, cpu.Ram, SongBase, song.Bytes.Length);
-        cpu.Ram[0x03F0] = (byte)song.InstrumentTable; cpu.Ram[0x03F1] = (byte)(song.InstrumentTable >> 8);
+        Array.Copy(image.Ram, cpu.Ram, 0x10000);
         cpu.Run(20_000);
         cpu.FromCpu[2] = 1;
         int main = labels["Main"];
-        long idle = 0, start = cpu.Cycles, worst = 0, busySince = -1;
+        long start = cpu.Cycles, worst = 0, busySince = -1;
         var byPc = new long[0x10000];
         List<(int Pc, long C)> gapPcs = new(), worstPcs = new();
         while (cpu.Cycles - start < 4 * 1_024_000)
