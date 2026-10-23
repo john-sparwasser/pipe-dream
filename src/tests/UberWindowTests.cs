@@ -36,6 +36,20 @@ public class UberWindowTests
     }
 
     [Avalonia.Headless.XUnit.AvaloniaFact]
+    public void run_in_adds_a_file_to_the_levels_it_names()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla)) return;
+        var s = Project();
+        Assert.Equal("level/waves.asm runs in level 105", s.RunUberFileIn("level/waves.asm", "105"));
+        Assert.Equal("level/star.asm runs in level 105, 106, *", s.RunUberFileIn("level/star.asm", "105, 106 *"));
+        s.RunUberFileIn("level/waves.asm", "105");                                       // already there: not twice
+        Assert.Equal("waves.asm, star.asm", s.UberLine("level", 0x105));
+        Assert.Equal("gamemode/gm.asm runs in gamemode 14", s.RunUberFileIn("gamemode/gm.asm", "14"));
+        Assert.Equal("\"200\" is not a level number (hex) or *", s.RunUberFileIn("level/waves.asm", "200"));
+        Assert.Equal("which levels? A number (hex), several, or *", s.RunUberFileIn("level/waves.asm", " "));
+    }
+
+    [Avalonia.Headless.XUnit.AvaloniaFact]
     public void the_window_lists_files_and_each_kinds_lines()
     {
         if (!File.Exists(ReferenceRoms.Vanilla)) return;

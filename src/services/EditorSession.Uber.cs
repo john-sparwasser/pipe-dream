@@ -47,6 +47,32 @@ public sealed partial class EditorSession
         return Report2(Dirty2(list.Count == 0 ? $"{kind} {where} runs nothing" : $"{kind} {where} runs {string.Join(", ", list.Select(c => (c.Skip ? "-" : "") + c.File))}"));
     }
 
+    /// <summary>Add <paramref name="file"/> at the end of what each of <paramref name="numbers"/> runs ("105 106 *": hex numbers or
+    /// <c>*</c>, space or comma separated); its kind is its folder's (level/, gamemode/, overworld/). One a number already runs
+    /// (without extra bytes) is left as it is.</summary>
+    public string RunUberFileIn(string file, string numbers)
+    {
+        if (Project is null) return Report2("no project open");
+        string kind = file.Split('/')[0];
+        if (Section(Project.Data.Uber, kind) is not { } section) return Report2($"{file} is not in level/, gamemode/ or overworld/, so nothing runs it by number");
+        var targets = new List<int>();
+        foreach (string t in numbers.Split([' ', ',', '\t'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            int max = kind switch { "level" => 0x1FF, "gamemode" => 0xFF, _ => 6 };
+            if (t == "*") targets.Add(UberEntry.All);
+            else if (int.TryParse(t, System.Globalization.NumberStyles.HexNumber, null, out int n) && n <= max) targets.Add(n);
+            else return Report2($"\"{t}\" is not a {kind} number (hex) or *");
+        }
+        if (targets.Count == 0) return Report2($"which {kind}s? A number (hex), several, or *");
+        foreach (int n in targets)
+        {
+            var calls = UberCalls(kind, n).ToList();
+            if (!calls.Any(c => c.File == file && !c.Skip && c.Bytes.Length == 0)) calls.Add(new UberCall { File = file });
+            SetUberCalls(kind, n, calls);
+        }
+        return Report2(Dirty2($"{file} runs in {kind} {string.Join(", ", targets.Select(n => n == UberEntry.All ? "*" : n.ToString("X")))}"));
+    }
+
     /// <summary>The numbers the list has a line for, in order (<see cref="UberEntry.All"/> first).</summary>
     public IReadOnlyList<int> UberNumbers(string kind)
         => Project is null ? [] : Section(Project.Data.Uber, kind)?.Select(e => e.Number).Order().ToList() ?? [];

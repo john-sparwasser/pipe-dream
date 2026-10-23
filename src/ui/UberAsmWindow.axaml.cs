@@ -59,6 +59,7 @@ public partial class UberAsmWindow : Window
     {
         this.GetControl<Button>("EditButton").IsEnabled = SelectedFile is { } f && f.EndsWith(".asm", StringComparison.OrdinalIgnoreCase);
         this.GetControl<Button>("DeleteButton").IsEnabled = SelectedFile is not null;
+        this.GetControl<Button>("RunInButton").IsEnabled = SelectedFile?.Split('/')[0] is "level" or "gamemode" or "overworld";
         this.GetControl<Button>("EditLineButton").IsEnabled = this.GetControl<Button>("RemoveLineButton").IsEnabled = SelectedLine is not null;
     }
 
@@ -108,6 +109,19 @@ public partial class UberAsmWindow : Window
         Refresh();
     }
 
+    private async void OnRunIn(object? sender, RoutedEventArgs e)
+    {
+        if (SelectedFile is not { } path) return;
+        string kind = path.Split('/')[0] switch { "level" => "levels", "gamemode" => "game modes", _ => "maps" };
+        var ask = new TextPromptWindow($"Which {kind} run {path}? A number (hex), several (105 106), or * for all", "");
+        await ask.ShowDialog(this);
+        if (ask.Result is not { } numbers) return;
+        hint.Text = session.RunUberFileIn(path, numbers);
+        kind = path.Split('/')[0];
+        this.GetControl<ComboBox>("KindBox").SelectedIndex = Array.IndexOf(Kinds, kind);
+        Refresh(path);
+    }
+
     private async void OnAddLine(object? sender, RoutedEventArgs e)
     {
         var ask = new TextPromptWindow($"A {Kind} number (hex, or *) and what it runs, as list.txt has it", "* ");
@@ -117,6 +131,7 @@ public partial class UberAsmWindow : Window
         string number = space < 0 ? text : text[..space];
         int? n = number == "*" ? UberEntry.All : int.TryParse(number, System.Globalization.NumberStyles.HexNumber, null, out int v) ? v : null;
         if (n is null) { hint.Text = $"\"{number}\" is not a number or *"; return; }
+        if (space < 0) { hint.Text = $"{number} runs what? Put the file after the number: {number} test.asm (or select the file above and use Run in…)"; return; }
         hint.Text = session.SetUberLine(Kind, n.Value, space < 0 ? "" : text[(space + 1)..]);
         Refresh(line: n);
     }
