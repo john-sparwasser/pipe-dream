@@ -987,7 +987,8 @@
               <!-- The level's own UberASM and its song, each a drop-down filled as it opens (MainWindow.LevelExtras.cs). -->
               <Button x:Name="LevelUberButton" MinWidth="34"
                       ToolTip.Tip="UberASM — which of the project's level code this level runs">
-                <Path Data="{StaticResource IconCode}"/>
+                <!-- Wider than tall (20×12 of Lucide's 24): a box its own shape, or the scaled icon sits at the top of a square. -->
+                <Path Data="{StaticResource IconCode}" Height="8.4"/>
                 <Button.Flyout>
                   <Flyout Placement="BottomEdgeAlignedLeft" Opening="OnLevelUberOpening">
                     <StackPanel Spacing="6" MinWidth="280"/>
