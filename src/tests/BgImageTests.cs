@@ -8,6 +8,29 @@ namespace PipeDream.Tests;
 public class BgImageTests
 {
     [Fact]
+    public void lm_customs_five_extra_rows_ride_through_the_editors_map_and_back()
+    {
+        // Rows 27-31 sit in the 0xA0 cells past the two vanilla screens; a custom stream carries them, both ways.
+        Assert.Equal(0x1B0 + 3 * 16 + 5, BgImage.Cell(16 + 5, 3));                        // rows 0-26: vanilla's layout
+        Assert.Equal(BgImage.ExtraBase, BgImage.Cell(0, 27));
+        Assert.Equal(BgImage.ExtraBase + 0x50 + 4 * 16 + 15, BgImage.Cell(31, 31));        // the last cell of the map
+        var low = new byte[BgImage.Tiles];
+        var page = new byte[BgImage.Tiles];
+        for (int c = 0; c < 32; c++)
+            for (int r = 0; r < 32; r++) { low[BgImage.Cell(c, r)] = (byte)(c + r * 3); page[BgImage.Cell(c, r)] = (byte)(r & 1); }
+        var planes = BgImage.ToCustomPlanes(low, page);
+        Assert.Equal((byte)(5 + 30 * 3), planes[30 * 16 + 5]);                             // screen 0, row 30 at LM's stride
+        Assert.Equal((byte)(16 + 3 + 28 * 3), planes[BgImage.CustomStride + 28 * 16 + 3]); // screen 1, row 28
+
+        var rom = TestRom.Create(size: 0x80000);
+        var stream = BgImage.EncodeCustom(planes);
+        stream.CopyTo(rom.Data, rom.FileOffset(0x088000));
+        var back = BgImage.DecodeCustom(rom, 0x088000)!.Value;
+        Assert.Equal(low, back.Low);
+        Assert.Equal(page, back.Page);
+    }
+
+    [Fact]
     public void round_trips_runs_literals_and_a_mixture()
     {
         void Trip(byte[] tiles)

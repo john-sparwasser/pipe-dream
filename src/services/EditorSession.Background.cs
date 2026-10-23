@@ -15,9 +15,13 @@ public sealed partial class EditorSession
     public bool Layer2IsBackgroundImage => Scene?.BgImage is not null;
 
     /// <summary>Two screens side by side, which is how the background repeats horizontally
-    /// (<c>within = cx &amp; 0x1F</c>), and vanilla's 27 rows. LM's custom backgrounds carry 32
-    /// (§10b) — that arrives with the writer, not before.</summary>
-    public const int BgCols = 32, BgRows = 27;
+    /// (<c>within = cx &amp; 0x1F</c>).</summary>
+    public const int BgCols = 32;
+
+    /// <summary>The rows the Background tab shows and paints: LM's custom background's 32 (§10b) on a base whose loader reads
+    /// them (prep's custom-background hook), so the five rows the game shows above and below a scrolled background can be
+    /// painted; vanilla's 27 elsewhere, where nothing could carry them.</summary>
+    public int BgRows => Rom?.HasLmLayer2Custom == true ? BgImage.CustomRows : BgImage.VanillaRows;
 
     /// <summary>BG Map16 defs: the fixed 0x200 at $0D9100, which is the whole picker.</summary>
     public const int BgSheetTiles = 0x200;
@@ -95,8 +99,7 @@ public sealed partial class EditorSession
         ushort[] tiles = rom.BgTilemaps.TryGetValue(LevelNum, out var edited) ? edited : s.BgImage!;
         var cells = new int[tiles.Length];
         for (int i = 0; i < tiles.Length; i++) cells[i] = tiles[i];
-        BgMap = new TilemapEdit(cells, BgCols, BgRows, 16,
-                                (c, r) => (c / 16) * 0x1B0 + r * 16 + (c % 16));
+        BgMap = new TilemapEdit(cells, BgCols, BgRows, 16, BgImage.Cell);
         BgMap.Committed += () =>
         {
             rom.BgTilemaps[LevelNum] = [.. BgMap.Cells.Select(v => (ushort)v)];

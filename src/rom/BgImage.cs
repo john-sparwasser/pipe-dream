@@ -89,6 +89,21 @@ public static class BgImage
     /// rows are the 432px -> 512px expansion its help describes.</summary>
     public const int CustomStride = 0x200, CustomRows = 32, VanillaStride = 0x1B0, VanillaRows = 27;
 
+    /// <summary>Where LM's five extra rows (27-31) live in the editor's map: the 0xA0 cells past the two vanilla screens, which
+    /// is exactly 2 screens x 5 rows x 16. Rows 0-26 stay where vanilla has them, so every reader of those is unchanged, and
+    /// a map decoded from a vanilla stream has the loader's <see cref="Blank"/> there.</summary>
+    public const int ExtraBase = 2 * VanillaStride;
+
+    /// <summary>A cell's index in the editor's map: column 0-31 (two screens of 16), row 0-31.</summary>
+    public static int Cell(int col, int row)
+        => row < VanillaRows ? (col / 16) * VanillaStride + row * 16 + (col & 0x0F)
+                             : ExtraBase + (col / 16) * ((CustomRows - VanillaRows) * 16) + (row - VanillaRows) * 16 + (col & 0x0F);
+
+    /// <summary>How many rows a level's background repeats every, going down: 32 when it is (or the build will make it) LM's
+    /// custom kind, whose 512-pixel height is the game's own wrap; vanilla's 27 otherwise.</summary>
+    public static int Period(Rom rom, int level)
+        => rom.HasLmLayer2Custom && (rom.Layer2IsCustomBackground(level) || rom.BgTilemaps.ContainsKey(level)) ? CustomRows : VanillaRows;
+
     /// <summary>
     /// A vanilla-stride map (what the editor holds) re-laid-out for LM's custom format and paired
     /// with a page plane, as the 0x800 bytes a custom stream decodes to: 0x400 low bytes then
@@ -114,15 +129,15 @@ public static class BgImage
     public static byte[] ToCustomPlanes(ReadOnlySpan<byte> vanillaLow, ReadOnlySpan<byte> vanillaPage)
     {
         var flat = new byte[Tiles * 2];
-        Array.Fill(flat, Blank, 0, Tiles);                  // the five extra rows stay blank...
-        // ...on the plane's own page, so a background painted on one page stays on it: those rows
-        // are cells the editor never addresses, and a stray page 0 there is a stray colour.
-        Array.Fill(flat, vanillaPage.Length > 0 ? vanillaPage[0] : (byte)0, Tiles, Tiles);
+        Array.Fill(flat, Blank, 0, Tiles);                  // a short map's missing cells: blank...
+        Array.Fill(flat, vanillaPage.Length > 0 ? vanillaPage[0] : (byte)0, Tiles, Tiles);   // ...on the plane's page
+        // All 32 rows: 27-31 come from the map's extra cells (Cell), which the Background tab paints and a vanilla decode left
+        // Blank. They used to be filled here, which put the bottom's fill tile above the sky when the game scrolled up.
         for (int screen = 0; screen < 2; screen++)
-            for (int row = 0; row < VanillaRows; row++)
+            for (int row = 0; row < CustomRows; row++)
                 for (int col = 0; col < 16; col++)
                 {
-                    int from = screen * VanillaStride + row * 16 + col;
+                    int from = Cell(screen * 16 + col, row);
                     int to = screen * CustomStride + row * 16 + col;
                     if (from < vanillaLow.Length) flat[to] = vanillaLow[from];
                     if (from < vanillaPage.Length) flat[Tiles + to] = vanillaPage[from];
@@ -175,9 +190,8 @@ public static class BgImage
     }
 
     /// <summary>
-    /// Read a custom background at a full 24-bit address back to vanilla-stride low bytes and the
-    /// page plane, i.e. the inverse of <see cref="ToCustomPlanes"/> plus the RLE. The five extra
-    /// rows LM's geometry has are dropped, because that is what the editor's 27-row grid holds.
+    /// Read a custom background at a full 24-bit address back to the editor's map (vanilla-stride rows 0-26, LM's five extra
+    /// rows in the cells past them) and the page plane, i.e. the inverse of <see cref="ToCustomPlanes"/> plus the RLE.
     ///
     /// Returns null when the stream does not decode to the full two planes — a half-length stream
     /// would otherwise come back as a background whose bottom half is silently blank.
@@ -205,13 +219,12 @@ public static class BgImage
 
         var low = new byte[Tiles];
         var page = new byte[Tiles];
-        Array.Fill(low, Blank);
         for (int screen = 0; screen < 2; screen++)
-            for (int row = 0; row < VanillaRows; row++)
+            for (int row = 0; row < CustomRows; row++)
                 for (int col = 0; col < 16; col++)
                 {
                     int from = screen * CustomStride + row * 16 + col;
-                    int to = screen * VanillaStride + row * 16 + col;
+                    int to = Cell(screen * 16 + col, row);
                     low[to] = flat[from];
                     page[to] = flat[Tiles + from];
                 }

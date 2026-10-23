@@ -192,7 +192,7 @@ public class BackgroundModeTests(ITestOutputHelper log)
         var w = Open(0x105, layer3: false);
 
         Assert.Equal(EditorSession.BgCols, View(w).Cols);
-        Assert.Equal(EditorSession.BgRows, View(w).Rows);
+        Assert.Equal(BgImage.VanillaRows, View(w).Rows);             // the vanilla ROM: no custom-background hook, so 27
         Assert.Equal(16, View(w).CellPx);
         Assert.NotNull(View(w).CellAt);
         // The drawer is the same control, picking rather than painting.

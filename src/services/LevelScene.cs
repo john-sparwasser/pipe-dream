@@ -24,6 +24,8 @@ public sealed class LevelScene
     public uint[] Backdrop { get; init; } = new uint[4];
     public Palette?[] Palettes { get; init; } = new Palette?[4];
     public ushort[]? BgImage { get; init; }
+    /// <summary>How many rows the background repeats every down the canvas: 27, or 32 for LM's custom kind (BgImage.Period).</summary>
+    public int BgPeriod { get; init; } = PipeDream.BgImage.VanillaRows;
     public uint[][]?[] BgCaches { get; init; } = new uint[4][][];
 
     /// <summary>Layer 2's Map16 grid, or null when layer 2 is a background image instead — the
@@ -68,6 +70,7 @@ public sealed class LevelScene
         int visRows = grid.Height;          // the engine sizes the grid to the level: LM height, or 27
 
         var bgImage = LevelParser.DecodeBgImage(rom, levelNum);
+        int bgPeriod = PipeDream.BgImage.Period(rom, levelNum);
         var layer2 = bgImage is null ? ObjectEngine.RenderLayer2(rom, level.Header, levelNum) : null;
 
         // The OAM capture is expensive and phase-independent, so it happens once.
@@ -115,7 +118,7 @@ public sealed class LevelScene
             var l3 = previewLayer3 ? Layer3Preview(rom, level, levelNum, pal) : null;
 
             var (img, pw, ph) = Map16.ComposeLevel(caches[p], pal.Rgba[0], grid,
-                                                   bgImage, bgCaches[p], layer2, visRows, l3);
+                                                   bgImage, bgCaches[p], layer2, visRows, l3, bgPeriod);
             if (sprites == SpriteDraw.Compose) overlay?.Draw(img, pw, ph, pal);
             phases[p] = img;
             w = pw; h = ph;
@@ -125,7 +128,7 @@ public sealed class LevelScene
         {
             Phases = phases, Width = w, Height = h, Level = level, TileCaches = caches,
             Grid = grid, Backdrop = backdrop, Palettes = palettes,
-            BgImage = bgImage, BgCaches = bgCaches, Layer2 = layer2,
+            BgImage = bgImage, BgCaches = bgCaches, BgPeriod = bgPeriod, Layer2 = layer2,
             Sprites = spriteData, Overlay = overlay, VisibleRows = visRows,
         };
     }
@@ -183,7 +186,7 @@ public sealed class LevelScene
         // Colour 0 is transparent in a BG tile, and what shows through it in game is the back
         // area colour — the same backdrop ComposeLevel lays down before layer 2.
         if (Palettes[phase & 3] is { } pal) Array.Fill(img, pal.Rgba[0]);
-        Map16.DrawBgImage(img, w, h, cols, bg, cache);
+        Map16.DrawBgImage(img, w, h, cols, bg, cache, Math.Max(rows, BgPeriod));
         return (img, w, h);
     }
 
@@ -235,7 +238,7 @@ public sealed class LevelScene
 
             Phases[p] = Map16.ComposeLevelInto(Phases[p] ?? new uint[Width * Height],
                                                TileCaches[p], pal.Rgba[0], Grid,
-                                               BgImage, BgCaches[p], Layer2, VisibleRows);
+                                               BgImage, BgCaches[p], Layer2, VisibleRows, bgPeriod: BgPeriod);
             DrawOverlay(p);
         }
 
@@ -306,7 +309,7 @@ public sealed class LevelScene
         if (bgEdited && BgImage is not null)
             for (int p = 0; p < 4; p++)
                 Phases[p] = Map16.ComposeLevelInto(Phases[p] ?? new uint[Width * Height], TileCaches[p],
-                                                   Palettes[p]!.Rgba[0], Grid, BgImage, BgCaches[p], Layer2, VisibleRows);
+                                                   Palettes[p]!.Rgba[0], Grid, BgImage, BgCaches[p], Layer2, VisibleRows, bgPeriod: BgPeriod);
 
         // The grid is small (a full-width level is under 14k cells) and scanning it beats
         // tracking a tile→cells index that every object edit would have to maintain.
@@ -340,9 +343,9 @@ public sealed class LevelScene
 
             if (BgImage is { } bgi && BgCaches[p] is { } bgc)
             {
-                // 2-screen horizontal repeat, 27-row vertical repeat (CONTRACT §10).
+                // 2-screen horizontal repeat, BgPeriod-row vertical repeat (CONTRACT §10; 32 for LM's custom kind).
                 int within = cx & 0x1F;
-                int idx = bgi[(within / 16) * 0x1B0 + (cy % 27) * 16 + (within & 0x0F)];
+                int idx = bgi[PipeDream.BgImage.Cell(within, cy % BgPeriod)];
                 Blit(img, bgc[idx & 0x1FF], px, py);
             }
             else if (Layer2 is { } l2) DrawTile(img, l2.Get(cx, cy), TileCaches[p], px, py);

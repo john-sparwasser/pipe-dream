@@ -135,7 +135,7 @@ public static class Map16
         if (level >= 0 && LevelParser.DecodeBgImage(rom, level) is { } bgImg)
         {
             var bgCache = ComposeAllBg(rom, h, level, animPhase);
-            DrawBgImage(img, W, H, grid.Width, bgImg, bgCache);
+            DrawBgImage(img, W, H, grid.Width, bgImg, bgCache, BgImage.Period(rom, level));
         }
         else if (level >= 0 && ObjectEngine.RenderLayer2(rom, h, level) is { } l2grid)
         {
@@ -147,17 +147,17 @@ public static class Map16
     }
 
     /// <summary>
-    /// Tile a decoded BG image across the canvas (repeats every 2 screens horizontally AND
-    /// every 27 rows vertically — vertical levels tile the same image down the level, as the
-    /// game does). Tilemap screens are 16x27 tiles (0x1B0 bytes/screen) — NOT 16x32.
+    /// Tile a decoded BG image across the canvas (repeats every 2 screens horizontally AND every
+    /// <paramref name="period"/> rows vertically — vertical levels tile the same image down the level, as the game does):
+    /// 27 for a vanilla background, 32 for LM's custom kind (<see cref="BgImage.Period"/>; cells by <see cref="BgImage.Cell"/>).
     /// </summary>
-    public static void DrawBgImage(uint[] img, int W, int H, int gridW, ushort[] bgImg, uint[][] bgCache)
+    public static void DrawBgImage(uint[] img, int W, int H, int gridW, ushort[] bgImg, uint[][] bgCache, int period = BgImage.VanillaRows)
     {
         for (int cy = 0; cy < H / 16; cy++)
             for (int cx = 0; cx < gridW; cx++)
             {
                 int within = cx & 0x1F;                          // 2-screen horizontal repeat
-                int idx = bgImg[(within / 16) * 0x1B0 + (cy % 27) * 16 + (within & 0x0F)];
+                int idx = bgImg[BgImage.Cell(within, cy % period)];
                 uint[] tile = bgCache[idx & 0x1FF];
                 for (int y = 0; y < 16; y++)
                     for (int x = 0; x < 16; x++)
@@ -239,12 +239,12 @@ public static class Map16
     /// <summary>Compose a level canvas from precomputed caches (fast; for live edits).</summary>
     public static (uint[] px, int w, int h) ComposeLevel(uint[][] cache, uint backdrop, Map16Grid grid,
         ushort[]? bgImg = null, uint[][]? bgCache = null, Map16Grid? l2 = null, int visibleRows = 27,
-        Layer3Draw? layer3 = null)
+        Layer3Draw? layer3 = null, int bgPeriod = BgImage.VanillaRows)
     {
         int rows = Math.Min(visibleRows, grid.Height);
         int W = grid.Width * 16, H = rows * 16;
         return (ComposeLevelInto(new uint[W * H], cache, backdrop, grid, bgImg, bgCache, l2,
-                                 visibleRows, layer3),
+                                 visibleRows, layer3, bgPeriod),
                 W, H);
     }
 
@@ -255,7 +255,7 @@ public static class Map16
     /// </summary>
     public static uint[] ComposeLevelInto(uint[] img, uint[][] cache, uint backdrop, Map16Grid grid,
         ushort[]? bgImg, uint[][]? bgCache, Map16Grid? l2, int visibleRows,
-        Layer3Draw? layer3 = null)
+        Layer3Draw? layer3 = null, int bgPeriod = BgImage.VanillaRows)
     {
         int rows = Math.Min(visibleRows, grid.Height);
         int W = grid.Width * 16, H = rows * 16;
@@ -268,7 +268,7 @@ public static class Map16
             => DrawLayer3(img, W, H, px, d.W, d.H, d.Screens.Blend, d.Screens.Half, d.OffX, d.OffY);
 
         if (layer3 is { Screens.AboveBg2: false } under) L3(under.Back, under);
-        if (bgImg is not null && bgCache is not null) DrawBgImage(img, W, H, grid.Width, bgImg, bgCache);
+        if (bgImg is not null && bgCache is not null) DrawBgImage(img, W, H, grid.Width, bgImg, bgCache, bgPeriod);
         else if (l2 is not null) DrawGrid(img, W, H, l2, cache);
         if (layer3 is { Screens.AboveBg2: true } over) L3(over.Back, over);
         DrawGrid(img, W, H, grid, cache);

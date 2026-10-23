@@ -179,7 +179,7 @@ public class BackgroundCustomTests(ITestOutputHelper log)
             // exactly the edit that used to be dropped.
             var map = s.BgMap!;
             for (int c = 0; c < EditorSession.BgCols; c++)
-                for (int r = 0; r < EditorSession.BgRows; r++)
+                for (int r = 0; r < s.BgRows; r++)
                     map.Stamp(c, r, (c + r) % 2 == 0 ? 0x10 : 0x2A);
             map.EndStroke();
             s.Save();
@@ -204,9 +204,9 @@ public class BackgroundCustomTests(ITestOutputHelper log)
             var tiles = LevelParser.DecodeBgImage(built, Level);
             Assert.NotNull(tiles);
             for (int c = 0; c < EditorSession.BgCols; c++)
-                for (int r = 0; r < EditorSession.BgRows; r++)
+                for (int r = 0; r < s.BgRows; r++)
                 {
-                    int at = (c / 16) * BgImage.VanillaStride + r * 16 + (c % 16);
+                    int at = BgImage.Cell(c, r);                       // all 32 rows on this base: the five extra ones too
                     Assert.Equal((c + r) % 2 == 0 ? 0x10 : 0x2A, tiles![at] & 0xFF);
                 }
         }
