@@ -28,4 +28,7 @@ internal static class ReferenceRoms
     internal static string Vanilla => Resource("SMW.smc");
     internal static string LmAfter => Resource("after.smc");
     internal static string ShaoBase => InProject("ShaoBase", "base.smc");
+    /// <summary>A 4MB SA-1 hack saved by Lunar Magic: its SA-1 forms of LM's routines are the oracle
+    /// for <see cref="Sa1Remap"/> (reference/SA1_PORT.md).</summary>
+    internal static string Sgdq2024 => InProject("Secret", Path.Combine("workspace", "sgdq2024.smc"));
 }

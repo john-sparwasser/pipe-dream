@@ -35,8 +35,22 @@ public sealed class Asm(int orgSnes)
         return code.ToArray();
     }
 
+    /// <summary>
+    /// When set, every RAM operand is emitted where the SA-1 Pack moved it (reference/SA1_PORT.md):
+    /// the same routine, said for an SA-1 build. Ambient rather than a parameter because the prep's
+    /// routines build their own Asm deep inside the stamp lists; <see cref="RomPrep.Sa1Stamps"/> sets
+    /// and clears it around one build. Operands only — a RAM address made out of immediates (a long
+    /// pointer stored to the direct page) is the routine's own business, and direct-page operands keep
+    /// their byte (D is $3000 on SA-1).
+    /// </summary>
+    [ThreadStatic] internal static Sa1Remap? Sa1;
+
     private Asm E(params byte[] b) { code.AddRange(b); return this; }
     private Asm Imm16(byte op, int v) => E(op, (byte)v, (byte)(v >> 8));
+    private Asm Long3(byte op, int v) => E(op, (byte)v, (byte)(v >> 8), (byte)(v >> 16));
+
+    private static int A(int a) => Sa1 is { } r && a < 0x2000 ? r.Abs(a) : a;
+    private static int L(int a) => Sa1 is { } r ? r.Long(a) : a;
 
     /// <summary>Fail if the next byte would not land at <paramref name="snes"/> — the scanner
     /// contracts pin instruction addresses, and drift must break the build, not the ROM.</summary>
@@ -66,17 +80,17 @@ public sealed class Asm(int orgSnes)
     public Asm LdaImm16(int v) => Imm16(0xA9, v);
     public Asm LdaDp(int d) => E(0xA5, (byte)d);
     public Asm StaDp(int d) => E(0x85, (byte)d);
-    public Asm LdaAbs(int a) => Imm16(0xAD, a);
-    public Asm StaAbs(int a) => Imm16(0x8D, a);
-    public Asm LdaAbsX(int a) => Imm16(0xBD, a);
+    public Asm LdaAbs(int a) => Imm16(0xAD, A(a));
+    public Asm StaAbs(int a) => Imm16(0x8D, A(a));
+    public Asm LdaAbsX(int a) => Imm16(0xBD, A(a));
     public Asm LdaIndLong(int d) => E(0xA7, (byte)d);     // LDA [dp]
-    public Asm LdaAbsY(int a) => Imm16(0xB9, a);
-    public Asm StaAbsX(int a) => Imm16(0x9D, a);
-    public Asm StaAbsY(int a) => Imm16(0x99, a);
-    public Asm LdaLongX(int a) => E(0xBF, (byte)a, (byte)(a >> 8), (byte)(a >> 16));
-    public Asm StaLongX(int a) => E(0x9F, (byte)a, (byte)(a >> 8), (byte)(a >> 16));
-    public Asm LdaLong(int a) => E(0xAF, (byte)a, (byte)(a >> 8), (byte)(a >> 16));
-    public Asm StaLong(int a) => E(0x8F, (byte)a, (byte)(a >> 8), (byte)(a >> 16));
+    public Asm LdaAbsY(int a) => Imm16(0xB9, A(a));
+    public Asm StaAbsX(int a) => Imm16(0x9D, A(a));
+    public Asm StaAbsY(int a) => Imm16(0x99, A(a));
+    public Asm LdaLongX(int a) => Long3(0xBF, L(a));
+    public Asm StaLongX(int a) => Long3(0x9F, L(a));
+    public Asm LdaLong(int a) => Long3(0xAF, L(a));
+    public Asm StaLong(int a) => Long3(0x8F, L(a));
     public Asm LdaIndLongY(int d) => E(0xB7, (byte)d);   // LDA [dp],Y
     public Asm StaIndLongY(int d) => E(0x97, (byte)d);   // STA [dp],Y
     public Asm LdyImm8(int v) => E(0xA0, (byte)v);
@@ -86,20 +100,20 @@ public sealed class Asm(int orgSnes)
     public Asm LdxImm8(int v) => E(0xA2, (byte)v);
     public Asm LdxImm16(int v) => Imm16(0xA2, v);
     public Asm StxDp(int d) => E(0x86, (byte)d);
-    public Asm StxAbs(int a) => Imm16(0x8E, a);
-    public Asm LdyAbs(int a) => Imm16(0xAC, a);
+    public Asm StxAbs(int a) => Imm16(0x8E, A(a));
+    public Asm LdyAbs(int a) => Imm16(0xAC, A(a));
     public Asm LdaDpX(int d) => E(0xB5, (byte)d);
     public Asm StaDpX(int d) => E(0x95, (byte)d);
     public Asm AdcDpX(int d) => E(0x75, (byte)d);
-    public Asm AdcAbsX(int a) => Imm16(0x7D, a);
+    public Asm AdcAbsX(int a) => Imm16(0x7D, A(a));
     public Asm StzDp(int d) => E(0x64, (byte)d);
-    public Asm StzAbs(int a) => Imm16(0x9C, a);
+    public Asm StzAbs(int a) => Imm16(0x9C, A(a));
 
     // ---- arithmetic/logic ----
     public Asm AdcImm8(int v) => E(0x69, (byte)v);
     public Asm AdcImm16(int v) => Imm16(0x69, v);
     public Asm AdcDp(int d) => E(0x65, (byte)d);
-    public Asm AdcAbs(int a) => Imm16(0x6D, a);
+    public Asm AdcAbs(int a) => Imm16(0x6D, A(a));
     public Asm SbcImm16(int v) => Imm16(0xE9, v);
     public Asm SbcDp(int d) => E(0xE5, (byte)d);
     public Asm AndImm8(int v) => E(0x29, (byte)v);
@@ -108,9 +122,9 @@ public sealed class Asm(int orgSnes)
     public Asm OraDp(int d) => E(0x05, (byte)d);
     public Asm OraImm8(int v) => E(0x09, (byte)v);
     public Asm OraImm16(int v) => Imm16(0x09, v);
-    public Asm AndAbs(int a) => Imm16(0x2D, a);
+    public Asm AndAbs(int a) => Imm16(0x2D, A(a));
     public Asm OraIndLong(int d) => E(0x07, (byte)d);    // ORA [dp]
-    public Asm OraAbsX(int a) => Imm16(0x1D, a);
+    public Asm OraAbsX(int a) => Imm16(0x1D, A(a));
     public Asm CmpImm8(int v) => E(0xC9, (byte)v);
     public Asm CmpImm16(int v) => Imm16(0xC9, v);
     public Asm CpyImm16(int v) => Imm16(0xC0, v);

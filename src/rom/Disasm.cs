@@ -85,4 +85,24 @@ public static class Disasm
         }
         return sb.ToString();
     }
+
+    /// <summary>One instruction of a sweep: its offset in the buffer, mnemonic, addressing mode
+    /// (the <see cref="Table"/> names) and how many operand bytes follow the opcode.</summary>
+    public readonly record struct Instr(int At, string Mn, string Mode, int OperandBytes);
+
+    /// <summary>Linear sweep over a code buffer, sizing immediates by REP/SEP as <see cref="Dis"/>
+    /// does. Stops at the first instruction that would run past the end.</summary>
+    public static IEnumerable<Instr> Walk(byte[] code, bool m8, bool x8)
+    {
+        for (int at = 0; at < code.Length;)
+        {
+            var (mn, mode) = Ops[code[at]];
+            int n = mode == "imm_m" ? (m8 ? 1 : 2) : mode == "imm_x" ? (x8 ? 1 : 2) : Size(mode);
+            if (at + n >= code.Length) yield break;
+            if (mn == "REP") { if ((code[at + 1] & 0x20) != 0) m8 = false; if ((code[at + 1] & 0x10) != 0) x8 = false; }
+            else if (mn == "SEP") { if ((code[at + 1] & 0x20) != 0) m8 = true; if ((code[at + 1] & 0x10) != 0) x8 = true; }
+            yield return new Instr(at, mn, mode, n);
+            at += 1 + n;
+        }
+    }
 }

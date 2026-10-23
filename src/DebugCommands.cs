@@ -13,6 +13,12 @@ static class DebugCommands
         // --asarpatch <rom> <patch.asm> : apply a patch from disk with our Asar, in place, and print
         // every block it wrote (PC and SNES) — how a bundled patch's footprint is measured (reference/SA1_PORT.md).
         ("--asarpatch",         (a, i) => AsarPatch(a[i + 1], a[i + 2])),
+        // --sa1prep <prepped.smc> <packdir> : apply the SA-1 Pack in <packdir> to a prepped base, in place,
+        // then the prep's SA-1 form over it (RomPrep.ApplySa1) — the SA-1 build's first two steps, headless.
+        ("--sa1prep",           (a, i) => Sa1Prep(a[i + 1], a[i + 2])),
+        // --sa1audit <packdir> : which prep stamps the SA-1 form changes, and which raw stamps a remap
+        // would change if they were code — the candidates for RomPrep.Sa1RawCode, to be read by hand.
+        ("--sa1audit",          (a, i) => Sa1Audit(a[i + 1])),
         ("--newproject",        NewProject),
         ("--prep",              (a, i) => PrepRom(a[i + 1], a.Length > i + 2 ? int.Parse(a[i + 2]) : RomPrep.Version)),
         ("--buildproject",      BuildProject),
@@ -198,6 +204,43 @@ static class DebugCommands
         foreach (var b in r.Blocks.OrderBy(b => b.Snes)) Console.WriteLine($"block {b.Snes:X6} {b.Length}");
         var saved = Rom.Load(romPath);      // a Rom reads its header once, at load
         Console.WriteLine($"patched {romPath}: map mode {saved.MapModeName}, {saved.ActualRomSize / 1024}KB, {r.Blocks.Length} block(s)");
+        return 0;
+    }
+
+    private static Sa1Remap PackRemap(string packDir)
+        => Sa1Remap.FromSpriteTables(File.ReadAllText(Path.Combine(packDir, "more_sprites", "sprite_tables.asm")));
+
+    public static int Sa1Prep(string romPath, string packDir)
+    {
+        if (!Asar.Available) { Console.Error.WriteLine("asar: library not found, or not API 3.3+"); return 1; }
+        var rom = Rom.Load(romPath);
+        int version = Enumerable.Range(1, RomPrep.Version).Reverse().FirstOrDefault(v => RomPrep.IsPrepped(rom, v));
+        if (version == 0) { Console.WriteLine("not a prepped base"); return 1; }
+        var r = Asar.Patch(rom, Path.Combine(packDir, "sa1.asm"));
+        foreach (var e in r.Errors) Console.WriteLine("error: " + e);
+        if (!r.Ok) return 1;
+        RomPrep.ApplySa1(rom, version, PackRemap(packDir), r.Blocks.Select(b => (b.Snes, b.Length)));
+        File.WriteAllBytes(romPath, rom.Data);
+        Console.WriteLine($"{romPath}: pack applied ({r.Blocks.Length} blocks), prep v{version} restamped for SA-1");
+        return 0;
+    }
+
+    public static int Sa1Audit(string packDir)
+    {
+        var remap = PackRemap(packDir);
+        var lorom = RomPrep.BuildStamps(RomPrep.Version);
+        var sa1 = RomPrep.Sa1Stamps(RomPrep.Version, remap);
+        for (int k = 0; k < lorom.Count; k++)
+        {
+            var (pc, b) = lorom[k];
+            int snes = Rom.PcToSnes(pc);
+            if (!b.AsSpan().SequenceEqual(sa1[k].Bytes)) { Console.WriteLine($"asm  ${snes:X6} {b.Length,5}  re-emitted"); continue; }
+            var problems = new List<string>();
+            var walked = remap.Code(b, true, true, problems);
+            int changed = Enumerable.Range(0, b.Length).Count(i => walked[i] != b[i]);
+            if (changed > 0 || problems.Count > 0)
+                Console.WriteLine($"raw? ${snes:X6} {b.Length,5}  {changed} byte(s) would move{(problems.Count > 0 ? "; " + string.Join("; ", problems.Take(2)) : "")}");
+        }
         return 0;
     }
 

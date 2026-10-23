@@ -12,7 +12,7 @@ public static partial class RomPrep
     private static int Pc(int snes) => Rom.SnesToPc(snes);
 
     // ---------------------------------------------------------------- stamps
-    private static List<(int Pc, byte[] Bytes)> BuildStamps(int version)
+    internal static List<(int Pc, byte[] Bytes)> BuildStamps(int version)
     {
         var s = BuildV1Stamps();
         if (version >= 2) AppendV2Stamps(s);

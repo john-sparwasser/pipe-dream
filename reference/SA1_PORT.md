@@ -99,6 +99,48 @@ Other things the spike turned up:
 - `tools/mesen/prelude.lua` reads the game mode at `$7E0100`. On SA-1 it is `$6100` (and the
   frame counter `$3013`); the Mesen smoke tests need an SA-1 switch.
 
+## Phase 2: the prep's SA-1 form
+
+`RomPrep.ApplySa1` writes, after the pack, every byte of the prep's SA-1 form that differs from the
+LoROM form or that the pack wrote. Where the SA-1 bytes come from depends on whose code it is:
+
+| code | SA-1 form | checked by |
+|---|---|---|
+| ours, built with `Asm` (17 routines) | `Asm.Sa1` set: every absolute/long RAM operand emitted through `Sa1Remap` | golden hashes unchanged with it off; Mesen |
+| in-place rewrites of vanilla loops | `Sa1Remap.Code` (a sweep), listed in `RomPrep.Sa1RawCode` with their entry M/X | where the stamp kept a vanilla instruction, our byte must be the pack's |
+| **Lunar Magic's, carried byte for byte** | **LM's own SA-1 bytes**, from an LM-saved SA-1 ROM, as the LoROM ones came from `after.smc` | that ROM |
+
+`Sa1Remap` holds the pack's rules (absolute `$0000-$00FF` → `$3000`, `$0100-$1FFF` → `$6100`,
+Map16 → `$40/$41`, load table → `$418A00`, SRAM → `$41C000`) and the sprite tables, parsed from the
+installed pack's `more_sprites/sprite_tables.asm`.
+
+Why not the sweep for LM's code too — measured against `lm-sa1.smc` (clean + pack, one level saved
+by Lunar Magic 3.40 through `tools/lm/Invoke-LmGui.ps1 -Action SaveLevel -Dirty`), which puts LM's
+13 KB bank-`$1F` engine at `$1F8008`, the prep's own address:
+
+- the sweep reproduces 673 of the 709 bytes LM changed in it, and most of the small vanilla-bank
+  pieces exactly — so the rules are right;
+- what it cannot do is the rest: LM moves RAM made of immediates (`LDA #$7E : STA $6D` → `#$40`,
+  a `#$1BE6` pointer → `#$7BE6`, `LDA #$0000 : TCD` → `#$3000`), and a sweep reads LM's tables and
+  `4C 4D` markers as code and loses M/X after branches;
+- direct page is context: `$9E-$EF` are sprite tables in sprite code and scratch elsewhere. The pack
+  remaps them in sprite code only, and LM's VRAM code keeps `LDA $AB`. `Sa1Remap.Code` leaves direct
+  page alone; `SpriteDp` is for sprite code.
+
+sgdq2024 (a different LM version, LM's code moved to bank `$80`) confirms the small pieces but is
+no oracle for the big ones.
+
+**Oracles still needed.** A plain level save installs the bank-`$1F` engine, the vanilla-bank
+pieces and the `LmLevelEntry` blocks (at `$10Dxxx`; the prep moves them to bank `$1E`). It does not
+install what other LM actions do — midway (`$13BC00`), overworld palette (`$13C508`/`$13C800`),
+4bpp mode, ExGFX/Super GFX Bypass, layer 3, ExAnimation. Each needs the same action done in LM on
+the SA-1 base, as `after.smc`'s siblings were made on vanilla.
+
+**Not yet checked:** which CPU runs each hook. The pack runs level mode and Map16 loading on the
+SA-1 CPU, which cannot reach W-RAM (`$7E/$7F`) or the PPU/DMA registers; code of ours that does,
+from there, needs the pack's `invoke_snes` path rather than a remap. The layer-3 code reads LM's
+RAM at `$7F:C01A`, which the pack does not move.
+
 ## Plan
 
 **1. The switch and the build step.** `BuiltinPatchRef` + the catalogue + download/cache/verify;
