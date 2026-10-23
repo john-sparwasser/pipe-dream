@@ -52,6 +52,9 @@
     <StreamGeometry x:Key="IconRoute">M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15 M3 19a3 3 0 1 0 6 0a3 3 0 1 0-6 0 M15 5a3 3 0 1 0 6 0a3 3 0 1 0-6 0</StreamGeometry>
     <StreamGeometry x:Key="IconFlag">M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z M4 22v-7</StreamGeometry>
     <StreamGeometry x:Key="IconZap">M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z</StreamGeometry>
+    <!-- Lucide `code` (UberASM: the level's own code) and `music`. -->
+    <StreamGeometry x:Key="IconCode">M16 18l6-6-6-6 M8 6l-6 6 6 6</StreamGeometry>
+    <StreamGeometry x:Key="IconMusic">M9 18V5l12-2v13 M9 18a3 3 0 1 1-6 0a3 3 0 1 1 6 0 M21 16a3 3 0 1 1-6 0a3 3 0 1 1 6 0</StreamGeometry>
     <StreamGeometry x:Key="IconCastle">M22 20v-9H2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2Z M18 11V4H6v7 M15 22v-4a3 3 0 0 0-3-3a3 3 0 0 0-3 3v4 M22 11V9 M2 11V9 M6 4V2 M18 4V2 M10 4V2 M14 4V2</StreamGeometry>
     <!-- Warps. ponytail: Lucide's "orbit" standing in for its "galaxy", whose path was not to
          hand — paste galaxy's d attribute over this one to swap it. -->
@@ -980,6 +983,26 @@
                             ToolTip.Tip="Spawns — the sprite each block releases when hit, here and in the Tiles drawer">
                 <Path Data="{StaticResource IconFlower2}"/>
               </ToggleButton>
+              <Rectangle Classes="sep"/>
+              <!-- The level's own UberASM and its song, each a drop-down filled as it opens (MainWindow.LevelExtras.cs). -->
+              <Button x:Name="LevelUberButton" MinWidth="34"
+                      ToolTip.Tip="UberASM — which of the project's level code this level runs">
+                <Path Data="{StaticResource IconCode}"/>
+                <Button.Flyout>
+                  <Flyout Placement="BottomEdgeAlignedLeft" Opening="OnLevelUberOpening">
+                    <StackPanel Spacing="6" MinWidth="280"/>
+                  </Flyout>
+                </Button.Flyout>
+              </Button>
+              <Button x:Name="LevelMusicButton" MinWidth="34"
+                      ToolTip.Tip="Music — the song this level plays">
+                <Path Data="{StaticResource IconMusic}"/>
+                <Button.Flyout>
+                  <Flyout Placement="BottomEdgeAlignedLeft" Opening="OnLevelMusicOpening">
+                    <StackPanel Spacing="4" MinWidth="280"/>
+                  </Flyout>
+                </Button.Flyout>
+              </Button>
               <Rectangle Classes="sep" IsVisible="{Binding #DropLayer2.IsVisible}"/>
               <Button x:Name="DropLayer2" Content="−L2" MinWidth="52" Click="OnDropLayer2"
                       ToolTip.Tip="Drop this project's layer-2 objects and restore the base ROM's background image"/>
