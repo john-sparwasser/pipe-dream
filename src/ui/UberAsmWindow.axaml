@@ -57,7 +57,7 @@
     </DockPanel>
 
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8">
-      <Button Content="New…" Click="OnNew" ToolTip.Tip="A resource or library file: level/waves.asm, library/math.asm …"/>
+      <Button Content="New…" Click="OnNew" ToolTip.Tip="A new file: level, game mode or overworld code, a library file, a shared routine"/>
       <Button Content="Import file…" Click="OnImportFile"/>
       <Button x:Name="EditButton" Content="Edit…" Click="OnEdit" IsEnabled="False"/>
       <Button x:Name="RunInButton" Content="Run in…" Click="OnRunIn" IsEnabled="False"

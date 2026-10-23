@@ -65,7 +65,7 @@ public partial class UberAsmWindow : Window
 
     private async void OnNew(object? sender, RoutedEventArgs e)
     {
-        var ask = new TextPromptWindow("New file (level/name.asm, library/name.asm …)", "level/");
+        var ask = new UberFileWindow("New UberASM file");
         await ask.ShowDialog(this);
         if (ask.Result is not { } path) return;
         hint.Text = session.NewUberFile(path, out var made);
@@ -76,10 +76,10 @@ public partial class UberAsmWindow : Window
     {
         var picked = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "Add a file to the project's UberASM" });
         if (picked.Count == 0 || picked[0].TryGetLocalPath() is not { } file) return;
-        var ask = new TextPromptWindow("Which folder: level, gamemode, overworld, library, routines or other", "level");
+        var ask = new UberFileWindow("Import as", Path.GetFileName(file));
         await ask.ShowDialog(this);
-        if (ask.Result is not { } folder) return;
-        hint.Text = session.ImportUberFile(file, folder.Trim().Trim('/'), out var made);
+        if (ask.Result is not { } path) return;
+        hint.Text = session.ImportUberFile(file, path.Split('/')[0], out var made);
         Refresh(made);
     }
 

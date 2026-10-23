@@ -1,0 +1,20 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PipeDream.Ui.UberFileWindow"
+        Width="420" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
+  <StackPanel Margin="16" Spacing="12">
+    <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+      <TextBlock Text="Kind" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}"/>
+      <ComboBox x:Name="FolderBox" Grid.Column="1" HorizontalAlignment="Stretch" SelectionChanged="OnFolder"/>
+      <TextBlock Grid.Row="1" Text="Name" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}"/>
+      <TextBox x:Name="NameBox" Grid.Row="1" Grid.Column="1" Watermark="waves"/>
+    </Grid>
+    <TextBlock x:Name="About" TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource TextDimBrush}"/>
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="Cancel" Click="OnCancel" IsCancel="True"/>
+      <Button Content="OK" Click="OnOk" IsDefault="True"/>
+    </StackPanel>
+  </StackPanel>
+</Window>

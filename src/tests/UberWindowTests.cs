@@ -50,6 +50,27 @@ public class UberWindowTests
     }
 
     [Avalonia.Headless.XUnit.AvaloniaFact]
+    public void a_new_file_is_placed_by_picking_its_kind_not_typing_a_folder()
+    {
+        var w = new UberFileWindow("New UberASM file");
+        w.Show();
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        var kinds = w.GetControl<ComboBox>("FolderBox");
+        Assert.Equal(["Level code", "Game mode code", "Overworld code", "Library", "Shared routine", "Other"], kinds.ItemsSource!.Cast<string>());
+        kinds.SelectedIndex = 3;
+        Assert.StartsWith("Shared code or data", w.GetControl<TextBlock>("About").Text);
+        w.GetControl<TextBox>("NameBox").Text = "math";
+        w.GetLogicalDescendants().OfType<Button>().First(b => b.Content as string == "OK").RaiseEvent(Click);
+        Assert.Equal("library/math", w.Result);                                        // NewUberFile adds the .asm
+
+        var import = new UberFileWindow("Import as", "waves.asm");
+        import.Show();
+        Assert.True(import.GetControl<TextBox>("NameBox").IsReadOnly);                // an imported file keeps its name
+        import.GetLogicalDescendants().OfType<Button>().First(b => b.Content as string == "OK").RaiseEvent(Click);
+        Assert.Equal("level/waves.asm", import.Result);
+    }
+
+    [Avalonia.Headless.XUnit.AvaloniaFact]
     public void the_window_lists_files_and_each_kinds_lines()
     {
         if (!File.Exists(ReferenceRoms.Vanilla)) return;
