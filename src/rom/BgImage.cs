@@ -99,6 +99,34 @@ public static class BgImage
         => row < VanillaRows ? (col / 16) * VanillaStride + row * 16 + (col & 0x0F)
                              : ExtraBase + (col / 16) * ((CustomRows - VanillaRows) * 16) + (row - VanillaRows) * 16 + (col & 0x0F);
 
+    /// <summary>
+    /// Give LM's five extra rows a picture when nothing has painted them (every cell still the loader's <see cref="Blank"/>):
+    /// the game shows rows 27-28 below the background when it scrolls down and 29-31 above it when it scrolls up (the layer
+    /// wraps at 32), so 27-28 repeat row 26 and 29-31 repeat row 0. Left as Blank they were the bottom's fill tile, a striped
+    /// band above the sky. Painted rows are kept. Both planes, in place.
+    /// </summary>
+    public static void ExtendRows(byte[] low, byte[] page)
+    {
+        for (int c = 0; c < 32; c++)
+            for (int r = VanillaRows; r < CustomRows; r++)
+                if (low[Cell(c, r)] != Blank) return;
+        for (int c = 0; c < 32; c++)
+            for (int r = VanillaRows; r < CustomRows; r++)
+            {
+                int from = Cell(c, r < 29 ? VanillaRows - 1 : 0), to = Cell(c, r);
+                low[to] = low[from];
+                page[to] = page[from];
+            }
+    }
+
+    /// <summary><see cref="ExtendRows(byte[], byte[])"/> on whole tile numbers (page in bit 8).</summary>
+    public static ushort[] ExtendRows(ushort[] tiles)
+    {
+        var (low, page) = Split(tiles);
+        ExtendRows(low, page);
+        return Join(low, page);
+    }
+
     /// <summary>How many rows a level's background repeats every, going down: 32 when it is (or the build will make it) LM's
     /// custom kind, whose 512-pixel height is the game's own wrap; vanilla's 27 otherwise.</summary>
     public static int Period(Rom rom, int level)

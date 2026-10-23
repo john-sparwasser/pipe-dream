@@ -31,6 +31,25 @@ public class BgImageTests
     }
 
     [Fact]
+    public void unpainted_extra_rows_repeat_the_edges_and_painted_ones_stay()
+    {
+        var low = new byte[BgImage.Tiles];
+        var page = new byte[BgImage.Tiles];
+        Array.Fill(low, BgImage.Blank);
+        for (int c = 0; c < 32; c++) { low[BgImage.Cell(c, 0)] = 1; low[BgImage.Cell(c, 26)] = 2; page[BgImage.Cell(c, 26)] = 1; }
+        BgImage.ExtendRows(low, page);
+        Assert.Equal(2, low[BgImage.Cell(7, 28)]);                                         // below the bottom: row 26
+        Assert.Equal(1, page[BgImage.Cell(7, 28)]);
+        Assert.Equal(1, low[BgImage.Cell(20, 29)]);                                        // above the top: row 0
+
+        low[BgImage.Cell(3, 30)] = 9;                                                      // painted: left alone
+        for (int c = 0; c < 32; c++) low[BgImage.Cell(c, 27)] = BgImage.Blank;
+        var before = (byte[])low.Clone();
+        BgImage.ExtendRows(low, page);
+        Assert.Equal(before, low);
+    }
+
+    [Fact]
     public void round_trips_runs_literals_and_a_mixture()
     {
         void Trip(byte[] tiles)

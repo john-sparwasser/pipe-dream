@@ -59,7 +59,8 @@ public static class LevelParser
                  ? BgImage.Join(cLow, cPage) : null;
 
         int lo16 = rom.Layer2Pointer(number) & 0xFFFF;
-        return BgImage.WithPage(BgImage.Decode(rom, lo16, out _), BgImage.PageFor(lo16));
+        // The five rows past the stream are what the build's custom background will show; give them its default picture.
+        return BgImage.ExtendRows(BgImage.WithPage(BgImage.Decode(rom, lo16, out _), BgImage.PageFor(lo16)));
     }
 
     /// <summary>Parse an encoded stream buffer (5-byte header + objects + FF) — the

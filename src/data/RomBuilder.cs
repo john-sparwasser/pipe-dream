@@ -559,6 +559,7 @@ internal static class RomBuilder
         {
             // Each cell's own page rides across — a tile painted from the other page builds as
             // that tile (§10b's plane); the re-layout is vanilla's 0x1B0 stride to LM's 0x200.
+            BgImage.ExtendRows(low, pages);                  // the five rows the game wraps into view, unless painted
             var planes = BgImage.ToCustomPlanes(low, pages);
             int snes = AllocateAutoExpand(rom, BgImage.EncodeCustom(planes));
             rom.SetLayer2Pointer(level, snes);
