@@ -52,8 +52,21 @@ public sealed partial class EditorSession
 
     public void SetEmulator(string? path)
     {
-        Config.EmulatorPath = path;
+        Config.EmulatorPath = path is null ? null : AppProgram(path);
         SaveConfig();
+    }
+
+    /// <summary>A macOS app bundle ("/Applications/Mesen.app", a folder) as the program inside it, which is what can be started
+    /// with the ROM as its argument; anything else as it is.</summary>
+    internal static string AppProgram(string path)
+    {
+        if (!path.TrimEnd('/').EndsWith(".app", StringComparison.OrdinalIgnoreCase) || !Directory.Exists(path)) return path;
+        string macos = Path.Combine(path, "Contents", "MacOS");
+        string named = Path.Combine(macos, Path.GetFileNameWithoutExtension(path.TrimEnd('/')));
+        if (File.Exists(named)) return named;
+        return Directory.Exists(macos)
+            ? Directory.EnumerateFiles(macos).FirstOrDefault(f => Path.GetExtension(f) is "" && !f.EndsWith(".dsym", StringComparison.OrdinalIgnoreCase)) ?? path
+            : path;
     }
 
     /// <summary>File → Run in emulator (F4), Lunar Magic's habit: build, then launch the ROM in
@@ -66,7 +79,7 @@ public sealed partial class EditorSession
         Build();
         string rom = Path.Combine(Project.Folder, "build", Project.Name + ".smc");
         if (!File.Exists(rom)) return Status;                  // the build already said why
-        string? emu = Config.EmulatorPath;
+        string? emu = Config.EmulatorPath is { } set ? AppProgram(set) : null;
         if (emu is not null && !File.Exists(emu)) return $"emulator not found at {emu} — File → Preferences";
         if (emu is null && FindMesen() is { } found) { emu = found; SetEmulator(found); }
         if (emu is null) return "no emulator found — File → Preferences (Mesen.exe)";
@@ -80,9 +93,12 @@ public sealed partial class EditorSession
     }
 
     /// <summary>Mesen.exe where people keep it: next to the user's home, its installer's
-    /// %LOCALAPPDATA% folder, Program Files, or anywhere on PATH.</summary>
+    /// %LOCALAPPDATA% folder, Program Files, or anywhere on PATH; on a Mac, Mesen.app in /Applications or ~/Applications.</summary>
     private static string? FindMesen()
     {
+        if (OperatingSystem.IsMacOS())
+            foreach (string apps in new[] { "/Applications", Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Applications") })
+                if (AppProgram(Path.Combine(apps, "Mesen.app")) is var inside && File.Exists(inside)) return inside;
         string exe = OperatingSystem.IsWindows() ? "Mesen.exe" : "Mesen";
         var dirs = new List<string>
         {
