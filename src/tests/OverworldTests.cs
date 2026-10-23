@@ -812,7 +812,7 @@ public class OverworldTests(ITestOutputHelper log)
         // again, and one more Ctrl+Z pair walks back past the Add as well.
         clear.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
-        Assert.Empty(ow.EventSteps.Where(s => s.Event == ev));
+        Assert.DoesNotContain(ow.EventSteps, s => s.Event == ev);
         Assert.Empty(w.GetControl<StackPanel>("OwEventSteps").Children);
         Assert.False(clear.IsEnabled);
         w.KeyPressQwerty(PhysicalKey.Z, RawInputModifiers.Control);
@@ -821,7 +821,7 @@ public class OverworldTests(ITestOutputHelper log)
         Assert.Equal(had + 1, w.GetControl<StackPanel>("OwEventSteps").Children.Count);
         w.KeyPressQwerty(PhysicalKey.Y, RawInputModifiers.Control);
         Dispatcher.UIThread.RunJobs();
-        Assert.Empty(ow.EventSteps.Where(s => s.Event == ev));
+        Assert.DoesNotContain(ow.EventSteps, s => s.Event == ev);
         w.KeyPressQwerty(PhysicalKey.Z, RawInputModifiers.Control);
         w.KeyPressQwerty(PhysicalKey.Z, RawInputModifiers.Control);
         Dispatcher.UIThread.RunJobs();
@@ -1661,10 +1661,10 @@ public class OverworldTests(ITestOutputHelper log)
 
         ow.SpecialPassed = true;
         Assert.NotEqual(before, ow.PaletteOf(0).Bgr);                    // vanilla's autumn main map
-        Assert.Equal(Palette.LoadOverworld(s.Rom, 0, specialPassed: true).Bgr, ow.PaletteOf(0).Bgr);
+        Assert.Equal(Palette.LoadOverworld(s.Rom!, 0, specialPassed: true).Bgr, ow.PaletteOf(0).Bgr);
         int at = table + (1 + Overworld.Submaps) * 0x200 + 0x41 * 2;
         Assert.Equal(at, s.OwPaletteSource(1, 0x41));
-        Assert.True(Palette.IsOverworldColor(s.Rom, at));
+        Assert.True(Palette.IsOverworldColor(s.Rom!, at));
 
         ushort now = (ushort)(ow.PaletteOf(1).Bgr[0x41] ^ 0x1F);
         Assert.True(s.SetOwPaletteColor(1, 0x41, now));

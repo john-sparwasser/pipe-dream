@@ -171,7 +171,7 @@ public class BackgroundCustomTests(ITestOutputHelper log)
             s.ShowLevel(Level);
             Assert.NotNull(s.BgMap);
 
-            int origPtr = s.Rom.Layer2Pointer(Level);
+            int origPtr = s.Rom!.Layer2Pointer(Level);
             Assert.Equal(0xFF, origPtr >> 16);                       // vanilla background image
             BgImage.Decode(s.Rom, origPtr & 0xFFFF, out int wasBytes);
 

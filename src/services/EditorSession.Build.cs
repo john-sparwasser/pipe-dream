@@ -60,9 +60,10 @@ public sealed partial class EditorSession
     /// with the ROM as its argument; anything else as it is.</summary>
     internal static string AppProgram(string path)
     {
-        if (!path.TrimEnd('/').EndsWith(".app", StringComparison.OrdinalIgnoreCase) || !Directory.Exists(path)) return path;
-        string macos = Path.Combine(path, "Contents", "MacOS");
-        string named = Path.Combine(macos, Path.GetFileNameWithoutExtension(path.TrimEnd('/')));
+        string bundle = path.TrimEnd('/', Path.DirectorySeparatorChar);
+        if (!bundle.EndsWith(".app", StringComparison.OrdinalIgnoreCase) || !Directory.Exists(bundle)) return path;
+        string macos = Path.Combine(bundle, "Contents", "MacOS");
+        string named = Path.Combine(macos, Path.GetFileNameWithoutExtension(bundle));
         if (File.Exists(named)) return named;
         return Directory.Exists(macos)
             ? Directory.EnumerateFiles(macos).FirstOrDefault(f => Path.GetExtension(f) is "" && !f.EndsWith(".dsym", StringComparison.OrdinalIgnoreCase)) ?? path

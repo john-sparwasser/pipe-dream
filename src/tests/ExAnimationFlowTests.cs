@@ -113,9 +113,9 @@ public class ExAnimationFlowTests(ITestOutputHelper log) : IDisposable
         Assert.True(s.SetExAnim(global: false, [vb], 0), s.Status);
 
         // Read straight back out of the session ROM, at LM's own table.
-        Assert.Equal(0x600, Assert.Single(ExAnimation.ReadSubmap(s.Rom, 1)).OwSrcTile(0));   // as LM's dialog shows it
-        Assert.Equal(2, Assert.Single(ExAnimation.ReadSubmap(s.Rom, 4)).FrameCount);
-        foreach (int empty in new[] { 0, 2, 3, 5, 6 }) Assert.Empty(ExAnimation.ReadSubmap(s.Rom, empty));
+        Assert.Equal(0x600, Assert.Single(ExAnimation.ReadSubmap(s.Rom!, 1)).OwSrcTile(0));   // as LM's dialog shows it
+        Assert.Equal(2, Assert.Single(ExAnimation.ReadSubmap(s.Rom!, 4)).FrameCount);
+        foreach (int empty in new[] { 0, 2, 3, 5, 6 }) Assert.Empty(ExAnimation.ReadSubmap(s.Rom!, empty));
 
         Assert.Equal(["1", "4"], s.Project!.Data.ExAnimation.Submaps.Keys.OrderBy(k => k));
         Assert.True(s.Project.Data.ExAnimation.Levels.ContainsKey("105"));
@@ -158,7 +158,7 @@ public class ExAnimationFlowTests(ITestOutputHelper log) : IDisposable
         var s = new EditorSession();
         Assert.True(s.OpenRom(p));
         Assert.True(s.Rom!.LmExAnimBase > 0);
-        Assert.Equal(-1, s.Rom.LmOwExAnimBase);
+        Assert.Equal(-1, s.Rom!.LmOwExAnimBase);
         var slot = new ExAnimation.Slot(0, 1, ExAnimation.TriggerNone, 1, 0x0000, [0x7D00], 0);
 
         s.ExAnimSubmap = 2;

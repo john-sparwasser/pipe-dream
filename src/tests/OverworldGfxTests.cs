@@ -153,7 +153,7 @@ public class OverworldGfxTests(ITestOutputHelper log) : IDisposable
         }
 
         var vanilla = Run();
-        Assert.NotEmpty(vanilla.Where(w => w.Word < fg1Page));
+        Assert.Contains(vanilla, w => w.Word < fg1Page);
         log.WriteLine($"{vanilla.Count} words uploaded, pages "
                     + string.Join(" ", vanilla.Select(w => w.Word >> 11).Distinct().Order().Select(p => $"${p * 0x800:X4}")));
 

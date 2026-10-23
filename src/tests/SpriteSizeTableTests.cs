@@ -53,7 +53,7 @@ public class SpriteSizeTableTests : IDisposable
         var edit = new Services.SpriteEdit(sd, null, false) { EntrySize = rom.SpriteEntrySize };
         rom.SetSpriteEntrySize(0, 0x0F, 4);
         Assert.True(edit.Place(0x0F, 20, 10));
-        Assert.Equal(1, sd.Sprites[^1].ExtraBytes!.Length);
+        Assert.Single(sd.Sprites[^1].ExtraBytes!);
         Assert.Equal(sd, SpriteData.Parse(rom, 0x105) is var _ ? sd : sd);
     }
 

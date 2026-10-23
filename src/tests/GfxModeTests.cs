@@ -706,12 +706,12 @@ public class GfxModeTests(ITestOutputHelper log) : IDisposable
         Assert.Null(s.Rom!.LmLayer3Gfx(0x105));
 
         s.SetGfxSlot(15, 0x30);                                   // LG1 → GFX 30
-        Assert.Equal([0x30, 0x7F, 0x7F, 0x7F], s.Rom.LmLayer3Gfx(0x105)!);
-        Assert.Equal([0x30, 0x29, 0x2A, 0x2B], Layer3.GfxFiles(s.Rom, 0x105));
+        Assert.Equal([0x30, 0x7F, 0x7F, 0x7F], s.Rom!.LmLayer3Gfx(0x105)!);
+        Assert.Equal([0x30, 0x29, 0x2A, 0x2B], Layer3.GfxFiles(s.Rom!, 0x105));
         Assert.Equal(0x30, s.GfxBins.Single(b => b.Name == "LG1").File);
 
-        Assert.Null(s.Rom.LmGfxBypass(0x105));                    // the other bypass stays off
-        Assert.Null(s.Rom.LmLayer3Gfx(0x104));                    // and it is per level
+        Assert.Null(s.Rom!.LmGfxBypass(0x105));                    // the other bypass stays off
+        Assert.Null(s.Rom!.LmLayer3Gfx(0x104));                    // and it is per level
     }
 
     /// <summary>Clicking a bin opens it in the editor beside it — the selection and the edit are

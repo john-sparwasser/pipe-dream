@@ -61,7 +61,7 @@ public class Layer3VramBoundsTests(ITestOutputHelper log)
         Assert.NotEmpty(l3);
         Assert.All(l3, w => Assert.InRange(w.Word, L3CharLo, L3MapLo - 1));
         // ...and nothing at all in layer 1's tilemap.
-        Assert.Empty(cpu.VramWrites!.Where(w => w.Word >= L1MapLo));
+        Assert.DoesNotContain(cpu.VramWrites!, w => w.Word >= L1MapLo);
     }
 
     /// <summary>
