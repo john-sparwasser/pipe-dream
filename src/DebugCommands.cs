@@ -10,6 +10,9 @@ static class DebugCommands
     {
         ("--selfcheck",         (_, _) => SelfCheck()),
         ("--asarcheck",         (_, _) => AsarCheck()),
+        // --asarpatch <rom> <patch.asm> : apply a patch from disk with our Asar, in place, and print
+        // every block it wrote (PC and SNES) — how a bundled patch's footprint is measured (reference/SA1_PORT.md).
+        ("--asarpatch",         (a, i) => AsarPatch(a[i + 1], a[i + 2])),
         ("--newproject",        NewProject),
         ("--prep",              (a, i) => PrepRom(a[i + 1], a.Length > i + 2 ? int.Parse(a[i + 2]) : RomPrep.Version)),
         ("--buildproject",      BuildProject),
@@ -181,6 +184,21 @@ static class DebugCommands
         bool ok = r.Ok && rom.Data[rom.HeaderOffset] == 0x42;
         Console.WriteLine(ok ? "asar: ok" : "asar: patch failed: " + string.Join("; ", r.Errors));
         return ok ? 0 : 1;
+    }
+
+    public static int AsarPatch(string romPath, string asmPath)
+    {
+        if (!Asar.Available) { Console.Error.WriteLine("asar: library not found, or not API 3.3+"); return 1; }
+        var rom = Rom.Load(romPath);
+        var r = Asar.Patch(rom, asmPath);
+        foreach (var w in r.Warnings) Console.WriteLine("warning: " + w);
+        foreach (var e in r.Errors) Console.WriteLine("error: " + e);
+        if (!r.Ok) return 1;
+        File.WriteAllBytes(romPath, rom.Data);
+        foreach (var b in r.Blocks.OrderBy(b => b.Snes)) Console.WriteLine($"block {b.Snes:X6} {b.Length}");
+        var saved = Rom.Load(romPath);      // a Rom reads its header once, at load
+        Console.WriteLine($"patched {romPath}: map mode {saved.MapModeName}, {saved.ActualRomSize / 1024}KB, {r.Blocks.Length} block(s)");
+        return 0;
     }
 
     // --owpng <rom> <out.png> [window] : the overworld canvas, 512x1024, for eyeballing the reader;
