@@ -38,6 +38,16 @@ public sealed class Sa1OwExAnimSaveFactAttribute : Sa1LevelSaveFactAttribute
     }
 }
 
+public sealed class Sa1FourBppSaveFactAttribute : Sa1LevelSaveFactAttribute
+{
+    public Sa1FourBppSaveFactAttribute()
+    {
+        if (Skip != null) return;
+        foreach (var p in new[] { ReferenceRoms.FourBpp1, ReferenceRoms.Sa1FourBppSave })
+            if (!File.Exists(p)) { Skip = "not present: " + p; return; }
+    }
+}
+
 /// <summary>
 /// Lunar Magic's SA-1 forms (reference/SA1_PORT.md, phase 2): the pinned diffs are what the oracles
 /// say, the SA-1 form never writes a vanilla byte over the pack's, and the image ApplySa1 leaves
@@ -111,6 +121,19 @@ public class Sa1FormsTests
         Assert.Empty(report);
         Assert.Equal(Tokens(generated), Tokens(LmSa1Forms.OwExAnimSave));
         Assert.DoesNotContain(Tokens(generated), t => t.StartsWith($"{LmOwExAnimEngine.EngineSnes + LmOwExAnimEngine.Sa1TrampolineOperand:X6}="));
+    }
+
+    /// <summary>The $0093F7 hook's operand is no token: LM's NMI wait lands at another address on each
+    /// base, and ours names our own copy.</summary>
+    [Sa1FourBppSaveFact]
+    public void the_4bpp_save_diff_regenerates_from_the_oracle()
+    {
+        var (cleanPack, wrote) = CleanPack();
+        var report = new List<string>();
+        var generated = LmSa1Forms.GenerateFourBpp(Rom.Load(ReferenceRoms.Vanilla), Rom.Load(ReferenceRoms.FourBpp1), Rom.Load(ReferenceRoms.Sa1FourBppSave), cleanPack, wrote, Remap(), report);
+        Assert.Empty(report);
+        Assert.Equal(Tokens(generated), Tokens(LmSa1Forms.FourBppSave));
+        Assert.DoesNotContain(Tokens(generated), t => t.StartsWith("0093F8="));
     }
 
     private static string[] Tokens(string s) => s.Split((char[])[' ', '\n', '\r', '\t'], StringSplitOptions.RemoveEmptyEntries);
@@ -194,7 +217,8 @@ public class Sa1FormsTests
     /// ApplySa1: the pack's relocated JML at $02ABF3 survives, LM's hook at $05D9A1 still names our
     /// block, LM's grown routine sits at $0DE1F0 with its marker at $0DE20C, the bank-$1F engine
     /// reads the moved RAM, the ExAnimation setup hook names our engine and the engine calls our
-    /// trampoline, and the overworld engine is hooked, reads the moved RAM and calls the same trampoline.</summary>
+    /// trampoline, the overworld engine is hooked, reads the moved RAM and calls the same trampoline, and
+    /// bank 04 reads the overworld sprite tables at the pack's $4188xx.</summary>
     [Sa1LevelSaveFact]
     public void apply_sa1_leaves_the_image_the_first_boot_needed()
     {
@@ -221,6 +245,8 @@ public class Sa1FormsTests
             Assert.Equal(Convert.ToHexString(owHook), Convert.ToHexString(rom.Data.AsSpan(rom.FileOffset(snes), owHook.Length)));
         Assert.Equal(LmExAnimEngine.Sa1TrampolineSnes, rom.ReadValue(LmOwExAnimEngine.EngineSnes + LmOwExAnimEngine.Sa1TrampolineOperand, 3));
         Assert.Equal(0x6DB3, rom.ReadValue(LmOwExAnimEngine.EngineSnes + 3, 2));          // LDX $6DB3, the current player where the pack moved it
+        Assert.Equal(0x4188, rom.ReadValue(0x04F2B8, 2));                         // the OW sprite tables where the pack moved them, not LM's LoROM $7FC5xx
+        Assert.Equal(0x4189, rom.ReadValue(0x04F2E7, 2));
     }
 
     private static Sa1Remap Remap() => Sa1Remap.FromSpriteTables(File.ReadAllText(Path.Combine(ReferenceRoms.Sa1Pack, "more_sprites", "sprite_tables.asm")));

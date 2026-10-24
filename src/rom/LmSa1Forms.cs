@@ -192,12 +192,25 @@ internal static class LmSa1Forms
         1EAFA8=67 1EB025=67 1EB095=67 1EB0E4=67 1EB0F5=7F
         """;
 
+    /// <summary>From `.resources/sa1/lm-sa1-4bpp.smc`: clean + pack, its GFX exported and re-imported
+    /// and GFX00 imported as ExGFX100 by LM 3.40's command line, which installs LM's 4bpp mode. Against
+    /// gfx4bpp_1.smc, the same on vanilla. Two RAM moves in the filter body ($1Bxx → $7Bxx), and the
+    /// 21 overworld sprite-table operands of V13 dropped: on LoROM LM moves the tables from $7EB9xx to
+    /// $7FC5xx, past the 4bpp file's overrun of the buffer; the pack has already moved them to
+    /// $4188xx, which the overrun never reaches and the SA-1 CPU can read, and LM leaves the pack's
+    /// operands standing. Pinned by Sa1FormsTests.</summary>
+    public const string FourBppSave = """
+        00AB17=7B 00AB2D=7B 04F2B8=.. 04F2BF=.. 04F2C6=.. 04F2CD=.. 04F2D3=.. 04F2D7=..
+        04F2E0=.. 04F2E7=.. 04F2ED=.. 04F32D=.. 04F33C=.. 04F340=.. 04F345=.. 04F39F=..
+        04F3A8=.. 04F3AC=.. 04F3B0=.. 04F3C1=.. 04F3C5=.. 04F3CB=.. 04F3CF=..
+        """;
+
     // ---------------------------------------------------------------- apply
 
     /// <summary>Play every diff onto an SA-1 overlay (PC → byte): set the bytes, drop the dropped.</summary>
     public static void Apply(Dictionary<int, byte> overlay)
     {
-        foreach (var (snes, bytes, dropped) in Parse(LevelSave).Concat(Parse(ExAnimSave)).Concat(Parse(OwExAnimSave)))
+        foreach (var (snes, bytes, dropped) in Parse(LevelSave).Concat(Parse(ExAnimSave)).Concat(Parse(OwExAnimSave)).Concat(Parse(FourBppSave)))
         {
             int pc = Rom.SnesToPc(snes);
             if (bytes != null) for (int i = 0; i < bytes.Length; i++) overlay[pc + i] = bytes[i];
@@ -251,9 +264,9 @@ internal static class LmSa1Forms
         yield return ("secondary entrance routine", Kind.Plain, RomPrep.LmSecondaryRoutine, Len(RomPrep.LmSecondaryRoutine), 0);
         yield return ("acts-like core", Kind.Plain, RomPrep.LmActsCore, Len(RomPrep.LmActsCore), 0);
         yield return ("Map16 ladder", Kind.Plain, RomPrep.LmMap16LadderSnes, Len(RomPrep.LmMap16LadderSnes), 0);
-        // LM's 4bpp-mode install, which a plain save does not make: the oracle shows only which of its
-        // bytes are vanilla's under the pack's remap ($00A8A1), to drop; LM's own 4bpp bytes wait on
-        // that oracle and stay LoROM until then.
+        // LM's 4bpp-mode install, which a plain save does not make: this oracle shows only which of its
+        // bytes are vanilla's under the pack's remap ($00A8A1), to drop; LM's own 4bpp bytes come from
+        // the 4bpp oracle (FourBppSave).
         foreach (int s in new[] { 0x00A897, 0x00AB0B, 0x00B895 })
             yield return ($"4bpp edit {s:X6}", Kind.Plain, s, Len(s), 0);
     }
@@ -286,6 +299,32 @@ internal static class LmSa1Forms
     }
 
     /// <summary>
+    /// What LM's 4bpp mode installs, which a GFX + ExGFX import makes: every stamp of ours, clipped to
+    /// the bytes <paramref name="gfx4bpp"/> changed against <paramref name="vanilla"/>. Only the code
+    /// banks: from $088000 on the import writes the GFX files themselves, which are data. A stamp's
+    /// bytes the import leaves alone are not LM's to set, and LM's loader and blocks that our own
+    /// stand in for are not stamped at its addresses, so neither is a piece.
+    /// </summary>
+    private static IEnumerable<(string Name, Kind Kind, int Snes, int Length, int BaseSnes)> FourBppPieces(
+        List<(int Pc, byte[] Bytes)> stamps, Rom vanilla, Rom gfx4bpp)
+    {
+        foreach (var (pc, bytes) in stamps)
+        {
+            if (Rom.PcToSnes(pc) >= 0x088000) continue;
+            for (int i = 0; i < bytes.Length;)
+            {
+                if (gfx4bpp.ReadByte(Rom.PcToSnes(pc + i)) == vanilla.ReadByte(Rom.PcToSnes(pc + i))) { i++; continue; }
+                int start = i;
+                while (i < bytes.Length && gfx4bpp.ReadByte(Rom.PcToSnes(pc + i)) != vanilla.ReadByte(Rom.PcToSnes(pc + i))) i++;
+                // a run that opens on a JSL/JML is a hook: $0093F7's target is our copy of LM's NMI wait
+                // ($13C608), and LM's own lands elsewhere on each base, its low byte equal to ours by chance
+                var kind = bytes[start] is 0x22 or 0x5C ? Kind.Hook : Kind.Plain;
+                yield return ($"4bpp {Rom.PcToSnes(pc + start):X6}", kind, Rom.PcToSnes(pc + start), i - start, 0);
+            }
+        }
+    }
+
+    /// <summary>
     /// The diff for <see cref="LevelSave"/>, from the oracle. <paramref name="after"/> is LM's LoROM
     /// save (after.smc), <paramref name="oracle"/> its SA-1 save, <paramref name="cleanPack"/> the
     /// pack on a clean ROM and <paramref name="packWrote"/> the PCs it wrote there. A block not found
@@ -303,6 +342,11 @@ internal static class LmSa1Forms
     /// overworld ExAnimation install (ow_exanim_1.smc), <paramref name="oracle"/> its SA-1 one.</summary>
     public static string GenerateOwExAnim(Rom owExAnim1, Rom oracle, Rom cleanPack, IReadOnlySet<int> packWrote, Sa1Remap remap, List<string> report)
         => Generate(_ => OwExAnimPieces(owExAnim1), owExAnim1, oracle, cleanPack, packWrote, remap, report);
+
+    /// <summary>The diff for <see cref="FourBppSave"/>: <paramref name="gfx4bpp"/> is LM's LoROM 4bpp
+    /// install (gfx4bpp_1.smc), <paramref name="oracle"/> its SA-1 one.</summary>
+    public static string GenerateFourBpp(Rom vanilla, Rom gfx4bpp, Rom oracle, Rom cleanPack, IReadOnlySet<int> packWrote, Sa1Remap remap, List<string> report)
+        => Generate(stamps => FourBppPieces(stamps, vanilla, gfx4bpp), gfx4bpp, oracle, cleanPack, packWrote, remap, report);
 
     /// <summary>One diff: every piece decided byte by byte, by the three rules. <paramref name="after"/>
     /// is the LoROM save the pieces' LM bytes come from, <paramref name="oracle"/> the SA-1 save;

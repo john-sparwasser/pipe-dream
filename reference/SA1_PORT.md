@@ -177,14 +177,15 @@ LM's SA-1 byte all differ.
 pack's bytes, so the SA-1 stamp list must omit it (rule 1's "the pack's" byte).
 
 **Still LoROM in the booting image, to be fixed before it is called done:**
-- LM's 4bpp-mode install (`RomPrep.Stamps.cs` V?? "what LM writes": `$00A897` `STA $0BF6,X`,
-  `$00AB0B` `$1BB2,X`, `$00B895` `LDA #$7E : STA $02`) — needs the 4bpp oracle, not a sweep.
+- ~~LM's 4bpp-mode install (`$00A897` `STA $0BF6,X`, `$00AB0B` `$1BB2,X`, `$00B895` `LDA #$7E :
+  STA $02`) — needs the 4bpp oracle, not a sweep.~~ Done (below).
 - ~~The ExAnimation engines (level and overworld) — LM installs them on use; needs that oracle.~~
   Both done (below).
 - The midway routine (`$13BC00`), OW palette engine (`$13C508`/`$13C800`), layer 3 — as planned.
-- Our own overworld code keeps `LDA $7Fxxxx,Y` where the pack moved vanilla's `$7E` to `$41`
+- ~~Our own overworld code keeps `LDA $7Fxxxx,Y` where the pack moved vanilla's `$7E` to `$41`
   (64 bytes at `$04F2B8-$04F3D0`): the overworld runs on the SA-1 CPU under the pack, which
-  cannot read `$7F`. Boots, but the map is not yet trusted.
+  cannot read `$7F`.~~ Done: these were LM's 4bpp-mode operands, and on SA-1 LM leaves the pack's
+  `$4188xx` standing (below).
 
 **Implemented (2026-10-24):** `RomPrep.ApplySa1` is overlay-based and follows the three rules:
 `LmSa1Forms` carries LM's SA-1 forms as a diff from the LoROM stamps (`SNES=HEX` sets bytes,
@@ -261,6 +262,32 @@ decompresses into bank `$40`, `$05DCD0` reads `$6109`, and a `JSL $0FFB20` at `$
 on SA-1. Nothing of ours depends on them. A hack LM saved on LoROM carries them in LoROM form,
 which matters for phase 1's switch: turning SA-1 on under an existing hack needs them in SA-1 form,
 from the same oracle.
+
+## Phase 2 findings (2026-10-24, later): LM's 4bpp mode on SA-1
+
+LM installs its 4bpp mode on an import, not a save: on its command line `-ExportGFX`, `-ImportGFX`,
+then GFX00 back as `ExGraphics/ExGFX100.bin` with `-ImportExGFX`. Run on vanilla that is
+`.resources/gfx4bpp_1.smc`; run on clean + pack it is `.resources/sa1/lm-sa1-4bpp.smc`, the oracle.
+Both travel as fixtures. LM writes the same pieces at the same addresses on both, with one
+exception, and `--sa1lmforms` generates `LmSa1Forms.FourBppSave` from the pair (pieces: our stamps
+clipped to the bytes the import changed below `$088000`), pinned by `Sa1FormsTests`:
+
+- **The overworld sprite tables stay where the pack put them.** On LoROM, LM moves bank 04's
+  21 operands from `$7EB9xx`/`$7EBAxx` to `$7FC5xx`/`$7FC6xx`, out of the 4bpp file's overrun of
+  the buffer (V13 carries this). The pack has already moved them to `$4188xx`/`$4189xx`, and on SA-1
+  LM leaves the pack's operands standing, so the diff drops all 21 (rule 3). These were the "`$7F`
+  reads" in the overworld code above: the overworld runs on the SA-1 CPU, which cannot reach `$7F`.
+  The tables belong to the switch-palace cutscene (`$04F290`, triggered by `$13D2`: the eight "!"
+  blocks fly out of the palace). Measured in Mesen by writing `$13D2` on the map at frame 2400 and
+  counting on-screen OAM entries 10/30/60 frames later: LoROM 33/41/45, the fixed SA-1 build
+  33/40/45, the SA-1 build before the fix 25/25/25, which is no blocks at all.
+- **Two RAM moves** in LM's filter body: `$00AB17`, `$00AB2D` read `$7Bxx` where LoROM reads `$1Bxx`.
+- **No other change.** `$00B895` keeps `LDA #$7E` on SA-1 as well, `$00A897` is vanilla's on both
+  (its `$00A8A1` operand was already dropped by the level save), and the import's NMI-wait hook at
+  `$0093F7` is ours. LM allocates its routine at a different address on each base (`$108008`,
+  `$10C5D2`); the bytes are identical in both, and ours is at `$13C608`. Because the LoROM
+  address's low byte matches ours, a hook run is taken as `Kind.Hook`, so the operand is never
+  compared.
 
 **How the crash was found (Mesen, headless, one byte per run):** game mode and frame counter at
 `$6100`/`$3013`; exec callbacks over the whole bus with `emu.cpuType.snes`/`sa1`; the *last ROM

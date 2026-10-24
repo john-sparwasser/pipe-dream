@@ -50,6 +50,10 @@ internal static class ReferenceRoms
     /// on vanilla its LoROM install.</summary>
     internal static string Sa1OwExAnimSave => Resource(Path.Combine("sa1", "lm-sa1-ow-exanim.smc"));
     internal static string OwExAnim1 => Resource("ow_exanim_1.smc");
+    /// <summary>LM 3.40's command line, `-ExportGFX`, `-ImportGFX`, then GFX00 back as ExGFX100 with
+    /// `-ImportExGFX`: on clean + pack the oracle for LM's SA-1 4bpp mode, on vanilla its LoROM install.</summary>
+    internal static string Sa1FourBppSave => Resource(Path.Combine("sa1", "lm-sa1-4bpp.smc"));
+    internal static string FourBpp1 => Resource("gfx4bpp_1.smc");
     /// <summary>A 4MB SA-1 hack saved by Lunar Magic: its SA-1 forms of LM's routines are the oracle
     /// for <see cref="Sa1Remap"/> (reference/SA1_PORT.md).</summary>
     internal static string Sgdq2024 => InProject("Secret", Path.Combine("workspace", "sgdq2024.smc"));
