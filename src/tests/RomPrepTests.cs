@@ -649,9 +649,12 @@ public class RomPrepTests
         Assert.Equal(Bytes(shao, RomPrep.LmActsCore, 0x60), Bytes(ours, RomPrep.LmActsCore, 0x60));
         Assert.Equal(0x01104D4C, ours.ReadValue(RomPrep.LmActsMarker, 4));      // "LM 10 01"
         Assert.Equal(RomPrep.ActsTableSnes >> 16, ours.ReadByte(RomPrep.LmActsTableOperand));
-        // The Map16 hack's OWN marker stays absent: claiming it makes LM manage the extended-def
-        // block and free ours (see AppendV26Stamps).
-        Assert.NotEqual(0x01124D4C, ours.ReadValue(RomPrep.LmMap16Marker, 4));
+        // The Map16 hack's OWN marker stays absent through v30: claiming it makes LM manage the
+        // extended-def block and free ours (see AppendV26Stamps). V31 claims it on purpose, at
+        // 3.40's version, as the custom-block dispatch's marker (see AppendV31Stamps).
+        var v30 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v30, 30);
+        Assert.NotEqual(0x01124D4C, v30.ReadValue(RomPrep.LmMap16Marker, 4));
+        Assert.Equal(0x01124D4C, ours.ReadValue(RomPrep.LmMap16Marker, 4));
     }
 
     /// <summary>...and our remap is out from under it, with the four `JSL $00F545` sites naming the
