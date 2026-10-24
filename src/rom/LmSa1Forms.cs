@@ -29,7 +29,7 @@ internal static class LmSa1Forms
 {
     /// <summary>The prep version the diff was generated against. ApplySa1 refuses another: a stamp
     /// list that changed needs the diff regenerated and re-pinned.</summary>
-    public const int PrepVersion = 34;
+    public const int PrepVersion = 35;
 
     /// <summary>From `.resources/sa1/lm-sa1.smc`: clean + SA-1 Pack v1.40, one level saved by Lunar
     /// Magic 3.40 — the bank-$1F engine, the level-entry blocks and hooks, the fixed blocks and
@@ -165,12 +165,29 @@ internal static class LmSa1Forms
         1FB2E7=66 1FB2F0=66 1FB2F3=66
         """;
 
+    /// <summary>From `.resources/sa1/lm-sa1-exanim.smc`: the SA-1 base `--sa1prep` leaves, with one
+    /// ExAnimation slot saved into level 105 by LM 3.40 (`Invoke-LmGui.ps1 -Action SaveExAnim`, the
+    /// slot exanim_1 has). ApplySa1 unhooks the engine first, so LM installs its SA-1 engine fresh:
+    /// the engine, its two helpers and the seven hooks, against exanim_1's LoROM copies — the bytes
+    /// LmExAnimEngine relocated. RAM operands moved ($0Dxx → $6Dxx, $14 → $74, $7FC0xx stays), the
+    /// direct page set to $3000, one branch shortened, and the second stub call made `JSL $7FC020`;
+    /// the first names our trampoline and is the engine's own SA-1 form. The hooks are LM's LoROM
+    /// ones but for their targets. Pinned by Sa1FormsTests.</summary>
+    public const string ExAnimSave = """
+        1E955C=6D 1E955F=6D 1E9562=6D 1E9567=79 1E958B=6D 1E9593=6D 1E959D=6D 1E95A5=6D
+        1E95AF=6D 1E95BC=6D 1E95C3=6D 1E9831=49 1E987D=30 1E98D9=6D 1E98DC=6D 1E98DF=6D
+        1E9AB6=74 1E9B0C=69 1E9B15=67 1E9B19=69 1E9B35=69 1E9B44=67 1E9B5B=69 1E9B85=67
+        1E9B92=20C07F 1E9BE7=69 1E9BF4=67 1E9C71=69 1E9C7A=67 1E9CA2=74 1E9CDF=67 1E9CE3=69
+        1E9CE8=74 1E9CED=74 1E9CF2=74 1E9CF7=74 1E9CFC=6F 1E9D05=74 1E9D76=6F 1E9E5F=74
+        1EA042=6D
+        """;
+
     // ---------------------------------------------------------------- apply
 
     /// <summary>Play every diff onto an SA-1 overlay (PC → byte): set the bytes, drop the dropped.</summary>
     public static void Apply(Dictionary<int, byte> overlay)
     {
-        foreach (var (snes, bytes, dropped) in Parse(LevelSave))
+        foreach (var (snes, bytes, dropped) in Parse(LevelSave).Concat(Parse(ExAnimSave)))
         {
             int pc = Rom.SnesToPc(snes);
             if (bytes != null) for (int i = 0; i < bytes.Length; i++) overlay[pc + i] = bytes[i];
@@ -232,17 +249,46 @@ internal static class LmSa1Forms
     }
 
     /// <summary>
+    /// What an ExAnimation save installs: the engine and its helpers as LM wrote them into exanim_1
+    /// (the copies LmExAnimEngine relocated into bank $1E), and the hooks. The three hooks that are a
+    /// bare JSL operand are not listed: every byte of them is ours. The per-level table is data.
+    /// </summary>
+    private static IEnumerable<(string Name, Kind Kind, int Snes, int Length, int BaseSnes)> ExAnimPieces()
+    {
+        yield return ("ExAnimation engine", Kind.Block, LmExAnimEngine.EngineSnes, LmExAnimEngine.Engine().Length, LmExAnimEngine.SourceSnes);
+        yield return ("ExAnimation MVN helper", Kind.Block, LmExAnimEngine.MvnSnes, LmExAnimEngine.Mvn().Length, LmExAnimEngine.SourceMvnSnes);
+        yield return ("ExAnimation clear helper", Kind.Block, LmExAnimEngine.ClearSnes, LmExAnimEngine.Clear().Length, LmExAnimEngine.SourceClearSnes);
+        foreach (var (s, b) in LmExAnimEngine.Hooks())
+            if (b.Length > 3) yield return ($"ExAnimation hook {s:X6}", Kind.Hook, s, b.Length, 0);
+    }
+
+    /// <summary>
     /// The diff for <see cref="LevelSave"/>, from the oracle. <paramref name="after"/> is LM's LoROM
     /// save (after.smc), <paramref name="oracle"/> its SA-1 save, <paramref name="cleanPack"/> the
     /// pack on a clean ROM and <paramref name="packWrote"/> the PCs it wrote there. A block not found
     /// in the oracle goes to <paramref name="report"/>; a pinned diff has none.
     /// </summary>
-    public static string Generate(Rom after, Rom oracle, Rom cleanPack, IReadOnlySet<int> packWrote, List<string> report)
+    public static string Generate(Rom after, Rom oracle, Rom cleanPack, IReadOnlySet<int> packWrote, Sa1Remap remap, List<string> report)
+        => Generate(Pieces, after, oracle, cleanPack, packWrote, remap, report);
+
+    /// <summary>The diff for <see cref="ExAnimSave"/>: <paramref name="exanim1"/> is LM's LoROM
+    /// ExAnimation install (exanim_1.smc), <paramref name="oracle"/> its SA-1 one.</summary>
+    public static string GenerateExAnim(Rom exanim1, Rom oracle, Rom cleanPack, IReadOnlySet<int> packWrote, Sa1Remap remap, List<string> report)
+        => Generate(_ => ExAnimPieces(), exanim1, oracle, cleanPack, packWrote, remap, report);
+
+    /// <summary>One diff: every piece decided byte by byte, by the three rules. <paramref name="after"/>
+    /// is the LoROM save the pieces' LM bytes come from, <paramref name="oracle"/> the SA-1 save;
+    /// <paramref name="remap"/> builds our own SA-1 form of the stamps, whose bytes are never LM's to set.</summary>
+    private static string Generate(Func<List<(int Pc, byte[] Bytes)>, IEnumerable<(string Name, Kind Kind, int Snes, int Length, int BaseSnes)>> pieces,
+                                   Rom after, Rom oracle, Rom cleanPack, IReadOnlySet<int> packWrote, Sa1Remap remap, List<string> report)
     {
         var stamps = RomPrep.BuildStamps(PrepVersion);
         var lorom = new Dictionary<int, byte>();
         foreach (var (pc, bytes) in stamps)
             for (int i = 0; i < bytes.Length; i++) lorom[pc + i] = bytes[i];
+        var ours = new Dictionary<int, byte>();
+        foreach (var (pc, bytes) in RomPrep.Sa1Stamps(PrepVersion, remap))
+            for (int i = 0; i < bytes.Length; i++) ours[pc + i] = bytes[i];
 
         var set = new SortedDictionary<int, byte?>();    // our pc → byte, or null = dropped
         void Decide(string name, int ourSnes, int baseSnes, int theirsSnes, int i)
@@ -252,11 +298,12 @@ internal static class LmSa1Forms
             if (t == b) return;
             byte o = lorom.TryGetValue(pc, out var ov) ? ov : b;          // past a stamp's end: after.smc's free bytes
             if (o != b) return;                                           // ours over LM's: ours stands, in its own SA-1 form
+            if (ours.TryGetValue(pc, out var s) && s != o) return;        // LM's byte our SA-1 form re-points: a block of ours
             bool packs = packWrote.Contains(theirsPc) && t == cleanPack.ReadByte(theirsSnes + i);
             set[pc] = packs ? null : t;
         }
 
-        foreach (var (name, kind, snes, len, baseSnes) in Pieces(stamps))
+        foreach (var (name, kind, snes, len, baseSnes) in pieces(stamps))
         {
             switch (kind)
             {
@@ -271,7 +318,7 @@ internal static class LmSa1Forms
                     }
                     break;
                 case Kind.Block:
-                    int theirs = Locate(oracle, after, baseSnes, len, out int misses);
+                    int theirs = Locate(oracle, after, baseSnes, len, snes, out int misses);
                     if (theirs < 0 || misses > len / 8) { report.Add($"{name}: not found in the oracle (best match misses {misses} bytes)"); break; }
                     int delta = (theirs - baseSnes) & 0xFFFF;
                     for (int i = 0; i < len; i++)
@@ -290,13 +337,16 @@ internal static class LmSa1Forms
 
     /// <summary>Where the oracle holds LM's copy of the block after.smc has at <paramref name="baseSnes"/>:
     /// the best content match, with the first 16 bytes as a filter. A 16-bit word that moved by the
-    /// candidate's own displacement is a pointer into the block, not a miss (block A has 210 bytes of them).</summary>
-    private static int Locate(Rom oracle, Rom after, int baseSnes, int len, out int misses)
+    /// candidate's own displacement is a pointer into the block, not a miss (block A has 210 bytes of them).
+    /// Our own copy at <paramref name="ourSnes"/> is never the answer: an oracle saved on our SA-1 base
+    /// carries it, relocated and in LoROM form, and it would match better than LM's.</summary>
+    private static int Locate(Rom oracle, Rom after, int baseSnes, int len, int ourSnes, out int misses)
     {
         var want = after.Data.AsSpan(after.FileOffset(baseSnes), len).ToArray();
         int best = -1; misses = int.MaxValue;
         for (int pc = 0; pc + len <= oracle.ActualRomSize; pc++)
         {
+            if (pc == Rom.SnesToPc(ourSnes)) continue;
             int at = pc + oracle.HeaderOffset, quick = 0;
             for (int i = 0; i < 16; i++) if (oracle.Data[at + i] == want[i]) quick++;
             if (quick < 10) continue;

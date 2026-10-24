@@ -4,7 +4,7 @@ namespace PipeDream.Tests;
 
 /// <summary>Skips without the vanilla ROM, after.smc, the SA-1 level-save oracle, the extracted pack
 /// beside it, or Asar (which rebuilds clean + pack).</summary>
-public sealed class Sa1LevelSaveFactAttribute : FactAttribute
+public class Sa1LevelSaveFactAttribute : FactAttribute
 {
     public Sa1LevelSaveFactAttribute()
     {
@@ -14,9 +14,21 @@ public sealed class Sa1LevelSaveFactAttribute : FactAttribute
     }
 }
 
+/// <summary>Skips without the level-save oracle's prerequisites, LM's LoROM ExAnimation install
+/// (exanim_1.smc) or its SA-1 one.</summary>
+public sealed class Sa1ExAnimSaveFactAttribute : Sa1LevelSaveFactAttribute
+{
+    public Sa1ExAnimSaveFactAttribute()
+    {
+        if (Skip != null) return;
+        foreach (var p in new[] { ReferenceRoms.ExAnim1, ReferenceRoms.Sa1ExAnimSave })
+            if (!File.Exists(p)) { Skip = "not present: " + p; return; }
+    }
+}
+
 /// <summary>
-/// Lunar Magic's SA-1 forms (reference/SA1_PORT.md, phase 2): the pinned diff is what the oracle
-/// says, the SA-1 form never writes a vanilla byte over the pack's, and the image ApplySa1 leaves
+/// Lunar Magic's SA-1 forms (reference/SA1_PORT.md, phase 2): the pinned diffs are what the oracles
+/// say, the SA-1 form never writes a vanilla byte over the pack's, and the image ApplySa1 leaves
 /// has the bytes the first boot needed.
 /// </summary>
 public class Sa1FormsTests
@@ -59,11 +71,25 @@ public class Sa1FormsTests
     {
         var (cleanPack, wrote) = CleanPack();
         var report = new List<string>();
-        var generated = LmSa1Forms.Generate(Rom.Load(ReferenceRoms.LmAfter), Rom.Load(ReferenceRoms.Sa1LevelSave), cleanPack, wrote, report);
+        var generated = LmSa1Forms.Generate(Rom.Load(ReferenceRoms.LmAfter), Rom.Load(ReferenceRoms.Sa1LevelSave), cleanPack, wrote, Remap(), report);
         Assert.Empty(report);
         Assert.Equal(Tokens(generated), Tokens(LmSa1Forms.LevelSave));
-        static string[] Tokens(string s) => s.Split((char[])[' ', '\n', '\r', '\t'], StringSplitOptions.RemoveEmptyEntries);
     }
+
+    /// <summary>The pinned ExAnimation diff IS the oracle's — with the engine's call to our trampoline
+    /// left as ours, not LM's address of its own.</summary>
+    [Sa1ExAnimSaveFact]
+    public void the_exanim_save_diff_regenerates_from_the_oracle()
+    {
+        var (cleanPack, wrote) = CleanPack();
+        var report = new List<string>();
+        var generated = LmSa1Forms.GenerateExAnim(Rom.Load(ReferenceRoms.ExAnim1), Rom.Load(ReferenceRoms.Sa1ExAnimSave), cleanPack, wrote, Remap(), report);
+        Assert.Empty(report);
+        Assert.Equal(Tokens(generated), Tokens(LmSa1Forms.ExAnimSave));
+        Assert.DoesNotContain(Tokens(generated), t => t.StartsWith($"{LmExAnimEngine.EngineSnes + LmExAnimEngine.Sa1TrampolineOperand:X6}="));
+    }
+
+    private static string[] Tokens(string s) => s.Split((char[])[' ', '\n', '\r', '\t'], StringSplitOptions.RemoveEmptyEntries);
 
     /// <summary>Rules 1 and 2 as an invariant of the whole prep: at every byte the pack wrote inside a
     /// prep stamp, the SA-1 form either has a byte of our own (the pack remapped the instruction our
@@ -116,10 +142,27 @@ public class Sa1FormsTests
                 Assert.True(bytes[i] == vanilla.ReadByte(snes + i), $"${snes + i:X6}");
     }
 
+    /// <summary>LM's SA-1 ExAnimation install, as its oracle holds it: the trampoline's bytes are the
+    /// ones LM appended to its engine, and the engine's first stub call names it.</summary>
+    [Sa1ExAnimSaveFact]
+    public void the_sa1_engine_calls_lunar_magics_trampoline_at_our_address()
+    {
+        var oracle = Rom.Load(ReferenceRoms.Sa1ExAnimSave);
+        int theirs = 0x10D2E4;                                                   // LM's engine in the oracle, behind its RATS tag
+        int trampoline = oracle.ReadValue(theirs + LmExAnimEngine.Sa1TrampolineOperand, 3);
+        Assert.Equal(theirs + LmExAnimEngine.Engine().Length, trampoline);
+        var bytes = LmExAnimEngine.Sa1Trampoline();
+        Assert.Equal(Convert.ToHexString(bytes), Convert.ToHexString(oracle.Data.AsSpan(oracle.FileOffset(trampoline), bytes.Length)));
+        Assert.Equal(0x7FC020, oracle.ReadValue(theirs + 0x792, 3));          // the second call goes straight to the copied stub
+        Assert.Equal(LmExAnimEngine.Sa1TrampolineSnes, (LmExAnimEngine.Engine(sa1: true)[LmExAnimEngine.Sa1TrampolineOperand + 2] << 16)
+            | LmExAnimEngine.Engine(sa1: true)[LmExAnimEngine.Sa1TrampolineOperand + 1] << 8 | LmExAnimEngine.Engine(sa1: true)[LmExAnimEngine.Sa1TrampolineOperand]);
+    }
+
     /// <summary>The first boot's bytes (reference/SA1_PORT.md, phase 2 findings), on prepped + pack +
     /// ApplySa1: the pack's relocated JML at $02ABF3 survives, LM's hook at $05D9A1 still names our
     /// block, LM's grown routine sits at $0DE1F0 with its marker at $0DE20C, the bank-$1F engine
-    /// reads the moved RAM, and the ExAnimation setup hook is back to clean + pack.</summary>
+    /// reads the moved RAM, the ExAnimation setup hook names our engine and the engine calls our
+    /// trampoline, while the overworld ExAnimation hook is back to clean + pack.</summary>
     [Sa1LevelSaveFact]
     public void apply_sa1_leaves_the_image_the_first_boot_needed()
     {
@@ -136,8 +179,14 @@ public class Sa1FormsTests
         Assert.Equal(Convert.ToHexString(hook), Convert.ToHexString(rom.Data.AsSpan(rom.FileOffset(0x05D9A1), hook.Length)));
         Assert.Equal("C220A20EBF60C07F9F000041CACA10F4648AE220A7656B", Convert.ToHexString(rom.Data.AsSpan(rom.FileOffset(0x0DE1F0), 23)));
         Assert.Equal(0x01014D4C, rom.ReadValue(0x0DE20C, 4));                     // "LM 01 01"
-        Assert.Equal(0x7933, rom.ReadValue(0x0583B0, 2));                        // STZ $7933: vanilla's STZ $1933 as the pack remapped it
-        Assert.Equal(0xE2, rom.ReadByte(0x0583AD));                               // SEP #$30, vanilla's, no JSL
+        Assert.Equal(0x22, rom.ReadByte(0x0583AD));                               // JSL our engine : NOP
+        Assert.Equal(LmExAnimEngine.SetupEntry, rom.ReadValue(0x0583AE, 3));
+        Assert.Equal(LmExAnimEngine.Sa1TrampolineSnes, rom.ReadValue(LmExAnimEngine.EngineSnes + LmExAnimEngine.Sa1TrampolineOperand, 3));
+        Assert.Equal(0x7FC020, rom.ReadValue(LmExAnimEngine.EngineSnes + 0x792, 3));
+        Assert.Equal(0x3000A9, rom.ReadValue(LmExAnimEngine.EngineSnes + 0x47B, 3));   // LDA #$3000 : TCD, LM's SA-1 direct page
+        Assert.Equal(Convert.ToHexString(LmExAnimEngine.Sa1Trampoline()), Convert.ToHexString(rom.Data.AsSpan(rom.FileOffset(LmExAnimEngine.Sa1TrampolineSnes), 16)));
+        var owSetup = LmOwExAnimEngine.DisplacedVanilla().First(h => h.Snes == 0x048086).Bytes;
+        Assert.Equal(Convert.ToHexString(owSetup), Convert.ToHexString(rom.Data.AsSpan(rom.FileOffset(0x048086), owSetup.Length)));   // the overworld engine's setup hook: vanilla's bytes, no JSL
     }
 
     private static Sa1Remap Remap() => Sa1Remap.FromSpriteTables(File.ReadAllText(Path.Combine(ReferenceRoms.Sa1Pack, "more_sprites", "sprite_tables.asm")));

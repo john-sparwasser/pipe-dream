@@ -32,6 +32,12 @@ internal static class ReferenceRoms
     /// forms are generated from (<see cref="LmSa1Forms"/>), with the extracted pack beside it.</summary>
     internal static string Sa1LevelSave => Resource(Path.Combine("sa1", "lm-sa1.smc"));
     internal static string Sa1Pack => Resource(Path.Combine("sa1", "SA1-Pack-140"));
+    /// <summary>The SA-1 base `--sa1prep` leaves, one ExAnimation slot saved into level 105 by LM 3.40
+    /// (tools/lm/Invoke-LmGui.ps1 -Action SaveExAnim): the oracle for LM's SA-1 ExAnimation engine,
+    /// against the LoROM install in <see cref="ExAnim1"/>.</summary>
+    internal static string Sa1ExAnimSave => Resource(Path.Combine("sa1", "lm-sa1-exanim.smc"));
+    /// <summary>Vanilla with the same slot saved by LM on LoROM: where LmExAnimEngine's bytes come from.</summary>
+    internal static string ExAnim1 => Resource("exanim_1.smc");
     /// <summary>A 4MB SA-1 hack saved by Lunar Magic: its SA-1 forms of LM's routines are the oracle
     /// for <see cref="Sa1Remap"/> (reference/SA1_PORT.md).</summary>
     internal static string Sgdq2024 => InProject("Secret", Path.Combine("workspace", "sgdq2024.smc"));

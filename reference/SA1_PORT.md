@@ -134,7 +134,8 @@ no oracle for the big ones.
 pieces and the `LmLevelEntry` blocks (at `$10Dxxx`; the prep moves them to bank `$1E`). It does not
 install what other LM actions do — midway (`$13BC00`), overworld palette (`$13C508`/`$13C800`),
 4bpp mode, ExGFX/Super GFX Bypass, layer 3, ExAnimation. Each needs the same action done in LM on
-the SA-1 base, as `after.smc`'s siblings were made on vanilla.
+the SA-1 base, as `after.smc`'s siblings were made on vanilla (level ExAnimation: done, see the
+later findings; `Invoke-LmGui.ps1 -Action SaveExAnim` is the model for scripting the others).
 
 **Not yet checked:** which CPU runs each hook. The pack runs level mode and Map16 loading on the
 SA-1 CPU, which cannot reach W-RAM (`$7E/$7F`) or the PPU/DMA registers; code of ours that does,
@@ -177,7 +178,9 @@ pack's bytes, so the SA-1 stamp list must omit it (rule 1's "the pack's" byte).
 **Still LoROM in the booting image, to be fixed before it is called done:**
 - LM's 4bpp-mode install (`RomPrep.Stamps.cs` V?? "what LM writes": `$00A897` `STA $0BF6,X`,
   `$00AB0B` `$1BB2,X`, `$00B895` `LDA #$7E : STA $02`) — needs the 4bpp oracle, not a sweep.
-- The ExAnimation engines (level and overworld) — LM installs them on use; needs that oracle.
+- ~~The ExAnimation engines (level and overworld) — LM installs them on use; needs that oracle.~~
+  The level engine is done (below); the overworld engine still needs its oracle (the overworld
+  editor's ExAnimation dialog).
 - The midway routine (`$13BC00`), OW palette engine (`$13C508`/`$13C800`), layer 3 — as planned.
 - Our own overworld code keeps `LDA $7Fxxxx,Y` where the pack moved vanilla's `$7E` to `$41`
   (64 bytes at `$04F2B8-$04F3D0`): the overworld runs on the SA-1 CPU under the pack, which
@@ -188,13 +191,52 @@ pack's bytes, so the SA-1 stamp list must omit it (rule 1's "the pack's" byte).
 `SNES=...` drops them — the pack's stand), generated from `.resources/sa1/lm-sa1.smc` with the
 extracted pack beside it (`--sa1lmforms`, `ReferenceRoms.Sa1LevelSave`/`Sa1Pack`) and pinned by
 `Sa1FormsTests`, which also checks the invariant "wherever the pack wrote inside a stamp, the SA-1
-form is ours or agrees with LM's SA-1 save" and the first boot's bytes. The ExAnimation engines are
-unhooked by `ApplySa1` (vanilla's displaced bytes beside the hooks, test-pinned) until their oracle
-exists. `ApplySa1` refuses a base not at `LmSa1Forms.PrepVersion`: a new prep version regenerates
-and re-pins the diff. `--sa1prep` output boots: `tools/mesen/Test-RomOverworld.ps1 -Rom x -Sa1`
-(prelude.lua `M.sa1()` moves the mode, counter and submap reads). Two loose ends for phase 1's
-build step: LM's SA-1 routine at `$0DE1F0-$0DE20F` and the pack's blocks must be `Owned`, since
-neither is RATS-tagged; and `Sa1RawCode` is empty — nothing of ours is raw code yet.
+form is ours or agrees with LM's SA-1 save" and the first boot's bytes. The overworld ExAnimation
+engine is unhooked by `ApplySa1` (vanilla's displaced bytes beside the hooks, test-pinned) until
+its oracle exists; the level engine was, until its oracle below. `ApplySa1` refuses a base not at
+`LmSa1Forms.PrepVersion`: a new prep version regenerates and re-pins the diffs. `--sa1prep` output
+boots: `tools/mesen/Test-RomOverworld.ps1 -Rom x -Sa1` and `Test-RomLevel.ps1 -Rom x -Sa1 -Walk
+left` (prelude.lua `M.sa1()` moves the mode, counter, submap and level-number reads). Two loose
+ends for phase 1's build step: LM's SA-1 routine at `$0DE1F0-$0DE20F` and the pack's blocks must
+be `Owned`, since neither is RATS-tagged; and `Sa1RawCode` is empty — nothing of ours is raw code
+yet.
+
+## Phase 2 findings (2026-10-24, later): Lunar Magic on the SA-1 image, and the ExAnimation oracle
+
+**LM accepts the image as its own.** LM 3.40 opens `--sa1prep`'s output with no dialog, and a
+dirty level save on it has the same footprint as the same save on the LoROM base — 17 runs, 590
+bytes: the two level pointers, LM's per-level flag, its version string and bank-`$0F` table, the
+new level data (placed after the pack's code, `$10C712`, where on LoROM it follows our RATS block
+at `$108148`), and its own two bank-0 bytes that every save writes, in their SA-1 form (`STY $7693`
+at `$00F4A0` where LoROM gets `STY $1693`). Nothing of the prep's is rewritten: LM found its markers
+where it expects them, SA-1 or not.
+
+**LM uses our ExAnimation install.** `Invoke-LmGui.ps1 -Action SaveExAnim` fills the "Edit Level
+ExAnimated Frames" dialog by control id (exanim_1's slot: type "1 8x8", no trigger, three frames
+601/655/6AA at A0) and saves the level. On the LoROM base LM installs no engine and writes level
+105's entry into OUR per-level table at `$1E:A3AF`: it recognises the relocated engine through the
+hooks and reads the table's address from the engine's operand. On the SA-1 image, where the engine
+was unhooked, it installs its SA-1 engine fresh at `$10D2E4` with all seven hooks — that save is
+`.resources/sa1/lm-sa1-exanim.smc`, the oracle (`ReferenceRoms.Sa1ExAnimSave`, generated against
+`exanim_1.smc` by `--sa1lmforms`, pinned as `LmSa1Forms.ExAnimSave`). Once hooked in LM's SA-1 form,
+LM's save on the SA-1 image behaves as on LoROM again: no engine, our table's entry written.
+
+**What LM's SA-1 engine changes** (42 bytes of 0xC30): RAM operands (`$0Dxx → $6Dxx`, `$14 → $74`,
+`$19 → $79`; `$7FC0xx` stays, it is WRAM the SNES CPU reaches), `LDA #$0000 : TCD → #$3000` (the
+pack's direct page), one branch shortened, and the MVN stub: the engine builds `MVN : RTL` in the
+direct page and LoROM calls it with `JSL $000003`, which SA-1 cannot (the direct page is I-RAM), so
+LM appends a 16-byte trampoline to its block (`LDA $03 : STA $C020 : LDA $05 : STA $C022 : LDA $08 :
+JML $7FC020`, data bank `$7F`), the first call becomes `JSL trampoline` and the second `JSL $7FC020`.
+Our copy has 8 bytes behind it, so **prep v35** stamps the trampoline as its own RATS block at
+`$1EA6A0` (inert on LoROM; the layouts stay one), and the engine's SA-1 form names it
+(`LmExAnimEngine.Engine(sa1: true)`) — the one byte of LM's that is ours to re-point. The generator
+learned two things from this oracle: a block's candidate at our own address is never the answer (an
+oracle saved on our base carries our copy, which matches better than LM's), and a byte our SA-1
+stamps already re-point is ours, not LM's to set.
+
+**Measured in Mesen:** the hooked v35 image boots to the overworld and into level 105; with LM's
+slot saved onto it, the destination tile's 32 VRAM bytes at frames 3500/3516/3532 checksum 137/99/178
+on the SA-1 image and on the LoROM control alike — the same three frames, in the same phase.
 
 **How the crash was found (Mesen, headless, one byte per run):** game mode and frame counter at
 `$6100`/`$3013`; exec callbacks over the whole bus with `emu.cpuType.snes`/`sa1`; the *last ROM

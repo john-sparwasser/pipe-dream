@@ -84,6 +84,8 @@ public static partial class RomPrep
         if (version >= 32) AppendV32Stamps(s);
         // V34 restamps v16's advanced-layer-3 reader to name the level by $010B, not $FE.
         if (version >= 34) AppendV34Stamps(s);
+        // V35: the trampoline LM's SA-1 ExAnimation engine calls, as a block of ours.
+        if (version >= 35) AppendV35Stamps(s);
         return s;
     }
 
@@ -490,7 +492,7 @@ public static partial class RomPrep
     /// </summary>
     private static void AppendV11Stamps(List<(int Pc, byte[] Bytes)> s)
     {
-        s.Add((Pc(LmExAnimEngine.EngineSnes) - 8, Rats(LmExAnimEngine.Engine())));
+        s.Add((Pc(LmExAnimEngine.EngineSnes) - 8, Rats(LmExAnimEngine.Engine(sa1: Asm.Sa1 != null))));
         s.Add((Pc(LmExAnimEngine.MvnSnes) - 8, Rats(LmExAnimEngine.Mvn())));
         s.Add((Pc(LmExAnimEngine.ClearSnes) - 8, Rats(LmExAnimEngine.Clear())));
         s.Add((Pc(LmExAnimEngine.TableSnes) - 8, Rats(LmExAnimEngine.EmptyTable())));
@@ -865,6 +867,17 @@ public static partial class RomPrep
         var a = new Asm(L3AdvRead);
         EmitL3AdvRead(a, 34);
         s.Add((Pc(L3AdvRead), a.Bytes()));
+    }
+
+    /// <summary>
+    /// V35: the 16-byte trampoline Lunar Magic's SA-1 ExAnimation engine calls instead of the MVN
+    /// stub in the direct page (<see cref="LmExAnimEngine.Sa1Trampoline"/>), as a RATS block of ours
+    /// behind the engine's per-level table. Only the SA-1 form of the engine names it (see
+    /// RomPrep.Sa1.cs); on LoROM the block is inert, stamped so the two layouts stay one.
+    /// </summary>
+    private static void AppendV35Stamps(List<(int Pc, byte[] Bytes)> s)
+    {
+        s.Add((Pc(LmExAnimEngine.Sa1TrampolineSnes) - 8, Rats(LmExAnimEngine.Sa1Trampoline())));
     }
 
     /// <summary>

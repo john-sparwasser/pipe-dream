@@ -89,7 +89,9 @@ public static partial class RomPrep
     /// V34 points the advanced layer-3 reader at `$010B`: from v24 the `$FE` it read was already
     /// cleared, and every level scrolled layer 3 — the status bar with it (see
     /// <see cref="AppendV34Stamps"/>).
-    public const int Version = 34;
+    /// V35 adds the trampoline Lunar Magic's SA-1 ExAnimation engine calls, inert on LoROM (see
+    /// <see cref="AppendV35Stamps"/>).
+    public const int Version = 35;
 
     // ---- pinned addresses (scanner contracts + PortedObjectEngine dispatch) ----
     public const int Map16LookupEntry = 0x06F5D0;  // JSL target at $00C17A

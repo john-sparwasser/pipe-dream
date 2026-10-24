@@ -81,15 +81,16 @@ public static partial class RomPrep
     internal static readonly (int Snes, bool M8, bool X8)[] Sa1RawCode = [];
 
     /// <summary>
-    /// Until Lunar Magic's SA-1 forms of its ExAnimation engines are in hand (LM installs them on
-    /// use, so the plain-save oracle has none), an SA-1 build runs without them: every hook site
-    /// goes back to clean + pack — vanilla's displaced bytes, the pack's own where it remapped
-    /// one — and leaves the SA-1 overlay, so nothing writes the hook back. The engines' blocks stay
-    /// in bank $1E, unreferenced. Hooked, the build hangs at game mode $05 (measured 2026-10-24).
+    /// Until Lunar Magic's SA-1 form of its OVERWORLD ExAnimation engine is in hand (LM installs it on
+    /// use, so neither save oracle has it), an SA-1 build runs without it: every hook site goes back
+    /// to clean + pack — vanilla's displaced bytes, the pack's own where it remapped one — and leaves
+    /// the SA-1 overlay, so nothing writes the hook back. The engine's blocks stay in bank $1E,
+    /// unreferenced. The level engine ran this way too until its oracle existed: hooked in LoROM form
+    /// the build hangs at game mode $05 (measured 2026-10-24); hooked in LM's SA-1 form it boots.
     /// </summary>
     private static void UnhookExAnimation(Rom rom, Dictionary<int, byte> sa1, HashSet<int> packWrote)
     {
-        foreach (var (snes, vanilla) in LmExAnimEngine.DisplacedVanilla().Concat(LmOwExAnimEngine.DisplacedVanilla()))
+        foreach (var (snes, vanilla) in LmOwExAnimEngine.DisplacedVanilla())
             for (int i = 0; i < vanilla.Length; i++)
             {
                 int pc = Pc(snes + i);

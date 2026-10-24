@@ -15,6 +15,14 @@ namespace PipeDream;
 /// animation) → engine+4B0 (the per-tick processor); $008A4E → the $7FC0C0 clear helper (which
 /// re-executes the displaced REP #$30 : LDX #$1FFE); $00A5E1 → the MVN helper (displaced
 /// LDA #$01EF : MVN). $03BCC0-CF is zeroed as LM does when it installs.
+///
+/// On SA-1 the engine cannot JSL the MVN stub it builds in the direct page (the pack moves the
+/// direct page to I-RAM): LM's SA-1 install (lm-sa1-exanim.smc) appends a 16-byte trampoline to
+/// the engine's block that copies the stub to $7FC020 and jumps to it, and the two `JSL $000003`
+/// at +789 and +791 become `JSL trampoline` and `JSL $7FC020`. Our copy has no room behind it, so
+/// the trampoline is a block of its own (<see cref="Sa1TrampolineSnes"/>, prep v35) and the SA-1
+/// form of the engine names it (<see cref="Engine"/>); everything else the SA-1 engine changes —
+/// RAM operands, the `LDA #$3000 : TCD` — is LM's byte, carried by LmSa1Forms.ExAnimSave.
 /// </summary>
 internal static class LmExAnimEngine
 {
@@ -25,9 +33,12 @@ internal static class LmExAnimEngine
     /// <summary>The per-level record pointer table LM keeps as a RATS block: 3 bytes × 0x200
     /// levels, FF 00 00 = no ExAnimation. Rom.LmExAnimBase finds it through the engine's operand.</summary>
     public const int TableSnes = (Bank << 16) | 0xA0A0;                  // 0x600
+    /// <summary>LM's SA-1 trampoline (see the class summary), behind the table; LoROM carries it inert.</summary>
+    public const int Sa1TrampolineSnes = (Bank << 16) | 0xA6A8;          // 0x10
     public const int SetupEntry = EngineSnes, DmaEntry = EngineSnes + 0x170, ProcEntry = EngineSnes + 0x4B0;
-    /// <summary>Where LM had the engine in exanim_1 — the base every in-bank operand is relative to.</summary>
-    private const int SourceSnes = 0x108640;
+    /// <summary>Where LM had the engine in exanim_1 — the base every in-bank operand is relative to —
+    /// and the two helpers; LmSa1Forms reads LM's LoROM bytes there.</summary>
+    public const int SourceSnes = 0x108640, SourceMvnSnes = 0x109880, SourceClearSnes = 0x1098A8;
 
     private static readonly int[] InBankOperands =
         [0x550, 0x59B, 0x5BF, 0x5C3, 0x5D6, 0x63E, 0x6C4, 0x79E, 0x7AC, 0x825, 0x833, 0x8B0];
@@ -35,8 +46,19 @@ internal static class LmExAnimEngine
     private const int HandlerTable = 0xB4A, HandlerTableEnd = 0xC22;    // 108 in-bank words
     public const int TablePlusOneOperand = 0xDF, TableOperand = 0xEA;
     public const int GlobalBankWord = 0x5B, GlobalLow16 = 0x65;
+    /// <summary>The operand of the first `JSL $000003`, which the SA-1 form points at the trampoline.</summary>
+    public const int Sa1TrampolineOperand = 0x78A;
 
-    public static byte[] Engine()
+    /// <summary>The engine at <see cref="EngineSnes"/>; with <paramref name="sa1"/>, the one operand
+    /// of its SA-1 form that names a block of ours (LM's other SA-1 bytes come from LmSa1Forms).</summary>
+    public static byte[] Engine(bool sa1 = false)
+    {
+        var b = Relocated();
+        if (sa1) Put24(b, Sa1TrampolineOperand, Sa1TrampolineSnes);
+        return b;
+    }
+
+    private static byte[] Relocated()
     {
         var b = Convert.FromHexString(HexEngine);
         int delta = (EngineSnes & 0xFFFF) - (SourceSnes & 0xFFFF);
@@ -52,6 +74,10 @@ internal static class LmExAnimEngine
 
     public static byte[] Mvn() => Convert.FromHexString(HexMvn);
     public static byte[] Clear() => Convert.FromHexString(HexClear);
+    /// <summary>LM's SA-1 trampoline, byte for byte (lm-sa1-exanim.smc, engine +C30): LDA $03 : STA
+    /// $C020 : LDA $05 : STA $C022 : LDA $08 : JML $7FC020 — the stub the engine built in the direct
+    /// page (MVN : RTL and its banks) copied to $7FC020 with the data bank still $7F, then run.</summary>
+    public static byte[] Sa1Trampoline() => Convert.FromHexString("A5038D20C0A5058D22C0A5085C20C07F");
 
     public static byte[] EmptyTable()
     {

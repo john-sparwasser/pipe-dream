@@ -19,10 +19,12 @@ static class DebugCommands
         // --sa1audit <packdir> : which prep stamps the SA-1 form changes, and which raw stamps a remap
         // would change if they were code — the candidates for RomPrep.Sa1RawCode, to be read by hand.
         ("--sa1audit",          (a, i) => Sa1Audit(a[i + 1])),
-        // --sa1lmforms [packdir] [oracle.smc] : regenerate LmSa1Forms.LevelSave from the oracle (defaults:
-        // ReferenceRoms.Sa1Pack / Sa1LevelSave), with every byte that breaks its rules listed after it.
+        // --sa1lmforms [packdir] [oracle.smc] [exanim-oracle.smc] : regenerate LmSa1Forms.LevelSave and
+        // .ExAnimSave from the oracles (defaults: ReferenceRoms.Sa1Pack / Sa1LevelSave / Sa1ExAnimSave),
+        // with every byte that breaks their rules listed after them.
         ("--sa1lmforms",        (a, i) => Sa1LmForms(a.Length > i + 1 ? a[i + 1] : ReferenceRoms.Sa1Pack,
-                                                     a.Length > i + 2 ? a[i + 2] : ReferenceRoms.Sa1LevelSave)),
+                                                     a.Length > i + 2 ? a[i + 2] : ReferenceRoms.Sa1LevelSave,
+                                                     a.Length > i + 3 ? a[i + 3] : ReferenceRoms.Sa1ExAnimSave)),
         ("--newproject",        NewProject),
         ("--prep",              (a, i) => PrepRom(a[i + 1], a.Length > i + 2 ? int.Parse(a[i + 2]) : RomPrep.Version)),
         ("--buildproject",      BuildProject),
@@ -229,7 +231,7 @@ static class DebugCommands
         return 0;
     }
 
-    public static int Sa1LmForms(string packDir, string oraclePath)
+    public static int Sa1LmForms(string packDir, string oraclePath, string exanimOraclePath)
     {
         if (!Asar.Available) { Console.Error.WriteLine("asar: library not found, or not API 3.3+"); return 1; }
         var cleanPack = Rom.Load(ReferenceRoms.Vanilla);
@@ -240,7 +242,14 @@ static class DebugCommands
         foreach (var b in r.Blocks)
             for (int i = 0; i < b.Length; i++) wrote.Add(Rom.SnesToPc(b.Snes + i));
         var report = new List<string>();
-        Console.Write(LmSa1Forms.Generate(Rom.Load(ReferenceRoms.LmAfter), Rom.Load(oraclePath), cleanPack, wrote, report));
+        var remap = PackRemap(packDir);
+        Console.WriteLine("LevelSave:");
+        Console.Write(LmSa1Forms.Generate(Rom.Load(ReferenceRoms.LmAfter), Rom.Load(oraclePath), cleanPack, wrote, remap, report));
+        if (File.Exists(exanimOraclePath) && File.Exists(ReferenceRoms.ExAnim1))
+        {
+            Console.WriteLine("ExAnimSave:");
+            Console.Write(LmSa1Forms.GenerateExAnim(Rom.Load(ReferenceRoms.ExAnim1), Rom.Load(exanimOraclePath), cleanPack, wrote, remap, report));
+        }
         foreach (var line in report) Console.WriteLine("breaks the rules: " + line);
         return report.Count == 0 ? 0 : 1;
     }

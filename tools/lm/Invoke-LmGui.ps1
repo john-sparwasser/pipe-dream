@@ -21,11 +21,12 @@ with WM_CLOSE at the end and killed if it does not go. The result has Dialogs, C
 .EXAMPLE
   tools\lm\Invoke-LmGui.ps1 -Rom work.smc -Action SaveLevel
   tools\lm\Invoke-LmGui.ps1 -Rom work.smc -Action SaveMap16
+  tools\lm\Invoke-LmGui.ps1 -Rom work.smc -Action SaveExAnim     # slot 0 of the level, then Ctrl+S: installs LM's engine
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$Rom,
-    [Parameter(Mandatory)][ValidateSet('SaveLevel', 'SaveMap16', 'OpenOnly')][string]$Action,
+    [Parameter(Mandatory)][ValidateSet('SaveLevel', 'SaveMap16', 'SaveExAnim', 'OpenOnly')][string]$Action,
     [int]$TimeoutSeconds = 60,
     # SaveLevel only: LM's Save Level to ROM writes nothing for an unmodified level, so reorder
     # its objects first (Select All, Bring to Front) — a modification that keeps the level's content.
@@ -33,6 +34,13 @@ param(
     # SaveMap16 only: instead of F9, click the editor's Nth Button child (its toolbar is unlabelled
     # buttons; index 0 is the reload, measured by its "discard all changes" prompt). For probing.
     [int]$EditorButton = -1,
+    # SaveExAnim only: what goes in slot 0 of "Edit Level ExAnimated Frames" (every value hex, as the
+    # dialog takes them). The defaults are exanim_1's one 8x8 tile, three frames, no trigger — the
+    # smallest slot that makes LM install its ExAnimation engine and hooks on a ROM without them.
+    [int]$ExAnimType = 1,                 # index in the Type combo: 1 = "1 8x8"
+    [int]$ExAnimTrigger = 0,              # index in the Trigger combo: 0 = None
+    [string]$ExAnimDest = 'A0',
+    [string[]]$ExAnimFrames = @('601', '655', '6AA'),
     [string]$LunarMagic = $env:PIPEDREAM_LUNAR_MAGIC
 )
 $ErrorActionPreference = 'Stop'
@@ -57,6 +65,8 @@ public static class LmWin {
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetMenuString(IntPtr m, uint i, StringBuilder s, int n, uint f);
   [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
   [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr h, uint msg, IntPtr w, string l);
+  [DllImport("user32.dll")] public static extern IntPtr GetDlgItem(IntPtr h, int id);
   [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vk);
   public static List<IntPtr> Windows(uint pid) { var r = new List<IntPtr>(); EnumWindows((h, l) => { uint p; GetWindowThreadProcessId(h, out p); if (p == pid && IsWindowVisible(h)) r.Add(h); return true; }, IntPtr.Zero); return r; }
   public static List<IntPtr> Children(IntPtr h) { var r = new List<IntPtr>(); EnumChildWindows(h, (c, l) => { r.Add(c); return true; }, IntPtr.Zero); return r; }
@@ -91,6 +101,7 @@ public static class LmWin {
 "@
 
 $WM_COMMAND = 0x111; $WM_CLOSE = 0x10; $BM_CLICK = 0xF5; $WM_KEYDOWN = 0x100; $WM_KEYUP = 0x101; $VK_F9 = 0x78
+$WM_SETTEXT = 0xC; $CB_SETCURSEL = 0x14E; $CBN_SELCHANGE = 1
 $dialogs = [Collections.Generic.List[string]]::new()
 # A previous run's LM may still be letting go of its ROM: Stop-Process returns before it has.
 Get-Process 'Lunar Magic' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
@@ -144,6 +155,15 @@ function Key([IntPtr]$h, [int]$vk) {
     [LmWin]::PostMessage($h, $WM_KEYUP, [IntPtr]$vk, [IntPtr]([int64]0xC0000001)) | Out-Null
 }
 function WindowList { @(LmWindows | ForEach-Object { "{0} '{1}'" -f [LmWin]::Cls($_), [LmWin]::Text($_) }) }
+# Fill a dialog's controls by id. WM_SETTEXT and CB_SETCURSEL return at once, so they are sent; the
+# selection-changed notification is posted like a click, since LM's handler may open a dialog of its own.
+function SetEdit([IntPtr]$dlg, [int]$id, [string]$text) { [LmWin]::SendMessage([LmWin]::GetDlgItem($dlg, $id), $WM_SETTEXT, [IntPtr]::Zero, $text) | Out-Null }
+function SelectCombo([IntPtr]$dlg, [int]$id, [int]$index) {
+    $combo = [LmWin]::GetDlgItem($dlg, $id)
+    [LmWin]::SendMessage($combo, $CB_SETCURSEL, [IntPtr]$index, [IntPtr]::Zero) | Out-Null
+    [LmWin]::PostMessage($dlg, $WM_COMMAND, [IntPtr]([int64](($CBN_SELCHANGE -shl 16) -bor $id)), $combo) | Out-Null
+    Start-Sleep -Milliseconds 300
+}
 
 $timedOut = $false
 $windows = @()
@@ -179,6 +199,28 @@ try {
                 [LmWin]::PostMessage($btn, $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
             }
             else { foreach ($h in @($ed) + [LmWin]::Children($ed)) { Key $h $VK_F9 } }
+        }
+        'SaveExAnim' {
+            # The dialog's controls, by id (measured, LM 3.40): 101 slot, 102 type, 103 trigger combos;
+            # 116 colours, 113 frame count, 349 destination; 401..464 the frame sources; 1 is OK.
+            $cmd = [LmWin]::FindCommand($main, '^Edit Level ExAnimated Frames')
+            if (-not $cmd) { throw 'Edit Level ExAnimated Frames not found in the menu' }
+            Post $main $cmd
+            $dlg = WaitFor { WindowLike 'Extended Animation Frames' } 20
+            if (-not $dlg) { throw 'ExAnimation dialog never appeared' }
+            Start-Sleep 1
+            SelectCombo $dlg 101 0
+            SelectCombo $dlg 102 $ExAnimType
+            SelectCombo $dlg 103 $ExAnimTrigger
+            SetEdit $dlg 113 ('{0:X}' -f $ExAnimFrames.Count)
+            SetEdit $dlg 349 $ExAnimDest
+            for ($i = 0; $i -lt $ExAnimFrames.Count; $i++) { SetEdit $dlg (401 + $i) $ExAnimFrames[$i] }
+            Start-Sleep -Milliseconds 300
+            [LmWin]::PostMessage([LmWin]::GetDlgItem($dlg, 1), $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+            $gone = WaitFor { -not (WindowLike 'Extended Animation Frames') } 10
+            if (-not $gone) { throw 'ExAnimation dialog did not close on OK' }
+            Start-Sleep 1
+            Post $main ([LmWin]::FindCommand($main, '^Save Level to ROM$'))
         }
     }
     # Let the save land: either the file changes, or nothing happens for a while.

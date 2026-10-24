@@ -38,23 +38,28 @@ param(
     [ValidateSet('none', 'left', 'right', 'up', 'down')][string]$Walk = 'none',
     [int]$TimeoutSec = 90,
     # Frame by which the level is expected to be up; prelude.lua's M.LevelFrame.
-    [int]$LevelFrame = 3400
+    [int]$LevelFrame = 3400,
+    # An SA-1 build (reference/SA1_PORT.md): the game mode, frame counter and level number live
+    # where the pack moved them (prelude.lua M.sa1).
+    [switch]$Sa1
 )
 
 $ErrorActionPreference = 'Stop'
 $probe = Join-Path (Split-Path -Parent $PSCommandPath) 'New-MesenProbe.ps1'
 $dir = if ($Walk -eq 'none') { 'nil' } else { "`"$Walk`"" }
 
+$sa1Prefix = if ($Sa1) { "T.sa1()" } else { "" }
 $assert = @"
+$sa1Prefix
 local tick = 0
 T.each(function(f)
   T.bootToLevel(f, $dir)
   if f == $LevelFrame then
     if not T.inLevel() then T.fail(1) end
-    tick = T.rb(0x7E0013)
+    tick = T.rb(T.CounterAddr)
   end
   if f == $LevelFrame + 60 then
-    if (T.rb(0x7E0013) - tick) % 256 ~= 60 then T.fail(3) end
+    if (T.rb(T.CounterAddr) - tick) % 256 ~= 60 then T.fail(3) end
     T.pass()
   end
 end)
@@ -65,6 +70,7 @@ $result = & $probe -Rom $Rom -Body $assert -TimeoutSec $TimeoutSec
 # The level number, in two runs because the channel is one byte.
 function Observe([string]$addr) {
     $body = @"
+$sa1Prefix
 T.each(function(f) T.bootToLevel(f, $dir) if f >= $LevelFrame then T.report(T.rb($addr)) end end)
 "@
     (& $probe -Rom $Rom -Body $body -TimeoutSec $TimeoutSec).ExitCode
@@ -75,6 +81,6 @@ T.each(function(f) T.bootToLevel(f, $dir) if f >= $LevelFrame then T.report(T.rb
     TimedOut = $result.TimedOut
     Seconds  = $result.Seconds
     Walk     = $Walk
-    Level    = if ($result.ExitCode -eq 0) { '0x{0:X2}{1:X2}' -f (Observe '0x7E010C'), (Observe '0x7E010B') } else { $null }
+    Level    = if ($result.ExitCode -eq 0) { '0x{0:X2}{1:X2}' -f (Observe 'T.LevelAddr + 1'), (Observe 'T.LevelAddr') } else { $null }
     Rom      = $result.Rom
 }
