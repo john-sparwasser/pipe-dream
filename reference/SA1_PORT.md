@@ -141,6 +141,58 @@ SA-1 CPU, which cannot reach W-RAM (`$7E/$7F`) or the PPU/DMA registers; code of
 from there, needs the pack's `invoke_snes` path rather than a remap. The layer-3 code reads LM's
 RAM at `$7F:C01A`, which the pack does not move.
 
+## Phase 2 findings (2026-10-24): the first boot
+
+`RomPrep.ApplySa1` as committed (fd2552e) crashes on the title screen's level load, and so does
+every variant short of the three rules below. With all three, **prepped v34 + pack boots to the
+overworld** (Mesen, mode `$0E` at frame 2400, frame counter ticking) — with the ExAnimation engines
+unhooked. The booting image is `D:\SMW\Projects\.resources\sa1\prepped-v34-sa1-boots.smc`, its
+hooked sibling (`-exanim-hangs.smc`) stops at game mode `$05`. Both were made by the throwaway
+`TmpSa1Measure.patch2` from `sa1.smc` (`--sa1prep` output), `pack.smc` (prepped + pack, before
+`ApplySa1`), clean + pack, after.smc and `lm-sa1.smc`.
+
+**Rule 1 — never write a LoROM byte over the pack's.** `ApplySa1` restamps every byte of ours the
+pack wrote. Where our stamp merely *carries* a vanilla or LM LoROM byte, the pack's remap was of
+that very instruction and must stand. Six bytes in v34; one is fatal: `$02ABF3`, LM's `LDX #$7F`
+over vanilla's `#$3F` inside the sprite-table init. On SA-1 LM does not write it — the pack's
+three `JML`s at `$02ABEE-$02ABFB` own the spot — and our restamp turned the pack's relocated
+`JML $10B7CE` into `JML $10B77F`. Measured by the jump ring below: `$05D9A1 → $1EDB81 → BRK`
+after the merge's own bug, then this. The rule needs vanilla's byte, which the build no longer
+has: the SA-1 form of a stamp must therefore be able to say "the pack's" per byte, not just "same
+as LoROM". The other five: `$00A8A1` (LM's 4bpp loop, `$0BF6` → `$6BF6`) and the checksum.
+
+**Rule 2 — LM's pieces take LM's SA-1 bytes, relocation-aware.** 1009 bytes of lm-sa1 differ from
+after.smc across the bank-`$1F` engine, blocks A-F, the fixed blocks, the in-place edits and the
+hooks; all are RAM moves (`$0Bxx-$1Fxx` → `+$6000`, `$7E/$7F` → `$40/$41`, `$0005` → `$3005`),
+except: every hook's JSL/JML target (LM's copies sit at `$10Dxxx`/`$10C9xx` in lm-sa1 — ours stay
+in bank `$1E`; a merge that takes LM's low bytes with our bank is the `$1EDB81` crash); and
+`$0DE1EC`, where LM's SA-1 form of the third little bank-`$0D` routine is a longer
+`$7FC060,X → $410000,X` mirror loop (23 bytes, same address, inside our 88-byte stamp) followed by
+its marker at `LM 01 01` instead of `LM 00 01`. The merge found no byte where ours, LM's LoROM and
+LM's SA-1 byte all differ.
+
+**Rule 3 — a stamp LM drops on SA-1 is dropped.** `$02ABF3` again: the oracle shows LM leaving the
+pack's bytes, so the SA-1 stamp list must omit it (rule 1's "the pack's" byte).
+
+**Still LoROM in the booting image, to be fixed before it is called done:**
+- LM's 4bpp-mode install (`RomPrep.Stamps.cs` V?? "what LM writes": `$00A897` `STA $0BF6,X`,
+  `$00AB0B` `$1BB2,X`, `$00B895` `LDA #$7E : STA $02`) — needs the 4bpp oracle, not a sweep.
+- The ExAnimation engines (level and overworld) — LM installs them on use; needs that oracle.
+- The midway routine (`$13BC00`), OW palette engine (`$13C508`/`$13C800`), layer 3 — as planned.
+- Our own overworld code keeps `LDA $7Fxxxx,Y` where the pack moved vanilla's `$7E` to `$41`
+  (64 bytes at `$04F2B8-$04F3D0`): the overworld runs on the SA-1 CPU under the pack, which
+  cannot read `$7F`. Boots, but the map is not yet trusted.
+
+**How the crash was found (Mesen, headless, one byte per run):** game mode and frame counter at
+`$6100`/`$3013`; exec callbacks over the whole bus with `emu.cpuType.snes`/`sa1`; the *last ROM
+address before a RAM execution* is deterministic across runs (power-on RAM is random, the garbage
+after it is not), but the pack legitimately runs code it copies to WRAM `$1E80-$1E93` and `$1D00`
+(`engine/snes_init.asm`), and vanilla's `JSL $7F8000` is kept, so "RAM execution" must exclude
+those. The decisive probe is a ring of the last 12 distinct non-sequential jumps before the first
+executed `BRK` opcode (SMW has none; the native BRK vector is `$FFFF`), read out 3 bytes per entry
+in parallel runs (24 cores, ~90 s a batch). Reset executes before the script attaches, so an exec
+count of `$008000` is always 0.
+
 ## Plan
 
 **1. The switch and the build step.** `BuiltinPatchRef` + the catalogue + download/cache/verify;
@@ -155,9 +207,12 @@ and stamp SA-1 forms of the routines behind them — the instruction a hook disp
 remapped one (`LDA $7925`, not `LDA $1925`), and our own code's RAM moves the same way. Where the
 pack hijacks the same spot, our routine calls the pack's in place of the displaced code. Routines
 that are Lunar Magic's own bytes (palette engine, Map16 ladder) take LM's SA-1 forms, from
-`D:\SMW\Projects\Secret\workspace\sgdq2024.smc` (4MB SA-1, LM-saved), so the output still opens in
-LM. The base stays byte-frozen; the SA-1 forms are applied at build. Done when prepped + pack boots
-and plays in Mesen and opens in Lunar Magic 3.40.
+`lm-sa1.smc` and its siblings (`D:\SMW\Projects\.resources\sa1\`), so the output still opens in
+LM. The base stays byte-frozen; the SA-1 forms are applied at build. The three rules of the
+findings above are the specification; the SA-1 stamp list carries LM's forms as per-stamp byte
+diffs generated from the oracle ROMs and checked against them by a `RealRomFact`. Done when
+prepped + pack boots and plays in Mesen (measured 2026-10-24 for the plain-save pieces) and opens
+in Lunar Magic 3.40.
 
 **3. The drivers**, least work first: blocks (already SA-1 aware in `defines.asm`) → user patches
 (Asar sees the header) → music SNES side → UberASM → sprites (22 slots, moved tables, hooks on the
