@@ -52,7 +52,12 @@ function M.bootPulse(frame)
 end
 
 -- Game mode, $7E:0100. 0x14 is the gameplay loop, 0x0E the overworld.
-function M.mode() return M.rb(0x7E0100) end
+-- On an SA-1 build the pack moves $0100-$1FFF to BW-RAM ($6100-$7FFF through the bank-0 window)
+-- and the direct page to I-RAM $3000, so the same bytes live elsewhere: M.sa1() switches them
+-- (reference/SA1_PORT.md). The game mode of such a ROM read at $7E0100 is noise.
+M.ModeAddr, M.CounterAddr, M.SubmapAddr = 0x7E0100, 0x7E0013, 0x7E1F11
+function M.sa1() M.ModeAddr, M.CounterAddr, M.SubmapAddr = 0x006100, 0x003013, 0x007F11 end
+function M.mode() return M.rb(M.ModeAddr) end
 
 -- Where pulsing Start from boot gets to, measured on vanilla and on a prep v28 base: the
 -- file select, a new game, the intro level (mode 0x14 by frame ~600), and then THE OVERWORLD

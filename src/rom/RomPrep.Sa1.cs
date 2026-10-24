@@ -9,19 +9,47 @@ namespace PipeDream;
 ///    put a jump, it rewrites the jump's target instead (`JSL $06F5D0` at $00C17A becomes
 ///    `JSL $6FBEF5`) — so every byte of ours the pack wrote is written back;
 ///  • our routines, and Lunar Magic's that the prep carries, address vanilla RAM, which on SA-1 lives
-///    elsewhere — so every one of them is re-emitted through <see cref="Sa1Remap"/>.
+///    elsewhere — so every one of them is said again in its SA-1 form.
 ///
-/// Lunar Magic does the same on an SA-1 ROM: its hooks sit over the pack's rewritten instructions and
-/// its routines are the remapped forms (sgdq2024, Sa1RemapTests). The stamp lists and addresses are
-/// in RomPrep.cs and RomPrep.Stamps.cs; the routines in RomPrep.Code.cs.
+/// Whose code it is decides where the SA-1 form comes from: ours is re-emitted through
+/// <see cref="Sa1Remap"/> (Asm's SA-1 mode, or the sweep for <see cref="Sa1RawCode"/>); Lunar Magic's
+/// is LM's own SA-1 bytes, carried as a diff in <see cref="LmSa1Forms"/>. The diff can also DROP a
+/// byte — where LM's SA-1 save leaves the pack's remap or hijack standing, so must we: the one
+/// restamp that does not is a crash ($02ABF3, the first boot's finding). The stamp lists and
+/// addresses are in RomPrep.cs and RomPrep.Stamps.cs; the routines in RomPrep.Code.cs.
 /// </summary>
 public static partial class RomPrep
 {
     /// <summary>
-    /// The stamp list of <paramref name="version"/> for an SA-1 build: the Asm-built routines
-    /// re-emitted with their RAM operands moved, the raw code in <see cref="Sa1RawCode"/> remapped
-    /// instruction by instruction, every data stamp as it was. Throws when a routine cannot be said
-    /// on SA-1 without changing its length — the layout is pinned, so that needs a new routine.
+    /// Write the prep's SA-1 form over a prepped base the SA-1 Pack was just applied to. A byte is
+    /// written where the SA-1 form differs from the LoROM one, or where the pack wrote (its operand
+    /// remap landing on a hook of ours); everywhere else the image is left as the pack made it.
+    /// <paramref name="packWrote"/> is the pack's Asar blocks, as SNES addresses. The base must be
+    /// at <see cref="LmSa1Forms.PrepVersion"/>, the version LM's SA-1 forms were generated against.
+    /// </summary>
+    public static void ApplySa1(Rom rom, int version, Sa1Remap remap, IEnumerable<(int Snes, int Length)> packWrote)
+    {
+        if (version != LmSa1Forms.PrepVersion)
+            throw new InvalidOperationException($"SA-1 needs the base at prep v{LmSa1Forms.PrepVersion}, not v{version}: Lunar Magic's SA-1 forms are generated against that version's stamps");
+        var lorom = Overlay(BuildStamps(version));
+        var sa1 = Overlay(Sa1Stamps(version, remap));
+        LmSa1Forms.Apply(sa1);
+        var wrote = new HashSet<int>();
+        foreach (var (snes, n) in packWrote)
+            for (int i = 0; i < n; i++) wrote.Add(Pc(snes + i));
+        UnhookExAnimation(rom, sa1, wrote);
+        foreach (var (pc, b) in sa1)
+            if (!lorom.TryGetValue(pc, out var l) || b != l || wrote.Contains(pc)) rom.Data[pc + rom.HeaderOffset] = b;
+        RatsWriter.FixChecksum(rom);
+        ResetScanCaches(rom);
+    }
+
+    /// <summary>
+    /// The stamp list of <paramref name="version"/> for an SA-1 build, before LM's forms: the
+    /// Asm-built routines re-emitted with their RAM operands moved, the raw code in
+    /// <see cref="Sa1RawCode"/> remapped instruction by instruction, every other stamp as it was.
+    /// Throws when a routine cannot be said on SA-1 without changing its length — the layout is
+    /// pinned, so that needs a new routine.
     /// </summary>
     internal static List<(int Pc, byte[] Bytes)> Sa1Stamps(int version, Sa1Remap remap)
     {
@@ -44,34 +72,30 @@ public static partial class RomPrep
     }
 
     /// <summary>
-    /// The prep's code that is stamped as bytes rather than built with <see cref="Asm"/> — Lunar
-    /// Magic's routines, carried byte for byte, and the in-place rewrites of vanilla loops — with the
-    /// M/X state it is entered in. Data stamps (tables, RATS blocks) are never listed: their bytes are
-    /// not instructions.
+    /// Code of OURS stamped as bytes rather than built with <see cref="Asm"/> — in-place rewrites of
+    /// vanilla loops — with the M/X state it is entered in, for the sweep. Lunar Magic's bytes are
+    /// never listed: their SA-1 forms are LM's own (<see cref="LmSa1Forms"/>). Data stamps (tables,
+    /// RATS blocks) are never listed either: their bytes are not instructions. None yet: the raw
+    /// rewrites at $00A897/$00AB0B/$00B895 are LM's 4bpp install, waiting on that oracle.
     /// </summary>
-    internal static readonly (int Snes, bool M8, bool X8)[] Sa1RawCode =
-    [
-        (LmMainEntranceRoutine, true, true),
-        (LmSecondaryRoutine, true, true),
-    ];
+    internal static readonly (int Snes, bool M8, bool X8)[] Sa1RawCode = [];
 
     /// <summary>
-    /// Write the prep's SA-1 form over a prepped base the SA-1 Pack was just applied to. A byte is
-    /// written where the SA-1 form differs from the LoROM one, or where the pack wrote (its operand
-    /// remap landing on a hook of ours); everywhere else the image is left as the pack made it.
-    /// <paramref name="packWrote"/> is the pack's Asar blocks, as SNES addresses.
+    /// Until Lunar Magic's SA-1 forms of its ExAnimation engines are in hand (LM installs them on
+    /// use, so the plain-save oracle has none), an SA-1 build runs without them: every hook site
+    /// goes back to clean + pack — vanilla's displaced bytes, the pack's own where it remapped
+    /// one — and leaves the SA-1 overlay, so nothing writes the hook back. The engines' blocks stay
+    /// in bank $1E, unreferenced. Hooked, the build hangs at game mode $05 (measured 2026-10-24).
     /// </summary>
-    public static void ApplySa1(Rom rom, int version, Sa1Remap remap, IEnumerable<(int Snes, int Length)> packWrote)
+    private static void UnhookExAnimation(Rom rom, Dictionary<int, byte> sa1, HashSet<int> packWrote)
     {
-        var lorom = Overlay(BuildStamps(version));
-        var sa1 = Overlay(Sa1Stamps(version, remap));
-        var wrote = new HashSet<int>();
-        foreach (var (snes, n) in packWrote)
-            for (int i = 0; i < n; i++) wrote.Add(Pc(snes + i));
-        foreach (var (pc, b) in sa1)
-            if (b != lorom[pc] || wrote.Contains(pc)) rom.Data[pc + rom.HeaderOffset] = b;
-        RatsWriter.FixChecksum(rom);
-        ResetScanCaches(rom);
+        foreach (var (snes, vanilla) in LmExAnimEngine.DisplacedVanilla().Concat(LmOwExAnimEngine.DisplacedVanilla()))
+            for (int i = 0; i < vanilla.Length; i++)
+            {
+                int pc = Pc(snes + i);
+                sa1.Remove(pc);
+                if (!packWrote.Contains(pc)) rom.Data[pc + rom.HeaderOffset] = vanilla[i];
+            }
     }
 
     /// <summary>A stamp list as the image it leaves, byte by byte: later stamps win, as in Apply.</summary>

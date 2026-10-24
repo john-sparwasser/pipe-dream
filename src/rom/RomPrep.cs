@@ -110,6 +110,7 @@ public static partial class RomPrep
     public const int LmActsLookup = 0x06F617;         // the lookup LM's own trampolines reach
     public const int LmActsTableOperand = 0x06F626;   // bank byte of its `LDA $xx8000,X`
     public const int LmMap16Marker = 0x06F65C;        // "LM 12 01" — the Map16 hack's stamp
+    public const int LmMap16LadderSnes = 0x06F538;    // LM's Map16 ladder (v12 restamps LM's bytes there)
 
     /// <summary>Where our acts-like remap lives from v26: the free run behind Lunar Magic's
     /// trampolines ($06F800-$06F9FF is FF in every LM ROM measured, and our own bank-06 blocks

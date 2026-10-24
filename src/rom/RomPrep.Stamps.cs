@@ -18,7 +18,7 @@ public static partial class RomPrep
         if (version >= 2) AppendV2Stamps(s);
         // V3 restamps the whole Map16-lookup block over V1's — later stamps win, so the
         // single-range lookup is replaced wholesale rather than V1's frozen list being edited.
-        if (version >= 3) s.Add((Pc(0x06F538), Map16Lookup(3)));
+        if (version >= 3) s.Add((Pc(LmMap16LadderSnes), Map16Lookup(3)));
         if (version >= 4) AppendV4Stamps(s);
         // V5 restamps the Direct-Map16 handler block over V1's, the way V3 restamps the Map16
         // lookup — V1's list stays byte-frozen and a v1 project's pinned image still reproduces.
@@ -31,7 +31,7 @@ public static partial class RomPrep
         if (version >= 11) AppendV11Stamps(s);
         // V12 restamps the Map16 ladder with LM's own bytes (see LmMap16Ladder) — same slot
         // addresses, so V3's scanner contract holds and EnsureMap16Tiles keeps writing there.
-        if (version >= 12) s.Add((Pc(0x06F538), LmMap16Ladder()));
+        if (version >= 12) s.Add((Pc(LmMap16LadderSnes), LmMap16Ladder()));
         if (version >= 13) AppendV13Stamps(s);
         // V14 restamps the whole GFX block, the way V3/V5/V12 restamp theirs: the layer-3 pass
         // is an extra tail on the same loader, so the earlier versions' bytes stay frozen and

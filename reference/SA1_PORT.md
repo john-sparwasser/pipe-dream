@@ -183,6 +183,19 @@ pack's bytes, so the SA-1 stamp list must omit it (rule 1's "the pack's" byte).
   (64 bytes at `$04F2B8-$04F3D0`): the overworld runs on the SA-1 CPU under the pack, which
   cannot read `$7F`. Boots, but the map is not yet trusted.
 
+**Implemented (2026-10-24):** `RomPrep.ApplySa1` is overlay-based and follows the three rules:
+`LmSa1Forms` carries LM's SA-1 forms as a diff from the LoROM stamps (`SNES=HEX` sets bytes,
+`SNES=...` drops them — the pack's stand), generated from `.resources/sa1/lm-sa1.smc` with the
+extracted pack beside it (`--sa1lmforms`, `ReferenceRoms.Sa1LevelSave`/`Sa1Pack`) and pinned by
+`Sa1FormsTests`, which also checks the invariant "wherever the pack wrote inside a stamp, the SA-1
+form is ours or agrees with LM's SA-1 save" and the first boot's bytes. The ExAnimation engines are
+unhooked by `ApplySa1` (vanilla's displaced bytes beside the hooks, test-pinned) until their oracle
+exists. `ApplySa1` refuses a base not at `LmSa1Forms.PrepVersion`: a new prep version regenerates
+and re-pins the diff. `--sa1prep` output boots: `tools/mesen/Test-RomOverworld.ps1 -Rom x -Sa1`
+(prelude.lua `M.sa1()` moves the mode, counter and submap reads). Two loose ends for phase 1's
+build step: LM's SA-1 routine at `$0DE1F0-$0DE20F` and the pack's blocks must be `Owned`, since
+neither is RATS-tagged; and `Sa1RawCode` is empty — nothing of ours is raw code yet.
+
 **How the crash was found (Mesen, headless, one byte per run):** game mode and frame counter at
 `$6100`/`$3013`; exec callbacks over the whole bus with `emu.cpuType.snes`/`sa1`; the *last ROM
 address before a RAM execution* is deterministic across runs (power-on RAM is random, the garbage

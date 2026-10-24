@@ -46,23 +46,28 @@ param(
     #                was edited): its tilemaps differ from both vanilla and a prepped base,
     #                while every graphics window matches. Comparing them made this switch
     #                report a mismatch for a reason that had nothing to do with graphics.
-    [string]$Reference
+    [string]$Reference,
+    # An SA-1 build (reference/SA1_PORT.md): the game mode, frame counter and submap live where the
+    # pack moved them (prelude.lua M.sa1).
+    [switch]$Sa1
 )
 
 $ErrorActionPreference = 'Stop'
 $probe = Join-Path (Split-Path -Parent $PSCommandPath) 'New-MesenProbe.ps1'
 
+$sa1Prefix = if ($Sa1) { "T.sa1()" } else { "" }
 $assert = @"
+$sa1Prefix
 local tick = 0
 T.each(function(f)
   T.bootPulse(f)
   if f == $MapFrames then
     if not T.onOverworld() then T.fail(1) end
-    tick = T.rb(0x7E0013)
+    tick = T.rb(T.CounterAddr)
   end
   if f == $MapFrames + 60 then
     -- A hung game keeps its mode but stops ticking, which a mode check alone would miss.
-    if (T.rb(0x7E0013) - tick) % 256 ~= 60 then T.fail(3) end
+    if (T.rb(T.CounterAddr) - tick) % 256 ~= 60 then T.fail(3) end
     T.pass()
   end
 end)
@@ -73,7 +78,8 @@ $result = & $probe -Rom $Rom -Body $assert -TimeoutSec $TimeoutSec
 # Which submap it landed on — an observation, not an assertion: it is wherever a new game
 # starts, which is Yoshi's Island (1) on an unmodified overworld.
 $observe = @"
-T.each(function(f) T.bootPulse(f) if f >= $MapFrames then T.report(T.rb(0x7E1F11)) end end)
+$sa1Prefix
+T.each(function(f) T.bootPulse(f) if f >= $MapFrames then T.report(T.rb(T.SubmapAddr)) end end)
 "@
 
 $out = [ordered]@{

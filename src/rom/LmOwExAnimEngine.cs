@@ -85,6 +85,18 @@ internal static class LmOwExAnimEngine
         yield return (Rom.LmAltExGfxTable, new byte[16]);
     }
 
+    /// <summary>Vanilla's bytes at the hook sites and the three counter reads, for an SA-1 build
+    /// that runs without the hack (RomPrep.UnhookExAnimation). Pinned to the vanilla ROM by Sa1FormsTests.</summary>
+    public static IEnumerable<(int Snes, byte[] Bytes)> DisplacedVanilla()
+    {
+        yield return (0x048086, Convert.FromHexString("C230640364"));     // REP #$30 : STZ $03 : STZ …
+        yield return (0x00A4E3, Convert.FromHexString("C210A9808D"));     // REP #$10 : LDA #$80 : STA …
+        yield return (0x0480E0, Convert.FromHexString("A5132907D0"));     // LDA $13 : AND #$07 : BNE …
+        yield return (0x048102, [0x13]);
+        yield return (0x04810D, [0x13]);
+        yield return (0x04813B, [0x13]);
+    }
+
     private static byte[] Addr(int snes) => [(byte)snes, (byte)(snes >> 8), (byte)(snes >> 16)];
     private static void Put24(byte[] b, int at, int v) { b[at] = (byte)v; b[at + 1] = (byte)(v >> 8); b[at + 2] = (byte)(v >> 16); }
 
