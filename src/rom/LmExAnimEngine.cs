@@ -98,19 +98,6 @@ internal static class LmExAnimEngine
         yield return (Rom.LmAltExGfxTable, new byte[16]);
     }
 
-    /// <summary>Vanilla's bytes at the seven hook sites, for an SA-1 build that runs without the
-    /// engine (RomPrep.UnhookExAnimation). Pinned to the vanilla ROM by Sa1FormsTests.</summary>
-    public static IEnumerable<(int Snes, byte[] Bytes)> DisplacedVanilla()
-    {
-        yield return (0x0583AD, Convert.FromHexString("E2309C3319"));     // SEP #$30 : STZ $1933
-        yield return (0x00A390, Convert.FromHexString("C220A0808C"));     // REP #$20 : LDY #$80 : STY …
-        yield return (0x0095B6, Convert.FromHexString("39BB05"));         // JSL $05BB39's operand
-        yield return (0x00A2A6, Convert.FromHexString("39BB05"));
-        yield return (0x00A5FE, Convert.FromHexString("39BB05"));
-        yield return (0x008A4E, Convert.FromHexString("C230A2FE1F"));     // REP #$30 : LDX #$1FFE
-        yield return (0x00A5E1, Convert.FromHexString("A9EF01540000"));   // LDA #$01EF : MVN $00,$00
-    }
-
     private static byte[] Addr(int snes) => [(byte)snes, (byte)(snes >> 8), (byte)(snes >> 16)];
     private static void Put24(byte[] b, int at, int v) { b[at] = (byte)v; b[at + 1] = (byte)(v >> 8); b[at + 2] = (byte)(v >> 16); }
 

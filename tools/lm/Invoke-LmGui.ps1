@@ -22,11 +22,12 @@ with WM_CLOSE at the end and killed if it does not go. The result has Dialogs, C
   tools\lm\Invoke-LmGui.ps1 -Rom work.smc -Action SaveLevel
   tools\lm\Invoke-LmGui.ps1 -Rom work.smc -Action SaveMap16
   tools\lm\Invoke-LmGui.ps1 -Rom work.smc -Action SaveExAnim     # slot 0 of the level, then Ctrl+S: installs LM's engine
+  tools\lm\Invoke-LmGui.ps1 -Rom work.smc -Action SaveOwExAnim   # the same slot on the main map, from the overworld editor
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$Rom,
-    [Parameter(Mandatory)][ValidateSet('SaveLevel', 'SaveMap16', 'SaveExAnim', 'OpenOnly')][string]$Action,
+    [Parameter(Mandatory)][ValidateSet('SaveLevel', 'SaveMap16', 'SaveExAnim', 'SaveOwExAnim', 'OpenOnly')][string]$Action,
     [int]$TimeoutSeconds = 60,
     # SaveLevel only: LM's Save Level to ROM writes nothing for an unmodified level, so reorder
     # its objects first (Select All, Bring to Front) — a modification that keeps the level's content.
@@ -34,9 +35,9 @@ param(
     # SaveMap16 only: instead of F9, click the editor's Nth Button child (its toolbar is unlabelled
     # buttons; index 0 is the reload, measured by its "discard all changes" prompt). For probing.
     [int]$EditorButton = -1,
-    # SaveExAnim only: what goes in slot 0 of "Edit Level ExAnimated Frames" (every value hex, as the
-    # dialog takes them). The defaults are exanim_1's one 8x8 tile, three frames, no trigger — the
-    # smallest slot that makes LM install its ExAnimation engine and hooks on a ROM without them.
+    # SaveExAnim and SaveOwExAnim: what goes in slot 0 of the level's (or the main map's) ExAnimation
+    # dialog (every value hex, as the dialog takes them). The defaults are exanim_1's one 8x8 tile,
+    # three frames, no trigger — the smallest slot that makes LM install its ExAnimation engine and hooks on a ROM without them.
     [int]$ExAnimType = 1,                 # index in the Type combo: 1 = "1 8x8"
     [int]$ExAnimTrigger = 0,              # index in the Trigger combo: 0 = None
     [string]$ExAnimDest = 'A0',
@@ -165,6 +166,28 @@ function SelectCombo([IntPtr]$dlg, [int]$id, [int]$index) {
     Start-Sleep -Milliseconds 300
 }
 
+# Open an ExAnimation dialog through command $cmd of window $owner, fill slot 0 from the
+# SaveExAnim parameters and press OK. The controls, by id (measured, LM 3.40): 101 slot,
+# 102 type, 103 trigger combos; 116 colours, 113 frame count, 349 destination; 401..464 the
+# frame sources; 1 is OK.
+function FillExAnim([IntPtr]$owner, [uint32]$cmd) {
+    Post $owner $cmd
+    $dlg = WaitFor { WindowLike 'Extended Animation Frames' } 20
+    if (-not $dlg) { throw 'ExAnimation dialog never appeared' }
+    Start-Sleep 1
+    SelectCombo $dlg 101 0
+    SelectCombo $dlg 102 $ExAnimType
+    SelectCombo $dlg 103 $ExAnimTrigger
+    SetEdit $dlg 113 ('{0:X}' -f $ExAnimFrames.Count)
+    SetEdit $dlg 349 $ExAnimDest
+    for ($i = 0; $i -lt $ExAnimFrames.Count; $i++) { SetEdit $dlg (401 + $i) $ExAnimFrames[$i] }
+    Start-Sleep -Milliseconds 300
+    [LmWin]::PostMessage([LmWin]::GetDlgItem($dlg, 1), $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+    $gone = WaitFor { -not (WindowLike 'Extended Animation Frames') } 10
+    if (-not $gone) { throw 'ExAnimation dialog did not close on OK' }
+    Start-Sleep 1
+}
+
 $timedOut = $false
 $windows = @()
 try {
@@ -201,26 +224,22 @@ try {
             else { foreach ($h in @($ed) + [LmWin]::Children($ed)) { Key $h $VK_F9 } }
         }
         'SaveExAnim' {
-            # The dialog's controls, by id (measured, LM 3.40): 101 slot, 102 type, 103 trigger combos;
-            # 116 colours, 113 frame count, 349 destination; 401..464 the frame sources; 1 is OK.
             $cmd = [LmWin]::FindCommand($main, '^Edit Level ExAnimated Frames')
             if (-not $cmd) { throw 'Edit Level ExAnimated Frames not found in the menu' }
-            Post $main $cmd
-            $dlg = WaitFor { WindowLike 'Extended Animation Frames' } 20
-            if (-not $dlg) { throw 'ExAnimation dialog never appeared' }
-            Start-Sleep 1
-            SelectCombo $dlg 101 0
-            SelectCombo $dlg 102 $ExAnimType
-            SelectCombo $dlg 103 $ExAnimTrigger
-            SetEdit $dlg 113 ('{0:X}' -f $ExAnimFrames.Count)
-            SetEdit $dlg 349 $ExAnimDest
-            for ($i = 0; $i -lt $ExAnimFrames.Count; $i++) { SetEdit $dlg (401 + $i) $ExAnimFrames[$i] }
-            Start-Sleep -Milliseconds 300
-            [LmWin]::PostMessage([LmWin]::GetDlgItem($dlg, 1), $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
-            $gone = WaitFor { -not (WindowLike 'Extended Animation Frames') } 10
-            if (-not $gone) { throw 'ExAnimation dialog did not close on OK' }
-            Start-Sleep 1
+            FillExAnim $main $cmd
             Post $main ([LmWin]::FindCommand($main, '^Save Level to ROM$'))
+        }
+        'SaveOwExAnim' {
+            # The overworld editor is its own frame (OVFrame) with its own menu; its "Edit Submap
+            # ExAnimated Frames" opens the same dialog for the submap it shows (the main map on open).
+            Post $main ([LmWin]::FindCommand($main, '^Overworld Editor Window'))
+            $ow = WaitFor { LmWindows | Where-Object { [LmWin]::Cls($_) -eq 'OVFrame' } | Select-Object -First 1 } 20
+            if (-not $ow) { throw 'Overworld Editor window never appeared' }
+            Start-Sleep 3
+            $cmd = [LmWin]::FindCommand($ow, '^Edit Submap ExAnimated Frames')
+            if (-not $cmd) { throw 'Edit Submap ExAnimated Frames not found in the overworld menu' }
+            FillExAnim $ow $cmd
+            Post $ow ([LmWin]::FindCommand($ow, '^Save Overworld to ROM$'))
         }
     }
     # Let the save land: either the file changes, or nothing happens for a while.

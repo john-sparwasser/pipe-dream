@@ -134,8 +134,9 @@ no oracle for the big ones.
 pieces and the `LmLevelEntry` blocks (at `$10Dxxx`; the prep moves them to bank `$1E`). It does not
 install what other LM actions do — midway (`$13BC00`), overworld palette (`$13C508`/`$13C800`),
 4bpp mode, ExGFX/Super GFX Bypass, layer 3, ExAnimation. Each needs the same action done in LM on
-the SA-1 base, as `after.smc`'s siblings were made on vanilla (level ExAnimation: done, see the
-later findings; `Invoke-LmGui.ps1 -Action SaveExAnim` is the model for scripting the others).
+the SA-1 base, as `after.smc`'s siblings were made on vanilla (ExAnimation, level and overworld:
+done, see the later findings; `Invoke-LmGui.ps1 -Action SaveExAnim`/`SaveOwExAnim` are the model
+for scripting the others).
 
 **Not yet checked:** which CPU runs each hook. The pack runs level mode and Map16 loading on the
 SA-1 CPU, which cannot reach W-RAM (`$7E/$7F`) or the PPU/DMA registers; code of ours that does,
@@ -179,8 +180,7 @@ pack's bytes, so the SA-1 stamp list must omit it (rule 1's "the pack's" byte).
 - LM's 4bpp-mode install (`RomPrep.Stamps.cs` V?? "what LM writes": `$00A897` `STA $0BF6,X`,
   `$00AB0B` `$1BB2,X`, `$00B895` `LDA #$7E : STA $02`) — needs the 4bpp oracle, not a sweep.
 - ~~The ExAnimation engines (level and overworld) — LM installs them on use; needs that oracle.~~
-  The level engine is done (below); the overworld engine still needs its oracle (the overworld
-  editor's ExAnimation dialog).
+  Both done (below).
 - The midway routine (`$13BC00`), OW palette engine (`$13C508`/`$13C800`), layer 3 — as planned.
 - Our own overworld code keeps `LDA $7Fxxxx,Y` where the pack moved vanilla's `$7E` to `$41`
   (64 bytes at `$04F2B8-$04F3D0`): the overworld runs on the SA-1 CPU under the pack, which
@@ -191,9 +191,8 @@ pack's bytes, so the SA-1 stamp list must omit it (rule 1's "the pack's" byte).
 `SNES=...` drops them — the pack's stand), generated from `.resources/sa1/lm-sa1.smc` with the
 extracted pack beside it (`--sa1lmforms`, `ReferenceRoms.Sa1LevelSave`/`Sa1Pack`) and pinned by
 `Sa1FormsTests`, which also checks the invariant "wherever the pack wrote inside a stamp, the SA-1
-form is ours or agrees with LM's SA-1 save" and the first boot's bytes. The overworld ExAnimation
-engine is unhooked by `ApplySa1` (vanilla's displaced bytes beside the hooks, test-pinned) until
-its oracle exists; the level engine was, until its oracle below. `ApplySa1` refuses a base not at
+form is ours or agrees with LM's SA-1 save" and the first boot's bytes. Both ExAnimation engines
+were unhooked by `ApplySa1` until their oracles below existed; both are hooked now. `ApplySa1` refuses a base not at
 `LmSa1Forms.PrepVersion`: a new prep version regenerates and re-pins the diffs. `--sa1prep` output
 boots: `tools/mesen/Test-RomOverworld.ps1 -Rom x -Sa1` and `Test-RomLevel.ps1 -Rom x -Sa1 -Walk
 left` (prelude.lua `M.sa1()` moves the mode, counter, submap and level-number reads). Two loose
@@ -237,6 +236,31 @@ stamps already re-point is ours, not LM's to set.
 **Measured in Mesen:** the hooked v35 image boots to the overworld and into level 105; with LM's
 slot saved onto it, the destination tile's 32 VRAM bytes at frames 3500/3516/3532 checksum 137/99/178
 on the SA-1 image and on the LoROM control alike — the same three frames, in the same phase.
+
+**The overworld engine, the same way.** `Invoke-LmGui.ps1 -Action SaveOwExAnim` saves the same slot
+onto the main map from the overworld editor. On vanilla that is `.resources/ow_exanim_1.smc` (LM's
+LoROM install, blob at `$10CE3A`); on the SA-1 image, with the overworld engine unhooked, it is
+`.resources/sa1/lm-sa1-ow-exanim.smc` (LM's SA-1 install at `$10ED51`, `ReferenceRoms.Sa1OwExAnimSave`).
+The SA-1 blob is the LoROM one with RAM operands moved (`$0DB3 → $6DB3`, `$1F11 → $7F11`, `$0100 →
+$6100`, and others) and the same 16-byte trampoline appended, which its one `JSL $000003` (`+7D0`)
+calls. The two trampolines are byte for byte the same, so the overworld blob's SA-1 form calls the
+level engine's at `$1EA6A8` (`LmOwExAnimEngine.Engine(sa1: true)`): no new prep version. The
+generated diff is 13 bytes, pinned as `LmSa1Forms.OwExAnimSave`.
+
+Measured: once hooked, LM's overworld save on the SA-1 image installs no engine and writes the main
+map's entry into our table at `$1EB440`, as on LoROM. In Mesen, with our writer's slot on submap 1
+(where a new game lands), the destination tile's VRAM alternates between the same two images on
+the SA-1 build and the LoROM control (checksums 32/236 every 8 frames), one step out of phase at
+the same frame numbers; LM's own SA-1 install animates out of step with LoROM too. Before the diff
+was applied, our engine's `$7FC00A` read `$30` (no list found) where LM's read `$10`.
+
+**What an overworld save also does on SA-1.** The overworld editor saves the whole overworld, and
+on a ROM without them installs LM's overworld-save hacks, which the prep does not carry. On SA-1
+they come in LM's SA-1 form: `$03BA10` reads `$40D000` where LoROM reads `$7ED000`, `$04D7F9`
+decompresses into bank `$40`, `$05DCD0` reads `$6109`, and a `JSL $0FFB20` at `$04DBB9` exists only
+on SA-1. Nothing of ours depends on them. A hack LM saved on LoROM carries them in LoROM form,
+which matters for phase 1's switch: turning SA-1 on under an existing hack needs them in SA-1 form,
+from the same oracle.
 
 **How the crash was found (Mesen, headless, one byte per run):** game mode and frame counter at
 `$6100`/`$3013`; exec callbacks over the whole bus with `emu.cpuType.snes`/`sa1`; the *last ROM

@@ -24,6 +24,12 @@ namespace PipeDream;
 /// The setup reads the submap from `$1F11,X` with `X = $0DB3` (the current player) and indexes
 /// the record table by it directly — 3 x submap, no -1, seven entries, FF 00 00 = none. That is
 /// the whole difference from the level engine's `[$FE] - 1`.
+///
+/// On SA-1 LM appends the same 16-byte trampoline it gives the level engine and points the blob's
+/// one `JSL $000003` (+7D0) at it (lm-sa1-ow-exanim.smc). The two trampolines are byte for byte
+/// the same, so the SA-1 form of this blob calls the level engine's
+/// (<see cref="LmExAnimEngine.Sa1TrampolineSnes"/>); LM's other SA-1 bytes, the moved RAM
+/// operands, are carried by LmSa1Forms.OwExAnimSave.
 /// </summary>
 internal static class LmOwExAnimEngine
 {
@@ -48,8 +54,10 @@ internal static class LmOwExAnimEngine
     private const int HandlerTable = 0xB3B, HandlerTableEnd = 0xC13;  // 108 in-bank words
     public const int TablePlusOneOperand = 0x0D6, TableOperand = 0x0E1, SettingsOperand = 0x04A;
     public const int GlobalBankWord = 0x57, GlobalLow16 = 0x61;
+    /// <summary>The operand of the blob's `JSL $000003`, which the SA-1 form points at the trampoline.</summary>
+    public const int Sa1TrampolineOperand = 0x7D1;
 
-    public static byte[] Engine()
+    public static byte[] Engine(bool sa1 = false)
     {
         var b = Convert.FromHexString(Hex);
         int delta = (EngineSnes & 0xFFFF) - (SourceSnes & 0xFFFF);
@@ -60,6 +68,7 @@ internal static class LmOwExAnimEngine
         Put24(b, TablePlusOneOperand, TableSnes + 1);
         Put24(b, TableOperand, TableSnes);
         Put24(b, SettingsOperand, SettingsSnes);
+        if (sa1) Put24(b, Sa1TrampolineOperand, LmExAnimEngine.Sa1TrampolineSnes);
         return b;
     }
 
@@ -83,18 +92,6 @@ internal static class LmOwExAnimEngine
         yield return (0x04810D, [0x14]);
         yield return (0x04813B, [0x14]);
         yield return (Rom.LmAltExGfxTable, new byte[16]);
-    }
-
-    /// <summary>Vanilla's bytes at the hook sites and the three counter reads, for an SA-1 build
-    /// that runs without the hack (RomPrep.UnhookExAnimation). Pinned to the vanilla ROM by Sa1FormsTests.</summary>
-    public static IEnumerable<(int Snes, byte[] Bytes)> DisplacedVanilla()
-    {
-        yield return (0x048086, Convert.FromHexString("C230640364"));     // REP #$30 : STZ $03 : STZ …
-        yield return (0x00A4E3, Convert.FromHexString("C210A9808D"));     // REP #$10 : LDA #$80 : STA …
-        yield return (0x0480E0, Convert.FromHexString("A5132907D0"));     // LDA $13 : AND #$07 : BNE …
-        yield return (0x048102, [0x13]);
-        yield return (0x04810D, [0x13]);
-        yield return (0x04813B, [0x13]);
     }
 
     private static byte[] Addr(int snes) => [(byte)snes, (byte)(snes >> 8), (byte)(snes >> 16)];

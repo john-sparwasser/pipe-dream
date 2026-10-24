@@ -71,7 +71,7 @@ dialog. The GUI can, and it is scriptable enough:
 That sequence is what produced the finding in CONTRACT §0 that LM can write to a prepped base
 and the result does not boot.
 
-**The scripted way (2026-10-15): `tools/lm/Invoke-LmGui.ps1 -Rom copy.smc -Action SaveLevel|SaveMap16|SaveExAnim`.**
+**The scripted way (2026-10-15): `tools/lm/Invoke-LmGui.ps1 -Rom copy.smc -Action SaveLevel|SaveMap16|SaveExAnim|SaveOwExAnim`.**
 It needs no focus and no coordinates, so it runs while something else owns the screen:
 
 - LM is started on the ROM alone — a level number after it makes LM exit at once — and its
@@ -88,6 +88,11 @@ It needs no focus and no coordinates, so it runs while something else owns the s
   (they return at once); the combo's `CBN_SELCHANGE` is posted like a click. Then `Save Level to
   ROM`, which writes the slot and installs LM's engine if the ROM has none — the way the SA-1
   ExAnimation oracle was made (reference/SA1_PORT.md).
+- The overworld editor is a frame of its own (class `OVFrame`, from Editors ▸ Overworld Editor
+  Window) with its own menu bar; `SaveOwExAnim` opens it, fills the same dialog through its
+  "Edit Submap ExAnimated Frames" (the main map, which the editor shows on open) and posts its
+  `Save Overworld to ROM`. That saves the whole overworld, so the save also installs LM's
+  overworld-save hacks if the ROM lacks them.
 - Dialogs are polled for by class `#32770` whose children are only `Static`/`Button`; each is
   logged (title, text, buttons) and answered through a posted `BM_CLICK`: "Restore" → Cancel,
   "discard" → No, else OK/Yes. A `SendMessage` here deadlocked once; posting does not.

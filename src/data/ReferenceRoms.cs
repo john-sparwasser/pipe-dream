@@ -45,6 +45,11 @@ internal static class ReferenceRoms
     internal static string Sa1ExAnimSave => Resource(Path.Combine("sa1", "lm-sa1-exanim.smc"));
     /// <summary>Vanilla with the same slot saved by LM on LoROM: where LmExAnimEngine's bytes come from.</summary>
     internal static string ExAnim1 => Resource("exanim_1.smc");
+    /// <summary>The same slot saved onto the main map from LM 3.40's overworld editor (Invoke-LmGui.ps1
+    /// -Action SaveOwExAnim): on the SA-1 base the oracle for LM's SA-1 overworld ExAnimation engine,
+    /// on vanilla its LoROM install.</summary>
+    internal static string Sa1OwExAnimSave => Resource(Path.Combine("sa1", "lm-sa1-ow-exanim.smc"));
+    internal static string OwExAnim1 => Resource("ow_exanim_1.smc");
     /// <summary>A 4MB SA-1 hack saved by Lunar Magic: its SA-1 forms of LM's routines are the oracle
     /// for <see cref="Sa1Remap"/> (reference/SA1_PORT.md).</summary>
     internal static string Sgdq2024 => InProject("Secret", Path.Combine("workspace", "sgdq2024.smc"));

@@ -167,7 +167,7 @@ internal static class LmSa1Forms
 
     /// <summary>From `.resources/sa1/lm-sa1-exanim.smc`: the SA-1 base `--sa1prep` leaves, with one
     /// ExAnimation slot saved into level 105 by LM 3.40 (`Invoke-LmGui.ps1 -Action SaveExAnim`, the
-    /// slot exanim_1 has). ApplySa1 unhooks the engine first, so LM installs its SA-1 engine fresh:
+    /// slot exanim_1 has). ApplySa1 left the engine unhooked then, so LM installed its SA-1 engine fresh:
     /// the engine, its two helpers and the seven hooks, against exanim_1's LoROM copies — the bytes
     /// LmExAnimEngine relocated. RAM operands moved ($0Dxx → $6Dxx, $14 → $74, $7FC0xx stays), the
     /// direct page set to $3000, one branch shortened, and the second stub call made `JSL $7FC020`;
@@ -182,12 +182,22 @@ internal static class LmSa1Forms
         1EA042=6D
         """;
 
+    /// <summary>From `.resources/sa1/lm-sa1-ow-exanim.smc`: the same SA-1 base with the same slot
+    /// saved onto the main map from LM 3.40's overworld editor (`Invoke-LmGui.ps1 -Action
+    /// SaveOwExAnim`); ApplySa1 left the overworld engine unhooked then, so LM installed its SA-1 form
+    /// fresh. Against ow_exanim_1.smc, the same save on vanilla: the blob LmOwExAnimEngine relocated,
+    /// and its hooks. Pinned by Sa1FormsTests.</summary>
+    public const string OwExAnimSave = """
+        1EA804=6D 1EA807=7F 1EA9A4=61 1EA9BE=6D 1EAA11=6A 1EAF6C=67 1EAF75=67 1EAF90=67
+        1EAFA8=67 1EB025=67 1EB095=67 1EB0E4=67 1EB0F5=7F
+        """;
+
     // ---------------------------------------------------------------- apply
 
     /// <summary>Play every diff onto an SA-1 overlay (PC → byte): set the bytes, drop the dropped.</summary>
     public static void Apply(Dictionary<int, byte> overlay)
     {
-        foreach (var (snes, bytes, dropped) in Parse(LevelSave).Concat(Parse(ExAnimSave)))
+        foreach (var (snes, bytes, dropped) in Parse(LevelSave).Concat(Parse(ExAnimSave)).Concat(Parse(OwExAnimSave)))
         {
             int pc = Rom.SnesToPc(snes);
             if (bytes != null) for (int i = 0; i < bytes.Length; i++) overlay[pc + i] = bytes[i];
@@ -263,6 +273,19 @@ internal static class LmSa1Forms
     }
 
     /// <summary>
+    /// What an overworld ExAnimation save installs: the blob, where <paramref name="owExAnim1"/>'s
+    /// setup hook says LM put it, and the hooks — the three JSLs and the three frame-counter reads.
+    /// The record table and the settings are data.
+    /// </summary>
+    private static IEnumerable<(string Name, Kind Kind, int Snes, int Length, int BaseSnes)> OwExAnimPieces(Rom owExAnim1)
+    {
+        int theirs = owExAnim1.ReadValue(0x048087, 3);
+        yield return ("overworld ExAnimation engine", Kind.Block, LmOwExAnimEngine.EngineSnes, LmOwExAnimEngine.Size, theirs);
+        foreach (var (s, b) in LmOwExAnimEngine.Hooks())
+            yield return ($"overworld ExAnimation hook {s:X6}", b.Length > 3 ? Kind.Hook : Kind.Plain, s, b.Length, 0);
+    }
+
+    /// <summary>
     /// The diff for <see cref="LevelSave"/>, from the oracle. <paramref name="after"/> is LM's LoROM
     /// save (after.smc), <paramref name="oracle"/> its SA-1 save, <paramref name="cleanPack"/> the
     /// pack on a clean ROM and <paramref name="packWrote"/> the PCs it wrote there. A block not found
@@ -275,6 +298,11 @@ internal static class LmSa1Forms
     /// ExAnimation install (exanim_1.smc), <paramref name="oracle"/> its SA-1 one.</summary>
     public static string GenerateExAnim(Rom exanim1, Rom oracle, Rom cleanPack, IReadOnlySet<int> packWrote, Sa1Remap remap, List<string> report)
         => Generate(_ => ExAnimPieces(), exanim1, oracle, cleanPack, packWrote, remap, report);
+
+    /// <summary>The diff for <see cref="OwExAnimSave"/>: <paramref name="owExAnim1"/> is LM's LoROM
+    /// overworld ExAnimation install (ow_exanim_1.smc), <paramref name="oracle"/> its SA-1 one.</summary>
+    public static string GenerateOwExAnim(Rom owExAnim1, Rom oracle, Rom cleanPack, IReadOnlySet<int> packWrote, Sa1Remap remap, List<string> report)
+        => Generate(_ => OwExAnimPieces(owExAnim1), owExAnim1, oracle, cleanPack, packWrote, remap, report);
 
     /// <summary>One diff: every piece decided byte by byte, by the three rules. <paramref name="after"/>
     /// is the LoROM save the pieces' LM bytes come from, <paramref name="oracle"/> the SA-1 save;

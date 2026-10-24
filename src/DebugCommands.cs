@@ -19,9 +19,10 @@ static class DebugCommands
         // --sa1audit <packdir> : which prep stamps the SA-1 form changes, and which raw stamps a remap
         // would change if they were code — the candidates for RomPrep.Sa1RawCode, to be read by hand.
         ("--sa1audit",          (a, i) => Sa1Audit(a[i + 1])),
-        // --sa1lmforms [packdir] [oracle.smc] [exanim-oracle.smc] : regenerate LmSa1Forms.LevelSave and
-        // .ExAnimSave from the oracles (defaults: ReferenceRoms.Sa1Pack / Sa1LevelSave / Sa1ExAnimSave),
-        // with every byte that breaks their rules listed after them.
+        // --sa1lmforms [packdir] [oracle.smc] [exanim-oracle.smc] : regenerate LmSa1Forms.LevelSave,
+        // .ExAnimSave and .OwExAnimSave from the oracles (defaults: ReferenceRoms.Sa1Pack / Sa1LevelSave /
+        // Sa1ExAnimSave; the overworld one is always Sa1OwExAnimSave), with every byte that breaks
+        // their rules listed after them.
         ("--sa1lmforms",        (a, i) => Sa1LmForms(a.Length > i + 1 ? a[i + 1] : ReferenceRoms.Sa1Pack,
                                                      a.Length > i + 2 ? a[i + 2] : ReferenceRoms.Sa1LevelSave,
                                                      a.Length > i + 3 ? a[i + 3] : ReferenceRoms.Sa1ExAnimSave)),
@@ -252,6 +253,11 @@ static class DebugCommands
         {
             Console.WriteLine("ExAnimSave:");
             Console.Write(LmSa1Forms.GenerateExAnim(Rom.Load(ReferenceRoms.ExAnim1), Rom.Load(exanimOraclePath), cleanPack, wrote, remap, report));
+        }
+        if (File.Exists(ReferenceRoms.Sa1OwExAnimSave) && File.Exists(ReferenceRoms.OwExAnim1))
+        {
+            Console.WriteLine("OwExAnimSave:");
+            Console.Write(LmSa1Forms.GenerateOwExAnim(Rom.Load(ReferenceRoms.OwExAnim1), Rom.Load(ReferenceRoms.Sa1OwExAnimSave), cleanPack, wrote, remap, report));
         }
         foreach (var line in report) Console.WriteLine("breaks the rules: " + line);
         return report.Count == 0 ? 0 : 1;

@@ -511,7 +511,7 @@ public static partial class RomPrep
     /// </summary>
     private static void AppendV17Stamps(List<(int Pc, byte[] Bytes)> s)
     {
-        s.Add((Pc(LmOwExAnimEngine.EngineSnes) - 8, Rats(LmOwExAnimEngine.Engine())));
+        s.Add((Pc(LmOwExAnimEngine.EngineSnes) - 8, Rats(LmOwExAnimEngine.Engine(sa1: Asm.Sa1 != null))));
         s.Add((Pc(LmOwExAnimEngine.TableSnes) - 8, Rats(LmOwExAnimEngine.EmptyTable())));
         s.Add((Pc(LmOwExAnimEngine.SettingsSnes) - 8, Rats(LmOwExAnimEngine.EmptySettings())));
         foreach (var (site, bytes) in LmOwExAnimEngine.Hooks()) s.Add((Pc(site), bytes));
