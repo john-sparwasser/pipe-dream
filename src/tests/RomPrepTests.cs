@@ -411,7 +411,7 @@ public class RomPrepTests
 
     /// <summary>V24 IS Lunar Magic's palette engine: every byte LM's ExGFX import wrote onto a v23
     /// base at these sites is what the prep now stamps, and ShaoBase carries the same.</summary>
-    [LmRefRomFact]
+    [HackRomFact("ShaoBase")]
     public void v24_stamps_lunar_magics_palette_engine_byte_for_byte()
     {
         var ours = PreppedReal();
@@ -435,7 +435,7 @@ public class RomPrepTests
     /// v24 base — the two expander repoints into $0EFC00, the #$32 compares, the filter body, the
     /// GFX33 load and the $00A149 NOP — and ShaoBase carries the same. The expanders behind the
     /// repoints go back to vanilla's bytes, which is what makes the wider ranges here match.</summary>
-    [LmRefRomFact]
+    [HackRomFact("ShaoBase")]
     public void v25_stamps_lunar_magics_4bpp_mode_byte_for_byte()
     {
         var ours = PreppedReal();
@@ -642,7 +642,7 @@ public class RomPrepTests
     /// writes, which through v25 landed on our own remap at $06F5F0 and left the ROM unable to
     /// build a level. Byte-identical to ShaoBase's — including the table operand, because LM's
     /// lookup reads the acts-like table at the address our prep has always used.</summary>
-    [LmRefRomFact]
+    [HackRomFact("ShaoBase")]
     public void v26_stamps_lunar_magics_acts_like_core_byte_for_byte()
     {
         var ours = PreppedReal();
@@ -1501,7 +1501,7 @@ public class RomPrepTests
     /// <summary>The point of v8: LM decides a ROM's files are 4bpp by finding ITS hack, and a
     /// real LM 4bpp hack must read as prepped so <see cref="RomPrep.Apply"/> never stamps over
     /// one.</summary>
-    [LmRefRomFact]
+    [HackRomFact("ShaoBase")]
     public void v8_wears_the_4bpp_hack_lunar_magic_looks_for()
     {
         var v7 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v7, 7);
@@ -1548,7 +1548,7 @@ public class RomPrepTests
     /// Lunar Magic's two bytes — on a fresh prep and on a v12 base upgraded in place. Emulated:
     /// the routine expands 11 tiles of a 4bpp buffer into $0AF6 verbatim (vanilla's version
     /// reads it as 3bpp and produces the "streaky" overworld).</summary>
-    [LmRefRomFact]
+    [HackRomFact("ShaoBase")]
     public void v13_overworld_tile_reader_takes_4bpp_like_lunar_magic()
     {
         var shao = Rom.Load(ReferenceRoms.ShaoBase);

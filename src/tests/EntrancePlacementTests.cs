@@ -56,7 +56,7 @@ public class EntrancePlacementTests(ITestOutputHelper log)
     /// bytes every LM save installs, so after.smc (a plain LM save) and ShaoBase (a real hack)
     /// both read as having free positions, and our stamp is byte-identical to theirs.
     /// </summary>
-    [LmRefRomFact]
+    [HackRomFact("ShaoBase")]
     public void v10_stamps_exactly_the_routines_lunar_magic_installs()
     {
         var ours = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(ours, 10);
@@ -140,7 +140,7 @@ public class EntrancePlacementTests(ITestOutputHelper log)
     /// (juz and ShaoBase have it, a plain save does not), byte-identical apart from four table
     /// operands and its own address — so ours is theirs with the operands repointed.
     /// </summary>
-    [LmRefRomFact]
+    [HackRomFact("ShaoBase", "juz")]
     public void v10_stamps_lunar_magics_separate_midway_routine()
     {
         var ours = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(ours, 10);
@@ -177,7 +177,7 @@ public class EntrancePlacementTests(ITestOutputHelper log)
     /// 0x400 into the secondary block's run and every LM level save refused with "Existing data
     /// format or size not recognized! Midway entrance data" (reference/LM_PARITY.md §2).
     /// </summary>
-    [LmRefRomFact]
+    [HackRomFact("ShaoBase", "juz")]
     public void v21_gives_the_midway_tables_a_rats_block_of_their_own()
     {
         var v20 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v20, 20);
@@ -200,7 +200,7 @@ public class EntrancePlacementTests(ITestOutputHelper log)
     /// save releases and zeroes, routine included, while the hooks still jump into it (measured
     /// 2026-09-10, reference/LM_PARITY.md §2). The readers needed no change: they follow the hook.
     /// </summary>
-    [LmRefRomFact]
+    [HackRomFact("ShaoBase", "juz")]
     public void v22_gives_the_midway_routine_a_rats_block_of_its_own()
     {
         var v21 = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(v21, 21);
@@ -302,7 +302,7 @@ public class EntrancePlacementTests(ITestOutputHelper log)
     /// and $06FA00 at LM's initial value. Detection follows the $05DA17 hook, so after.smc and
     /// ShaoBase read as having it too.
     /// </summary>
-    [LmRefRomFact]
+    [HackRomFact("ShaoBase", "DogsOfWar")]
     public void v10_transplants_lunar_magics_level_entry_engine()
     {
         var ours = Rom.Load(TestRom.RealRomPath); RomPrep.Apply(ours, 10);

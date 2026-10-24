@@ -2,9 +2,10 @@ namespace PipeDream;
 
 /// <summary>
 /// Where the reverse-engineering reference ROMs live — the vanilla image plus the
-/// Lunar-Magic-saved oracles the self-check and the gated tests compare against. These are
-/// never redistributed (see .gitignore) and never touched by the shipped editor; they only
-/// back <c>--selfcheck</c>, the debug CLI defaults, and RealRomFact/LmRefRomFact tests.
+/// Lunar-Magic-saved oracles the self-check and the gated tests compare against. No ROM is ever
+/// committed (see .gitignore): the oracles travel as BPS patches in the repo's fixtures/ folder
+/// (<see cref="Fixtures"/>), and none of this is touched by the shipped editor; it only backs
+/// <c>--selfcheck</c>, the debug CLI defaults, and RealRomFact/LmRefRomFact tests.
 ///
 /// The root comes from PIPEDREAM_SMW_ROOT so the same commands work on macOS and Linux;
 /// the historical Windows layout stays the default so nothing needs reconfiguring here.
@@ -18,14 +19,20 @@ internal static class ReferenceRoms
         Environment.GetEnvironmentVariable("PIPEDREAM_SMW_ROOT") is { Length: > 0 } r
             ? r : @"C:\SMW\Projects";
 
-    /// <summary>A file in the shared .resources folder (vanilla + the LM diff oracles).</summary>
-    internal static string Resource(string fileName) => Path.Combine(Root, ".resources", fileName);
+    /// <summary>A file in the shared .resources folder (vanilla + the LM diff oracles) — or, when it
+    /// is not there, the same ROM built from the repo's patch of it (<see cref="Fixtures"/>).</summary>
+    internal static string Resource(string fileName)
+    {
+        string path = Path.Combine(Root, ".resources", fileName);
+        return File.Exists(path) ? path : Fixtures.Materialise(fileName) ?? path;
+    }
 
     /// <summary>A file inside one of the reference hack folders.</summary>
     internal static string InProject(string projectFolder, string fileName) =>
         Path.Combine(Root, projectFolder, fileName);
 
-    internal static string Vanilla => Resource("SMW.smc");
+    /// <summary>The clean US ROM every patch is against; the one file no fixture can stand in for.</summary>
+    internal static string Vanilla => Path.Combine(Root, ".resources", "SMW.smc");
     internal static string LmAfter => Resource("after.smc");
     internal static string ShaoBase => InProject("ShaoBase", "base.smc");
     /// <summary>Clean + SA-1 Pack v1.40, one level saved by Lunar Magic 3.40: the oracle LM's SA-1

@@ -25,6 +25,9 @@ static class DebugCommands
         ("--sa1lmforms",        (a, i) => Sa1LmForms(a.Length > i + 1 ? a[i + 1] : ReferenceRoms.Sa1Pack,
                                                      a.Length > i + 2 ? a[i + 2] : ReferenceRoms.Sa1LevelSave,
                                                      a.Length > i + 3 ? a[i + 3] : ReferenceRoms.Sa1ExAnimSave)),
+        // --fixtures [fixturesdir] : write every oracle ROM under .resources as a BPS patch against vanilla
+        // into the repo's fixtures/ folder (Fixtures.Create) — what gets committed in a ROM's place.
+        ("--fixtures",          (a, i) => MakeFixtures(a.Length > i + 1 ? a[i + 1] : Fixtures.Dir)),
         ("--newproject",        NewProject),
         ("--prep",              (a, i) => PrepRom(a[i + 1], a.Length > i + 2 ? int.Parse(a[i + 2]) : RomPrep.Version)),
         ("--buildproject",      BuildProject),
@@ -252,6 +255,15 @@ static class DebugCommands
         }
         foreach (var line in report) Console.WriteLine("breaks the rules: " + line);
         return report.Count == 0 ? 0 : 1;
+    }
+
+    public static int MakeFixtures(string? fixturesDir)
+    {
+        if (fixturesDir is null) { Console.Error.WriteLine("no fixtures/ folder found beside src/ (or pass one)"); return 1; }
+        if (!File.Exists(ReferenceRoms.Vanilla)) { Console.Error.WriteLine("vanilla ROM not found: " + ReferenceRoms.Vanilla); return 1; }
+        foreach (var line in Fixtures.Create(Path.Combine(ReferenceRoms.Root, ".resources"), ReferenceRoms.Vanilla, fixturesDir))
+            Console.WriteLine(line);
+        return 0;
     }
 
     public static int Sa1Audit(string packDir)
