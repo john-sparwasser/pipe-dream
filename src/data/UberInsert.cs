@@ -16,8 +16,9 @@ public static partial class UberInsert
 
     private static readonly string VirtualDir = Path.Combine(Path.GetTempPath(), "pipedream-uber");
 
-    /// <summary>The sites the driver hooks and SMW's bytes there; a base where one differs already has code of someone else's.</summary>
-    private static readonly (int At, byte[] Smw)[] Sites =
+    /// <summary>The sites the driver hooks and SMW's bytes there (-1: any byte); a base where one differs already has code of
+    /// someone else's.</summary>
+    private static readonly (int At, int[] Smw)[] Sites =
     [
         (0x008064, [0xA9, 0x03, 0x8D, 0x01, 0x21]), (0x008070, [0xE6, 0x13, 0x20, 0x22, 0x93, 0x64, 0x10]),
         (0x008174, [0xE2, 0x30, 0xAD, 0x10, 0x42]), (0x008E1A, [0xAD, 0x93, 0x14, 0x05, 0x9D]),
@@ -27,14 +28,27 @@ public static partial class UberInsert
         (0x0084CF, [0x6B]),                                       // the RTL the frame returns from SMW's game mode through
     ];
 
+    /// <summary>The same sites after the SA-1 Pack (measured on v1.40): RAM operands in $0100-$1FFF moved to $6100-$7FFF, and
+    /// the map's `JSL $048241` a JSL into the pack's own routine, which moves with the layout.</summary>
+    private static readonly (int At, int[] Smw)[] Sa1Sites =
+    [
+        (0x008064, [0xA9, 0x03, 0x8D, 0x01, 0x21]), (0x008070, [0xE6, 0x13, 0x20, 0x22, 0x93, 0x64, 0x10]),
+        (0x008174, [0xE2, 0x30, 0xAD, 0x10, 0x42]), (0x008E1A, [0xAD, 0x93, 0x74, 0x05, 0x9D]),
+        (0x00A179, [0xA9, 0x02, 0x8D, 0x9B, 0x6D]), (0x00A1C3, [0x22, 0x00, 0x80, 0x7F, 0x22, -1, -1, -1, 0x4C, 0x94, 0x84]),
+        (0x00A242, [0xAD, 0xD4, 0x73, 0xF0, 0x43]), (0x00A2EA, [0x68, 0x85, 0x1D, 0x68, 0x85, 0x1C, 0x4C, 0x94, 0x84]),
+        (0x00A5E8, [0xAE, 0x01, 0x67, 0x8E, 0x03, 0x69]), (0x05808F, [0xE2, 0x30, 0xAD, 0x00, 0x61]),
+        (0x0084CF, [0x6B]),
+    ];
+
     private static readonly string[] Labels = ["load", "init", "main", "end", "nmi"];
 
-    /// <summary>What a kind's dispatch reads its number from, in 16-bit A, and how many numbers it has.</summary>
+    /// <summary>What a kind's dispatch reads its number from, in 16-bit A, and how many numbers it has. !BankA is SMW's RAM
+    /// bank as a long address: $7E, or the SA-1 Pack's BW-RAM, $40.</summary>
     private static readonly (string Kind, string Name, int Count, string Number)[] Kinds =
     [
-        ("level", "Level", 0x200, "LDA.l $7E010B\n    AND #$01FF"),
-        ("gamemode", "GameMode", 0x100, "LDA.l $7E0100\n    AND #$00FF"),
-        ("overworld", "Overworld", 7, "LDA.l $7E0DB3\n    AND #$00FF\n    TAX\n    LDA.l $7E1F11,x\n    AND #$00FF"),
+        ("level", "Level", 0x200, "LDA.l $010B|!BankA\n    AND #$01FF"),
+        ("gamemode", "GameMode", 0x100, "LDA.l $0100|!BankA\n    AND #$00FF"),
+        ("overworld", "Overworld", 7, "LDA.l $0DB3|!BankA\n    AND #$00FF\n    TAX\n    LDA.l $1F11|!BankA,x\n    AND #$00FF"),
     ];
 
     public static Result Insert(Rom rom, ProjectFile data)
@@ -49,8 +63,8 @@ public static partial class UberInsert
         bool hasGlobal = Has(u, u.Global, "init", "main", "nmi", "load"), hasStatus = Has(u, u.StatusBar, "main");
         if (used.Count == 0 && !hasGlobal && !hasStatus) return new(true, [], [], []);
         if (used.Find(f => !u.Files.ContainsKey(f)) is { } missing) return Fail($"{missing} is in the list but not in the project");
-        foreach (var (at, smw) in Sites)
-            if (!rom.Data.AsSpan(rom.FileOffset(at), smw.Length).SequenceEqual(smw))
+        foreach (var (at, smw) in rom.Map is Sa1Map ? Sa1Sites : Sites)
+            if (smw.Where((b, i) => b >= 0 && rom.ReadByte(at + i) != b).Any())
                 return Fail($"${at:X6} is not SMW's code (UberASM Tool, or another patch, already hooks it): build from a base without one");
 
         var mem = new Dictionary<string, byte[]>();
@@ -103,6 +117,7 @@ public static partial class UberInsert
         // The driver: its hooks, the global and status bar files inside it, and the dispatch the list makes.
         var drv = new StringBuilder("incsrc \"_head.asm\"\n");
         drv.Append($"!FreeRam = ${u.FreeRam:X6}\n");
+        drv.Append($"!OverworldMain = ${rom.ReadValue(0x00A1C8, 3):X6}\n");      // what the map's hook displaces calls: SMW's, or the SA-1 Pack's
         foreach (var (define, path, label) in new[] { ("UberGlobalInit", u.Global, "init"), ("UberGlobalMain", u.Global, "main"),
                      ("UberGlobalNmi", u.Global, "nmi"), ("UberGlobalLoad", u.Global, "load"), ("UberStatusMain", u.StatusBar, "main") })
             drv.Append($"!{define} = {(Has(u, path, label) ? 1 : 0)}\n");
@@ -181,10 +196,11 @@ public static partial class UberInsert
                         routines[code] = $"UberCalls_{routines.Count}";
                         s.Append($"{routines[code]}:\n{code}    SEP #$30\n    RTL\n");
                     }
-                // The number × 3 into the table; the routine is entered with JML [$00] and returns to the JSL into this.
+                // The number × 3 into the table; the routine is entered with JML [$00] and returns to the JSL into this. JML's
+                // operand is an absolute address, so it names the direct page's $00 through !dp: $3000 on SA-1.
                 s.Append($"{entry}:\n    REP #$30\n    {number}\n    STA $00\n    ASL\n    ADC $00\n    TAX\n    SEP #$20\n");
                 s.Append($"    LDA.l {entry}_Table,x\n    STA $00\n    LDA.l {entry}_Table+1,x\n    STA $01\n    LDA.l {entry}_Table+2,x\n    STA $02\n");
-                s.Append("    SEP #$30\n    JML [$0000]\n");
+                s.Append("    SEP #$30\n    JML [$0000|!dp]\n");
                 s.Append($"{entry}_Table:\n");
                 for (int n = 0; n < count; n++) s.Append($"    dl {(lists[n].Length > 0 ? routines[lists[n]] : "UberNothing")}\n");
             }
@@ -258,7 +274,8 @@ public static partial class UberInsert
         bool remapped = data.SpriteSlots.Count > 0;                          // our sprite driver moves the load table, as PIXI does
         s.Append(Driver("defines.asm"));
         s.Append($"!Has255SpritesPerLevel = {(remapped ? 1 : 0)}\n");
-        if (!remapped) s.Append("!1938 = $1938\n!sprite_load_table = $1938\n");
+        // Without our sprite driver the table stays SMW's — on LoROM; the SA-1 Pack moves it to $418A00 either way.
+        if (!remapped) s.Append("if !sa1 == 0\n!1938 = $1938\n!sprite_load_table = $1938\nendif\n");
         // Not again what the sprite driver's defines or the user's library already define (Asar refuses a macro twice).
         var theirs = Regex.Matches(Sprite("defines.asm") + "\n" + macroLib, @"(?m)^\s*macro\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(")
             .Select(m => m.Groups[1].Value).ToHashSet();

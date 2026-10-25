@@ -31,6 +31,15 @@ public static class PatchInsert
         string root = Path.Combine(dir, patch.Name);
         var mem = patch.Files.ToDictionary(kv => Path.Combine(dir, kv.Key), kv => kv.Value);
         mem[root] = Encoding.UTF8.GetBytes(patch.Source);
+        if (rom.Map is Sa1Map)
+        {
+            // Asar assumes LoROM until a patch names its mapper, and does not read the header. On an
+            // SA-1 build that is wrong past 2MB, so the patch is included from a file that says
+            // sa1rom first: a mapper of its own still wins, and its lines stay its own.
+            string wrapper = Path.Combine(dir, "__sa1rom.asm");
+            mem[wrapper] = Encoding.UTF8.GetBytes($"sa1rom\nincsrc \"{patch.Name}\"\n");
+            root = wrapper;
+        }
         var r = Asar.Patch(rom, root, mem);
         return new Result(r.Ok, Local(r.Errors, dir), Local(r.Warnings, dir), r.Blocks);
     }

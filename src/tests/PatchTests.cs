@@ -108,6 +108,27 @@ public class PatchTests
         Assert.Equal(before, rom.Data);
     }
 
+    /// <summary>On an SA-1 image a patch is assembled under sa1rom unless it says otherwise, as the
+    /// image addresses: past 2MB, $80-$BF is ROM of its own there, where LoROM folds it onto $00.
+    /// An error still names the patch and its line.</summary>
+    [AsarFact]
+    public void on_an_sa1_image_a_patch_assembles_under_sa1rom_and_its_errors_keep_their_lines()
+    {
+        var rom = TestRom.Create(size: 0x400000);
+        rom.Data[rom.HeaderOffset + 0x7FD5] = 0x23;
+        var r = PatchInsert.Apply(rom, Patch("far.asm", "org $808000\ndb $AB\n"));
+        Assert.True(r.Ok, string.Join("\n", r.Errors));
+        Assert.Equal(0xAB, rom.Data[rom.HeaderOffset + 0x200000]);
+
+        r = PatchInsert.Apply(rom, Patch("bad.asm", "nop\nLDA.q #0\n"));
+        string error = Assert.Single(r.Errors);
+        Assert.True(error.StartsWith("bad.asm:2:"), error);
+
+        r = PatchInsert.Apply(rom, Patch("own.asm", "lorom\norg $808000\ndb $CD\n"));      // its own mapper wins
+        Assert.True(r.Ok, string.Join("\n", r.Errors));
+        Assert.Equal(0xCD, rom.Data[rom.HeaderOffset]);
+    }
+
     [AsarFact]
     public void the_build_applies_the_enabled_patches_in_order_and_warns_on_overlaps()
     {

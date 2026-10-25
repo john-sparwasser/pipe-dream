@@ -88,6 +88,26 @@ public class Sa1BuildTests
         Assert.Empty(loose);
     }
 
+    /// <summary>On SA-1 the direct page is $3000, so UberASM's dispatch, which stores the routine's address at $00 and jumps
+    /// with JML [$0000], must name $3000: through $0000 it jumped through work RAM nobody wrote and the game fell over (Mesen).
+    /// The game mode it dispatches on is read from the pack's BW-RAM, and the hooks accept the pack's forms of SMW's code.</summary>
+    [Sa1BuildFact]
+    public async Task uberasm_on_sa1_dispatches_through_the_direct_page_and_reads_the_moved_ram()
+    {
+        Assert.True(TestConfigDir.SeedSa1());
+        var s = NewProject();
+        s.Project!.Data.Uber.Files["gamemode/gm.asm"] = "main:\n    RTL\n"u8.ToArray();
+        UberImport.ParseList("gamemode:\n14 gm.asm\n", s.Project.Data.Uber, []);
+        await s.SetSa1(true);
+        var rom = Rom.FromBytes(Built(s));
+        int frame = rom.ReadValue(0x008071, 3);                                        // Frame, from the hook's JML
+        var code = rom.Data.AsSpan(rom.FileOffset(frame), 0x40).ToArray();
+        Assert.Contains("AF000140", Convert.ToHexString(code));                     // LDA.l $400100: the game mode in BW-RAM
+        string all = Convert.ToHexString(rom.Data);
+        Assert.Contains("DC0030", all);                                              // JML [$3000]
+        Assert.DoesNotContain("E230DC0000", all);                                    // and never SEP #$30 : JML [$0000]
+    }
+
     [Sa1BuildFact]
     public async Task sa1_cannot_be_switched_on_over_a_base_at_another_prep_version()
     {

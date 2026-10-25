@@ -114,13 +114,15 @@ public static class MusicInsert
         return (local.SamplesEnd - image.LocalBase, local.SamplesEnd + local.Free - image.LocalBase, null);
     }
 
-    /// <summary>The first place data/musicdriver/snes.asm hooks that does not hold SMW's own code, or null.</summary>
+    /// <summary>The first place data/musicdriver/snes.asm hooks that does not hold SMW's own code, or null. On an SA-1 build the
+    /// pack has moved the NMI's `LDA $1DFB` to $7DFB, its home there.</summary>
     private static int? ForeignSoundCode(Rom rom)
     {
+        byte songHigh = rom.Map is Sa1Map ? (byte)0x7D : (byte)0x1D;
         (int At, byte[] Smw)[] hooks =
         [
             (0x0080E8, [0xA9, 0x00, 0x8D]), (0x0080FD, [0xA9, 0x00, 0x8D]), (0x00810E, [0xA9, 0xB1, 0x8D]),
-            (0x008148, [0xA9, 0xD6, 0x8D]), (0x008159, [0xA9, 0x00, 0x8D]), (0x008179, [0xAD, 0xFB, 0x1D]),
+            (0x008148, [0xA9, 0xD6, 0x8D]), (0x008159, [0xA9, 0x00, 0x8D]), (0x008179, [0xAD, 0xFB, songHigh]),
         ];
         foreach (var (at, smw) in hooks)
             if (!rom.Data.AsSpan(rom.FileOffset(at), smw.Length).SequenceEqual(smw)) return at;

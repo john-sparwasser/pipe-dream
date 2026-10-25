@@ -70,6 +70,19 @@ public class MusicSnesTests(Xunit.Abstractions.ITestOutputHelper log)
         Assert.NotEqual(mine, smws);                                     // and SMW's $02 is still there
     }
 
+    /// <summary>The NMI hook rejoins SMW's NMI at $0081AA. Asar takes a number after a branch as the offset itself, so a
+    /// `BRA $0081AA` there assembled as `80 AA` and the game crashed on its first frame with sound (measured in Mesen); the
+    /// tests above call Nmi directly and never ran the hook's own two instructions.</summary>
+    [AsarFact]
+    public void the_nmi_hook_rejoins_smws_nmi_after_its_sound_code()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla)) return;
+        var (rom, labels) = Inserted();
+        Assert.Equal(0x22, rom.ReadByte(0x008179));                                       // JSL Nmi
+        Assert.Equal(labels["Nmi"], rom.ReadValue(0x00817A, 3));
+        Assert.Equal([0x80, 0x2B], rom.Data[rom.FileOffset(0x00817D)..][..2]);           // BRA to $0081AA
+    }
+
     [Fact]
     public void smws_song_numbers_become_addmusicks()
     {

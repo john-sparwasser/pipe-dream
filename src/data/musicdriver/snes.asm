@@ -1,14 +1,28 @@
 ; Pipe Dream's music, the main CPU's side: SMW's own uploads give way to ours, and the NMI hands songs and sound effects to
 ; our engine (data/musicdriver/main.asm). Written for this project from SMW's disassembly (reference/smw-disasm/bank_00.asm)
-; and the SPC700 boot ROM's documented protocol; no part of AddmusicK's patch is used. LoROM. data/MusicInsert.cs assembles
+; and the SPC700 boot ROM's documented protocol; no part of AddmusicK's patch is used. LoROM or SA-1. data/MusicInsert.cs assembles
 ; it with the tables after it: BootList (power-on), SongLists (a long pointer per song number, 0 for none) and Global (1 per
 ; song number that is always in ARAM).
 ;
 ; An upload is a block list: a count, then a long pointer per block; a block is a length, an ARAM address and that many bytes
 ; (a length of 0: the address is where the SPC jumps). Lists, not one stream, because a song and its samples outgrow a bank.
 
-!Loaded = $1DFD                         ; the local song in ARAM (0: none), and the song asked of the engine until it says it
-!Pending = $1DFE                        ; has it ($1DFD-$1DFF were the old sound code's own, which this replaces)
+; On an SA-1 build (the SA-1 Pack is in, map mode $23) $0100-$1FFF lives at $6100-$7FFF (reference/SA1_PORT.md). The code here
+; runs on the SNES CPU either way: at reset and in NMI.
+!sa1 = 0
+!addr = $0000
+if read1($00FFD5) == $23
+    sa1rom
+    !sa1 = 1
+    !addr = $6000
+endif
+
+!Loaded = $1DFD|!addr                   ; the local song in ARAM (0: none), and the song asked of the engine until it says it
+!Pending = $1DFE|!addr                  ; has it ($1DFD-$1DFF were the old sound code's own, which this replaces)
+!Sfx1 = $1DF9|!addr                     ; SMW's sound ports: effects, the song, more effects
+!Sfx2 = $1DFA|!addr
+!Song = $1DFB|!addr
+!Sfx3 = $1DFC|!addr
 
 ; ---- power-on: our engine, effects, global songs and SMW's samples, instead of SMW's engine ----
 org $0080E8                             ; UploadSPCEngine (called once, from the reset code)
@@ -28,7 +42,9 @@ org $008159                             ; UploadMusicBank3 (the ending)
 ; ---- every frame: the song and the effects to the engine ----
 org $008179                             ; NMI, after reading $4210, where SMW wrote $1DF9-$1DFC to the ports
     JSL Nmi
-    BRA $0081AA
+    BRA NmiDone                         ; a label: Asar takes a number after a branch as the offset itself, not an address
+org $0081AA
+NmiDone:
 
 freecode
 
@@ -58,9 +74,9 @@ Nmi:
     STZ $2142
     BRA .effects
 .new:
-    LDA $1DFB
+    LDA !Song
     BEQ .effects
-    STZ $1DFB
+    STZ !Song
     STA !Pending
     TAX
     LDA.l Global,x
@@ -103,22 +119,28 @@ Nmi:
 .send:
     STA $2142
 .effects:
-    LDA $1DF9
+    LDA !Sfx1
     STA $2140
-    LDA $1DFA
+    LDA !Sfx2
     STA $2141
-    LDA $1DFC
+    LDA !Sfx3
     STA $2143
-    STZ $1DF9
-    STZ $1DFA
-    STZ $1DFC
+    STZ !Sfx1
+    STZ !Sfx2
+    STZ !Sfx3
     RTL
 
 ; A/Y/X = the block list (low, high, bank), 8-bit registers. $00-$0B are its own while it runs, put back after: the code the
 ; NMI interrupted may be using them. $00-$02 the list, $04 the next kick, $05 blocks left, $06-$08 the block, $0A the place
-; in the list.
+; in the list. On SA-1 the direct page is I-RAM $3000, which the SA-1 CPU goes on using while an upload runs for frames, so
+; there they are work RAM's $0000-$000B instead, which the SA-1 CPU cannot reach (the pack keeps $0000-$000F as SNES scratch).
 Upload:
     PHP
+    if !sa1
+        PHD
+        PEA $0000
+        PLD
+    endif
     PEI ($00)
     PEI ($02)
     PEI ($04)
@@ -169,6 +191,9 @@ Upload:
     STA $02
     PLA
     STA $00
+    if !sa1
+        PLD
+    endif
     PLP
     RTS
 

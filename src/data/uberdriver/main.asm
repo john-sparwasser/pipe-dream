@@ -11,9 +11,13 @@
 ;                            each JSL'd with A/X/Y 8-bit; each runs the resources the list gives the level ($010B), game
 ;                            mode ($0100) or map ($1F11 by the player at $0DB3), * first, and returns with RTL.
 ; Every hook jumps out, runs what it displaced and jumps back, so the hooked code itself is unchanged; the build checks each
-; site still holds SMW's bytes first.
+; site still holds SMW's bytes first. On an SA-1 build (the defines decide, from the header) the displaced code is the pack's
+; form of SMW's: its RAM operands moved by !addr, and the map's call into the pack's own routine (!OverworldMain, which the
+; build reads from the ROM). The code points still run on the SNES CPU there, as UberASM Tool's do.
 
-lorom
+if !sa1 == 0
+    lorom
+endif
 
 ; ---- Hooks ----
 org $008064                     ; reset, after RAM is cleared: LDA #$03 : STA $2101
@@ -69,7 +73,7 @@ if !UberGlobalMain                  ; 1.x global main, as 2.x's readme moves it 
     SEP #$30
 endif
     REP #$20
-    LDA.l $7E0100
+    LDA.l $0100|!BankA
     AND #$00FF
     CMP.l !FreeRam
     STA.l !FreeRam
@@ -106,7 +110,7 @@ if !UberGlobalNmi                   ; 1.x global nmi (game mode *)
     SEP #$30
 endif
     JSL GameModeNmiDispatch
-    LDA.l $7E0100
+    LDA.l $0100|!BankA
     CMP #$13
     BEQ .level
     CMP #$14
@@ -138,26 +142,26 @@ if !UberStatusMain
     JSR UberStatus_main
     SEP #$30
 endif
-    LDA $1493
+    LDA $1493|!addr
     ORA $9D
     JML $008E1F
 
 OverworldInit:
     LDA #$02
-    STA $0D9B
+    STA $0D9B|!addr
     JSL OverworldInitDispatch
     JML $00A17E
 
 Overworld:
     JSL $7F8000
     JSL OverworldMainDispatch
-    JSL $048241
+    JSL !OverworldMain
     JSL OverworldEndDispatch
     JML $008494
 
 LevelMain:
     JSL LevelMainDispatch
-    LDA $13D4
+    LDA $13D4|!addr
     BEQ +
     JML $00A247                     ; paused: SMW's BRA to the select check
 +   JML $00A28A
@@ -171,8 +175,8 @@ LevelEnd:
     JML $008494
 
 LevelInit:
-    LDX $0701                       ; (X is 16-bit here: absolute either way)
-    STX $0903
+    LDX $0701|!addr                 ; (X is 16-bit here: absolute either way)
+    STX $0903|!addr
     SEP #$30
     JSL LevelInitDispatch
     JML $00A5EE
@@ -184,5 +188,5 @@ if !UberGlobalLoad                  ; 1.x global load (level *)
     SEP #$30
 endif
     JSL LevelLoadDispatch
-    LDA.l $7E0100
+    LDA.l $0100|!BankA
     RTL
