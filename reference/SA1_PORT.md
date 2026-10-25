@@ -181,7 +181,9 @@ pack's bytes, so the SA-1 stamp list must omit it (rule 1's "the pack's" byte).
   STA $02`) — needs the 4bpp oracle, not a sweep.~~ Done (below).
 - ~~The ExAnimation engines (level and overworld) — LM installs them on use; needs that oracle.~~
   Both done (below).
-- The midway routine (`$13BC00`), OW palette engine (`$13C508`/`$13C800`), layer 3 — as planned.
+- ~~The midway routine~~ — done (below). The OW palette engine (its hook block at `$13C800`, table at
+  `$13C900`) and layer 3 — as planned. (This line used to say midway `$13BC00` and palette
+  `$13C508`: `$13BC00` is v10's unreferenced copy of the midway blob and `$13C508` V22's tag for it.)
 - ~~Our own overworld code keeps `LDA $7Fxxxx,Y` where the pack moved vanilla's `$7E` to `$41`
   (64 bytes at `$04F2B8-$04F3D0`): the overworld runs on the SA-1 CPU under the pack, which
   cannot read `$7F`.~~ Done: these were LM's 4bpp-mode operands, and on SA-1 LM leaves the pack's
@@ -288,6 +290,36 @@ clipped to the bytes the import changed below `$088000`), pinned by `Sa1FormsTes
   `$10C5D2`); the bytes are identical in both, and ours is at `$13C608`. Because the LoROM
   address's low byte matches ours, a hook run is taken as `Kind.Hook`, so the operand is never
   compared.
+
+## Phase 2 findings (2026-10-25): the midway routine
+
+LM installs its separate-midway blob on a level save with *Use separate settings for Midway
+Entrance* ticked. `Invoke-LmGui.ps1 -Action SaveMidway` ticks it in *Modify Main and Midway
+Entrance* (control 480), sets the midway's X/Y (105/107; default `3`/`13`) and FG/BG (484/485,
+`C0`/`C0` as the main entrance has it), and saves level 105. On vanilla that is
+`.resources/midway_1.smc`, on clean + pack `.resources/sa1/lm-sa1-midway.smc`, the oracle. Both
+travel as fixtures. LM's SA-1 blob differs from its LoROM one in seven RAM operands, `$192A` →
+`$792A` (3), `$13CD` → `$73CD` (2), `$141A` → `$741A` (2), plus its table/self pointers (ours). The
+hooks at `$05D9E3`/`$05D979` and the edits at `$05D9C3`/`$05D9E7` are the same on both bases, give or
+take the JSL targets. `LmSa1Forms.MidwaySave` carries the seven bytes into V22's blob at `$13C510`,
+pinned by `Sa1FormsTests`.
+
+Measured in Mesen. Each build had LM's save made on it, then booted into level `$105` with
+bit 6 of every `$1EA2` translevel flag set on the map:
+
+| Build | Start tile (x, y) | 200 frames later |
+|---|---|---|
+| Our LoROM, our SA-1, LM's LoROM, LM's SA-1 | (147, 20) | (147, 19), alive |
+| Our SA-1 before the fix | (3, 20) | the midway's screen lost |
+
+In the build before the fix, LM's LoROM `STA $13CD`/`$192A` miss the RAM the pack moved.
+
+Two traps in that measurement:
+- A midway row of `19` puts the player in the pit, where they die on every base.
+- The dialog's default FG for a separate midway is `00`. The camera then starts at the top and the
+  player falls off-screen.
+
+Before both were fixed, every build, LoROM included, showed a death, which looked like an SA-1 bug.
 
 **How the crash was found (Mesen, headless, one byte per run):** game mode and frame counter at
 `$6100`/`$3013`; exec callbacks over the whole bus with `emu.cpuType.snes`/`sa1`; the *last ROM

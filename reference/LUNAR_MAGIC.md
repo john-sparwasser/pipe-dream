@@ -71,7 +71,7 @@ dialog. The GUI can, and it is scriptable enough:
 That sequence is what produced the finding in CONTRACT §0 that LM can write to a prepped base
 and the result does not boot.
 
-**The scripted way (2026-10-15): `tools/lm/Invoke-LmGui.ps1 -Rom copy.smc -Action SaveLevel|SaveMap16|SaveExAnim|SaveOwExAnim`.**
+**The scripted way (2026-10-15): `tools/lm/Invoke-LmGui.ps1 -Rom copy.smc -Action SaveLevel|SaveMap16|SaveExAnim|SaveOwExAnim|SaveMidway`.**
 It needs no focus and no coordinates, so it runs while something else owns the screen:
 
 - LM is started on the ROM alone — a level number after it makes LM exit at once — and its
@@ -93,6 +93,9 @@ It needs no focus and no coordinates, so it runs while something else owns the s
   "Edit Submap ExAnimated Frames" (the main map, which the editor shows on open) and posts its
   `Save Overworld to ROM`. That saves the whole overworld, so the save also installs LM's
   overworld-save hacks if the ROM lacks them.
+- `SaveMidway` opens Level ▸ Modify Main and Midway Entrance, ticks "Use separate settings for
+  Midway Entrance" (control 480), gives the midway its own X/Y (105/107) and FG/BG (484/485), and
+  saves the level, which installs LM's separate-midway blob and hooks if the ROM has none.
 - Dialogs are polled for by class `#32770` whose children are only `Static`/`Button`; each is
   logged (title, text, buttons) and answered through a posted `BM_CLICK`: "Restore" → Cancel,
   "discard" → No, else OK/Yes. A `SendMessage` here deadlocked once; posting does not.

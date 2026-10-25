@@ -21,7 +21,7 @@ static class DebugCommands
         ("--sa1audit",          (a, i) => Sa1Audit(a[i + 1])),
         // --sa1lmforms [packdir] [oracle.smc] [exanim-oracle.smc] : regenerate LmSa1Forms.LevelSave,
         // .ExAnimSave and .OwExAnimSave from the oracles (defaults: ReferenceRoms.Sa1Pack / Sa1LevelSave /
-        // Sa1ExAnimSave; the overworld one is always Sa1OwExAnimSave, the 4bpp one Sa1FourBppSave), with every byte that breaks
+        // Sa1ExAnimSave; the overworld one is always Sa1OwExAnimSave, the 4bpp one Sa1FourBppSave, the midway one Sa1MidwaySave), with every byte that breaks
         // their rules listed after them.
         ("--sa1lmforms",        (a, i) => Sa1LmForms(a.Length > i + 1 ? a[i + 1] : ReferenceRoms.Sa1Pack,
                                                      a.Length > i + 2 ? a[i + 2] : ReferenceRoms.Sa1LevelSave,
@@ -263,6 +263,11 @@ static class DebugCommands
         {
             Console.WriteLine("FourBppSave:");
             Console.Write(LmSa1Forms.GenerateFourBpp(Rom.Load(ReferenceRoms.Vanilla), Rom.Load(ReferenceRoms.FourBpp1), Rom.Load(ReferenceRoms.Sa1FourBppSave), cleanPack, wrote, remap, report));
+        }
+        if (File.Exists(ReferenceRoms.Sa1MidwaySave) && File.Exists(ReferenceRoms.Midway1))
+        {
+            Console.WriteLine("MidwaySave:");
+            Console.Write(LmSa1Forms.GenerateMidway(Rom.Load(ReferenceRoms.Midway1), Rom.Load(ReferenceRoms.Sa1MidwaySave), cleanPack, wrote, remap, report));
         }
         foreach (var line in report) Console.WriteLine("breaks the rules: " + line);
         return report.Count == 0 ? 0 : 1;

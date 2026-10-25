@@ -23,11 +23,12 @@ with WM_CLOSE at the end and killed if it does not go. The result has Dialogs, C
   tools\lm\Invoke-LmGui.ps1 -Rom work.smc -Action SaveMap16
   tools\lm\Invoke-LmGui.ps1 -Rom work.smc -Action SaveExAnim     # slot 0 of the level, then Ctrl+S: installs LM's engine
   tools\lm\Invoke-LmGui.ps1 -Rom work.smc -Action SaveOwExAnim   # the same slot on the main map, from the overworld editor
+  tools\lm\Invoke-LmGui.ps1 -Rom work.smc -Action SaveMidway     # separate midway settings, then Ctrl+S: installs LM's midway routine
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$Rom,
-    [Parameter(Mandatory)][ValidateSet('SaveLevel', 'SaveMap16', 'SaveExAnim', 'SaveOwExAnim', 'OpenOnly')][string]$Action,
+    [Parameter(Mandatory)][ValidateSet('SaveLevel', 'SaveMap16', 'SaveExAnim', 'SaveOwExAnim', 'SaveMidway', 'OpenOnly')][string]$Action,
     [int]$TimeoutSeconds = 60,
     # SaveLevel only: LM's Save Level to ROM writes nothing for an unmodified level, so reorder
     # its objects first (Select All, Bring to Front) — a modification that keeps the level's content.
@@ -42,6 +43,11 @@ param(
     [int]$ExAnimTrigger = 0,              # index in the Trigger combo: 0 = None
     [string]$ExAnimDest = 'A0',
     [string[]]$ExAnimFrames = @('601', '655', '6AA'),
+    # SaveMidway: the midway entrance's own X/Y (hex, the dialog's method-2 fields). Row 13 is where
+    # vanilla's midway stands in level 105; X 3 is two tiles right of it, so the two tell apart in-game.
+    # (Row 19 drops the player into the pit below the level.)
+    [string]$MidwayX = '3',
+    [string]$MidwayY = '13',
     [string]$LunarMagic = $env:PIPEDREAM_LUNAR_MAGIC
 )
 $ErrorActionPreference = 'Stop'
@@ -240,6 +246,26 @@ try {
             if (-not $cmd) { throw 'Edit Submap ExAnimated Frames not found in the overworld menu' }
             FillExAnim $ow $cmd
             Post $ow ([LmWin]::FindCommand($ow, '^Save Overworld to ROM$'))
+        }
+        'SaveMidway' {
+            # Modify Main and Midway Entrance, by control id (measured, LM 3.40): 480 the "Use separate
+            # settings for Midway Entrance" checkbox, 105/107 the midway's X/Y, 484/485 its FG/BG, 1 OK.
+            Post $main ([LmWin]::FindCommand($main, '^Modify Main and Midway Entrance'))
+            $dlg = WaitFor { WindowLike 'Main and Midway Entrance' } 20
+            if (-not $dlg) { throw 'entrance dialog never appeared' }
+            Start-Sleep 1
+            [LmWin]::PostMessage([LmWin]::GetDlgItem($dlg, 480), $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+            Start-Sleep -Milliseconds 500
+            SetEdit $dlg 105 $MidwayX; SetEdit $dlg 107 $MidwayY
+            # FG/BG initial position (484/485) as the main entrance has it in level 105, FG=C0 BG=C0:
+            # the dialog's default for a separate midway is FG=00, and the player starts off-screen and dies.
+            SelectCombo $dlg 484 2; SelectCombo $dlg 485 2
+            Start-Sleep -Milliseconds 300
+            [LmWin]::PostMessage([LmWin]::GetDlgItem($dlg, 1), $BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+            $gone = WaitFor { -not (WindowLike 'Main and Midway Entrance') } 10
+            if (-not $gone) { throw 'entrance dialog did not close on OK' }
+            Start-Sleep 1
+            Post $main ([LmWin]::FindCommand($main, '^Save Level to ROM$'))
         }
     }
     # Let the save land: either the file changes, or nothing happens for a while.

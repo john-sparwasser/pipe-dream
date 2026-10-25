@@ -205,12 +205,20 @@ internal static class LmSa1Forms
         04F3A8=.. 04F3AC=.. 04F3B0=.. 04F3C1=.. 04F3C5=.. 04F3CB=.. 04F3CF=..
         """;
 
+    /// <summary>From `.resources/sa1/lm-sa1-midway.smc`: clean + pack, level 105 saved with separate
+    /// midway settings by LM 3.40 (`Invoke-LmGui.ps1 -Action SaveMidway`), against midway_1.smc, the
+    /// same on vanilla. Seven RAM operands in the blob V22 carries: `$192A` → `$792A`, `$13CD` →
+    /// `$73CD`, `$141A` → `$741A`. Pinned by Sa1FormsTests.</summary>
+    public const string MidwaySave = """
+        13C535=79 13C556=73 13C58B=73 13C591=74 13C597=79 13C5B2=79 13C5B8=74
+        """;
+
     // ---------------------------------------------------------------- apply
 
     /// <summary>Play every diff onto an SA-1 overlay (PC → byte): set the bytes, drop the dropped.</summary>
     public static void Apply(Dictionary<int, byte> overlay)
     {
-        foreach (var (snes, bytes, dropped) in Parse(LevelSave).Concat(Parse(ExAnimSave)).Concat(Parse(OwExAnimSave)).Concat(Parse(FourBppSave)))
+        foreach (var (snes, bytes, dropped) in Parse(LevelSave).Concat(Parse(ExAnimSave)).Concat(Parse(OwExAnimSave)).Concat(Parse(FourBppSave)).Concat(Parse(MidwaySave)))
         {
             int pc = Rom.SnesToPc(snes);
             if (bytes != null) for (int i = 0; i < bytes.Length; i++) overlay[pc + i] = bytes[i];
@@ -299,6 +307,21 @@ internal static class LmSa1Forms
     }
 
     /// <summary>
+    /// What a save with separate midway settings installs: the blob, where <paramref name="midway1"/>'s
+    /// `$05D9E3` hook says LM put it (V22's copy; the v10 one at $13BC00 is unreferenced), its two
+    /// hooks, and the two edits in vanilla's entrance code. The four tables are data.
+    /// </summary>
+    private static IEnumerable<(string Name, Kind Kind, int Snes, int Length, int BaseSnes)> MidwayPieces(Rom midway1)
+    {
+        int theirs = midway1.ReadValue(RomPrep.LmMidwayHook + 1, 3);
+        yield return ("midway routine", Kind.Block, RomPrep.MidwayRoutineV22Snes, RomPrep.MidwayRoutineBlockSize - 12, theirs);
+        yield return ("midway hook", Kind.Hook, RomPrep.LmMidwayHook, 4, 0);
+        yield return ("exit arrival hook", Kind.Hook, RomPrep.LmExitArrivalHook, 4, 0);
+        yield return ("midway edit 05D9C3", Kind.Plain, 0x05D9C3, 1, 0);
+        yield return ("midway store", Kind.Plain, RomPrep.LmMidwayStore, 5, 0);
+    }
+
+    /// <summary>
     /// What LM's 4bpp mode installs, which a GFX + ExGFX import makes: every stamp of ours, clipped to
     /// the bytes <paramref name="gfx4bpp"/> changed against <paramref name="vanilla"/>. Only the code
     /// banks: from $088000 on the import writes the GFX files themselves, which are data. A stamp's
@@ -342,6 +365,11 @@ internal static class LmSa1Forms
     /// overworld ExAnimation install (ow_exanim_1.smc), <paramref name="oracle"/> its SA-1 one.</summary>
     public static string GenerateOwExAnim(Rom owExAnim1, Rom oracle, Rom cleanPack, IReadOnlySet<int> packWrote, Sa1Remap remap, List<string> report)
         => Generate(_ => OwExAnimPieces(owExAnim1), owExAnim1, oracle, cleanPack, packWrote, remap, report);
+
+    /// <summary>The diff for <see cref="MidwaySave"/>: <paramref name="midway1"/> is LM's LoROM
+    /// midway install (midway_1.smc), <paramref name="oracle"/> its SA-1 one.</summary>
+    public static string GenerateMidway(Rom midway1, Rom oracle, Rom cleanPack, IReadOnlySet<int> packWrote, Sa1Remap remap, List<string> report)
+        => Generate(_ => MidwayPieces(midway1), midway1, oracle, cleanPack, packWrote, remap, report);
 
     /// <summary>The diff for <see cref="FourBppSave"/>: <paramref name="gfx4bpp"/> is LM's LoROM 4bpp
     /// install (gfx4bpp_1.smc), <paramref name="oracle"/> its SA-1 one.</summary>

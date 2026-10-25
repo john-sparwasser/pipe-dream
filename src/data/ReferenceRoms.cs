@@ -54,6 +54,10 @@ internal static class ReferenceRoms
     /// `-ImportExGFX`: on clean + pack the oracle for LM's SA-1 4bpp mode, on vanilla its LoROM install.</summary>
     internal static string Sa1FourBppSave => Resource(Path.Combine("sa1", "lm-sa1-4bpp.smc"));
     internal static string FourBpp1 => Resource("gfx4bpp_1.smc");
+    /// <summary>Level 105 saved with separate midway settings (Invoke-LmGui.ps1 -Action SaveMidway): on
+    /// clean + pack the oracle for LM's SA-1 midway routine, on vanilla its LoROM install.</summary>
+    internal static string Sa1MidwaySave => Resource(Path.Combine("sa1", "lm-sa1-midway.smc"));
+    internal static string Midway1 => Resource("midway_1.smc");
     /// <summary>A 4MB SA-1 hack saved by Lunar Magic: its SA-1 forms of LM's routines are the oracle
     /// for <see cref="Sa1Remap"/> (reference/SA1_PORT.md).</summary>
     internal static string Sgdq2024 => InProject("Secret", Path.Combine("workspace", "sgdq2024.smc"));

@@ -48,6 +48,16 @@ public sealed class Sa1FourBppSaveFactAttribute : Sa1LevelSaveFactAttribute
     }
 }
 
+public sealed class Sa1MidwaySaveFactAttribute : Sa1LevelSaveFactAttribute
+{
+    public Sa1MidwaySaveFactAttribute()
+    {
+        if (Skip != null) return;
+        foreach (var p in new[] { ReferenceRoms.Midway1, ReferenceRoms.Sa1MidwaySave })
+            if (!File.Exists(p)) { Skip = "not present: " + p; return; }
+    }
+}
+
 /// <summary>
 /// Lunar Magic's SA-1 forms (reference/SA1_PORT.md, phase 2): the pinned diffs are what the oracles
 /// say, the SA-1 form never writes a vanilla byte over the pack's, and the image ApplySa1 leaves
@@ -136,6 +146,16 @@ public class Sa1FormsTests
         Assert.DoesNotContain(Tokens(generated), t => t.StartsWith("0093F8="));
     }
 
+    [Sa1MidwaySaveFact]
+    public void the_midway_save_diff_regenerates_from_the_oracle()
+    {
+        var (cleanPack, wrote) = CleanPack();
+        var report = new List<string>();
+        var generated = LmSa1Forms.GenerateMidway(Rom.Load(ReferenceRoms.Midway1), Rom.Load(ReferenceRoms.Sa1MidwaySave), cleanPack, wrote, Remap(), report);
+        Assert.Empty(report);
+        Assert.Equal(Tokens(generated), Tokens(LmSa1Forms.MidwaySave));
+    }
+
     private static string[] Tokens(string s) => s.Split((char[])[' ', '\n', '\r', '\t'], StringSplitOptions.RemoveEmptyEntries);
 
     /// <summary>Rules 1 and 2 as an invariant of the whole prep: at every byte the pack wrote inside a
@@ -218,7 +238,8 @@ public class Sa1FormsTests
     /// block, LM's grown routine sits at $0DE1F0 with its marker at $0DE20C, the bank-$1F engine
     /// reads the moved RAM, the ExAnimation setup hook names our engine and the engine calls our
     /// trampoline, the overworld engine is hooked, reads the moved RAM and calls the same trampoline, and
-    /// bank 04 reads the overworld sprite tables at the pack's $4188xx.</summary>
+    /// bank 04 reads the overworld sprite tables at the pack's $4188xx, and the midway routine
+    /// writes the moved RAM.</summary>
     [Sa1LevelSaveFact]
     public void apply_sa1_leaves_the_image_the_first_boot_needed()
     {
@@ -247,6 +268,7 @@ public class Sa1FormsTests
         Assert.Equal(0x6DB3, rom.ReadValue(LmOwExAnimEngine.EngineSnes + 3, 2));          // LDX $6DB3, the current player where the pack moved it
         Assert.Equal(0x4188, rom.ReadValue(0x04F2B8, 2));                         // the OW sprite tables where the pack moved them, not LM's LoROM $7FC5xx
         Assert.Equal(0x4189, rom.ReadValue(0x04F2E7, 2));
+        Assert.Equal(0x792A, rom.ReadValue(RomPrep.MidwayRoutineV22Snes + 0x24, 2));   // STA $792A, the midway's $192A where the pack moved it
     }
 
     private static Sa1Remap Remap() => Sa1Remap.FromSpriteTables(File.ReadAllText(Path.Combine(ReferenceRoms.Sa1Pack, "more_sprites", "sprite_tables.asm")));
