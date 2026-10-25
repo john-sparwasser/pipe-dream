@@ -139,7 +139,8 @@ the SA-1 base, as `after.smc`'s siblings were made on vanilla (ExAnimation, leve
 done, see the later findings; `Invoke-LmGui.ps1 -Action SaveExAnim`/`SaveOwExAnim` are the model
 for scripting the others).
 
-**Not yet checked:** which CPU runs each hook. The pack runs level mode and Map16 loading on the
+**Not yet checked:** which CPU runs each hook (layer 3's: checked, all the SNES CPU — see the
+layer-3 findings below). The pack runs level mode and Map16 loading on the
 SA-1 CPU, which cannot reach W-RAM (`$7E/$7F`) or the PPU/DMA registers; code of ours that does,
 from there, needs the pack's `invoke_snes` path rather than a remap. The layer-3 code reads LM's
 RAM at `$7F:C01A`, which the pack does not move.
@@ -183,7 +184,7 @@ pack's bytes, so the SA-1 stamp list must omit it (rule 1's "the pack's" byte).
 - ~~The ExAnimation engines (level and overworld) — LM installs them on use; needs that oracle.~~
   Both done (below).
 - ~~The midway routine~~ — done (below). ~~The OW palette engine (its hook block at `$13C800`, table
-  at `$13C900`)~~ — done (below). Layer 3 — as planned. (This line used to say midway `$13BC00` and palette
+  at `$13C900`)~~ — done (below). ~~Layer 3~~ — done (below). (This line used to say midway `$13BC00` and palette
   `$13C508`: `$13BC00` is v10's unreferenced copy of the midway blob and `$13C508` V22's tag for it.)
 - ~~Our own overworld code keeps `LDA $7Fxxxx,Y` where the pack moved vanilla's `$7E` to `$41`
   (64 bytes at `$04F2B8-$04F3D0`): the overworld runs on the SA-1 CPU under the pack, which
@@ -351,6 +352,47 @@ stamp list carries them and the LoROM one is unchanged (no prep version bump). L
 overworld save by LM 3.40 over the fixed SA-1 build leaves `$7931`/`$6703` and the hook in place,
 and its overworld colours measure the same as before the save.
 Pinned by `Sa1FormsTests.apply_sa1_leaves_the_image_the_first_boot_needed`.
+
+## Phase 2 findings (2026-10-25, later): layer 3
+
+Layer 3 is not LM's code but ours (V14-V16, V34: `GfxCode`'s layer-3 pass, `L3Opt`, `L3Map`, the
+advanced engine and the per-frame dispatcher, the overworld's `OwL3Map`), written clean-room in
+LM's places so LM's probes recognise it. So its SA-1 form is the target's (`Sa1Target`), not an LM
+diff, and the question was where it runs: it reads `$7F:C01A` and the `$7FA000` buffer, writes the
+PPU and DMA registers and uses the SNES divider, none of which the SA-1 CPU has.
+
+**All of it runs on the SNES CPU under the pack.** Measured with Mesen exec callbacks per CPU:
+level load (`$0583B8`, `$00A01F`, `$00A153` and the routines behind them), the per-frame scroll
+(`$05C40C` → `$0FFC40`, with `$13D5` cleared so it runs) and the overworld's `$13C708`, all bit
+"SNES" only. As a control, the SA-1 CPU does execute bank `$01` sprite code in the same level, and
+never anything in `$05BC00-$05C4FF` or `$0FF770-$0FFFFF`. So the RAM operands moved by the target
+are the whole of the SA-1 form, plus one thing that is not RAM:
+
+**The overworld's tilemap DMA.** `OwL3Map` replays the `LDA #$02 : STA $420B` its hook at
+`$04D76A` displaces. The pack moves that transfer to channel 2 (`$4320`, `LDA #$04`;
+`remap/dma.asm`: channel 1 is its window HDMA, "NMI-DMA goes to channel 2"), so on SA-1 our replay
+started a channel nobody had set up and the overworld's own layer-3 tilemap never reached VRAM —
+with the bypass OFF, i.e. on every SA-1 build. Measured: VRAM at word `$3000` hashed 160 on vanilla,
+clean + pack and our LoROM build, 114 on our SA-1 build, with the `$7F:6000` source identical in
+all four. Fixed by `RomTarget.DmaChannel` (SA-1: 1 → 2), and 160 again. A sweep of every short
+prep stamp the pack also rewrites found no other non-RAM change behind a hook of ours (`$02A826`'s
+is LM's, from its oracle).
+
+**Measured in Mesen** on a project build of level `$105` with all three bypasses
+(`Sa1Layer3Setup`, `PIPEDREAM_SA1_L3`), each checked inside the run and twice per ROM:
+
+| check | LoROM | SA-1 |
+|---|---|---|
+| LG2 window (`$8800`) against the imported file's pattern | 0 bytes differ | 0 bytes differ |
+| row-number glyph words in the layer-3 tilemap | 3936 | 3936 |
+| "Fast" scroll: X − (offset + camera + camera/5), camera ≈ `$270` | 0 | 0 |
+| overworld tilemap bypass (GFX 28 at word `$3000`, hash) | 248 | 248 |
+
+An LM 3.40 save over the SA-1 build (`SaveMidway`) leaves every byte of ours alone: it writes its
+own data at `$0FF023-$0FF13F` and `$0FFFE7-$0FFFFF`, outside our stamps, and at `$00F4A0` its own
+SA-1 form (`STY $7693`, `$1693` on LoROM). After it the graphics and tilemap checks still read
+0 / 3936. LM's save also stops level `$105` scrolling horizontally — on LoROM too — so the scroll
+check has nothing to measure there.
 
 **How the crash was found (Mesen, headless, one byte per run):** game mode and frame counter at
 `$6100`/`$3013`; exec callbacks over the whole bus with `emu.cpuType.snes`/`sa1`; the *last ROM

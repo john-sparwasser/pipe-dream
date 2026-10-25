@@ -21,6 +21,9 @@ public abstract class RomTarget
     /// <summary>A 24-bit RAM operand where this target keeps it.</summary>
     public abstract int RamLong(int addr);
 
+    /// <summary>The DMA channel a vanilla transfer on <paramref name="channel"/> runs on.</summary>
+    public abstract int DmaChannel(int channel);
+
     /// <summary>The routine Lunar Magic's ExAnimation engines call through their first
     /// `JSL $000003`, or null to keep LM's call as it is.</summary>
     public abstract int? ExAnimTrampoline { get; }
@@ -40,6 +43,7 @@ public sealed class LoRomTarget : RomTarget
     public override RomMap Map => RomMap.LoRom;
     public override int Ram(int addr) => addr;
     public override int RamLong(int addr) => addr;
+    public override int DmaChannel(int channel) => channel;
     public override int? ExAnimTrampoline => null;
     public override List<(int Pc, byte[] Bytes)> PrepStamps(int version) => RomPrep.BuildStamps(version, this);
     public override IReadOnlyList<string> Finish(Rom rom, int version) => [];
@@ -58,6 +62,9 @@ public sealed class Sa1Target(string packDir) : RomTarget
     public override RomMap Map => RomMap.Sa1;
     public override int Ram(int addr) => addr < 0x2000 ? Remap.Abs(addr) : addr;
     public override int RamLong(int addr) => Remap.Long(addr);
+    /// <summary>The pack gives channel 1 to its window HDMA and moves vanilla's DMA on it to
+    /// channel 2, registers and enable bit alike (remap/dma.asm: "NMI-DMA goes to channel 2").</summary>
+    public override int DmaChannel(int channel) => channel == 1 ? 2 : channel;
     public override int? ExAnimTrampoline => LmExAnimEngine.Sa1TrampolineSnes;
     public override List<(int Pc, byte[] Bytes)> PrepStamps(int version) => RomPrep.Sa1Stamps(version, this);
 

@@ -134,7 +134,8 @@ public static partial class RomPrep
     private static byte[] OwL3MapCode(RomTarget t)
     {
         var a = new Asm(OwL3Map, t);
-        a.LdaImm8(0x02).StaAbs(0x420B)       // displaced: vanilla's tilemap DMA, unchanged
+        // displaced: vanilla's tilemap DMA on channel 1, unchanged — on SA-1 the pack's, on channel 2
+        a.LdaImm8((byte)(1 << t.DmaChannel(1))).StaAbs(0x420B)
          .Php()
          .Rep(0x30)
          .LdaAbs(0x0DD6).AndImm16(0x00FF)    // the host routine's own player index

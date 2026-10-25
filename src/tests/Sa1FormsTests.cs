@@ -240,7 +240,8 @@ public class Sa1FormsTests
     /// trampoline, the overworld engine is hooked, reads the moved RAM and calls the same trampoline, and
     /// bank 04 reads the overworld sprite tables at the pack's $4188xx, the midway routine
     /// writes the moved RAM, and the overworld palette hook reads and fills the moved RAM — ours
-    /// where LM 3.40's SA-1 save keeps its LoROM operands and loads the wrong colours.</summary>
+    /// where LM 3.40's SA-1 save keeps its LoROM operands and loads the wrong colours — and the
+    /// overworld's layer-3 tilemap hook replays the pack's DMA, on channel 2.</summary>
     [Sa1LevelSaveFact]
     public void apply_sa1_leaves_the_image_the_first_boot_needed()
     {
@@ -273,6 +274,7 @@ public class Sa1FormsTests
         Assert.Equal(RomPrep.OwPaletteHook, rom.ReadValue(RomPrep.LmOwPaletteHookSite + 1, 3));   // the palette hook ours, not the pack's LDA $7931 through it
         Assert.Equal(0x7931, rom.ReadValue(RomPrep.OwPaletteHook + 2, 2));        // LDA $7931, the submap where the pack moved it
         Assert.Equal(0x6703, rom.ReadValue(RomPrep.OwPaletteHook + 0x16, 2));     // LDY #$6703, the pack's palette buffer
+        Assert.Equal(0x04A9, rom.ReadValue(RomPrep.OwL3Map, 2));                  // LDA #$04: the overworld's layer-3 tilemap DMA on the pack's channel 2
     }
 
     private static Sa1Target Target() => new(ReferenceRoms.Sa1Pack);
