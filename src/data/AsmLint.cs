@@ -51,6 +51,36 @@ public static class AsmLint
     /// <summary>A line: its comment cut off, then split into statements on " : " outside quotes.</summary>
     private static void CheckLine(string line, int at, List<AsmIssue> issues)
     {
+        var (parts, quote) = Split(line);
+        if (quote != '\0')
+        {
+            int q = line.LastIndexOf(quote);
+            issues.Add(new(at + q, line.Length - q, "this quote is never closed"));
+            return;
+        }
+        foreach (var (s, e) in parts) CheckStatement(line[s..e], at + s, issues);
+    }
+
+    /// <summary>Every statement of <paramref name="text"/> with its 1-based line, comments cut off
+    /// and " : " separators split, trimmed; a line with an unclosed quote gives none.</summary>
+    public static IEnumerable<(int Line, string Text)> Statements(string text)
+    {
+        int n = 0;
+        foreach (string raw in text.Split('\n'))
+        {
+            n++;
+            string line = raw.TrimEnd('\r');
+            var (parts, quote) = Split(line);
+            if (quote != '\0') continue;
+            foreach (var (s, e) in parts)
+                if (line[s..e].Trim() is { Length: > 0 } stmt) yield return (n, stmt);
+        }
+    }
+
+    /// <summary>A line's statements as (start, end) spans up to its comment, and the quote left open
+    /// at its end ('\0' when none).</summary>
+    private static (List<(int Start, int End)> Parts, char OpenQuote) Split(string line)
+    {
         var parts = new List<(int Start, int End)>();
         int start = 0;
         char quote = '\0';
@@ -68,14 +98,8 @@ public static class AsmLint
                 start = i + 1;
             }
         }
-        if (quote != '\0')
-        {
-            int q = line.LastIndexOf(quote);
-            issues.Add(new(at + q, line.Length - q, "this quote is never closed"));
-            return;
-        }
         parts.Add((start, i));
-        foreach (var (s, e) in parts) CheckStatement(line[s..e], at + s, issues);
+        return (parts, quote);
     }
 
     private static void CheckStatement(string stmt, int at, List<AsmIssue> issues)

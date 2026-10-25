@@ -284,12 +284,16 @@ public partial class MainWindow
             return;
         }
         var pack = BuiltinPatches.Sa1;
+        // The compatibility report (reference/SA1_PORT.md, phase 4) is the heart of the question: what of
+        // the project's own code breaks on SA-1, or, going back, needs it. Capped to fit; the build lists all.
+        string report = session.Sa1Summary(on, perItem: 1, maxItems: 8);
         string prompt = on
             ? $"Build this project for the SA-1 chip?\n\nEvery build will apply the {pack.Name} v{pack.Version} to the ROM first. "
               + "The editor works as it does now; only the built ROM changes.\n\n"
               + pack.Licence + (BuiltinPatches.Installed(pack) ? " It is already downloaded." : " This downloads it now (190 KB), once.")
-              + "\n\nCustom blocks, sprites, UberASM, music and patches are not checked for SA-1 yet: code written for a plain ROM may not work on it."
-            : $"Build this project as a plain LoROM again?\n\nThe next build no longer applies the {pack.Name}. Nothing else in the project changes, and SA-1 can be switched back on at any time.";
+              + "\n\n" + (report.Length > 0 ? report : "Nothing in the project's blocks, sprites, UberASM or patches addresses what SA-1 moves.")
+            : $"Build this project as a plain LoROM again?\n\nThe next build no longer applies the {pack.Name}. Nothing else in the project changes, and SA-1 can be switched back on at any time."
+              + (report.Length > 0 ? "\n\n" + report : "");
         var dlg = new ConfirmWindow("SA-1", prompt, on ? "Switch on" : "Switch off");
         await dlg.ShowDialog(this);
         if (!dlg.Confirmed) return;

@@ -13,7 +13,8 @@ namespace PipeDream.Ui;
 /// </summary>
 public partial class UberAsmWindow : Window
 {
-    public sealed record FileRow(string Path, string RunsIn, string Size);
+    /// <summary><paramref name="Sa1"/>: its SA-1 badge (reference/SA1_PORT.md, phase 4), <paramref name="Sa1Tip"/> why.</summary>
+    public sealed record FileRow(string Path, string RunsIn, string Size, string? Sa1 = null, string? Sa1Tip = null);
     public sealed record LineRow(int Number, string Where, string Line);
 
     private static readonly string[] Kinds = ["level", "gamemode", "overworld"];
@@ -41,7 +42,7 @@ public partial class UberAsmWindow : Window
 
     private void Refresh(string? file = null, int? line = null)
     {
-        var fileRows = session.UberFiles.Select(f => new FileRow(f.Path, f.RunsIn, $"{f.Bytes:N0} bytes")).ToList();
+        var fileRows = session.UberFiles.Select(f => new FileRow(f.Path, f.RunsIn, $"{f.Bytes:N0} bytes", f.Sa1, f.Sa1Tip)).ToList();
         files.ItemsSource = fileRows;
         files.SelectedItem = fileRows.FirstOrDefault(r => r.Path == (file ?? SelectedFile));
         var lineRows = session.UberNumbers(Kind).Select(n => new LineRow(n, Where(n), session.UberLine(Kind, n))).ToList();

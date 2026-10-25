@@ -260,6 +260,9 @@ internal static class RomBuilder
             var warnings = new List<string>();
             var owned = PrepOwned(project);
             if (InstallTarget(rom, project, owned) is { } targetErr) return (targetErr, null);
+            // The compatibility report (reference/SA1_PORT.md, phase 4): with SA-1 on, what breaks there
+            // or may; off, what needs it. Read from the sources, so it names the resource and the line.
+            warnings.AddRange(Sa1Report.Warnings(Sa1Report.Of(project.Data), project.Data.Sa1 is not null));
             if (InsertGps(rom, project, owned, warnings) is { } gpsErr) return (gpsErr, null);
             if (InsertSprites(rom, project, owned, warnings) is { } spriteErr) return (spriteErr, null);
             if (InsertUber(rom, project, owned, warnings) is { } uberErr) return (uberErr, null);

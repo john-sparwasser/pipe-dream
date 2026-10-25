@@ -69,13 +69,15 @@
       <ListBox.ItemTemplate>
         <DataTemplate>
           <!-- name, kind, slots, the first name Lunar Magic lists it under -->
-          <Grid ColumnDefinitions="180,70,140,*" ColumnSpacing="8">
+          <Grid ColumnDefinitions="180,70,140,*,Auto" ColumnSpacing="8">
             <TextBlock Text="{Binding Name}" Classes="mono" TextTrimming="CharacterEllipsis"/>
             <TextBlock Grid.Column="1" Text="{Binding Kind}" Classes="note"/>
             <TextBlock Grid.Column="2" Text="{Binding Slots}" Classes="mono" TextTrimming="CharacterEllipsis"
                        ToolTip.Tip="{Binding Slots}"/>
             <TextBlock Grid.Column="3" Text="{Binding Description}" Classes="dim" TextTrimming="CharacterEllipsis"
                        ToolTip.Tip="{Binding Description}"/>
+            <!-- How it fares on SA-1 (reference/SA1_PORT.md, phase 4); the lines behind it on hover. -->
+            <TextBlock Grid.Column="4" Text="{Binding Sa1}" Classes="note" ToolTip.Tip="{Binding Sa1Tip}"/>
           </Grid>
         </DataTemplate>
       </ListBox.ItemTemplate>

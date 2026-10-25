@@ -6,8 +6,9 @@ namespace PipeDream.Services;
 // operation returns a status line; edits mark the project dirty and are not undoable. Inserting is RomBuilder's.
 public sealed partial class EditorSession
 {
-    /// <summary>One file as the UberASM window lists it, and where the list runs it ("level 105, *").</summary>
-    public sealed record UberFileInfo(string Path, int Bytes, string RunsIn);
+    /// <summary>One file as the UberASM window lists it, where the list runs it ("level 105, *"), and for an .asm its SA-1
+    /// badge and why (EditorSession.Sa1).</summary>
+    public sealed record UberFileInfo(string Path, int Bytes, string RunsIn, string? Sa1 = null, string? Sa1Tip = null);
 
     public IReadOnlyList<UberFileInfo> UberFiles
     {
@@ -15,7 +16,11 @@ public sealed partial class EditorSession
         {
             if (Project is null) return [];
             var u = Project.Data.Uber;
-            return [.. u.Files.OrderBy(f => f.Key, StringComparer.OrdinalIgnoreCase).Select(f => new UberFileInfo(f.Key, f.Value.Length, RunsIn(u, f.Key)))];
+            return [.. u.Files.OrderBy(f => f.Key, StringComparer.OrdinalIgnoreCase).Select(f =>
+            {
+                var (sa1, tip) = f.Key.EndsWith(".asm", StringComparison.OrdinalIgnoreCase) ? Sa1Badge(Sa1Report.Uber(u, f.Key)) : (null, null);
+                return new UberFileInfo(f.Key, f.Value.Length, RunsIn(u, f.Key), sa1, tip);
+            })];
         }
     }
 

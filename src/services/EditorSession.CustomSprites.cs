@@ -8,8 +8,10 @@ namespace PipeDream.Services;
 public sealed partial class EditorSession
 {
     /// <summary>One library sprite as a list shows it: its slots ("1A", "105:B0"), acts-like, and
-    /// its first Lunar Magic list name. A config that does not read has its problem as the name.</summary>
-    public sealed record CustomSpriteInfo(string Name, string Kind, IReadOnlyList<string> Slots, int ActLike, string Description);
+    /// its first Lunar Magic list name. A config that does not read has its problem as the name.
+    /// <paramref name="Sa1"/> is its SA-1 badge and <paramref name="Sa1Tip"/> why (EditorSession.Sa1).</summary>
+    public sealed record CustomSpriteInfo(string Name, string Kind, IReadOnlyList<string> Slots, int ActLike, string Description,
+                                          string? Sa1 = null, string? Sa1Tip = null);
 
     /// <summary>The project's custom sprites, by name.</summary>
     public IReadOnlyList<CustomSpriteInfo> CustomSprites
@@ -24,7 +26,8 @@ public sealed partial class EditorSession
                 if (PixiImport.HasConfig(s.Value.Kind))
                     try { var c = PixiConfig.Parse(s.Value.Config); (actLike, description) = (c.ActLike, c.Collection.FirstOrDefault()?.Name ?? ""); }
                     catch (FormatException e) { description = "config: " + e.Message; }
-                return new CustomSpriteInfo(s.Key, s.Value.Kind, slots.GetValueOrDefault(s.Key) ?? [], actLike, description);
+                var (sa1, tip) = Sa1Badge(Sa1Report.Sprite(s.Value, s.Key));
+                return new CustomSpriteInfo(s.Key, s.Value.Kind, slots.GetValueOrDefault(s.Key) ?? [], actLike, description, sa1, tip);
             }).ToList();
         }
     }

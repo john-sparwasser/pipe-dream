@@ -10,6 +10,19 @@ public sealed partial class EditorSession
     /// <summary>Whether the project builds for SA-1.</summary>
     public bool Sa1On => Project?.Data.Sa1 is not null;
 
+    /// <summary>The compatibility report (reference/SA1_PORT.md, phase 4) for switching SA-1 to
+    /// <paramref name="on"/>: what breaks there or may (on), what needs it (off). Empty when nothing does.</summary>
+    public string Sa1Summary(bool on, int perItem = 3, int maxItems = int.MaxValue)
+        => Project is null ? "" : Sa1Report.Summary(Sa1Report.Of(Project.Data), on, perItem, maxItems);
+
+    /// <summary>One resource's badge and its tooltip, for the switch as it is (no badge: fine either way).</summary>
+    private (string? Badge, string? Tip) Sa1Badge(Sa1Compat.Result r)
+        => Sa1Report.Badge(r, Sa1On) is { } badge ? (badge, Sa1Report.Details(r, Sa1On)) : (null, null);
+
+    /// <summary>A library block's badge and tooltip.</summary>
+    public (string? Badge, string? Tip) BlockSa1(string name)
+        => Project?.Data.BlockLibrary.TryGetValue(name, out var asm) == true ? Sa1Badge(Sa1Report.Block(asm, name)) : (null, null);
+
     /// <summary>Why SA-1 cannot be switched on for this project, or null when it can. The prep's SA-1
     /// form is generated against one prep version, and a base used as provided has no prep at all.</summary>
     public string? Sa1Blocker => Project is null ? "no project open"

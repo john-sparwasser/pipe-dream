@@ -71,10 +71,12 @@
       <ListBox.ItemTemplate>
         <DataTemplate>
           <!-- path, where the list runs it, size -->
-          <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="12">
+          <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="12">
             <TextBlock Text="{Binding Path}" Classes="mono"/>
             <TextBlock Grid.Column="1" Text="{Binding RunsIn}" Classes="dim"/>
-            <TextBlock Grid.Column="2" Text="{Binding Size}" Classes="dim" MinWidth="80" TextAlignment="Right"/>
+            <!-- How it fares on SA-1 (reference/SA1_PORT.md, phase 4); the lines behind it on hover. -->
+            <TextBlock Grid.Column="2" Text="{Binding Sa1}" Classes="dim" ToolTip.Tip="{Binding Sa1Tip}"/>
+            <TextBlock Grid.Column="3" Text="{Binding Size}" Classes="dim" MinWidth="80" TextAlignment="Right"/>
           </Grid>
         </DataTemplate>
       </ListBox.ItemTemplate>

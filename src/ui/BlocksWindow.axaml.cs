@@ -16,7 +16,9 @@ namespace PipeDream.Ui;
 /// </summary>
 public partial class BlocksWindow : Window
 {
-    public sealed record LibraryRow(string Name, string Note, Avalonia.Media.Imaging.Bitmap? Icon = null, string? Description = null);
+    /// <summary><paramref name="Sa1"/>: its SA-1 badge (reference/SA1_PORT.md, phase 4), <paramref name="Sa1Tip"/> why.</summary>
+    public sealed record LibraryRow(string Name, string Note, Avalonia.Media.Imaging.Bitmap? Icon = null, string? Description = null,
+                                    string? Sa1 = null, string? Sa1Tip = null);
 
     private readonly EditorSession session = null!;
     private ListBox library = null!;
@@ -48,9 +50,12 @@ public partial class BlocksWindow : Window
     private void Refresh(string? want = null)
     {
         var used = session.BlockEntries.GroupBy(e => e.File).ToDictionary(g => g.Key, g => g.Count());
-        var rows = session.BlockNames.Select(n => new LibraryRow(n,
-            used.TryGetValue(n, out int c) ? (c == 1 ? "on 1 tile" : $"on {c} tiles") : "unused",
-            NewBlockWindow.IconFor(session, session.BlockIcon(n)), session.BlockDescription(n))).ToList();
+        var rows = session.BlockNames.Select(n =>
+        {
+            var (sa1, tip) = session.BlockSa1(n);
+            return new LibraryRow(n, used.TryGetValue(n, out int c) ? (c == 1 ? "on 1 tile" : $"on {c} tiles") : "unused",
+                NewBlockWindow.IconFor(session, session.BlockIcon(n)), session.BlockDescription(n), sa1, tip);
+        }).ToList();
         library.ItemsSource = rows;
         library.SelectedItem = rows.FirstOrDefault(r => r.Name == want);
         if (rows.Count == 0) hint.Text = "no blocks yet — New… starts one, Import… adds .asm files";

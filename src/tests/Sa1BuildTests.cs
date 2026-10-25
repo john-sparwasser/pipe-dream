@@ -137,6 +137,48 @@ public class Sa1BuildTests
             Assert.Equal(Convert.ToHexString(pack.Data, pack.FileOffset(at), 4), Convert.ToHexString(rom.Data, rom.FileOffset(at), 4));
     }
 
+    /// <summary>Every build carries the report: with SA-1 on, what breaks there, named and lined; off,
+    /// what needs SA-1. The Patches window badges the same.</summary>
+    [Sa1BuildFact]
+    public async Task each_build_reports_what_breaks_on_sa1_or_needs_it()
+    {
+        Assert.True(TestConfigDir.SeedSa1());
+        var s = NewProject();
+        var data = s.Project!.Data;
+        data.Patches.Add(new() { Name = "lives.asm", Source = "org $00F5F8\n    INC $0DBE\n" });
+        data.Patches.Add(new() { Name = "fast.asm", Source = "if read1($00FFD5) == $23\n    sa1rom\nendif\norg $108000\n    STA $3100\n" });
+        string off = s.Build();
+        Assert.Contains("patch fast.asm needs SA-1 (fast.asm:5: STA $3100", off);
+        Assert.DoesNotContain("lives.asm needs", off);
+        Assert.DoesNotContain("SA-1: patch", off);
+        Assert.Equal("needs SA-1", s.Patches.Single(p => p.Name == "fast.asm").Sa1);
+        Assert.Null(s.Patches.Single(p => p.Name == "lives.asm").Sa1);
+
+        await s.SetSa1(true);
+        string on = s.Build();
+        Assert.Contains("SA-1: patch lives.asm breaks (lives.asm:2: INC $0DBE — SMW's RAM at its LoROM address; SA-1 keeps it at $6DBE", on);
+        Assert.Equal("breaks on SA-1", s.Patches.Single(p => p.Name == "lives.asm").Sa1);
+        Assert.Contains("lives.asm", s.Sa1Summary(on: true));
+    }
+
+    /// <summary>The badge reaches the screen: in the Patches window, with SA-1 on, beside the patch, the
+    /// lines behind it on hover.</summary>
+    [Avalonia.Headless.XUnit.AvaloniaFact]
+    public async Task the_patches_window_badges_a_patch_that_breaks_on_sa1()
+    {
+        if (!File.Exists(ReferenceRoms.Vanilla) || !Asar.Available || !TestConfigDir.SeedSa1()) return;
+        var s = NewProject();
+        s.Project!.Data.Patches.Add(new() { Name = "lives.asm", Source = "org $00F5F8\n    INC $0DBE\n" });
+        await s.SetSa1(true);
+        var w = new PatchesWindow(s);
+        w.Show();
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        var badge = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(w).OfType<Avalonia.Controls.TextBlock>()
+            .Single(t => t.Text == "breaks on SA-1");
+        Assert.StartsWith("lives.asm:2: INC $0DBE — SMW's RAM", Avalonia.Controls.ToolTip.GetTip(badge) as string);
+        w.Close();
+    }
+
     [Sa1BuildFact]
     public async Task sa1_cannot_be_switched_on_over_a_base_at_another_prep_version()
     {

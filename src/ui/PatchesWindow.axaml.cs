@@ -15,7 +15,8 @@ namespace PipeDream.Ui;
 /// </summary>
 public partial class PatchesWindow : Window
 {
-    public sealed record Row(string Name, bool Enabled, string? Description, string Note);
+    /// <summary><paramref name="Sa1"/>: its SA-1 badge (reference/SA1_PORT.md, phase 4), <paramref name="Sa1Tip"/> why.</summary>
+    public sealed record Row(string Name, bool Enabled, string? Description, string Note, string? Sa1 = null, string? Sa1Tip = null);
 
     private readonly EditorSession session = null!;
     private ListBox list = null!;
@@ -47,7 +48,7 @@ public partial class PatchesWindow : Window
     private void Refresh(string? want = null)
     {
         var rows = session.Patches.Select(p => new Row(p.Name, p.Enabled, p.Description,
-            p.Files switch { 0 => "", 1 => "1 file", int n => $"{n} files" })).ToList();
+            p.Files switch { 0 => "", 1 => "1 file", int n => $"{n} files" }, p.Sa1, p.Sa1Tip)).ToList();
         list.ItemsSource = rows;
         list.SelectedItem = rows.FirstOrDefault(r => r.Name == want);
         if (rows.Count == 0) hint.Text = "no patches yet — New… starts one, Import… adds .asm files";

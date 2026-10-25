@@ -50,13 +50,15 @@
       <ListBox.ItemTemplate>
         <DataTemplate>
           <!-- on/off, name, description (the patch's first comment line), how many files it includes -->
-          <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8">
+          <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="8">
             <CheckBox IsChecked="{Binding Enabled, Mode=OneWay}" MinWidth="0" Padding="0"
                       ToolTip.Tip="Applied at build when ticked; kept in the project either way"/>
             <TextBlock Grid.Column="1" Text="{Binding Name}" Classes="mono"/>
             <TextBlock Grid.Column="2" Text="{Binding Description}" Classes="dim" TextTrimming="CharacterEllipsis"
                        ToolTip.Tip="{Binding Description}"/>
             <TextBlock Grid.Column="3" Text="{Binding Note}" Classes="note"/>
+            <!-- How it fares on SA-1 (reference/SA1_PORT.md, phase 4); the lines behind it on hover. -->
+            <TextBlock Grid.Column="4" Text="{Binding Sa1}" Classes="note" ToolTip.Tip="{Binding Sa1Tip}"/>
           </Grid>
         </DataTemplate>
       </ListBox.ItemTemplate>

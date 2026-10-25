@@ -6,13 +6,16 @@ namespace PipeDream.Services;
 // The rest of the class: the other EditorSession.*.cs files.
 public sealed partial class EditorSession
 {
-    /// <summary>One patch as the Patches window lists it.</summary>
-    public sealed record PatchInfo(string Name, bool Enabled, string? Description, int Files);
+    /// <summary>One patch as the Patches window lists it, with its SA-1 badge and why (EditorSession.Sa1).</summary>
+    public sealed record PatchInfo(string Name, bool Enabled, string? Description, int Files, string? Sa1 = null, string? Sa1Tip = null);
 
     /// <summary>The project's patches, in build order.</summary>
     public IReadOnlyList<PatchInfo> Patches =>
-        Project?.Data.Patches.Select(p => new PatchInfo(p.Name, p.Enabled, PatchInsert.Description(p.Name, p.Source), p.Files.Count))
-                             .ToList() ?? [];
+        Project?.Data.Patches.Select(p =>
+        {
+            var (sa1, tip) = Sa1Badge(Sa1Report.Patch(p));
+            return new PatchInfo(p.Name, p.Enabled, PatchInsert.Description(p.Name, p.Source), p.Files.Count, sa1, tip);
+        }).ToList() ?? [];
 
     /// <summary>A patch's ASM, or null.</summary>
     public string? PatchSource(string name) => FindPatch(name)?.Source;

@@ -462,6 +462,39 @@ Marks that could meet SMW's tables, or are written from either CPU, go to free R
 long address: `$7FB100` on LoROM, BW-RAM `$404000` on SA-1 ("Empty. Not cleared." in the pack's
 docs). Counters are checked by growth between two frames, since RAM starts as it likes.
 
+## Phase 4 (2026-10-25): the compatibility report
+
+`Sa1Compat` reads a resource's ASM (its own files with it) and sorts what it addresses:
+
+- **breaks** — SMW's RAM by its LoROM address (`$1DFB`, `$7E0019`, `$0019` absolute), a sprite
+  table by its 12-slot address (`$14C8,x`, `$9E,x`), and from code the SA-1 CPU runs (sprites,
+  blocks, the status bar) work RAM or the SNES's multiplier/divider and the PPU's;
+- **check** — `LDX/LDY #$0B` (a 12-slot loop?), `lorom`, the multiplier in a patch (which CPU runs a
+  patch depends on its caller), work RAM by a 16-bit index;
+- **needs SA-1** — SA-1 registers, I-RAM, BW-RAM, `sa1rom`, the pack's call into the SNES CPU
+  (`$0183`-`$018A`), outside a macro (a library of SA-1 helpers needs SA-1 only where called).
+
+A literal behind a define (`!freeram = $1869`) counts as one; a define given inside an SA-1 test
+(sa1def style) does not, and code inside either branch of an SA-1 test is not judged at all.
+Defines are shared across a resource's files; SPC700 code (`arch spc700`) is skipped. Tuned on two
+real hacks' ASM (Secret, an SA-1 hack: 376 files, 345 ready; Dogs of War, LoROM: 206, 188 ready),
+whose remaining hits were read and are real (literal `$1901,y` in GPS question blocks, the retry
+patch's `$1938`), and pinned on our own 50 sprite routines, which must come out ready.
+
+`Sa1Report` runs it over a project — enabled patches, blocks on a tile and the GPS files, slotted
+sprites and the PIXI files, every UberASM .asm (the status bar's on the SA-1 CPU) — and feeds:
+
+- **the switch** (A/B): ASM ▸ SA-1's confirmation carries the report — on, what breaks or may
+  (eight resources at most, the first finding each); off, what needs SA-1;
+- **every build**: a warning per resource, `SA-1: patch x.asm breaks (x.asm:12: INC $0DBE — SMW's
+  RAM at its LoROM address; SA-1 keeps it at $6DBE (|!addr))`, or `… needs SA-1 (…)` with it off.
+  Asar's errors and the pack-overlap check (phase 1) already name their resource;
+- **badges** in the Patches, Custom blocks, Custom sprites and UberASM windows: with SA-1 on
+  "SA-1 ready" / "SA-1: check" / "breaks on SA-1", the lines on hover; off, only "needs SA-1".
+
+It reads text: a macro's body is judged as written, not as expanded; an `org` into code the pack
+rewrites is the build's overlap check's (patches only); songs run on the SPC and are not in it.
+
 ## Plan
 
 **1. The switch and the build step.** ~~`BuiltinPatchRef` + the catalogue + download/cache/verify;
@@ -515,7 +548,7 @@ hook asserts the bytes it expects, so a pack release that moves code fails the b
 message, not the game — true of music's and UberASM's; the sprite driver checks only the loader
 step, as on LoROM.
 
-**4. The compatibility report (B).**
+~~**4. The compatibility report (B).**~~ Done (2026-10-25), above.
 1. *Static*, on import and as a badge per resource: **ready** (uses `!sa1`/`!SA1`/`!addr`/`!dp`,
    `sa1rom`, or `read1($00FFD5)`), **breaks** (hard-coded `$7E/$7F` longs, literal sprite tables
    like `$14C8,x`/`$9E,x`, `$4202` multiply, `LDX #$0B` slot loops, `lorom`, an `org` into code

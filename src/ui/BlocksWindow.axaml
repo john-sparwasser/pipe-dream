@@ -54,12 +54,14 @@
       <ListBox.ItemTemplate>
         <DataTemplate>
           <!-- icon, name, description (the block's first print, trimmed to fit), how many tiles run it -->
-          <Grid ColumnDefinitions="16,Auto,*,Auto" ColumnSpacing="8">
+          <Grid ColumnDefinitions="16,Auto,*,Auto,Auto" ColumnSpacing="8">
             <Image Source="{Binding Icon}" Width="16" Height="16" RenderOptions.BitmapInterpolationMode="None"/>
             <TextBlock Grid.Column="1" Text="{Binding Name}" Classes="mono"/>
             <TextBlock Grid.Column="2" Text="{Binding Description}" Classes="dim" TextTrimming="CharacterEllipsis"
                        ToolTip.Tip="{Binding Description}"/>
             <TextBlock Grid.Column="3" Text="{Binding Note}" Classes="note"/>
+            <!-- How it fares on SA-1 (reference/SA1_PORT.md, phase 4); the lines behind it on hover. -->
+            <TextBlock Grid.Column="4" Text="{Binding Sa1}" Classes="note" ToolTip.Tip="{Binding Sa1Tip}"/>
           </Grid>
         </DataTemplate>
       </ListBox.ItemTemplate>
