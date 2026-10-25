@@ -609,7 +609,7 @@ public static partial class RomPrep
     {
         if (IsPrepped(rom, version)) return;
         rom.ExpandTo(0x100000);                        // also writes size code at $FFD7
-        foreach (var (pc, bytes) in BuildStamps(version))
+        foreach (var (pc, bytes) in RomTarget.LoRom.PrepStamps(version))
             Array.Copy(bytes, 0, rom.Data, pc + rom.HeaderOffset, bytes.Length);
         if (version >= 6) ConvertGfxTo4bpp(rom, version);   // data, not a stamp: it allocates
         if (version >= 10) MigrateSecondaryDestinationBit(rom);  // data: depends on the records
@@ -682,7 +682,7 @@ public static partial class RomPrep
     /// </summary>
     public static IEnumerable<(int Snes, int Length)> StampedRanges(int version = Version)
     {
-        foreach (var (pc, bytes) in BuildStamps(version))
+        foreach (var (pc, bytes) in RomTarget.LoRom.PrepStamps(version))
             yield return (Rom.PcToSnes(pc), bytes.Length);
     }
 
@@ -867,7 +867,7 @@ public static partial class RomPrep
             if (stampSignature is not null) return stampSignature;
             var h = System.Security.Cryptography.IncrementalHash.CreateHash(
                 System.Security.Cryptography.HashAlgorithmName.SHA256);
-            foreach (var (pc, bytes) in BuildStamps(Version))
+            foreach (var (pc, bytes) in RomTarget.LoRom.PrepStamps(Version))
             {
                 h.AppendData(BitConverter.GetBytes(pc));
                 h.AppendData(bytes);

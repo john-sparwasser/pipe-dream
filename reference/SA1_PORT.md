@@ -107,7 +107,7 @@ LoROM form or that the pack wrote. Where the SA-1 bytes come from depends on who
 
 | code | SA-1 form | checked by |
 |---|---|---|
-| ours, built with `Asm` (17 routines) | `Asm.Sa1` set: every absolute/long RAM operand emitted through `Sa1Remap` | golden hashes unchanged with it off; Mesen |
+| ours, built with `Asm` (17 routines) | built for an `Sa1Target`: every absolute/long RAM operand emitted through its `Sa1Remap` | golden hashes unchanged for `RomTarget.LoRom`; Mesen |
 | in-place rewrites of vanilla loops | `Sa1Remap.Code` (a sweep), listed in `RomPrep.Sa1RawCode` with their entry M/X | where the stamp kept a vanilla instruction, our byte must be the pack's |
 | **Lunar Magic's, carried byte for byte** | **LM's own SA-1 bytes**, from an LM-saved SA-1 ROM, as the LoROM ones came from `after.smc` | that ROM |
 
@@ -346,7 +346,7 @@ Island.
 Rows 6-7 are the overworld's animated colours, and differ with timing (vanilla against clean +
 pack too).
 
-The fix is ours, not LM's: `AppendV32Stamps` says the two operands through `Asm.Sa1`, so the SA-1
+The fix is ours, not LM's: `AppendV32Stamps` says the two operands through its target, so the SA-1
 stamp list carries them and the LoROM one is unchanged (no prep version bump). LM keeps them: an
 overworld save by LM 3.40 over the fixed SA-1 build leaves `$7931`/`$6703` and the hook in place,
 and its overworld colours measure the same as before the save.
@@ -367,8 +367,12 @@ count of `$008000` is always 0.
 **1. The switch and the build step.** `BuiltinPatchRef` + the catalogue + download/cache/verify;
 ASM ▸ SA-1; a first build step that applies the pack and records its blocks as an `Owned` range.
 Addressing follows the mapper: once the header says SA-1, PC ≥ 2MB is `$80-$BF`, never LoROM's
-`$40+` (BW-RAM on SA-1); `Rom.SnesToPc`/`PcToSnes` and the hand-rolled bank math
-(`LunarMagic.ScanCodeAddr`, `LunarMagic.cs:913`) go through it. Done when SA-1 off builds
+`$40+` (BW-RAM on SA-1). Done for an image's own addressing (2026-10-25): `Rom.Map` follows the
+header live, and `FileOffset`, RATS allocation, the build's `Owned` ranges and the overlap check go
+through it; the static `Rom.SnesToPc`/`PcToSnes` are the LoROM map, for the base and the prep. Still
+to do: the hand-rolled bank math in `LunarMagic.ScanCodeAddr`. The build step is
+`RomTarget.Finish` (`Sa1Target`: the pack, then `ApplySa1`; `LoRomTarget`: nothing), and the
+switch picks the target. Done when SA-1 off builds
 byte-identical to today (golden hashes) and a project with no custom ASM builds with SA-1 on.
 
 **2. The prep under SA-1.** After the pack: restamp every prep hook the pack wrote (the jump wins),

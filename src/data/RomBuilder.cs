@@ -139,7 +139,7 @@ internal static class RomBuilder
         catch (FormatException e) { return "build failed: custom blocks: " + e.Message; }
         if (!r.Ok) return "build failed: custom blocks: " + string.Join("; ", r.Errors);
         warnings.AddRange(r.Warnings.Select(w => "custom blocks: " + w));
-        owned.AddRange((r.Written ?? []).Select(b => new PatchInsert.Owned("the custom block driver", Rom.SnesToPc(b.Snes), b.Length)));
+        owned.AddRange((r.Written ?? []).Select(b => new PatchInsert.Owned("the custom block driver", rom.Map.SnesToPc(b.Snes), b.Length)));
         return null;
     }
 
@@ -155,7 +155,7 @@ internal static class RomBuilder
         var r = SpriteInsert.Insert(rom, project.Data);
         if (!r.Ok) return "build failed: custom sprites: " + string.Join("; ", r.Errors);
         warnings.AddRange(r.Warnings.Select(w => "custom sprites: " + w));
-        owned.AddRange(r.Written.Select(b => new PatchInsert.Owned("the custom sprite driver", Rom.SnesToPc(b.Snes), b.Length)));
+        owned.AddRange(r.Written.Select(b => new PatchInsert.Owned("the custom sprite driver", rom.Map.SnesToPc(b.Snes), b.Length)));
         return null;
     }
 
@@ -169,7 +169,7 @@ internal static class RomBuilder
         var r = UberInsert.Insert(rom, project.Data);
         if (!r.Ok) return "build failed: UberASM: " + string.Join("; ", r.Errors);
         warnings.AddRange(r.Warnings.Select(w => "UberASM: " + w));
-        owned.AddRange(r.Written.Select(b => new PatchInsert.Owned("the UberASM driver", Rom.SnesToPc(b.Snes), b.Length)));
+        owned.AddRange(r.Written.Select(b => new PatchInsert.Owned("the UberASM driver", rom.Map.SnesToPc(b.Snes), b.Length)));
         return null;
     }
 
@@ -187,7 +187,7 @@ internal static class RomBuilder
         var r = MusicInsert.Insert(rom, project.Data);
         if (!r.Ok) return "build failed: music: " + string.Join("; ", r.Errors);
         warnings.AddRange(r.Warnings.Select(w => "music: " + w));
-        owned.AddRange(r.Written.Select(b => new PatchInsert.Owned("the music engine", Rom.SnesToPc(b.Snes), b.Length)));
+        owned.AddRange(r.Written.Select(b => new PatchInsert.Owned("the music engine", rom.Map.SnesToPc(b.Snes), b.Length)));
         return null;
     }
 
@@ -200,8 +200,8 @@ internal static class RomBuilder
         {
             var r = PatchInsert.Apply(rom, p);
             if (!r.Ok) return $"build failed: patch {p.Name}: " + string.Join("; ", r.Errors);
-            warnings.AddRange(r.Warnings.Concat(PatchInsert.Overlaps(owned, r.Written)).Select(w => $"patch {p.Name}: " + w));
-            owned.AddRange(r.Written.Select(b => new PatchInsert.Owned($"patch {p.Name}", Rom.SnesToPc(b.Snes), b.Length)));
+            warnings.AddRange(r.Warnings.Concat(PatchInsert.Overlaps(owned, r.Written, rom.Map)).Select(w => $"patch {p.Name}: " + w));
+            owned.AddRange(r.Written.Select(b => new PatchInsert.Owned($"patch {p.Name}", rom.Map.SnesToPc(b.Snes), b.Length)));
         }
         return null;
     }

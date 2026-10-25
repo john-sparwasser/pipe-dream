@@ -57,7 +57,7 @@ internal static class LmOwExAnimEngine
     /// <summary>The operand of the blob's `JSL $000003`, which the SA-1 form points at the trampoline.</summary>
     public const int Sa1TrampolineOperand = 0x7D1;
 
-    public static byte[] Engine(bool sa1 = false)
+    public static byte[] Engine(RomTarget target)
     {
         var b = Convert.FromHexString(Hex);
         int delta = (EngineSnes & 0xFFFF) - (SourceSnes & 0xFFFF);
@@ -68,7 +68,7 @@ internal static class LmOwExAnimEngine
         Put24(b, TablePlusOneOperand, TableSnes + 1);
         Put24(b, TableOperand, TableSnes);
         Put24(b, SettingsOperand, SettingsSnes);
-        if (sa1) Put24(b, Sa1TrampolineOperand, LmExAnimEngine.Sa1TrampolineSnes);
+        if (target.ExAnimTrampoline is { } trampoline) Put24(b, Sa1TrampolineOperand, trampoline);
         return b;
     }
 

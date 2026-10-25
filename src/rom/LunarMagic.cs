@@ -301,7 +301,7 @@ public static class LunarMagic
             for (int i = copied; i < dataBytes; i += 2)                      // LM default-empty def
             { rom.Data[dataFo + i] = 0x04; rom.Data[dataFo + i + 1] = 0x10; }
 
-            int dataSnes = Rom.PcToSnes(tagPc + 8);                          // bankaddr $8008 or $8000
+            int dataSnes = rom.Map.PcToSnes(tagPc + 8);                          // bankaddr $8008 or $8000
             int newImm = ((dataSnes & 0xFFFF) - startTile * 8 - SlotCarry(range)) & 0xFFFF;   // range 0: $7008; 2/3 store imm − 1 (see LmMap16DefAddr)
             int slot = rom.FileOffset(SlotAddr(range) + 1);
             rom.Data[slot] = (byte)newImm; rom.Data[slot + 1] = (byte)(newImm >> 8);

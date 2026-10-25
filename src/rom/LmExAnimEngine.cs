@@ -49,12 +49,13 @@ internal static class LmExAnimEngine
     /// <summary>The operand of the first `JSL $000003`, which the SA-1 form points at the trampoline.</summary>
     public const int Sa1TrampolineOperand = 0x78A;
 
-    /// <summary>The engine at <see cref="EngineSnes"/>; with <paramref name="sa1"/>, the one operand
-    /// of its SA-1 form that names a block of ours (LM's other SA-1 bytes come from LmSa1Forms).</summary>
-    public static byte[] Engine(bool sa1 = false)
+    /// <summary>The engine at <see cref="EngineSnes"/> for <paramref name="target"/>: on SA-1 the one
+    /// operand of its SA-1 form that names a block of ours, the trampoline (LM's other SA-1 bytes
+    /// come from LmSa1Forms).</summary>
+    public static byte[] Engine(RomTarget target)
     {
         var b = Relocated();
-        if (sa1) Put24(b, Sa1TrampolineOperand, Sa1TrampolineSnes);
+        if (target.ExAnimTrampoline is { } trampoline) Put24(b, Sa1TrampolineOperand, trampoline);
         return b;
     }
 

@@ -50,7 +50,7 @@ public static class Disasm
         var sb = new StringBuilder();
         for (int k = 0; k < count; k++)
         {
-            int fo = Rom.SnesToPc(snes) + rom.HeaderOffset;
+            int fo = rom.FileOffset(snes);
             if (fo < 0 || fo >= rom.Data.Length) break;
             byte op = rom.Data[fo];
             var (mn, mode) = Ops[op];

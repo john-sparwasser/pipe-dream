@@ -6,8 +6,13 @@ namespace PipeDream;
 /// (several instruction addresses are pinned by the LunarMagic.cs scanner contracts).
 /// Produces the frozen byte arrays RomPrep stamps — clean-room authored from the documented
 /// semantics (CONTRACT §7/§9d/§11, LEVEL_PIPELINE_NOTES §E/§F), never transcribed.
+///
+/// Its RAM operands are said where the target keeps that RAM: the same routine, for a LoROM or
+/// an SA-1 build (reference/SA1_PORT.md). Operands only — a RAM address made out of immediates
+/// (a long pointer stored to the direct page) is the routine's own business, and direct-page
+/// operands keep their byte (D is $3000 on SA-1).
 /// </summary>
-public sealed class Asm(int orgSnes)
+public sealed class Asm(int orgSnes, RomTarget target)
 {
     private readonly List<byte> code = new();
     private readonly Dictionary<string, int> labels = new();               // name → snes addr
@@ -35,22 +40,12 @@ public sealed class Asm(int orgSnes)
         return code.ToArray();
     }
 
-    /// <summary>
-    /// When set, every RAM operand is emitted where the SA-1 Pack moved it (reference/SA1_PORT.md):
-    /// the same routine, said for an SA-1 build. Ambient rather than a parameter because the prep's
-    /// routines build their own Asm deep inside the stamp lists; <see cref="RomPrep.Sa1Stamps"/> sets
-    /// and clears it around one build. Operands only — a RAM address made out of immediates (a long
-    /// pointer stored to the direct page) is the routine's own business, and direct-page operands keep
-    /// their byte (D is $3000 on SA-1).
-    /// </summary>
-    [ThreadStatic] internal static Sa1Remap? Sa1;
-
     private Asm E(params byte[] b) { code.AddRange(b); return this; }
     private Asm Imm16(byte op, int v) => E(op, (byte)v, (byte)(v >> 8));
     private Asm Long3(byte op, int v) => E(op, (byte)v, (byte)(v >> 8), (byte)(v >> 16));
 
-    private static int A(int a) => Sa1 is { } r && a < 0x2000 ? r.Abs(a) : a;
-    private static int L(int a) => Sa1 is { } r ? r.Long(a) : a;
+    private int A(int a) => a < 0x2000 ? target.Ram(a) : a;
+    private int L(int a) => target.RamLong(a);
 
     /// <summary>Fail if the next byte would not land at <paramref name="snes"/> — the scanner
     /// contracts pin instruction addresses, and drift must break the build, not the ROM.</summary>

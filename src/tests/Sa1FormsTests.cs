@@ -103,7 +103,7 @@ public class Sa1FormsTests
     {
         var (cleanPack, wrote) = CleanPack();
         var report = new List<string>();
-        var generated = LmSa1Forms.Generate(Rom.Load(ReferenceRoms.LmAfter), Rom.Load(ReferenceRoms.Sa1LevelSave), cleanPack, wrote, Remap(), report);
+        var generated = LmSa1Forms.Generate(Rom.Load(ReferenceRoms.LmAfter), Rom.Load(ReferenceRoms.Sa1LevelSave), cleanPack, wrote, Target(), report);
         Assert.Empty(report);
         Assert.Equal(Tokens(generated), Tokens(LmSa1Forms.LevelSave));
     }
@@ -115,7 +115,7 @@ public class Sa1FormsTests
     {
         var (cleanPack, wrote) = CleanPack();
         var report = new List<string>();
-        var generated = LmSa1Forms.GenerateExAnim(Rom.Load(ReferenceRoms.ExAnim1), Rom.Load(ReferenceRoms.Sa1ExAnimSave), cleanPack, wrote, Remap(), report);
+        var generated = LmSa1Forms.GenerateExAnim(Rom.Load(ReferenceRoms.ExAnim1), Rom.Load(ReferenceRoms.Sa1ExAnimSave), cleanPack, wrote, Target(), report);
         Assert.Empty(report);
         Assert.Equal(Tokens(generated), Tokens(LmSa1Forms.ExAnimSave));
         Assert.DoesNotContain(Tokens(generated), t => t.StartsWith($"{LmExAnimEngine.EngineSnes + LmExAnimEngine.Sa1TrampolineOperand:X6}="));
@@ -127,7 +127,7 @@ public class Sa1FormsTests
     {
         var (cleanPack, wrote) = CleanPack();
         var report = new List<string>();
-        var generated = LmSa1Forms.GenerateOwExAnim(Rom.Load(ReferenceRoms.OwExAnim1), Rom.Load(ReferenceRoms.Sa1OwExAnimSave), cleanPack, wrote, Remap(), report);
+        var generated = LmSa1Forms.GenerateOwExAnim(Rom.Load(ReferenceRoms.OwExAnim1), Rom.Load(ReferenceRoms.Sa1OwExAnimSave), cleanPack, wrote, Target(), report);
         Assert.Empty(report);
         Assert.Equal(Tokens(generated), Tokens(LmSa1Forms.OwExAnimSave));
         Assert.DoesNotContain(Tokens(generated), t => t.StartsWith($"{LmOwExAnimEngine.EngineSnes + LmOwExAnimEngine.Sa1TrampolineOperand:X6}="));
@@ -140,7 +140,7 @@ public class Sa1FormsTests
     {
         var (cleanPack, wrote) = CleanPack();
         var report = new List<string>();
-        var generated = LmSa1Forms.GenerateFourBpp(Rom.Load(ReferenceRoms.Vanilla), Rom.Load(ReferenceRoms.FourBpp1), Rom.Load(ReferenceRoms.Sa1FourBppSave), cleanPack, wrote, Remap(), report);
+        var generated = LmSa1Forms.GenerateFourBpp(Rom.Load(ReferenceRoms.Vanilla), Rom.Load(ReferenceRoms.FourBpp1), Rom.Load(ReferenceRoms.Sa1FourBppSave), cleanPack, wrote, Target(), report);
         Assert.Empty(report);
         Assert.Equal(Tokens(generated), Tokens(LmSa1Forms.FourBppSave));
         Assert.DoesNotContain(Tokens(generated), t => t.StartsWith("0093F8="));
@@ -151,7 +151,7 @@ public class Sa1FormsTests
     {
         var (cleanPack, wrote) = CleanPack();
         var report = new List<string>();
-        var generated = LmSa1Forms.GenerateMidway(Rom.Load(ReferenceRoms.Midway1), Rom.Load(ReferenceRoms.Sa1MidwaySave), cleanPack, wrote, Remap(), report);
+        var generated = LmSa1Forms.GenerateMidway(Rom.Load(ReferenceRoms.Midway1), Rom.Load(ReferenceRoms.Sa1MidwaySave), cleanPack, wrote, Target(), report);
         Assert.Empty(report);
         Assert.Equal(Tokens(generated), Tokens(LmSa1Forms.MidwaySave));
     }
@@ -173,8 +173,8 @@ public class Sa1FormsTests
         var vanilla = Rom.Load(ReferenceRoms.Vanilla);
         var after = Rom.Load(ReferenceRoms.LmAfter);
         var oracle = Rom.Load(ReferenceRoms.Sa1LevelSave);
-        var lorom = Overlay(RomPrep.BuildStamps(LmSa1Forms.PrepVersion));
-        var sa1 = Overlay(RomPrep.Sa1Stamps(LmSa1Forms.PrepVersion, Remap()));
+        var lorom = Overlay(RomTarget.LoRom.PrepStamps(LmSa1Forms.PrepVersion));
+        var sa1 = Overlay(Target().PrepStamps(LmSa1Forms.PrepVersion));
         LmSa1Forms.Apply(sa1);
         // A hook's JSL/JML target is ours even where a byte of it equals LM's (LM's blocks keep the
         // in-bank offsets, so the high byte often does); LM's SA-1 save has its own copies' addresses there.
@@ -208,12 +208,12 @@ public class Sa1FormsTests
         var oracle = Rom.Load(ReferenceRoms.Sa1ExAnimSave);
         int theirs = 0x10D2E4;                                                   // LM's engine in the oracle, behind its RATS tag
         int trampoline = oracle.ReadValue(theirs + LmExAnimEngine.Sa1TrampolineOperand, 3);
-        Assert.Equal(theirs + LmExAnimEngine.Engine().Length, trampoline);
+        Assert.Equal(theirs + LmExAnimEngine.Engine(RomTarget.LoRom).Length, trampoline);
         var bytes = LmExAnimEngine.Sa1Trampoline();
         Assert.Equal(Convert.ToHexString(bytes), Convert.ToHexString(oracle.Data.AsSpan(oracle.FileOffset(trampoline), bytes.Length)));
         Assert.Equal(0x7FC020, oracle.ReadValue(theirs + 0x792, 3));          // the second call goes straight to the copied stub
-        Assert.Equal(LmExAnimEngine.Sa1TrampolineSnes, (LmExAnimEngine.Engine(sa1: true)[LmExAnimEngine.Sa1TrampolineOperand + 2] << 16)
-            | LmExAnimEngine.Engine(sa1: true)[LmExAnimEngine.Sa1TrampolineOperand + 1] << 8 | LmExAnimEngine.Engine(sa1: true)[LmExAnimEngine.Sa1TrampolineOperand]);
+        Assert.Equal(LmExAnimEngine.Sa1TrampolineSnes, (LmExAnimEngine.Engine(Target())[LmExAnimEngine.Sa1TrampolineOperand + 2] << 16)
+            | LmExAnimEngine.Engine(Target())[LmExAnimEngine.Sa1TrampolineOperand + 1] << 8 | LmExAnimEngine.Engine(Target())[LmExAnimEngine.Sa1TrampolineOperand]);
     }
 
     /// <summary>LM's SA-1 overworld install appends the very same trampoline to its blob and calls it
@@ -227,7 +227,7 @@ public class Sa1FormsTests
         Assert.Equal(theirs + LmOwExAnimEngine.Size, trampoline);
         var bytes = LmExAnimEngine.Sa1Trampoline();
         Assert.Equal(Convert.ToHexString(bytes), Convert.ToHexString(oracle.Data.AsSpan(oracle.FileOffset(trampoline), bytes.Length)));
-        var ours = LmOwExAnimEngine.Engine(sa1: true);
+        var ours = LmOwExAnimEngine.Engine(Target());
         int at = LmOwExAnimEngine.Sa1TrampolineOperand;
         Assert.Equal(LmExAnimEngine.Sa1TrampolineSnes, ours[at] | ours[at + 1] << 8 | ours[at + 2] << 16);
         Assert.Equal(0x22, ours[at - 1]);                                        // the operand of a JSL
@@ -250,7 +250,7 @@ public class Sa1FormsTests
         Assert.True(r.Ok, string.Join("; ", r.Errors));
         int jml = rom.ReadValue(0x02ABF2, 4);                    // the pack's second JML, relocated by our RATS block
         Assert.Equal(0x5C, jml & 0xFF);
-        RomPrep.ApplySa1(rom, RomPrep.Version, Remap(), r.Blocks.Select(b => (b.Snes, b.Length)));
+        RomPrep.ApplySa1(rom, RomPrep.Version, Target(), r.Blocks.Select(b => (b.Snes, b.Length)));
 
         Assert.Equal(jml, rom.ReadValue(0x02ABF2, 4));
         var hook = LmLevelEntry.Hooks().Single(h => h.Snes == 0x05D9A1).Bytes;
@@ -275,7 +275,7 @@ public class Sa1FormsTests
         Assert.Equal(0x6703, rom.ReadValue(RomPrep.OwPaletteHook + 0x16, 2));     // LDY #$6703, the pack's palette buffer
     }
 
-    private static Sa1Remap Remap() => Sa1Remap.FromSpriteTables(File.ReadAllText(Path.Combine(ReferenceRoms.Sa1Pack, "more_sprites", "sprite_tables.asm")));
+    private static Sa1Target Target() => new(ReferenceRoms.Sa1Pack);
 
     private static Dictionary<int, byte> Overlay(List<(int Pc, byte[] Bytes)> stamps)
     {

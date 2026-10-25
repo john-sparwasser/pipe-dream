@@ -12,85 +12,85 @@ public static partial class RomPrep
     private static int Pc(int snes) => Rom.SnesToPc(snes);
 
     // ---------------------------------------------------------------- stamps
-    internal static List<(int Pc, byte[] Bytes)> BuildStamps(int version)
+    internal static List<(int Pc, byte[] Bytes)> BuildStamps(int version, RomTarget t)
     {
-        var s = BuildV1Stamps();
-        if (version >= 2) AppendV2Stamps(s);
+        var s = BuildV1Stamps(t);
+        if (version >= 2) AppendV2Stamps(s, t);
         // V3 restamps the whole Map16-lookup block over V1's — later stamps win, so the
         // single-range lookup is replaced wholesale rather than V1's frozen list being edited.
-        if (version >= 3) s.Add((Pc(LmMap16LadderSnes), Map16Lookup(3)));
-        if (version >= 4) AppendV4Stamps(s);
+        if (version >= 3) s.Add((Pc(LmMap16LadderSnes), Map16Lookup(t, 3)));
+        if (version >= 4) AppendV4Stamps(s, t);
         // V5 restamps the Direct-Map16 handler block over V1's, the way V3 restamps the Map16
         // lookup — V1's list stays byte-frozen and a v1 project's pinned image still reproduces.
-        if (version >= 5) s.Add((Pc(Handler22), Dm16Handlers(5)));
-        if (version >= 7) AppendV7Stamps(s);
-        if (version >= 8) AppendV8Stamps(s);
+        if (version >= 5) s.Add((Pc(Handler22), Dm16Handlers(t, 5)));
+        if (version >= 7) AppendV7Stamps(s, t);
+        if (version >= 8) AppendV8Stamps(s, t);
         // V9 reserves the balance; FixChecksum is what fills it, on every write.
         if (version >= 9) s.Add((BalanceTagPc, Rats(new byte[BalanceSize])));
-        if (version >= 10) AppendV10Stamps(s);
-        if (version >= 11) AppendV11Stamps(s);
+        if (version >= 10) AppendV10Stamps(s, t);
+        if (version >= 11) AppendV11Stamps(s, t);
         // V12 restamps the Map16 ladder with LM's own bytes (see LmMap16Ladder) — same slot
         // addresses, so V3's scanner contract holds and EnsureMap16Tiles keeps writing there.
         if (version >= 12) s.Add((Pc(LmMap16LadderSnes), LmMap16Ladder()));
-        if (version >= 13) AppendV13Stamps(s);
+        if (version >= 13) AppendV13Stamps(s, t);
         // V14 restamps the whole GFX block, the way V3/V5/V12 restamp theirs: the layer-3 pass
         // is an extra tail on the same loader, so the earlier versions' bytes stay frozen and
         // only the v14 image differs.
-        if (version >= 14) AppendV14Stamps(s);
-        if (version >= 15) AppendV15Stamps(s);
-        if (version >= 16) AppendV16Stamps(s);
+        if (version >= 14) AppendV14Stamps(s, t);
+        if (version >= 15) AppendV15Stamps(s, t);
+        if (version >= 16) AppendV16Stamps(s, t);
         // V17 carries LM's OVERWORLD ExAnimation hack (LM 2.40's separate one) beside the level
         // engine v11 carries — its own blob, record table and per-submap settings byte.
-        if (version >= 17) AppendV17Stamps(s);
+        if (version >= 17) AppendV17Stamps(s, t);
         // V18 restamps the record table (seven entries longer) over V2's and adds the overworld's
         // arming stub — later stamps win, so V2's bytes stay frozen and only the v18 image differs.
-        if (version >= 18) AppendV18Stamps(s);
+        if (version >= 18) AppendV18Stamps(s, t);
         // V19 restamps v18's arming stub in LM's own shape and adds LM's layout stamp, which is
         // what makes LM's Submap GFX dialog read the seven records v18 wrote.
-        if (version >= 19) AppendV19Stamps(s);
+        if (version >= 19) AppendV19Stamps(s, t);
         // V20 restamps the GFX block with the record fetch parked where LM reads the table from.
-        if (version >= 20) AppendV20Stamps(s);
+        if (version >= 20) AppendV20Stamps(s, t);
         // V21 restamps the midway blob with its tables moved into a block of their own.
-        if (version >= 21) AppendV21Stamps(s);
+        if (version >= 21) AppendV21Stamps(s, t);
         // V22 gives the midway blob itself a block of its own and repoints the two hooks; the
         // v10 copy at the secondary block's tail stays as frozen, unreferenced bytes.
-        if (version >= 22) AppendV22Stamps(s);
+        if (version >= 22) AppendV22Stamps(s, t);
         // V23 retires the GFX arm stub: vanilla bytes back at $0583B8, and the GFX block
         // restamped with the ExGFX pointer table's tail back to zero.
-        if (version >= 23) AppendV23Stamps(s);
+        if (version >= 23) AppendV23Stamps(s, t);
         // V24 restamps the palette sites with Lunar Magic's own engine over v1's stubs.
-        if (version >= 24) AppendV24Stamps(s);
+        if (version >= 24) AppendV24Stamps(s, t);
         // V25 takes the rest of LM's 4bpp mode: the wrapper repoints, the filter dispatch and body,
         // the GFX33 load, the $00A149 NOP, and the loader restamped with its AN2 pass.
-        if (version >= 25) AppendV25Stamps(s);
+        if (version >= 25) AppendV25Stamps(s, t);
         // V26 stamps LM's acts-like core, which a Map16 save writes over the v1 remap's address,
         // and moves the remap (and the four sites' JSLs) clear of it.
-        if (version >= 26) AppendV26Stamps(s);
+        if (version >= 26) AppendV26Stamps(s, t);
         // V27 relays the resolver so the ExGFX 0x100+ table is named where Lunar Magic reads it.
-        if (version >= 27) s.Add((Pc(GfxArmStub), GfxCode(27)));
+        if (version >= 27) s.Add((Pc(GfxArmStub), GfxCode(t, 27)));
         // V28: the acts-like remap follows a chain, the way LM's own lookup does. Measured through
         // LM's own `-ExportAllMap16`/`-ImportAllMap16`, which round-trip our table byte for byte
         // and will happily store an entry of 0x200 or more (reference/LM_PARITY.md §1).
-        if (version >= 28) s.Add((Pc(ActsRemapEntryV26), ActsRemap(ActsRemapEntryV26, chain: true)));
+        if (version >= 28) s.Add((Pc(ActsRemapEntryV26), ActsRemap(t, ActsRemapEntryV26, chain: true)));
         // V29: the overworld's half of the layer-3 TILEMAP bypass — the GFX half needed nothing,
         // because v14's pass is index-driven (reference/OVERWORLD.md §4).
-        if (version >= 29) AppendV29Stamps(s);
+        if (version >= 29) AppendV29Stamps(s, t);
         // V30: LM's custom-block dispatch, and the four sites moved from our remap onto it.
-        if (version >= 30) AppendV30Stamps(s);
+        if (version >= 30) AppendV30Stamps(s, t);
         // V31 restamps the marker and the fourth trampoline as Lunar Magic 3.40 writes them, so
         // its Map16 save finds nothing to upgrade there; v30's 19-byte trampoline stays frozen.
-        if (version >= 31) AppendV31Stamps(s);
+        if (version >= 31) AppendV31Stamps(s, t);
         // V32: LM's overworld palette hook and its table block; the table's colours are data.
-        if (version >= 32) AppendV32Stamps(s);
+        if (version >= 32) AppendV32Stamps(s, t);
         // V34 restamps v16's advanced-layer-3 reader to name the level by $010B, not $FE.
-        if (version >= 34) AppendV34Stamps(s);
+        if (version >= 34) AppendV34Stamps(s, t);
         // V35: the trampoline LM's SA-1 ExAnimation engine calls, as a block of ours.
-        if (version >= 35) AppendV35Stamps(s);
+        if (version >= 35) AppendV35Stamps(s, t);
         return s;
     }
 
     // V1 list — BYTE-FROZEN (GoldenPrepV1 test): never edit, only append via versions.
-    private static List<(int Pc, byte[] Bytes)> BuildV1Stamps()
+    private static List<(int Pc, byte[] Bytes)> BuildV1Stamps(RomTarget t)
     {
         var s = new List<(int, byte[])>
         {
@@ -125,13 +125,13 @@ public static partial class RomPrep
             s.Add((Pc(d + 0x0A + (0x26 - 1) * 3), e26));
         }
 
-        s.Add((Pc(0x06F54F), Map16Lookup(1)));
-        s.Add((Pc(0x0DE1B0), ExtHandlers()));
-        s.Add((Pc(Handler22), Dm16Handlers(1)));
-        s.Add((Pc(Handler29), Handler29Code()));
-        s.Add((Pc(SpriteStub), SpriteStubCode()));
+        s.Add((Pc(0x06F54F), Map16Lookup(t, 1)));
+        s.Add((Pc(0x0DE1B0), ExtHandlers(t)));
+        s.Add((Pc(Handler22), Dm16Handlers(t, 1)));
+        s.Add((Pc(Handler29), Handler29Code(t)));
+        s.Add((Pc(SpriteStub), SpriteStubCode(t)));
         s.Add((Pc(PalThunk), [0x20, 0xDA, 0xA9, 0x20, 0xED, 0xAB, 0x6B]));  // JSR UploadSpriteGFX : JSR LoadPalette : RTL
-        s.Add((Pc(PalTrampoline), PaletteStubs()));
+        s.Add((Pc(PalTrampoline), PaletteStubs(t)));
 
         // Sprite bank table: 0x200 bytes, all vanilla bank $07.
         var banks = new byte[0x200];
@@ -169,7 +169,7 @@ public static partial class RomPrep
     /// ($129000) and ExGFX 0x100+ pointers ($138008) — zero-filled keeps SourceSnes = -1
     /// and LmGfxBypass = null until a build writes real entries.
     /// </summary>
-    private static void AppendV2Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV2Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
         // Arm hook: displaced vanilla `LDA $1925 : CMP #$09` (5 bytes) → JSL + NOP.
         s.Add((Pc(0x0583B8), [0x22, 0x70, 0xF7, 0x0F, 0xEA]));
@@ -182,7 +182,7 @@ public static partial class RomPrep
         // routines; JSLable wrappers live in the verified-FF tail after V1's PalThunk.
         s.Add((Pc(GfxThunks), [0x20, 0xDE, 0xB8, 0x6B, 0x20, 0x80, 0xAA, 0x6B]));
         s.Add((Pc(Gfx.ExGfx80Table), new byte[0x180]));      // ExGFX 0x80-0xFF pointers: none
-        s.Add((Pc(GfxArmStub), GfxCode(2)));
+        s.Add((Pc(GfxArmStub), GfxCode(t, 2)));
         s.Add((GfxRecordsPc - 8, Rats(new byte[0x200 * 0x20])));   // bypass records, all disabled
         s.Add((ExGfxPtrPc - 8, Rats(new byte[0xF00 * 3])));        // ExGFX 0x100+ pointers: none
     }
@@ -219,14 +219,14 @@ public static partial class RomPrep
     /// 22 bytes replace 27 ($00AAE1-$00AAFB), so the tail is NOPped out to land execution on
     /// the `DEY` at $00AAFC that closes the per-tile loop.
     /// </summary>
-    private static void AppendV4Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV4Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
         // There are TWO copies of that loop, byte-for-byte identical, one per upload
         // implementation: $00AAE1 in the main path, $00AB21 in the FilterSomeRAM path (which is
         // where file $1E and file $08-on-tileset-$11 actually go, so patching only the first
         // leaves exactly the filtered files broken). Both get the same replacement.
-        s.Add((Pc(0x00AAE1), Gfx4bppLoop(0x00AAE1, 0x00AAFC)));
-        s.Add((Pc(0x00AB21), Gfx4bppLoop(0x00AB21, 0x00AB3C)));
+        s.Add((Pc(0x00AAE1), Gfx4bppLoop(t, 0x00AAE1, 0x00AAFC)));
+        s.Add((Pc(0x00AB21), Gfx4bppLoop(t, 0x00AB21, 0x00AB3C)));
 
         // The decompression buffer MOVES. A 4bpp file is 0x1000 and the vanilla buffer at
         // $7EAD00 has exactly 0xC00 before it hits the layer-2 Map16 tile buffer at $7EB900 —
@@ -247,8 +247,8 @@ public static partial class RomPrep
         // has the same shape as the upload — a 2-byte-per-row loop for planes 0/1 then a
         // 1-byte-per-row loop that zero-extends plane 2 — so for 4bpp the second loop becomes a
         // copy of the first, and the whole expansion is a straight 2-bytes-per-row copy.
-        s.Add((Pc(0x00A857), Gfx4bppExpand(0x00A857, 0x00A86A, a => a.StaLongX(0x7F977B))));
-        s.Add((Pc(0x00A897), Gfx4bppExpand(0x00A897, 0x00A8A9, a => a.StaAbsX(0x0BF6))));
+        s.Add((Pc(0x00A857), Gfx4bppExpand(t, 0x00A857, 0x00A86A, a => a.StaLongX(0x7F977B))));
+        s.Add((Pc(0x00A897), Gfx4bppExpand(t, 0x00A897, 0x00A8A9, a => a.StaAbsX(0x0BF6))));
 
         // Three hardcoded pointers INTO the buffer, in the GFX00 expander: they both move with
         // the buffer and rescale, because they are tile offsets ($6F0 = tile $4A at 24 B/tile
@@ -261,7 +261,7 @@ public static partial class RomPrep
 
         // The prep's own loader seeds the same pointer, so it is restamped over V2's copy the
         // way V3 restamps the Map16 lookup — same length, so every label still resolves.
-        s.Add((Pc(GfxArmStub), GfxCode(4)));
+        s.Add((Pc(GfxArmStub), GfxCode(t, 4)));
     }
 
     /// <summary>An opcode plus a 16-bit immediate, for patching one instruction in place.</summary>
@@ -270,9 +270,9 @@ public static partial class RomPrep
     /// <summary>A 3bpp RAM expander's plane-2 loop rewritten as a 4bpp copy: two bytes a row
     /// instead of one zero-extended byte, which makes it identical to the planes-0/1 loop above
     /// it. <paramref name="store"/> is the only difference between the two sites.</summary>
-    private static byte[] Gfx4bppExpand(int at, int fallThrough, Func<Asm, Asm> store)
+    private static byte[] Gfx4bppExpand(RomTarget t, int at, int fallThrough, Func<Asm, Asm> store)
     {
-        var a = new Asm(at);
+        var a = new Asm(at, t);
         a.LdyImm16(0x0008).Label("row").LdaIndLong(0x00);
         store(a).Inx().Inx()
          .IncDp(0x00).IncDp(0x00)      // two bytes consumed per row, not one
@@ -285,9 +285,9 @@ public static partial class RomPrep
     /// <summary>The 4bpp plane-2/3 inner loop, assembled at its vanilla address so the branch
     /// resolves to the real target, and padded with NOPs out to <paramref name="fallThrough"/> —
     /// the `DEY` that closes the per-tile loop, which must stay put.</summary>
-    private static byte[] Gfx4bppLoop(int at, int fallThrough)
+    private static byte[] Gfx4bppLoop(RomTarget t, int at, int fallThrough)
     {
-        var a = new Asm(at);
+        var a = new Asm(at, t);
         a.LdxImm8(0x07)
          .Label("row")
          .LdaIndLong(0x00)         // authored word: low = plane 2, high = plane 3
@@ -334,13 +334,13 @@ public static partial class RomPrep
     /// which is what the submap test was standing in for and does not depend on how the player
     /// arrived. That is also what LM does, so the two agree on untouched exits too.
     /// </summary>
-    private static void AppendV7Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV7Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
         s.Add((Pc(ExitFlagMask), [0x0F]));
         s.Add((Pc(ExitHighByteSite), [0x22, unchecked((byte)ExitHighByte),
                                       unchecked((byte)(ExitHighByte >> 8)), (byte)(ExitHighByte >> 16)]));
 
-        var a = new Asm(ExitHighByte);
+        var a = new Asm(ExitHighByte, t);
         // In: X = the screen index the caller already resolved, A = $1F11,Y (vanilla's answer,
         // which we ignore). Out: A = the level number's high byte, stored to $0F by the caller.
         a.LdaAbsX(0x19D8).BitImm8(0x04).Beq("plain");
@@ -384,9 +384,9 @@ public static partial class RomPrep
     /// Only the MAIN path moves. The filter path ($00AB0D) keeps v4's rewrite, which uploads
     /// the same bytes by a different route — the parity test walks both.
     /// </summary>
-    private static void AppendV8Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV8Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
-        var a = new Asm(Gfx4bppLoopSite);
+        var a = new Asm(Gfx4bppLoopSite, t);
         a.Label("tile").LdxImm8(0x10);
         a.Label("word").LdaIndLong(0x00).StaAbs(0x2118).IncDp(0x00).IncDp(0x00).Nop()
          .Dex().Bne("word");
@@ -423,7 +423,7 @@ public static partial class RomPrep
     /// 1 entrances, 2 level-entry A/B, 4 height C-F, 8 render. All by default.</summary>
     internal static int V10Groups = 15;
 
-    private static void AppendV10Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV10Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
         if ((V10Groups & 1) != 0) V10Entrances(s);
         if ((V10Groups & 2) != 0)
@@ -490,9 +490,9 @@ public static partial class RomPrep
     /// hooks, and $03BCC0 zeroed — what LM installs when the ExAnimation dialog is first used.
     /// A record written by RomBuilder into that table animates in-game exactly as it would in LM.
     /// </summary>
-    private static void AppendV11Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV11Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
-        s.Add((Pc(LmExAnimEngine.EngineSnes) - 8, Rats(LmExAnimEngine.Engine(sa1: Asm.Sa1 != null))));
+        s.Add((Pc(LmExAnimEngine.EngineSnes) - 8, Rats(LmExAnimEngine.Engine(t))));
         s.Add((Pc(LmExAnimEngine.MvnSnes) - 8, Rats(LmExAnimEngine.Mvn())));
         s.Add((Pc(LmExAnimEngine.ClearSnes) - 8, Rats(LmExAnimEngine.Clear())));
         s.Add((Pc(LmExAnimEngine.TableSnes) - 8, Rats(LmExAnimEngine.EmptyTable())));
@@ -509,9 +509,9 @@ public static partial class RomPrep
     /// the same blob, the same hooks and nothing else — so a base prepped to v17 opens in its
     /// "Edit Submap ExAnimated Frames" dialog with the lists our writer put there.
     /// </summary>
-    private static void AppendV17Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV17Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
-        s.Add((Pc(LmOwExAnimEngine.EngineSnes) - 8, Rats(LmOwExAnimEngine.Engine(sa1: Asm.Sa1 != null))));
+        s.Add((Pc(LmOwExAnimEngine.EngineSnes) - 8, Rats(LmOwExAnimEngine.Engine(t))));
         s.Add((Pc(LmOwExAnimEngine.TableSnes) - 8, Rats(LmOwExAnimEngine.EmptyTable())));
         s.Add((Pc(LmOwExAnimEngine.SettingsSnes) - 8, Rats(LmOwExAnimEngine.EmptySettings())));
         foreach (var (site, bytes) in LmOwExAnimEngine.Hooks()) s.Add((Pc(site), bytes));
@@ -553,7 +553,7 @@ public static partial class RomPrep
     /// <see cref="LunarMagic.LmMidwayTable"/> already follow the hook's operand. The v10 copy at
     /// `$13BC00` stays in the frozen list, unreferenced.
     /// </summary>
-    private static void AppendV22Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV22Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
         byte[] block = [.. MidwayRoutine(MidwayTablesV21Snes, MidwayRoutineV22Snes),
                         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x4C, 0x4D, 0x10, 0x01];
@@ -577,7 +577,7 @@ public static partial class RomPrep
     /// moves with them: <see cref="LunarMagic.LmMidwayTable"/> already follows the blob's own
     /// operand rather than a constant.
     /// </summary>
-    private static void AppendV21Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV21Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
         s.Add((MidwayTablesTagPc, Rats(new byte[MidwayTablesSize])));
         s.Add((Pc(MidwayRoutineSnes), MidwayRoutine(MidwayTablesV21Snes, MidwayRoutineSnes)));
@@ -604,10 +604,10 @@ public static partial class RomPrep
     /// which both LM installs over our bases left alone. The sixteen bytes at $0FF770 go back to
     /// zero — pointer slots, "no file", as LM keeps them.
     /// </summary>
-    private static void AppendV23Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV23Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
         s.Add((Pc(0x0583B8), [0x22, GfxArmStubV23 & 0xFF, GfxArmStubV23 >> 8 & 0xFF, GfxArmStubV23 >> 16, 0xEA]));
-        s.Add((Pc(GfxArmStub), GfxCode(23)));
+        s.Add((Pc(GfxArmStub), GfxCode(t, 23)));
     }
 
     /// <summary>
@@ -637,7 +637,7 @@ public static partial class RomPrep
     /// vanilla's $FF. The table at `$0EF600` and the blob format were LM's all along (CONTRACT §7e),
     /// so `Rom.WriteLmCustomPalette` and `Rom.LmCustomPalette` are untouched.
     /// </summary>
-    private static void AppendV24Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV24Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
         s.Add((Pc(LmPaletteEngine), Convert.FromHexString(
             "2228BA0008C23048DA5AA20000A00000A90800850AB7005A9B97007AC8C8E8E8C60AD0F1A90800850AE220B700" +
@@ -678,7 +678,7 @@ public static partial class RomPrep
     ///   `$00A149`            vanilla's GFX14 decompress after the uploads, NOPped — the loader's
     ///                        AN2 pass (<see cref="An2Pass"/>) owns the buffer's last file.
     /// </summary>
-    private static void AppendV25Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV25Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
         byte[] wrapper = [LmPaletteEngine & 0xFF, LmPaletteEngine >> 8 & 0xFF, LmPaletteEngine >> 16];
         s.Add((Pc(0x00A830), wrapper));
@@ -692,7 +692,7 @@ public static partial class RomPrep
             "A207A7008D1821EB07009DB21BE600E600CA10EEA207A70029FF00850CA700EB1DB21B250A050C8D1821E600E600CA10E5")));
         s.Add((Pc(0x00B895), Convert.FromHexString("7D8400A97E850220DEB8C230A0002084004CD7B8")));
         s.Add((Pc(0x00A149), [0xEA, 0xEA, 0xEA, 0xEA]));
-        s.Add((Pc(GfxArmStub), GfxCode(25)));
+        s.Add((Pc(GfxArmStub), GfxCode(t, 25)));
     }
 
     /// <summary>
@@ -726,7 +726,7 @@ public static partial class RomPrep
     /// (v12), self-consistent either way, but they change what those paths draw — a render change
     /// that wants its own Mesen pass, not a byte pass.
     /// </summary>
-    private static void AppendV26Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV26Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
         var core = Convert.FromHexString(
             "0A4B6202008254FFA40B84668565A000006BFFFFFFFFFFFF4C4D1001EAEA985C45F500EAAC9B0D100A7A7A" +
@@ -734,7 +734,7 @@ public static partial class RomPrep
             "0080FFC90002B0DC80E8");
         core[LmActsTableOperand - LmActsCore] = (byte)(ActsTableSnes >> 16);
         s.Add((Pc(LmActsCore), core));
-        s.Add((Pc(ActsRemapEntryV26), ActsRemap(ActsRemapEntryV26)));
+        s.Add((Pc(ActsRemapEntryV26), ActsRemap(t, ActsRemapEntryV26)));
         foreach (int site in ActsCallSites)
             s.Add((Pc(site), [0x22, ActsRemapEntryV26 & 0xFF,
                               ActsRemapEntryV26 >> 8 & 0xFF, ActsRemapEntryV26 >> 16]));
@@ -752,14 +752,14 @@ public static partial class RomPrep
     /// vanilla. Lunar Magic's overworld save leaves `$04D730-$04D7A0` alone, so the hook survives
     /// one (measured against a control save that opened a different dialog).
     /// </summary>
-    private static void AppendV29Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV29Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
         s.Add((Pc(OwL3MapHook), [0x22, OwL3Map & 0xFF, OwL3Map >> 8 & 0xFF, OwL3Map >> 16,
                                  0xEA, 0x6B]));                      // JSL … : NOP : the kept RTL
         s.Add((Pc(L3ResolveThunk), [0x20, GfxResolve & 0xFF, GfxResolve >> 8 & 0xFF, 0x6B]));
         var block = new byte[0xC0];
         Array.Fill(block, (byte)0xFF);
-        OwL3MapCode().CopyTo(block, 0);
+        OwL3MapCode(t).CopyTo(block, 0);
         s.Add((OwL3MapTagPc, Rats(block)));
     }
 
@@ -792,7 +792,7 @@ public static partial class RomPrep
     /// that LM leaves the block alone without one no longer holds under 3.40); after it the base is
     /// in v26's "upgrade offered" state, IsPrepped false at every version.
     /// </summary>
-    private static void AppendV30Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV30Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
         byte[] Slots(int n) => [.. Enumerable.Repeat<byte[]>([0x4C, 0x02, 0xF6, 0xEA], n * 4).SelectMany(b => b)];
         s.Add((Pc(LmBlockMarker), Convert.FromHexString(
@@ -825,7 +825,7 @@ public static partial class RomPrep
     /// `$128000` — 3.40's save frees that on a v29 base with no marker at all, so it is the
     /// §PREP V26 "upgrade offered" state and not this version's to fix. GPS reads neither byte.
     /// </summary>
-    private static void AppendV31Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV31Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
         s.Add((Pc(LmBlockMarker), [0x4C, 0x4D, LmBlockMarkerVersion340, 0x01]));
         s.Add((Pc(0x06F7A0), Convert.FromHexString("2008F6A50FF004A30A8002A306C9DAF00F4C02F6")));
@@ -850,10 +850,10 @@ public static partial class RomPrep
     /// 2026-10-25 in Mesen, all sixteen CGRAM rows differing from clean + pack, and right with the
     /// two operands moved (reference/SA1_PORT.md).
     /// </summary>
-    private static void AppendV32Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV32Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
         int table = OwPaletteTable, hook = OwPaletteHook;
-        int submap = Asm.Sa1?.Abs(0x1931) ?? 0x1931, buffer = Asm.Sa1?.Abs(0x0703) ?? 0x0703;
+        int submap = t.Ram(0x1931), buffer = t.Ram(0x0703);
         byte lo = (byte)table, hi = (byte)(table >> 8), bank = (byte)(table >> 16);
         byte[] code = [0xAA, 0xAD, (byte)submap, (byte)(submap >> 8),
                        .. Convert.FromHexString("290F003A189B1003690700EB0A69"), lo, hi,
@@ -871,9 +871,9 @@ public static partial class RomPrep
     /// table's RATS tag as its settings and scrolled layer 3, status bar included (see
     /// <see cref="EmitL3AdvRead"/>). Only the reader is restamped; v16's block stays frozen.
     /// </summary>
-    private static void AppendV34Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV34Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
-        var a = new Asm(L3AdvRead);
+        var a = new Asm(L3AdvRead, t);
         EmitL3AdvRead(a, 34);
         s.Add((Pc(L3AdvRead), a.Bytes()));
     }
@@ -884,7 +884,7 @@ public static partial class RomPrep
     /// behind the engine's per-level table. Only the SA-1 form of the engine names it (see
     /// RomPrep.Sa1.cs); on LoROM the block is inert, stamped so the two layouts stay one.
     /// </summary>
-    private static void AppendV35Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV35Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
         s.Add((Pc(LmExAnimEngine.Sa1TrampolineSnes) - 8, Rats(LmExAnimEngine.Sa1Trampoline())));
     }
@@ -914,14 +914,14 @@ public static partial class RomPrep
     /// (the overworld's animated-tile source stayed vanilla's `LDY #$14 : JSL $00BA28` at
     /// $00A147), and from v25 the loader's AN2 pass reads it and the JSL is NOPped as LM NOPs it.
     /// </summary>
-    private static void AppendV18Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV18Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
         var records = new byte[(OwGfxRecordIndex + Overworld.Submaps) * 0x20];
         for (int submap = 0; submap < Overworld.Submaps; submap++)
             Array.Copy(OwGfxVanillaRecord, 0, records, (OwGfxRecordIndex + submap) * 0x20, 0x20);
         s.Add((GfxRecordsPc - 8, Rats(records)));
-        s.Add((Pc(GfxArmStub), GfxCode(18)));                    // the loader's enable test
-        s.Add((Pc(OwGfxStub), OwGfxArmStub(18)));
+        s.Add((Pc(GfxArmStub), GfxCode(t, 18)));                    // the loader's enable test
+        s.Add((Pc(OwGfxStub), OwGfxArmStub(t, 18)));
         s.Add((Pc(OwGfxHook), [0x22, OwGfxStub & 0xFF, OwGfxStub >> 8 & 0xFF, OwGfxStub >> 16]));
     }
 
@@ -945,10 +945,10 @@ public static partial class RomPrep
     /// loader is still ours, and LM's *level* Super GFX Bypass dialog still does not read a
     /// level's record (a separate, older gap this does not touch).
     /// </summary>
-    private static void AppendV19Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV19Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
         s.Add((Pc(OwGfxMarker), OwGfxMarkerBytes));
-        s.Add((Pc(OwGfxStub), OwGfxArmStub(19)));
+        s.Add((Pc(OwGfxStub), OwGfxArmStub(t, 19)));
     }
 
     /// <summary>
@@ -966,8 +966,8 @@ public static partial class RomPrep
     /// OLDER layout, one word over, which is what made the first measurement look like a bug in
     /// ours.
     /// </summary>
-    private static void AppendV20Stamps(List<(int Pc, byte[] Bytes)> s)
-        => s.Add((Pc(GfxArmStub), GfxCode(20)));
+    private static void AppendV20Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
+        => s.Add((Pc(GfxArmStub), GfxCode(t, 20)));
 
     /// <summary>
     /// The sixteen words Lunar Magic writes into every submap's record when it installs the hack,
@@ -997,10 +997,10 @@ public static partial class RomPrep
     /// </summary>
     /// <param name="version">V18 wrote only the arming; the LM half arrived in v19, and v18's
     /// image stays byte-frozen (a v18 project's pinned base must still reproduce).</param>
-    private static byte[] OwGfxArmStub(int version)
+    private static byte[] OwGfxArmStub(RomTarget t, int version)
     {
         int record = GfxBypassRecords + OwGfxRecordIndex * 0x20;   // the main map's, submap 0
-        var a = new Asm(OwGfxStub);
+        var a = new Asm(OwGfxStub, t);
         a.StaDp(0x20);                             // displaced `STA $20` (16-bit)
         if (version >= 19)
             // ---- LM's own 35 bytes ($0FFAB0-$0FFAD2), the fields at +9/+10 and +18 being what
@@ -1073,14 +1073,14 @@ public static partial class RomPrep
     /// every LM hack lives with it. V4's rescaled GFX00 pointers ($00A879/A87E/A8AE) go back to
     /// vanilla's: LM's `BRA` at $00A873 (which we carry) skips that expander anyway.
     /// </summary>
-    private static void AppendV13Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV13Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
         s.Add((Pc(0x00BA40), [GfxBuffer >> 8 & 0xFF]));                  // CODE_00BA28: LDA #$AD -> $01
         s.Add((Pc(0x00BA44), [GfxBuffer >> 16]));                        //             LDA #$7E -> $02
         s.Add((Pc(0x00A879), Word(0xA9, 0xB3F0)));                       // vanilla again (dead code past LM's BRA)
         s.Add((Pc(0x00A87E), Word(0xA9, 0x7EB3)));
         s.Add((Pc(0x00A8AE), Word(0xA9, 0xB570)));
-        s.Add((Pc(GfxArmStub), GfxCode(13)));                            // our bypass loader seeds the same pointer
+        s.Add((Pc(GfxArmStub), GfxCode(t, 13)));                            // our bypass loader seeds the same pointer
         // Bank 04, the overworld: LM's bytes.
         s.Add((Pc(0x048000), Convert.FromHexString(OwTileOffsetsLm)));
         s.Add((Pc(0x0480BD), [0x10]));   // LDA #$0008 -> #$0010 : 16 word rows = one 4bpp tile
@@ -1126,9 +1126,9 @@ public static partial class RomPrep
     /// <see cref="L3DestTable"/> goes down at LM's own fixed address, so a prepped base answers
     /// <see cref="LunarMagic.HasLmLayer3Gfx"/> the same way an LM-saved one does.
     /// </summary>
-    private static void AppendV14Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV14Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
-        s.Add((Pc(GfxArmStub), GfxCode(14)));
+        s.Add((Pc(GfxArmStub), GfxCode(t, 14)));
         s.Add((Pc(L3DestTable), [0x00, 0x4C, 0x00, 0x48, 0x00, 0x44, 0x00, 0x40]));
     }
 
@@ -1153,9 +1153,9 @@ public static partial class RomPrep
     /// account when you set the appropriate destination", and why its help warns against
     /// shortening the file to dodge the status bar.
     /// </summary>
-    private static void AppendV15Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV15Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
-        s.Add((Pc(GfxArmStub), GfxCode(15)));
+        s.Add((Pc(GfxArmStub), GfxCode(t, 15)));
         // JSL over `LDA $1BE3 : BEQ +$20 : DEC`, then the same branch one byte shorter — a JSL
         // is a byte longer than the LDA and eats the DEC, so both land on $00A044 as before.
         s.Add((Pc(L3OptHook), [0x22, (byte)(L3Opt & 0xFF), (byte)(L3Opt >> 8 & 0xFF), (byte)(L3Opt >> 16), 0xF0, 0x1F]));
@@ -1182,10 +1182,10 @@ public static partial class RomPrep
     /// The GFX loader image changes with the version the way v14/v15 changed it, so earlier
     /// versions' bytes stay frozen.
     /// </summary>
-    private static void AppendV16Stamps(List<(int Pc, byte[] Bytes)> s)
+    private static void AppendV16Stamps(List<(int Pc, byte[] Bytes)> s, RomTarget t)
     {
-        s.Add((Pc(GfxArmStub), GfxCode(16)));
-        s.Add((Pc(L3Adv), L3AdvCode()));
+        s.Add((Pc(GfxArmStub), GfxCode(t, 16)));
+        s.Add((Pc(L3Adv), L3AdvCode(t)));
         // `LDA $1403 : BEQ +3` (5 bytes) → `JSL dispatcher : RTS`. The dispatcher re-enters
         // vanilla itself when the group is off, so those 5 bytes are the whole hook.
         s.Add((Pc(L3ScrollHook), [0x22, (byte)(L3Scroll & 0xFF), (byte)(L3Scroll >> 8 & 0xFF),

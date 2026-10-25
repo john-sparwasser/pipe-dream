@@ -80,10 +80,10 @@ public class PatchTests
         ];
 
         Assert.Equal(["writes $00A2B0, which Pipe Dream's ROM hooks also writes"],
-                     PatchInsert.Overlaps(owned, [new(0x00A2A0, 0x13)]));
+                     PatchInsert.Overlaps(owned, [new(0x00A2A0, 0x13)], RomMap.LoRom));
         Assert.Equal(["writes $108001, which patch a.asm also writes"],
-                     PatchInsert.Overlaps(owned, [new(0x908001, 1)]));                  // a FastROM mirror is the same byte
-        Assert.Empty(PatchInsert.Overlaps(owned, [new(0x00A2B4, 8)]));
+                     PatchInsert.Overlaps(owned, [new(0x908001, 1)], RomMap.LoRom));                  // a FastROM mirror is the same byte
+        Assert.Empty(PatchInsert.Overlaps(owned, [new(0x00A2B4, 8)], RomMap.LoRom));
     }
 
     [AsarFact]

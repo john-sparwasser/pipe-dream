@@ -217,21 +217,17 @@ static class DebugCommands
         return 0;
     }
 
-    private static Sa1Remap PackRemap(string packDir)
-        => Sa1Remap.FromSpriteTables(File.ReadAllText(Path.Combine(packDir, "more_sprites", "sprite_tables.asm")));
-
     public static int Sa1Prep(string romPath, string packDir)
     {
         if (!Asar.Available) { Console.Error.WriteLine("asar: library not found, or not API 3.3+"); return 1; }
         var rom = Rom.Load(romPath);
         int version = Enumerable.Range(1, RomPrep.Version).Reverse().FirstOrDefault(v => RomPrep.IsPrepped(rom, v));
         if (version == 0) { Console.WriteLine("not a prepped base"); return 1; }
-        var r = Asar.Patch(rom, Path.Combine(packDir, "sa1.asm"));
-        foreach (var e in r.Errors) Console.WriteLine("error: " + e);
-        if (!r.Ok) return 1;
-        RomPrep.ApplySa1(rom, version, PackRemap(packDir), r.Blocks.Select(b => (b.Snes, b.Length)));
+        var errors = new Sa1Target(packDir).Finish(rom, version);
+        foreach (var e in errors) Console.WriteLine("error: " + e);
+        if (errors.Count > 0) return 1;
         File.WriteAllBytes(romPath, rom.Data);
-        Console.WriteLine($"{romPath}: pack applied ({r.Blocks.Length} blocks), prep v{version} restamped for SA-1");
+        Console.WriteLine($"{romPath}: pack applied, prep v{version} restamped for SA-1");
         return 0;
     }
 
@@ -246,28 +242,28 @@ static class DebugCommands
         foreach (var b in r.Blocks)
             for (int i = 0; i < b.Length; i++) wrote.Add(Rom.SnesToPc(b.Snes + i));
         var report = new List<string>();
-        var remap = PackRemap(packDir);
+        var target = new Sa1Target(packDir);
         Console.WriteLine("LevelSave:");
-        Console.Write(LmSa1Forms.Generate(Rom.Load(ReferenceRoms.LmAfter), Rom.Load(oraclePath), cleanPack, wrote, remap, report));
+        Console.Write(LmSa1Forms.Generate(Rom.Load(ReferenceRoms.LmAfter), Rom.Load(oraclePath), cleanPack, wrote, target, report));
         if (File.Exists(exanimOraclePath) && File.Exists(ReferenceRoms.ExAnim1))
         {
             Console.WriteLine("ExAnimSave:");
-            Console.Write(LmSa1Forms.GenerateExAnim(Rom.Load(ReferenceRoms.ExAnim1), Rom.Load(exanimOraclePath), cleanPack, wrote, remap, report));
+            Console.Write(LmSa1Forms.GenerateExAnim(Rom.Load(ReferenceRoms.ExAnim1), Rom.Load(exanimOraclePath), cleanPack, wrote, target, report));
         }
         if (File.Exists(ReferenceRoms.Sa1OwExAnimSave) && File.Exists(ReferenceRoms.OwExAnim1))
         {
             Console.WriteLine("OwExAnimSave:");
-            Console.Write(LmSa1Forms.GenerateOwExAnim(Rom.Load(ReferenceRoms.OwExAnim1), Rom.Load(ReferenceRoms.Sa1OwExAnimSave), cleanPack, wrote, remap, report));
+            Console.Write(LmSa1Forms.GenerateOwExAnim(Rom.Load(ReferenceRoms.OwExAnim1), Rom.Load(ReferenceRoms.Sa1OwExAnimSave), cleanPack, wrote, target, report));
         }
         if (File.Exists(ReferenceRoms.Sa1FourBppSave) && File.Exists(ReferenceRoms.FourBpp1))
         {
             Console.WriteLine("FourBppSave:");
-            Console.Write(LmSa1Forms.GenerateFourBpp(Rom.Load(ReferenceRoms.Vanilla), Rom.Load(ReferenceRoms.FourBpp1), Rom.Load(ReferenceRoms.Sa1FourBppSave), cleanPack, wrote, remap, report));
+            Console.Write(LmSa1Forms.GenerateFourBpp(Rom.Load(ReferenceRoms.Vanilla), Rom.Load(ReferenceRoms.FourBpp1), Rom.Load(ReferenceRoms.Sa1FourBppSave), cleanPack, wrote, target, report));
         }
         if (File.Exists(ReferenceRoms.Sa1MidwaySave) && File.Exists(ReferenceRoms.Midway1))
         {
             Console.WriteLine("MidwaySave:");
-            Console.Write(LmSa1Forms.GenerateMidway(Rom.Load(ReferenceRoms.Midway1), Rom.Load(ReferenceRoms.Sa1MidwaySave), cleanPack, wrote, remap, report));
+            Console.Write(LmSa1Forms.GenerateMidway(Rom.Load(ReferenceRoms.Midway1), Rom.Load(ReferenceRoms.Sa1MidwaySave), cleanPack, wrote, target, report));
         }
         foreach (var line in report) Console.WriteLine("breaks the rules: " + line);
         return report.Count == 0 ? 0 : 1;
@@ -284,16 +280,16 @@ static class DebugCommands
 
     public static int Sa1Audit(string packDir)
     {
-        var remap = PackRemap(packDir);
-        var lorom = RomPrep.BuildStamps(RomPrep.Version);
-        var sa1 = RomPrep.Sa1Stamps(RomPrep.Version, remap);
+        var target = new Sa1Target(packDir);
+        var lorom = RomTarget.LoRom.PrepStamps(RomPrep.Version);
+        var sa1 = target.PrepStamps(RomPrep.Version);
         for (int k = 0; k < lorom.Count; k++)
         {
             var (pc, b) = lorom[k];
             int snes = Rom.PcToSnes(pc);
             if (!b.AsSpan().SequenceEqual(sa1[k].Bytes)) { Console.WriteLine($"asm  ${snes:X6} {b.Length,5}  re-emitted"); continue; }
             var problems = new List<string>();
-            var walked = remap.Code(b, true, true, problems);
+            var walked = target.Remap.Code(b, true, true, problems);
             int changed = Enumerable.Range(0, b.Length).Count(i => walked[i] != b[i]);
             if (changed > 0 || problems.Count > 0)
                 Console.WriteLine($"raw? ${snes:X6} {b.Length,5}  {changed} byte(s) would move{(problems.Count > 0 ? "; " + string.Join("; ", problems.Take(2)) : "")}");

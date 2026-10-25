@@ -94,14 +94,14 @@ public static class PatchInsert
     /// written block and owner, at the first byte they share. Overlaps are reported, not refused —
     /// some patches mean to replace a hook — so an accidental one has to be findable from here.
     /// </summary>
-    public static List<string> Overlaps(IReadOnlyList<Owned> owned, Asar.WrittenBlock[] written)
+    public static List<string> Overlaps(IReadOnlyList<Owned> owned, Asar.WrittenBlock[] written, RomMap map)
     {
         var lines = new List<string>();
         foreach (var w in written)
         {
-            int start = Rom.SnesToPc(w.Snes), end = start + w.Length;
+            int start = map.SnesToPc(w.Snes), end = start + w.Length;
             foreach (var g in owned.Where(o => o.Pc < end && start < o.Pc + o.Length).GroupBy(o => o.Owner))
-                lines.Add($"writes ${Rom.PcToSnes(g.Min(o => Math.Max(o.Pc, start))):X6}, which {g.Key} also writes");
+                lines.Add($"writes ${map.PcToSnes(g.Min(o => Math.Max(o.Pc, start))):X6}, which {g.Key} also writes");
         }
         const int Shown = 5;
         return lines.Count <= Shown ? lines : [.. lines.Take(Shown), $"and {lines.Count - Shown} more overlap(s)"];

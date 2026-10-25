@@ -45,9 +45,9 @@ public static partial class RomPrep
     /// identical to vanilla for tiles &lt; 0x200 (identity table). The TAY/ASL/TAX/BMI/LDA
     /// long,X + CMP #$0200 sequence is the LmActsAsBase scanner contract.
     /// </summary>
-    private static byte[] Map16Lookup(int version)
+    private static byte[] Map16Lookup(RomTarget t, int version)
     {
-        var a = new Asm(version >= 3 ? 0x06F538 : 0x06F54F);
+        var a = new Asm(version >= 3 ? 0x06F538 : 0x06F54F, t);
         if (version >= 3)
             a.Label("disp")                  // A = tile*2 (16-bit), tile >= 0x200
              .Asl()                          // A = tile*4, C = tile >= 0x4000
@@ -131,9 +131,9 @@ public static partial class RomPrep
     /// DBR is 0 here (the host does `STA.W $2115`), which is why every table read is long and
     /// there is no PHK/PLB: absolute reads have to keep reaching RAM and the PPU ports.
     /// </summary>
-    private static byte[] OwL3MapCode()
+    private static byte[] OwL3MapCode(RomTarget t)
     {
-        var a = new Asm(OwL3Map);
+        var a = new Asm(OwL3Map, t);
         a.LdaImm8(0x02).StaAbs(0x420B)       // displaced: vanilla's tilemap DMA, unchanged
          .Php()
          .Rep(0x30)
@@ -197,9 +197,9 @@ public static partial class RomPrep
         return a.Bytes();
     }
 
-    private static byte[] ActsRemap(int entry, bool chain = false)
+    private static byte[] ActsRemap(RomTarget t, int entry, bool chain = false)
     {
-        var a = new Asm(entry);
+        var a = new Asm(entry, t);
         EmitActsRemap(a, entry, chain);
         return a.Bytes();
     }
@@ -257,9 +257,9 @@ public static partial class RomPrep
     ///      (X = screen, exactly the vanilla screen-exit tables at $0DA512).
     /// 0x03 $0DE1E0 screen jump: screen := b2 → $1928 + $1BA1 (the vanilla $0DA53D pair).
     /// </summary>
-    private static byte[] ExtHandlers()
+    private static byte[] ExtHandlers(RomTarget t)
     {
-        var a = new Asm(ExtHandler02);
+        var a = new Asm(ExtHandler02, t);
         a.LdyImm8(0x00)
          .LdaIndLongY(0x65).StaDp(0x00)      // exit word low
          .Iny()
@@ -299,9 +299,9 @@ public static partial class RomPrep
     /// $08 page OR (0x27=0 / 0x29=0x40), $09 row add, $0C tile low, $0D row wrap ctr,
     /// $0E raw page then row base, $0F run byte.
     /// </summary>
-    private static byte[] Dm16Handlers(int version)
+    private static byte[] Dm16Handlers(RomTarget t, int version)
     {
-        var a = new Asm(Handler22);
+        var a = new Asm(Handler22, t);
         a.LdaImm8(0x00).Bra("nib");          // 0x22: page 0
         a.AssertAt(Handler23)
          .LdaImm8(0x01)                      // 0x23: page 1, falls through
@@ -404,9 +404,9 @@ public static partial class RomPrep
     /// with the tile page ORed with 0x40 (CONTRACT §9d; behavior confirmed against the LM
     /// reference: the fill goes through the current pass's planes, page 0x40+).
     /// </summary>
-    private static byte[] Handler29Code()
+    private static byte[] Handler29Code(RomTarget t)
     {
-        var a = new Asm(Handler29);
+        var a = new Asm(Handler29, t);
         a.LdaImm8(0x40).StaDp(0x08).JmpAbs(B27Body & 0xFFFF);
         return a.Bytes();
     }
@@ -419,9 +419,9 @@ public static partial class RomPrep
     /// PIXI-style per-level consumers and our palette apply read it (CONTRACT §11).
     /// Entry (bank 05 loader): M 8-bit, X/Y 16-bit, $0E = level word.
     /// </summary>
-    private static byte[] SpriteStubCode()
+    private static byte[] SpriteStubCode(RomTarget t)
     {
-        var a = new Asm(SpriteStub);
+        var a = new Asm(SpriteStub, t);
         a.Phb().Phk().Plb()                  // [SCAN]
          .LdyDp(0x0E)                        // [SCAN] level (16-bit Y in-game)
          .LdaAbsY(0xF100)                    // [SCAN] per-level bank byte
@@ -449,9 +449,9 @@ public static partial class RomPrep
     /// back-area color at $0701, then 256 words at $0703 (verified against LoadPalette:
     /// STA $0701 at $00AC3E, LoadColors STA $0703,X). Preserves A/X/Y/P.
     /// </summary>
-    private static byte[] PaletteStubs()
+    private static byte[] PaletteStubs(RomTarget t)
     {
-        var a = new Asm(PalTrampoline);
+        var a = new Asm(PalTrampoline, t);
         a.Jsl(PalThunk)                      // vanilla UploadSpriteGFX + LoadPalette
          .Jsr(PalApply & 0xFFFF)
          .Jml(0x0095EF);                     // resume vanilla (JSL $05809E)
@@ -522,9 +522,9 @@ public static partial class RomPrep
     /// write (decompressor: $8A-$8F; expander: $0A/$0C + INC $00), and with 16-bit dp
     /// operands owning BOTH their bytes (a 16-bit ADC $03 reads $03-$04).
     /// </summary>
-    private static byte[] GfxCode(int version)
+    private static byte[] GfxCode(RomTarget t, int version)
     {
-        var a = new Asm(GfxArmStub);
+        var a = new Asm(GfxArmStub, t);
         // V23 moves the arm stub behind the resolver: $0FF770 is the tail of LM's ExGFX pointer
         // table, and its import zeroes it. The block still starts there, so the stamp address
         // holds and the sixteen bytes go back to being pointer slots (ids 0xFB-0xFF, no file).
@@ -1083,9 +1083,9 @@ public static partial class RomPrep
     ///
     /// Emitted in ASCENDING address order, which `Asm` requires — `PadTo` only ever moves forward.
     /// </summary>
-    private static byte[] L3AdvCode()
+    private static byte[] L3AdvCode(RomTarget t)
     {
-        var a = new Asm(L3Adv);
+        var a = new Asm(L3Adv, t);
         EmitL3Engine(a);
         EmitL3Axis(a);
         EmitL3Scroll(a);

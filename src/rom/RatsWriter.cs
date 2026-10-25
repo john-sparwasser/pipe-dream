@@ -110,7 +110,7 @@ public static class RatsWriter
         int invv = sm1 ^ 0xFFFF;
         rom.Data[fo + 6] = (byte)invv; rom.Data[fo + 7] = (byte)(invv >> 8);
         Array.Copy(data, 0, rom.Data, fo + 8, data.Length);
-        return Rom.PcToSnes(pc + 8);
+        return rom.Map.PcToSnes(pc + 8);
     }
 
     /// <summary>

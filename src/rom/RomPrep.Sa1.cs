@@ -2,8 +2,8 @@ namespace PipeDream;
 
 /// <summary>
 /// The prep on an SA-1 build (reference/SA1_PORT.md, phase 2). The base stays LoROM and byte-frozen;
-/// a build with SA-1 on applies the SA-1 Pack to its copy and then <see cref="ApplySa1"/> writes the
-/// prep's SA-1 form over the result. Two things make that necessary:
+/// a build with SA-1 on (<see cref="Sa1Target.Finish"/>) applies the SA-1 Pack to its copy and then
+/// <see cref="ApplySa1"/> writes the prep's SA-1 form over the result. Two things make that necessary:
 ///
 ///  • the pack moves RAM by rewriting operands at fixed vanilla offsets, and where the prep already
 ///    put a jump, it rewrites the jump's target instead (`JSL $06F5D0` at $00C17A becomes
@@ -12,7 +12,7 @@ namespace PipeDream;
 ///    elsewhere — so every one of them is said again in its SA-1 form.
 ///
 /// Whose code it is decides where the SA-1 form comes from: ours is re-emitted through
-/// <see cref="Sa1Remap"/> (Asm's SA-1 mode, or the sweep for <see cref="Sa1RawCode"/>); Lunar Magic's
+/// the <see cref="Sa1Target"/> (Asm's operands, or the sweep for <see cref="Sa1RawCode"/>); Lunar Magic's
 /// is LM's own SA-1 bytes, carried as a diff in <see cref="LmSa1Forms"/>. The diff can also DROP a
 /// byte — where LM's SA-1 save leaves the pack's remap or hijack standing, so must we: the one
 /// restamp that does not is a crash ($02ABF3, the first boot's finding). The stamp lists and
@@ -27,12 +27,12 @@ public static partial class RomPrep
     /// <paramref name="packWrote"/> is the pack's Asar blocks, as SNES addresses. The base must be
     /// at <see cref="LmSa1Forms.PrepVersion"/>, the version LM's SA-1 forms were generated against.
     /// </summary>
-    public static void ApplySa1(Rom rom, int version, Sa1Remap remap, IEnumerable<(int Snes, int Length)> packWrote)
+    public static void ApplySa1(Rom rom, int version, Sa1Target target, IEnumerable<(int Snes, int Length)> packWrote)
     {
         if (version != LmSa1Forms.PrepVersion)
             throw new InvalidOperationException($"SA-1 needs the base at prep v{LmSa1Forms.PrepVersion}, not v{version}: Lunar Magic's SA-1 forms are generated against that version's stamps");
-        var lorom = Overlay(BuildStamps(version));
-        var sa1 = Overlay(Sa1Stamps(version, remap));
+        var lorom = Overlay(RomTarget.LoRom.PrepStamps(version));
+        var sa1 = Overlay(target.PrepStamps(version));
         LmSa1Forms.Apply(sa1);
         var wrote = new HashSet<int>();
         foreach (var (snes, n) in packWrote)
@@ -50,13 +50,10 @@ public static partial class RomPrep
     /// Throws when a routine cannot be said on SA-1 without changing its length — the layout is
     /// pinned, so that needs a new routine.
     /// </summary>
-    internal static List<(int Pc, byte[] Bytes)> Sa1Stamps(int version, Sa1Remap remap)
+    internal static List<(int Pc, byte[] Bytes)> Sa1Stamps(int version, Sa1Target target)
     {
-        List<(int Pc, byte[] Bytes)> stamps;
-        Asm.Sa1 = remap;
-        try { stamps = BuildStamps(version); }
-        finally { Asm.Sa1 = null; }
-
+        var stamps = BuildStamps(version, target);
+        var remap = target.Remap;
         var raw = Sa1RawCode.ToDictionary(r => Pc(r.Snes));
         for (int i = 0; i < stamps.Count; i++)
         {

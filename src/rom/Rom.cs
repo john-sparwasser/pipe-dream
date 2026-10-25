@@ -10,7 +10,8 @@ namespace PipeDream;
 ///   • RatsWriter.cs  — the write path: RATS free-space allocation, checksum, save
 ///   • LunarMagic.cs  — detecting LM hacks and locating/decoding LM's expanded tables
 ///
-/// LoROM only (SMW is always LoROM). An address called "snes" is a 24-bit SNES address; "pc"
+/// The base and the editor's ROM are LoROM (SMW is); a build for SA-1 addresses through
+/// <see cref="Map"/>, which follows the header (RomMap.cs). An address called "snes" is a 24-bit SNES address; "pc"
 /// is the headerless ROM offset; a file offset = pc + HeaderOffset (the copier header, if any).
 /// </summary>
 public sealed class Rom
@@ -58,17 +59,20 @@ public sealed class Rom
         return new Rom(data, headerOffset);
     }
 
-    // --- Addressing (LoROM) -------------------------------------------------
+    // --- Addressing -----------------------------------------------------------
 
-    /// <summary>LoROM SNES address → headerless PC offset.</summary>
-    public static int SnesToPc(int snes)
-        => ((snes & 0x7F0000) >> 1) | (snes & 0x7FFF);
+    /// <summary>LoROM SNES address → headerless PC offset: the base and the prep, which are always
+    /// LoROM. An image's own addressing is <see cref="Map"/>.</summary>
+    public static int SnesToPc(int snes) => RomMap.LoRom.SnesToPc(snes);
 
     /// <summary>Headerless PC offset → LoROM SNES address (bank $00-$3F, high half).</summary>
-    public static int PcToSnes(int pc)
-        => ((pc << 1) & 0x7F0000) | (pc & 0x7FFF) | 0x8000;
+    public static int PcToSnes(int pc) => RomMap.LoRom.PcToSnes(pc);
 
-    public int FileOffset(int snes) => SnesToPc(snes) + HeaderOffset;
+    /// <summary>How this image addresses its ROM, from its header as it is now — not
+    /// <see cref="MapMode"/>, which was read at load and goes stale when the SA-1 Pack is applied.</summary>
+    public RomMap Map => RomMap.ForMapMode(Data[0x7FD5 + HeaderOffset]);
+
+    public int FileOffset(int snes) => Map.SnesToPc(snes) + HeaderOffset;
 
     public byte ReadByte(int snes) => Data[FileOffset(snes)];
 

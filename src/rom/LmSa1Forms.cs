@@ -287,7 +287,7 @@ internal static class LmSa1Forms
     /// </summary>
     private static IEnumerable<(string Name, Kind Kind, int Snes, int Length, int BaseSnes)> ExAnimPieces()
     {
-        yield return ("ExAnimation engine", Kind.Block, LmExAnimEngine.EngineSnes, LmExAnimEngine.Engine().Length, LmExAnimEngine.SourceSnes);
+        yield return ("ExAnimation engine", Kind.Block, LmExAnimEngine.EngineSnes, LmExAnimEngine.Engine(RomTarget.LoRom).Length, LmExAnimEngine.SourceSnes);
         yield return ("ExAnimation MVN helper", Kind.Block, LmExAnimEngine.MvnSnes, LmExAnimEngine.Mvn().Length, LmExAnimEngine.SourceMvnSnes);
         yield return ("ExAnimation clear helper", Kind.Block, LmExAnimEngine.ClearSnes, LmExAnimEngine.Clear().Length, LmExAnimEngine.SourceClearSnes);
         foreach (var (s, b) in LmExAnimEngine.Hooks())
@@ -354,41 +354,41 @@ internal static class LmSa1Forms
     /// pack on a clean ROM and <paramref name="packWrote"/> the PCs it wrote there. A block not found
     /// in the oracle goes to <paramref name="report"/>; a pinned diff has none.
     /// </summary>
-    public static string Generate(Rom after, Rom oracle, Rom cleanPack, IReadOnlySet<int> packWrote, Sa1Remap remap, List<string> report)
-        => Generate(Pieces, after, oracle, cleanPack, packWrote, remap, report);
+    public static string Generate(Rom after, Rom oracle, Rom cleanPack, IReadOnlySet<int> packWrote, Sa1Target target, List<string> report)
+        => Generate(Pieces, after, oracle, cleanPack, packWrote, target, report);
 
     /// <summary>The diff for <see cref="ExAnimSave"/>: <paramref name="exanim1"/> is LM's LoROM
     /// ExAnimation install (exanim_1.smc), <paramref name="oracle"/> its SA-1 one.</summary>
-    public static string GenerateExAnim(Rom exanim1, Rom oracle, Rom cleanPack, IReadOnlySet<int> packWrote, Sa1Remap remap, List<string> report)
-        => Generate(_ => ExAnimPieces(), exanim1, oracle, cleanPack, packWrote, remap, report);
+    public static string GenerateExAnim(Rom exanim1, Rom oracle, Rom cleanPack, IReadOnlySet<int> packWrote, Sa1Target target, List<string> report)
+        => Generate(_ => ExAnimPieces(), exanim1, oracle, cleanPack, packWrote, target, report);
 
     /// <summary>The diff for <see cref="OwExAnimSave"/>: <paramref name="owExAnim1"/> is LM's LoROM
     /// overworld ExAnimation install (ow_exanim_1.smc), <paramref name="oracle"/> its SA-1 one.</summary>
-    public static string GenerateOwExAnim(Rom owExAnim1, Rom oracle, Rom cleanPack, IReadOnlySet<int> packWrote, Sa1Remap remap, List<string> report)
-        => Generate(_ => OwExAnimPieces(owExAnim1), owExAnim1, oracle, cleanPack, packWrote, remap, report);
+    public static string GenerateOwExAnim(Rom owExAnim1, Rom oracle, Rom cleanPack, IReadOnlySet<int> packWrote, Sa1Target target, List<string> report)
+        => Generate(_ => OwExAnimPieces(owExAnim1), owExAnim1, oracle, cleanPack, packWrote, target, report);
 
     /// <summary>The diff for <see cref="MidwaySave"/>: <paramref name="midway1"/> is LM's LoROM
     /// midway install (midway_1.smc), <paramref name="oracle"/> its SA-1 one.</summary>
-    public static string GenerateMidway(Rom midway1, Rom oracle, Rom cleanPack, IReadOnlySet<int> packWrote, Sa1Remap remap, List<string> report)
-        => Generate(_ => MidwayPieces(midway1), midway1, oracle, cleanPack, packWrote, remap, report);
+    public static string GenerateMidway(Rom midway1, Rom oracle, Rom cleanPack, IReadOnlySet<int> packWrote, Sa1Target target, List<string> report)
+        => Generate(_ => MidwayPieces(midway1), midway1, oracle, cleanPack, packWrote, target, report);
 
     /// <summary>The diff for <see cref="FourBppSave"/>: <paramref name="gfx4bpp"/> is LM's LoROM 4bpp
     /// install (gfx4bpp_1.smc), <paramref name="oracle"/> its SA-1 one.</summary>
-    public static string GenerateFourBpp(Rom vanilla, Rom gfx4bpp, Rom oracle, Rom cleanPack, IReadOnlySet<int> packWrote, Sa1Remap remap, List<string> report)
-        => Generate(stamps => FourBppPieces(stamps, vanilla, gfx4bpp), gfx4bpp, oracle, cleanPack, packWrote, remap, report);
+    public static string GenerateFourBpp(Rom vanilla, Rom gfx4bpp, Rom oracle, Rom cleanPack, IReadOnlySet<int> packWrote, Sa1Target target, List<string> report)
+        => Generate(stamps => FourBppPieces(stamps, vanilla, gfx4bpp), gfx4bpp, oracle, cleanPack, packWrote, target, report);
 
     /// <summary>One diff: every piece decided byte by byte, by the three rules. <paramref name="after"/>
     /// is the LoROM save the pieces' LM bytes come from, <paramref name="oracle"/> the SA-1 save;
-    /// <paramref name="remap"/> builds our own SA-1 form of the stamps, whose bytes are never LM's to set.</summary>
+    /// <paramref name="target"/> builds our own SA-1 form of the stamps, whose bytes are never LM's to set.</summary>
     private static string Generate(Func<List<(int Pc, byte[] Bytes)>, IEnumerable<(string Name, Kind Kind, int Snes, int Length, int BaseSnes)>> pieces,
-                                   Rom after, Rom oracle, Rom cleanPack, IReadOnlySet<int> packWrote, Sa1Remap remap, List<string> report)
+                                   Rom after, Rom oracle, Rom cleanPack, IReadOnlySet<int> packWrote, Sa1Target target, List<string> report)
     {
-        var stamps = RomPrep.BuildStamps(PrepVersion);
+        var stamps = RomTarget.LoRom.PrepStamps(PrepVersion);
         var lorom = new Dictionary<int, byte>();
         foreach (var (pc, bytes) in stamps)
             for (int i = 0; i < bytes.Length; i++) lorom[pc + i] = bytes[i];
         var ours = new Dictionary<int, byte>();
-        foreach (var (pc, bytes) in RomPrep.Sa1Stamps(PrepVersion, remap))
+        foreach (var (pc, bytes) in target.PrepStamps(PrepVersion))
             for (int i = 0; i < bytes.Length; i++) ours[pc + i] = bytes[i];
 
         var set = new SortedDictionary<int, byte?>();    // our pc → byte, or null = dropped
