@@ -6,7 +6,8 @@ of the base first and assembles everything after it as SA-1. Off, the build is w
 
 What the user gets, and nothing short of it is done:
 
-- **A.** ASM ▸ SA-1, a checkbox. It installs the pack on first use.
+- **A.** ASM ▸ SA-1, a checkbox that toggles easily on and off. Either way an "are you sure"
+  confirmation comes first (on, it carries B's report). It installs the pack on first use.
 - **B.** Before the switch flips, and on every build, a report of every patch, sprite, block,
   UberASM file and song that breaks under SA-1 (or, switching off, needs it).
 - **C.** Untick it. Nothing to undo: the next build simply doesn't apply the pack.
