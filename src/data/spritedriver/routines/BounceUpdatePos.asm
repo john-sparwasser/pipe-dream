@@ -3,17 +3,17 @@
 ; Returns Y = $00/$FF, the X speed's sign, A = its new X high byte. 8-bit A/X/Y, X = the
 ; bounce slot, kept. DB on low RAM. Pipe Dream's, MIT, from SMW's $02B526 and
 ; reference/PIXI_ROUTINES.md.
-    LDA $16B1,x                 ; Y
+    LDA $16B1|!addr,x                 ; Y
     ASL
     ASL
     ASL
     ASL
     CLC
-    ADC $16BD,x
-    STA $16BD,x
+    ADC $16BD|!addr,x
+    STA $16BD|!addr,x
     PHP
     LDY #$00
-    LDA $16B1,x
+    LDA $16B1|!addr,x
     LSR
     LSR
     LSR
@@ -23,22 +23,22 @@
     ORA #$F0
     DEY
 +   PLP
-    ADC $16A1,x
-    STA $16A1,x
+    ADC $16A1|!addr,x
+    STA $16A1|!addr,x
     TYA
-    ADC $16A9,x
-    STA $16A9,x
-    LDA $16B5,x                 ; X
+    ADC $16A9|!addr,x
+    STA $16A9|!addr,x
+    LDA $16B5|!addr,x                 ; X
     ASL
     ASL
     ASL
     ASL
     CLC
-    ADC $16B9,x
-    STA $16B9,x
+    ADC $16B9|!addr,x
+    STA $16B9|!addr,x
     PHP
     LDY #$00
-    LDA $16B5,x
+    LDA $16B5|!addr,x
     LSR
     LSR
     LSR
@@ -48,9 +48,9 @@
     ORA #$F0
     DEY
 +   PLP
-    ADC $16A5,x
-    STA $16A5,x
+    ADC $16A5|!addr,x
+    STA $16A5|!addr,x
     TYA
-    ADC $16AD,x
-    STA $16AD,x
+    ADC $16AD|!addr,x
+    STA $16AD|!addr,x
     RTL

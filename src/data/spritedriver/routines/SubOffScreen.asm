@@ -10,8 +10,8 @@
     AND #$07
     ASL
     STA $03
-    LDA $15A0,x                 ; on screen: nothing to do
-    ORA $186C,x
+    LDA !15A0,x                 ; on screen: nothing to do
+    ORA !186C,x
     BNE +
     RTL
 +   PHB
@@ -24,41 +24,41 @@
 if !EXLEVEL
     XBA                         ; B is kept
     PHA
-    LDA $14D4,x
+    LDA !14D4,x
     XBA
-    LDA $D8,x
+    LDA !D8,x
     REP #$20
-    CMP $13D7
+    CMP $13D7|!addr
     BPL .low
     SEC
     SBC $1C
-    CMP $0BF2
+    CMP $0BF2|!addr
     BPL .low
-    CMP $0BF0
+    CMP $0BF0|!addr
     BMI .low
     SEP #$20
     PLA
     XBA
-    LDX $15E9
+    LDX $15E9|!addr
     BRA .sides
 .low
     SEP #$20
     PLA
     XBA
-    LDX $15E9
+    LDX $15E9|!addr
     BRA .erase
 else
-    LDA $D8,x                   ; below the level
+    LDA !D8,x                   ; below the level
     CLC
     ADC #$50
-    LDA $14D4,x
+    LDA !14D4,x
     ADC #$00
     CMP #$02
     BPL .erase
 endif
 
 .sides                          ; even frames the right margin, odd frames the left
-    LDA $167A,x
+    LDA !167A,x
     AND #$04
     BNE .done
     LDA $13
@@ -70,13 +70,13 @@ endif
     CLC
     ADC .left,y
     ROL $00
-    CMP $E4,x
+    CMP !E4,x
     PHP
     LDA $1B
     LSR $00
     ADC .right,y
     PLP
-    SBC $14E0,x
+    SBC !14E0,x
     STA $00
     LSR $01
     BCC +
@@ -86,10 +86,10 @@ endif
     BPL .done
 
 .erase
-    LDA $14C8,x                 ; a level sprite still alive may load again
+    LDA !14C8,x                 ; a level sprite still alive may load again
     CMP #$08
     BCC +
-    LDY $161A,x
+    LDY !161A,x
     CPY #$FF
     BEQ +
     PHX
@@ -97,19 +97,19 @@ endif
     LDA #$00
     STA !1938,x
     PLX
-+   STZ $14C8,x
++   STZ !14C8,x
 .done
     PLB
     RTL
 
 .vertical                       ; every other frame, above then below
-    LDA $167A,x
+    LDA !167A,x
     AND #$04
     BNE .done
     LDA $13
     LSR
     BCS .done
-    LDA $14E0,x
+    LDA !14E0,x
     CMP #$02
     BCS .erase
     LDA $13
@@ -121,13 +121,13 @@ endif
     CLC
     ADC .top,y
     ROL $00
-    CMP $D8,x
+    CMP !D8,x
     PHP
     LDA $1D
     LSR $00
     ADC .bottom,y
     PLP
-    SBC $14D4,x
+    SBC !14D4,x
     STA $00
     LDY $01
     BEQ +

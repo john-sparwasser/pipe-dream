@@ -3,7 +3,7 @@
 ; it with $80, N and Z from X. 8-bit A/X/Y, X = the bounce slot, kept. DB on low RAM.
 ; Pipe Dream's, MIT, from SMW's $0290F3 and reference/PIXI_ROUTINES.md.
     PHX
-    LDA $16C9,x
+    LDA $16C9|!addr,x
     AND #$03
     TAX
     LDA.l $0290D6,x

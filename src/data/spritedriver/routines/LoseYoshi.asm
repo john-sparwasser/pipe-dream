@@ -5,33 +5,33 @@
     PHA
     PHX
     PHY
-    LDA $187A
+    LDA $187A|!addr
     BEQ .done
-    LDX $18E2                   ; Yoshi's slot + 1, so each table less one
+    LDX $18E2|!addr                   ; Yoshi's slot + 1, so each table less one
     LDA #$10
-    STA $163E-1,x
+    STA !163E-1,x
     LDA #$03
-    STA $1DFA
+    STA $1DFA|!addr
     LDA #$13
-    STA $1DFC
+    STA $1DFC|!addr
     LDA #$02
     STA $C2-1,x
-    STZ $187A
-    STZ $0DC1
+    STZ $187A|!addr
+    STZ $0DC1|!addr
     LDA #$C0
     STA $7D
     STZ $7B
     PHX                         ; running the way it faces: SMW's speeds at $02A4B3
-    LDA $157C-1,x
+    LDA !157C-1,x
     TAX
     LDA.l $02A4B3,x
     PLX
     STA $B6-1,x
-    STZ $1594-1,x
-    STZ $151C-1,x
-    STZ $18AE
+    STZ !1594-1,x
+    STZ !151C-1,x
+    STZ $18AE|!addr
     LDA #$30
-    STA $1497
+    STA $1497|!addr
 .done
     PLY
     PLX

@@ -14,7 +14,7 @@
     STA $0C
     SEP #$20
     LDA $5B                     ; this layer's orientation, in bit 0 of $0A
-    LDY $1933
+    LDY $1933|!addr
     BEQ +
     LSR
 +   STA $0A
@@ -31,7 +31,7 @@ if !EXLEVEL
 .rows
     REP #$20                    ; horizontal on a Lunar Magic level: within its height
     LDA $98
-    CMP $13D7
+    CMP $13D7|!addr
     SEP #$20
     BCC +
     JMP .invalid
@@ -72,7 +72,7 @@ endif
     ORA $06
     ORA #$20
     STA $06
-    LDA $1933
+    LDA $1933|!addr
     BEQ +
     LDA #$10
     TSB $06
@@ -91,11 +91,11 @@ endif
     REP #$30
     AND #$00FF
     PHA
-    LDA $1933
+    LDA $1933|!addr
     ASL
     AND #$00FF
     TAX
-    LDA $1925
+    LDA $1925|!addr
     ASL
     AND #$00FF
     CLC
@@ -109,9 +109,9 @@ endif
     TAX
     PLA
     SEP #$20
-    LDA $7F0000,x
+    LDA !BankA+$010000,x        ; the Map16 tables: $7E/$7F, on SA-1 the pack's $40/$41
     XBA
-    LDA $7E0000,x
+    LDA !BankA,x
     REP #$20
     PHA
     AND #$FF00

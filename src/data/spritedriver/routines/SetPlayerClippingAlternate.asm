@@ -10,7 +10,7 @@
     LDA $19
     BNE ++
 +   INX
-++  LDA $187A
+++  LDA $187A|!addr
     BEQ +
     INX
     INX

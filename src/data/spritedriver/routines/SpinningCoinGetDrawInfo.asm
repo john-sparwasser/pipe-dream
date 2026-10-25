@@ -6,33 +6,33 @@
 ; Pipe Dream's, MIT, from SMW's $029A08 and reference/PIXI_ROUTINES.md. PIXI 1.40's stores the
 ; camera as two words but compares by SMW's byte offsets, so tests the coin's Y against the
 ; camera's X: this one compares what SMW does.
-    LDA $17E4,x
+    LDA $17E4|!addr,x
     ASL
     ASL
     TAY
     REP #$20
-    LDA $001C,y
+    LDA $001C|!dp,y
     STA $02
-    LDA $001A,y
+    LDA $001A|!dp,y
     STA $04
     SEP #$20
-    LDA $17D4,x
+    LDA $17D4|!addr,x
     CMP $02
-    LDA $17E8,x
+    LDA $17E8|!addr,x
     SBC $03
     BEQ +
     CLC
     RTL
-+   LDA $17E0,x
++   LDA $17E0|!addr,x
     SEC
     SBC $04
     CMP #$F8
     BCC +
-    STZ $17D0,x
+    STZ $17D0|!addr,x
     CLC
     RTL
 +   STA $00
-    LDA $17D4,x
+    LDA $17D4|!addr,x
     SEC
     SBC $02
     STA $01

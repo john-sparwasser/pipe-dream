@@ -7,24 +7,24 @@
 ; test added the screen's Y high byte instead of subtracting it).
     LDA.l $02A153,x
     TAY
-    LDA $1747,x
+    LDA $1747|!addr,x
     BMI +
     LDA #$40
     BRA ++
 +   LDA #$00
 ++  STA $00
-    LDA $171F,x
+    LDA $171F|!addr,x
     SEC
     SBC $1A
     STA $01
-    LDA $1733,x
+    LDA $1733|!addr,x
     SBC $1B
     BNE .erase
-    LDA $1715,x
+    LDA $1715|!addr,x
     SEC
     SBC $1C
     STA $02
-    LDA $1729,x
+    LDA $1729|!addr,x
     SBC $1D
     BEQ .on
     INC                         ; up to a screen above
@@ -44,7 +44,7 @@
     BCC .hide
     RTL
 .erase
-    STZ $170B,x
+    STZ $170B|!addr,x
 .hide
     LDA #$F0
     STA $02

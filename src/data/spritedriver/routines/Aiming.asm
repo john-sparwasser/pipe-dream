@@ -38,19 +38,19 @@
     SEP #$20
     BRA -
 +   LDA $00                     ; d = X^2 + Y^2, 17 bits
-    STA $4202
-    STA $4203
+    %mul_a()
+    %mul_b()
     NOP #4
     REP #$20
-    LDA $4216
+    LDA !MulLo
     STA $04
     SEP #$20
     LDA $02
-    STA $4202
-    STA $4203
+    %mul_a()
+    %mul_b()
     NOP #4
     REP #$20
-    LDA $4216
+    LDA !MulLo
     CLC
     ADC $04
     LDX #$00                    ; k = d / 4^n, under $100
@@ -81,37 +81,37 @@
 +   STA $04                     ; $04-$05 = size x m / 256
     SEP #$20
     LDA $04
-    STA $4202
+    %mul_a()
     LDA $0F
-    STA $4203
+    %mul_b()
     NOP #4
-    LDX $4217
+    LDX !MulHi
     LDA $05
-    STA $4202
+    %mul_a()
     LDA $0F
-    STA $4203
+    %mul_b()
     NOP #4
     REP #$20
     TXA
     AND #$00FF
     CLC
-    ADC $4216
+    ADC !MulLo
     STA $04
     SEP #$20
     LDA $02                     ; Y speed = Y x that / 256, toward the target
-    STA $4202
+    %mul_a()
     LDA $04
-    STA $4203
+    %mul_b()
     NOP #4
-    LDX $4217
+    LDX !MulHi
     LDA $05
-    STA $4203
+    %mul_b()
     NOP #4
     REP #$20
     TXA
     AND #$00FF
     CLC
-    ADC $4216
+    ADC !MulLo
     SEP #$20
     TAX
     PLA
@@ -123,19 +123,19 @@
 +   TXA
 ++  STA $02
     LDA $00                     ; and X's
-    STA $4202
+    %mul_a()
     LDA $04
-    STA $4203
+    %mul_b()
     NOP #4
-    LDX $4217
+    LDX !MulHi
     LDA $05
-    STA $4203
+    %mul_b()
     NOP #4
     REP #$20
     TXA
     AND #$00FF
     CLC
-    ADC $4216
+    ADC !MulLo
     SEP #$20
     LDX $06
     BNE +

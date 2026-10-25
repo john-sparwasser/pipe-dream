@@ -6,7 +6,7 @@
 ; Pipe Dream's, MIT, written from reference/PIXI_ROUTINES.md around SMW's $07F7D2.
     LDY #$0B
     XBA                         ; the number waits in B; the first free slot, from there down
--   LDA $14C8,y
+-   LDA !14C8,y
     BEQ .found
     DEY
     BPL -
@@ -19,7 +19,7 @@
     XBA
     PHX
     TYX
-    STA $9E,x
+    STA !9E,x
     PHA
     JSL $07F7D2                 ; clear it and give it SMW's tables for the number (C survives)
     PLA
@@ -42,32 +42,32 @@
     STA !extra_bits,x
 .vanilla
     LDA #$01
-    STA $14C8,x
+    STA !14C8,x
     TXY
     PLX
-    LDA $E4,x                   ; at the parent, offset by $00 and $01 (signed)
+    LDA !E4,x                   ; at the parent, offset by $00 and $01 (signed)
     CLC
     ADC $00
-    STA $00E4,y
+    STA !E4,y
     LDA $00
     AND #$80
     BEQ +
     LDA #$FF
-+   ADC $14E0,x
-    STA $14E0,y
-    LDA $D8,x
++   ADC !14E0,x
+    STA !14E0,y
+    LDA !D8,x
     CLC
     ADC $01
-    STA $00D8,y
+    STA !D8,y
     LDA $01
     AND #$80
     BEQ +
     LDA #$FF
-+   ADC $14D4,x
-    STA $14D4,y
++   ADC !14D4,x
+    STA !14D4,y
     LDA $02
-    STA $00B6,y
+    STA !B6,y
     LDA $03
-    STA $00AA,y
+    STA !AA,y
     CLC
     RTL

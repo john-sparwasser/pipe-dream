@@ -19,6 +19,12 @@ namespace PipeDream.Ui.Tests;
 ///    tables, which level $105 does not use): level $105's init ($11 at $0F5E), main ($0F5F, and
 ///    $0F64 through %invoke_sa1) and nmi ($0F60), game mode $14's main ($0F61), Yoshi's Island's
 ///    main ($0F62) and the status bar's ($0F63).
+///  • sprites-*.smc: a custom sprite in global slot 1A, placed near the start of level $105 with
+///    extra bytes AB CD: INIT stores $11 at $0F5E and its first extra byte at $0F60, MAIN counts
+///    frames at $0F5F and leaves SubHorzPos's side ($0F61), a Random up to $10 ($0F62) and Aiming's
+///    speeds toward ($30, $40) at size $20 ($0F63, $0F64; the multiplier, on both CPUs).
+///  • kinds-*.smc: a custom shooter (C0, counting at $0F65) and generator (D0, $0F66), and a sprite
+///    with six extra bytes 11-66, whose INIT reads the fifth ($55) through the pointer into $0F67.
 ///
 /// Skipped unless PIPEDREAM_SA1_DRIVERS names the output folder.
 /// </summary>
@@ -134,5 +140,98 @@ public class Sa1DriversSetup(ITestOutputHelper log)
         File("other/status_code.asm", "main:\n    INC $0F63|!addr\n    RTS\n");
         UberImport.ParseList("level:\n105 probe.asm\ngamemode:\n14 gm14.asm\noverworld:\n1 yi.asm\n", u, []);
         await BuildPair(s, dir, "uber");
+    }
+
+    [Fact]
+    public async Task build_the_sprite_pair()
+    {
+        if (Dir is not { } dir) { log.WriteLine("SKIP: set PIPEDREAM_SA1_DRIVERS to an output folder"); return; }
+        Directory.CreateDirectory(dir);
+        var s = NewProject(dir, "sprites");
+        var data = s.Project!.Data;
+        var config = new PixiConfig { ActLike = 0x36, AsmFile = "probe.asm", ExtraBytes = 2, ExtraBytesSet = 0 };
+        config.Tweak[4] = 0x01;                                            // $1686: inedible
+        data.Sprites["probe"] = new ProjectFile.SpriteEntry { Config = config.ToJson(), Source = """
+            print "INIT ",pc
+                LDA #$11
+                STA $0F5E|!addr
+                LDA !extra_byte_1,x
+                STA $0F60|!addr
+                RTL
+            print "MAIN ",pc
+                PHB : PHK : PLB
+                INC $0F5F|!addr
+                %SubHorzPos()
+                TYA
+                STA $0F61|!addr
+                LDA #$10
+                %Random()
+                STA $0F62|!addr
+                REP #$20
+                LDA #$0030                  ; aim at a point $30 right and $40 below
+                STA $00
+                LDA #$0040
+                STA $02
+                SEP #$20
+                LDA #$20
+                %Aiming()
+                LDA $00
+                STA $0F63|!addr
+                LDA $02
+                STA $0F64|!addr
+                PLB
+                RTL
+            """ };
+        data.SpriteSlots["1A"] = "probe";
+        var baseRom = Rom.Load(s.Project.BaseRomPath);
+        var sd = SpriteData.Parse(baseRom, 0x105);
+        var edit = new SpriteEdit(sd, null, false);
+        Assert.True(edit.Place(0x1A, 12, 22));
+        Assert.True(edit.SetData(sd.Sprites.Count - 1, 0x1A, 2, [0xAB, 0xCD]));
+        data.Level(0x105).Sprites = sd.Sprites.Select(ProjectFile.SpriteDto.From).ToList();
+        await BuildPair(s, dir, "sprites");
+    }
+
+    [Fact]
+    public async Task build_the_shooter_generator_and_long_extra_bytes_pair()
+    {
+        if (Dir is not { } dir) { log.WriteLine("SKIP: set PIPEDREAM_SA1_DRIVERS to an output folder"); return; }
+        Directory.CreateDirectory(dir);
+        var s = NewProject(dir, "kinds");
+        var data = s.Project!.Data;
+        void Add(string name, string kind, string slot, int extraBytes, string source)
+        {
+            var config = new PixiConfig { Type = kind == "sprite" ? 1 : 2, ActLike = 0x36, AsmFile = name + ".asm", ExtraBytes = extraBytes };
+            data.Sprites[name] = new ProjectFile.SpriteEntry { Kind = kind, Config = config.ToJson(), Source = source };
+            data.SpriteSlots[slot] = name;
+        }
+        Add("shooter", "shooter", "C0", 0, "print \"MAIN \",pc\n    INC $0F65|!addr\n    RTL\n");
+        Add("generator", "generator", "D0", 0, "print \"MAIN \",pc\n    INC $0F66|!addr\n    RTL\n");
+        Add("long", "sprite", "1B", 6, """
+            print "INIT ",pc
+                LDA !extra_byte_1,x         ; more than four: a pointer to them
+                STA $00
+                LDA !extra_byte_2,x
+                STA $01
+                LDA !extra_byte_3,x
+                STA $02
+                LDY #$04
+                LDA [$00],y                 ; the fifth
+                STA $0F67|!addr
+                RTL
+            print "MAIN ",pc
+                RTL
+            """);
+        var baseRom = Rom.Load(s.Project.BaseRomPath);
+        var sd = SpriteData.Parse(baseRom, 0x105);
+        var edit = new SpriteEdit(sd, null, false);
+        Assert.True(edit.Place(0xC0, 10, 18));
+        Assert.True(edit.SetData(sd.Sprites.Count - 1, 0xC0, 2, null));
+        Assert.True(edit.Place(0xD0, 11, 18));
+        Assert.True(edit.SetData(sd.Sprites.Count - 1, 0xD0, 2, null));
+        Assert.True(edit.Place(0x1B, 13, 22));
+        Assert.True(edit.SetData(sd.Sprites.Count - 1, 0x1B, 2, [0x11, 0x22, 0x33, 0x44, 0x55, 0x66]));
+        data.Level(0x105).Sprites = sd.Sprites.Select(ProjectFile.SpriteDto.From).ToList();
+        await BuildPair(s, dir, "kinds");
     }
 }

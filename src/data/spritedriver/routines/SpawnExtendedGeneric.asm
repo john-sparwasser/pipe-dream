@@ -4,7 +4,7 @@
 ; 8-bit A/X/Y; X and $00-$07 kept. DB on low RAM.
 ; Pipe Dream's, MIT, written from reference/PIXI_ROUTINES.md.
     LDY #$07
--   LDA $170B,y
+-   LDA $170B|!addr,y
     BEQ .found
     DEY
     BPL -
@@ -12,30 +12,30 @@
     RTL
 .found
     XBA
-    STA $170B,y
+    STA $170B|!addr,y
     LDA $04
     CLC
     ADC $00
-    STA $171F,y
+    STA $171F|!addr,y
     LDA $00
     AND #$80
     BEQ +
     LDA #$FF
 +   ADC $05
-    STA $1733,y
+    STA $1733|!addr,y
     LDA $06
     CLC
     ADC $01
-    STA $1715,y
+    STA $1715|!addr,y
     LDA $01
     AND #$80
     BEQ +
     LDA #$FF
 +   ADC $07
-    STA $1729,y
+    STA $1729|!addr,y
     LDA $02
-    STA $1747,y
+    STA $1747|!addr,y
     LDA $03
-    STA $173D,y
+    STA $173D|!addr,y
     CLC
     RTL

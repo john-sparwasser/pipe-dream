@@ -6,29 +6,29 @@
 ; bit is added, as PIXI's does).
     STY $0B
     STA $08
-    LDA $14D4,x                 ; $00-$01 the sprite's Y on screen, $02-$03 its X
+    LDA !14D4,x                 ; $00-$01 the sprite's Y on screen, $02-$03 its X
     XBA
-    LDA $D8,x
+    LDA !D8,x
     REP #$20
     SEC
     SBC $1C
     STA $00
     SEP #$20
-    LDA $14E0,x
+    LDA !14E0,x
     XBA
-    LDA $E4,x
+    LDA !E4,x
     REP #$20
     SEC
     SBC $1A
     STA $02
     SEP #$20
-    LDA $15EA,x                 ; Y the OAM index, X the size index (counting on past $3F)
+    LDA !15EA,x                 ; Y the OAM index, X the size index (counting on past $3F)
     TAY
     LSR
     LSR
     TAX
 .tile
-    LDA $0300,y                 ; the tile's X, by the sprite's: past the screen's right?
+    LDA $0300|!addr,y                 ; the tile's X, by the sprite's: past the screen's right?
     SEC
     SBC $02
     REP #$20
@@ -42,11 +42,11 @@
     SEP #$20
     LDA $0B
     BPL +
-    LDA $0460,x
+    LDA $0460|!addr,x
     AND #$02
 +   ADC #$00
-    STA $0460,x
-    LDA $0301,y                 ; its Y: below the screen?
+    STA $0460|!addr,x
+    LDA $0301|!addr,y                 ; its Y: below the screen?
     SEC
     SBC $00
     REP #$20
@@ -62,7 +62,7 @@
     SEP #$20
     BCC +
     LDA #$F0
-    STA $0301,y
+    STA $0301|!addr,y
 +   INY
     INY
     INY
@@ -74,5 +74,5 @@
     LDA #$00
     XBA
     SEC
-    LDX $15E9
+    LDX $15E9|!addr
     RTL

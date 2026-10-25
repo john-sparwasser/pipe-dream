@@ -167,7 +167,13 @@ jingle, until a level entered from the map uploads its song again (all measured 
 numbers are rewritten as AddmusicK's at every `$1DFB` site and table (`MusicInsert.SongSites`, matched by playing SMW's songs
 against AddmusicK's originals); a site another patch changed is left with a warning, and a ROM whose sound code is not SMW's is
 refused. `MusicSnesTests` runs SMW's 65816 code and ours against the SPC interpreter with the boot ROM modelled. Not done: a
-`.msc` for Lunar Magic (Pipe Dream names the songs itself), and the check in Mesen.
+`.msc` for Lunar Magic (Pipe Dream names the songs itself).
+
+**First Mesen check (2026-10-25)**, which found the game crashing on its first frame with sound: the NMI hook's `BRA $0081AA`
+assembled as `80 AA`, because Asar takes a number after a branch as the offset itself (upstream 1.91 as well), and the
+interpreter tests call `Nmi` directly, never the hook. With a label it boots, and in level 105, LoROM and SA-1 alike
+(`Sa1DriversSetup`), the driver holds the level's song and the engine has echoed it. Not yet heard: a song change, the P-switch
+and star songs, an effect cutting a channel.
 - The SPC700 engine in `data/musicdriver/` (Asar `spc700`): the N-SPC command set and AMK's hex
   commands per the reference, the song and sound-effect channels, volume, pan, pitch, vibrato,
   tremolo, echo, the `$1DFA`/`$1DFB` protocol, and `#asm`/`#jsr` slots.

@@ -5,22 +5,22 @@
     PHX
     LDY #$00
 .slot
-    LDA $170B+8,y
+    LDA $170B|!addr+8,y
     BEQ .next
-    LDA $171F+8,y               ; the fireball's box, SMW's
+    LDA $171F|!addr+8,y               ; the fireball's box, SMW's
     SEC
     SBC #$02
     STA $00
-    LDA $1733+8,y
+    LDA $1733|!addr+8,y
     SBC #$00
     STA $08
     LDA #$0C
     STA $02
-    LDA $1715+8,y
+    LDA $1715|!addr+8,y
     SEC
     SBC #$04
     STA $01
-    LDA $1729+8,y
+    LDA $1729|!addr+8,y
     SBC #$00
     STA $09
     LDA #$13

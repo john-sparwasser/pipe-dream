@@ -5,30 +5,30 @@
     %ScoreGetDrawInfo()
     BCC .out
     LDA $00
-    STA $0200,y
+    STA $0200|!addr,y
     CLC
     ADC #$08
-    STA $0204,y
+    STA $0204|!addr,y
     LDA $01
-    STA $0201,y
-    STA $0205,y
+    STA $0201|!addr,y
+    STA $0205|!addr,y
     LDA $07
-    STA $0202,y
+    STA $0202|!addr,y
     LDA $08
-    STA $0206,y
+    STA $0206|!addr,y
     LDA $09
     ORA #$30
-    STA $0203,y
+    STA $0203|!addr,y
     LDA $0A
     ORA #$30
-    STA $0207,y
+    STA $0207|!addr,y
     TYA
     LSR
     LSR
     TAY
     LDA #$00
-    STA $0420,y
-    STA $0421,y
+    STA $0420|!addr,y
+    STA $0421|!addr,y
     SEC
 .out
     RTL

@@ -5,10 +5,10 @@
     LDY #$00
     LDA $94
     SEC
-    SBC $E4,x
+    SBC !E4,x
     STA $0E
     LDA $95
-    SBC $14E0,x
+    SBC !14E0,x
     STA $0F
     BPL +
     INY

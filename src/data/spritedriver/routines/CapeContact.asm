@@ -3,31 +3,31 @@
 ; the other layer than the player ($1632, which climbing flips). Does not hit the sprite.
 ; 8-bit A/X/Y, X = the slot, kept with Y. DB on low RAM.
 ; Pipe Dream's, MIT, from SMW's cape check ($0293CE) and reference/PIXI_ROUTINES.md.
-    LDA $13E8
+    LDA $13E8|!addr
     BEQ .no
-    LDA $15D0,x
-    ORA $154C,x
-    ORA $1FE2,x
+    LDA !15D0,x
+    ORA !154C,x
+    ORA !1FE2,x
     BNE .no
     LDA $74
     BEQ +
     LDA #$01
-+   EOR $1632,x
-    CMP $13F9
++   EOR !1632,x
+    CMP $13F9|!addr
     BNE .no
     JSL $03B69F                 ; the sprite's box
-    LDA $13E9                   ; the cape's, SMW's ($029696)
+    LDA $13E9|!addr                   ; the cape's, SMW's ($029696)
     SEC
     SBC #$02
     STA $00
-    LDA $13EA
+    LDA $13EA|!addr
     SBC #$00
     STA $08
     LDA #$14
     STA $02
-    LDA $13EB
+    LDA $13EB|!addr
     STA $01
-    LDA $13EC
+    LDA $13EC|!addr
     STA $09
     LDA #$10
     STA $03

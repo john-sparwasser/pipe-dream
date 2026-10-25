@@ -3,7 +3,7 @@
 ; $02 = 1 when off by a screen but near its edge, Y = A = its OAM index (SMW's, $02FF50).
 ; 8-bit A/X/Y, X = the slot (0-19), kept. DB on low RAM.
 ; Pipe Dream's, MIT, written from reference/PIXI_ROUTINES.md.
-    LDA $1E02,x
+    LDA $1E02|!addr,x
     SEC
     SBC $1C
     STA $01
@@ -12,11 +12,11 @@
     CMP #$F0
     BCS .above
     STZ $02
-    LDA $1E16,x
+    LDA $1E16|!addr,x
     SEC
     SBC $1A
     STA $00
-    LDA $1E3E,x
+    LDA $1E3E|!addr,x
     SBC $1B
     BEQ .on
     LDA $00
@@ -31,11 +31,11 @@
     SEC
     RTL
 .above                          ; just above the screen: N and Z from A, as PIXI's
-    STZ $1892,x
+    STZ $1892|!addr,x
     CLC
     ORA #$00
     RTL
 .erase                          ; off a side: N and Z from that test
-    STZ $1892,x
+    STZ $1892|!addr,x
     CLC
     RTL

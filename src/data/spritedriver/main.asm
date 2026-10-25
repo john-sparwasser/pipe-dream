@@ -12,7 +12,9 @@
 ; A sprite is custom when its level data sets extra bit $08; its number is then the table's, and
 ; $9E holds its acts-like so SMW's own code treats it as that sprite wherever we do not step in.
 
-lorom
+if !SA1 == 0                    ; on SA-1 defines.asm has set sa1rom
+    lorom
+endif
 
 ; ---- The header PIXI keeps at $02FFE2, so a tool reading a PIXI ROM finds the table ----
 org $02FFE2
@@ -49,10 +51,17 @@ org $02A9C9
 org $02A866
     JML Kind
 ; The shooter spawn's `LDA $04 : SEC : SBC #$C8` (then STA $1783,x): a custom shooter keeps its
-; number there. Kind hands it over with bit 7 clear, which no SMW shooter (C9, CA) has.
+; number there. Kind hands it over with bit 7 clear, which no SMW shooter (C9, CA) has. On SA-1 the
+; pack's own JML at $02AB9E covers the LDA (ShooterFix2: REP #$10 : PLY : LDA $04), so ours takes
+; its place and does its part first.
+if !SA1
+org $02AB9E
+    JML ShooterNumber
+else
 org $02ABA0
     JML ShooterNumber
     NOP
+endif
 ; The shooter run's `DEC : JSL $0086DF`, by $1783,x: a custom one (C0-CF) runs its MAIN.
 org $02B3AB
     JML ShooterRun
@@ -69,7 +78,9 @@ org $02AFFE
 ; is "not from the level"), and !1938 means $7FAF00 to every sprite since PIXI 1.2.15, so ours
 ; does too. These are every place SMW or Lunar Magic's loader reads or writes $1938, found by
 ; scanning a built ROM for each instruction that addresses it (the hits in bank 0D are data).
-; None of these places is long-addressable with Y, so each calls a routine.
+; None of these places is long-addressable with Y, so each calls a routine. On SA-1 the pack has
+; done all of this already, at these very places, for its own table at $418A00 (!1938 there).
+if !SA1 == 0
 org $02A856                     ; the loader: LDA $1938,x : BNE next : STX $02 : INC $1938,x
     JML LoadedCheck
     NOP #6
@@ -104,6 +115,7 @@ org $038712
 org $03B8BA
     JSL LoadedClearY
     NOP
+endif
 ; Lunar Magic warns about a level with more than 128 sprites unless bit 0 here is clear (its help,
 ; "Custom Sprite List Sizes": "0x801E0 PC", which counts the copier header). Every PIXI ROM on
 ; this machine has it clear.
@@ -183,7 +195,24 @@ org $0185C3                     ; status 08, MAIN: STZ $1491 : LDA $9E,x
 
 freecode
 
-; Y at the record's second byte; X counts records. 8-bit A/X/Y.
+; 16-bit X and Y for a table lookup, and back as they were: on LoROM the loader's are 8-bit, on SA-1 they
+; may already be 16-bit, and a SEP #$10 there would cut Y's high byte.
+macro index16()
+    if !SA1
+        PHP
+    endif
+    REP #$10
+endmacro
+macro index_back()
+    if !SA1
+        PLP
+    else
+        SEP #$10
+    endif
+endmacro
+
+; Y at the record's second byte; X counts records. 8-bit A/X/Y — but 16-bit X and Y on SA-1, where
+; the pack runs the loader so (boost/sprite_load.asm), and Y then goes past 255.
 StepRecord:
     PHX
     DEY
@@ -196,23 +225,38 @@ StepRecord:
     INY
     LDA [$CE],y                 ; the number → its low byte
     DEY
-    REP #$10
+    %index16()
     TAX
     LDA.l !SizeTable,x
-    SEP #$10
+    %index_back()
     PLX
     CMP #$03
     BCS +
     LDA #$03
 +   DEC                         ; Y was one byte in: it moves on by length - 1
+if !SA1
+    REP #$21                    ; all 16 bits of Y
+    AND #$00FF
+    PHY
+    ADC $01,s
+    TAY
+    PLA
+    SEP #$20
+else
     CLC
     PHY
     ADC $01,s
     TAY
     PLA
+endif
     INX
 if !LmStep != 0
+if !SA1
+    DEY                         ; Lunar Magic's step goes on with BPL on Y: Y's own sign, all 16 bits
+    INY
+else
     TYA                         ; Lunar Magic's step goes on with BPL on Y, rebasing $CE
+endif
     JML !LmStep+3               ; past its own INX : INY : INY
 else
     JML $02A82E
@@ -221,7 +265,7 @@ endif
 KeepBitsX:
     PHA
     AND #$01
-    STA $14E0,x
+    STA !14E0,x
     PLA
     AND #$0C
     STA !extra_bits,x
@@ -233,15 +277,16 @@ KeepBitsY:
     STA !extra_bits,x
     PLA
     AND #$01
-    STA $14D4,x
+    STA !14D4,x
     RTL
 
 ; Y at the record's number. SMW's setup clears the slot (and with it the bits KeepBits put there),
-; so they are kept across it.
+; so they are kept across it. The setup is whatever the hook displaced (!SpawnSetup): SMW's $07F7D2,
+; or on SA-1 the pack's wrapper of it for the loader's 16-bit index registers.
 Spawn:
     LDA !extra_bits,x
     PHA
-    JSL $07F7D2
+    JSL !SpawnSetup
     PLA
     STA !extra_bits,x
     AND #$08
@@ -265,10 +310,10 @@ ExtraBytes:
     XBA
     LDA !new_sprite_num,x
     PHX
-    REP #$10
+    %index16()
     TAX
     LDA.l !SizeTable,x
-    SEP #$10
+    %index_back()
     PLX
     SEC
     SBC #$03
@@ -297,6 +342,18 @@ ExtraBytes:
     STA !extra_byte_4,x
     BRA .done
 .pointer
+if !SA1                         ; Y is 16-bit here, and past 255 in a long list
+    REP #$20
+    TYA                         ; carry set: the first extra byte is one past Y
+    ADC $CE
+    SEP #$20
+    STA !extra_byte_1,x
+    XBA
+    STA !extra_byte_2,x
+    LDA $D0
+    ADC #$00
+    STA !extra_byte_3,x
+else
     TYA                         ; carry set: the first extra byte is one past Y
     ADC $CE
     STA !extra_byte_1,x
@@ -306,6 +363,7 @@ ExtraBytes:
     LDA $D0
     ADC #$00
     STA !extra_byte_3,x
+endif
 .done
     PLA
     STA $00
@@ -316,7 +374,7 @@ ClearSlot:
     LDA #$00
     STA !extra_bits,x
     LDA #$01
-    STA $15A0,x
+    STA !15A0,x
     RTL
 
 ; X = the slot, !new_sprite_num,x its custom number. Gives the slot the table's acts-like and
@@ -331,21 +389,21 @@ SetTables:
     LDA !new_sprite_num,x
     JSR EntryOf
     LDA.l SpriteTable+1,x
-    STA.w $009E,y
+    STA.w !9E,y
     LDA.l SpriteTable+2,x
-    STA $1656,y
+    STA !1656,y
     LDA.l SpriteTable+3,x
-    STA $1662,y
+    STA !1662,y
     LDA.l SpriteTable+4,x
-    STA $166E,y
+    STA !166E,y
     AND #$0F
-    STA $15F6,y
+    STA !15F6,y
     LDA.l SpriteTable+5,x
-    STA $167A,y
+    STA !167A,y
     LDA.l SpriteTable+6,x
-    STA $1686,y
+    STA !1686,y
     LDA.l SpriteTable+7,x
-    STA $190F,y
+    STA !190F,y
     LDA.l SpriteTable,x
     PHA
     LDA.l SpriteTable+14,x
@@ -367,7 +425,7 @@ SetTables:
 
 Init:
     LDA #$08
-    STA $14C8,x
+    STA !14C8,x
     LDA !extra_bits,x
     AND #$08
     BNE .custom
@@ -377,11 +435,11 @@ Init:
     JML $0185C2                 ; an RTS in bank 01: back to whoever ran the sprite
 
 Main:
-    STZ $1491
+    STZ $1491|!addr
     LDA !extra_bits,x
     AND #$08
     BNE .custom
-    LDA $9E,x
+    LDA !9E,x
     JML $0185C8
 .custom
     JSL CallMain
@@ -394,7 +452,7 @@ Status:
     LDA !extra_bits,x
     AND #$08
     BEQ .vanilla
-    LDA $14C8,x
+    LDA !14C8,x
     CMP #$02
     BCC .vanilla
     CMP #$08
@@ -407,7 +465,7 @@ Status:
 +   JSL CallStatus
     BCS .done
 .vanilla
-    LDA $14C8,x
+    LDA !14C8,x
     BNE +
     JML $018151
 +   JML $01812C
@@ -420,7 +478,7 @@ Status:
 ; changed it) with the data bank set to the code's, and returns carry set; carry clear when it
 ; has none.
 CallStatus:
-    LDA $14C8,x
+    LDA !14C8,x
     CMP #$10
     BCS .none
     PHX
@@ -455,7 +513,7 @@ CallStatus:
     SEC
     RTL
 .enter
-    JML [$0000]
+    JML [$0000|!dp]
 .noCode
     SEP #$10
     PLX
@@ -498,7 +556,7 @@ CallEntry:
     STA $02
     SEP #$10
     PLX
-    JML [$0000]
+    JML [$0000|!dp]
 
 ; A = a sprite number (8-bit). X = its table entry's offset, 16-bit X and 8-bit A on return: a
 ; per-level number (B0-BF) in a level that has its own sprites reads that level's block, which
@@ -515,7 +573,7 @@ EntryOf:
     BCC .global
     CMP #$0C00
     BCS .global
-    LDA $010B                   ; the level being played
+    LDA $010B|!addr                   ; the level being played
     AND #$01FF
     ASL
     TAX
@@ -553,7 +611,7 @@ Kind:
     JML $02A8D8                 ; SMW's shooter spawn: JSR $AB78 : BRA
 .generator
     PLA
-    STA $18B9
+    STA $18B9|!addr
     LDA #$00                    ; as SMW leaves a generator's record: not marked loaded
     STA !1938,x
     JML $02A846                 ; on to the next record
@@ -565,6 +623,10 @@ Kind:
 +   JML $02A88C
 
 ShooterNumber:
+if !SA1
+    REP #$10
+    PLY
+endif
     LDA $04
     BMI +                       ; SMW's own: C9 or CA
     ORA #$80
@@ -578,24 +640,24 @@ ShooterNumber:
 ShooterRun:
     CMP #$C0
     BCS .custom
-    LDY $17AB,x
+    LDY $17AB|!addr,x
     BEQ +
     JML $02B39A
 +   JML $02B3A4
 .custom
-    LDY $17AB,x
+    LDY $17AB|!addr,x
     BEQ +
     PHA
     LDA $13
     LSR
     BCC ++
-    DEC $17AB,x
+    DEC $17AB|!addr,x
 ++  PLA
 +   JSL CallMainOf
     JML $02B3A7                 ; on to the next shooter
 
 GeneratorRun:
-    LDA $18B9
+    LDA $18B9|!addr
     BEQ .none
     CMP #$D0
     BCS .custom
@@ -625,7 +687,7 @@ endmacro
 
 ; X = the cluster slot. Bit 7 of a custom number is its extra bit, so it is not the number.
 ClusterRun:
-    LDA $1892,x
+    LDA $1892|!addr,x
     BEQ .next
     AND #$7F
     CMP #!ClusterOffset
@@ -639,7 +701,7 @@ ClusterRun:
 
 ; X = the extended slot. A custom one's timer ($176F) counts down as SMW's do.
 ExtendedRun:
-    LDA $170B,x
+    LDA $170B|!addr,x
     BNE +
     JML $029B15                 ; an RTS: the slot is empty
 +   CMP #!ExtendedOffset
@@ -648,9 +710,9 @@ ExtendedRun:
 .custom
     LDY $9D
     BNE +
-    LDY $176F,x
+    LDY $176F|!addr,x
     BEQ +
-    DEC $176F,x
+    DEC $176F|!addr,x
 +   SEC
     SBC #!ExtendedOffset
     %call_listed(ExtendedTable)
@@ -659,7 +721,7 @@ ExtendedRun:
 ; X = the extended slot, while the cape spins. SMW's own (02 up) go through its contact check;
 ; a custom one runs its CAPE, if it printed one.
 ExtendedCape:
-    LDA $170B,x
+    LDA $170B|!addr,x
     CMP #!ExtendedOffset
     BCS .custom
     CMP #$02
@@ -676,13 +738,13 @@ ExtendedCape:
 ; only bounce sprites have a timer the loop counts down for them.
 
 MinorExtendedRun:
-    LDA $17F0,x
+    LDA $17F0|!addr,x
     BEQ .next
     CMP #!MinorExtendedOffset
     BCS .custom
     JML $028B6E                 ; SMW's: STX $1698, JSR to its dispatch
 .custom
-    STX $1698                   ; the slot being run, as SMW's dispatch has it
+    STX $1698|!addr                   ; the slot being run, as SMW's dispatch has it
     SBC #!MinorExtendedOffset   ; carry set
     %call_listed(MinorExtendedTable)
 .next
@@ -690,7 +752,7 @@ MinorExtendedRun:
 
 ; A custom one's timer ($16C5) counts down as SMW's do.
 BounceRun:
-    LDA $1699,x
+    LDA $1699|!addr,x
     BNE +
     JML $02904C                 ; an RTS: the slot is empty
 +   CMP #!BounceOffset
@@ -699,16 +761,16 @@ BounceRun:
 .custom
     LDY $9D
     BNE +
-    LDY $16C5,x
+    LDY $16C5|!addr,x
     BEQ +
-    DEC $16C5,x
+    DEC $16C5|!addr,x
 +   SEC
     SBC #!BounceOffset
     %call_listed(BounceTable)
     JML $02904C
 
 SmokeRun:
-    LDA $17C0,x
+    LDA $17C0|!addr,x
     BEQ .none
     AND #$7F
     CMP #!SmokeOffset
@@ -721,7 +783,7 @@ SmokeRun:
     JML $0296D7                 ; an RTS
 
 SpinningCoinRun:
-    LDA $17D0,x
+    LDA $17D0|!addr,x
     BEQ .next
     CMP #!SpinningCoinOffset
     BCS .custom
@@ -733,7 +795,7 @@ SpinningCoinRun:
     JML $0299DF                 ; the next slot
 
 ScoreRun:
-    LDA $16E1,x
+    LDA $16E1|!addr,x
     BEQ .next
     CMP #!ScoreOffset
     BCS .custom
@@ -779,7 +841,7 @@ CallLong:
     SEC
     RTL
 .enter
-    JML [$0000]
+    JML [$0000|!dp]
 .none
     SEP #$30
     PLX
@@ -790,7 +852,8 @@ CallLong:
 
 ; ---- The load table: 255 sprites a level ----
 ; Each leaves the registers (and flags) the code after its hook reads as the instructions it
-; replaces did. A, X and Y are 8-bit at every site.
+; replaces did. A, X and Y are 8-bit at every site. LoROM only, as the hooks are.
+if !SA1 == 0
 
 ; X = the record's index: on to the next record if it was spawned already, else mark it and spawn.
 LoadedCheck:
@@ -835,7 +898,7 @@ LoadedClearRecord:
     RTL
 
 LoadedClearFBC:
-    LDX $0FBC,y
+    LDX $0FBC|!addr,y
     PHP
     PHA
     LDA #$00
@@ -853,3 +916,4 @@ LoadedClearY:
     PLX
     LDA #$00
     RTL
+endif

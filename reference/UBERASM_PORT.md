@@ -74,13 +74,15 @@ Each phase ends shippable.
   labels come out `file_label`; a binary as one label), each resource with its calls' extra bytes after it (so they are in its
   bank), then the driver with the global and status bar files (`namespace UberGlobal`/`UberStatus`) and the dispatch: per kind
   and label a table of long pointers to a routine per distinct call list (a call: `$00` ← its extra bytes, DBR ← its bank unless
-  nmi or `;>dbr off`, JSL), entered by `JML [$0000]`. Every hook site is checked for SMW's own bytes, and all eleven hold them
+  nmi or `;>dbr off`, JSL), entered by `JML [$0000|!dp]`. Every hook site is checked for SMW's own bytes, and all eleven hold them
   on the dev base (prepped v34). Defines are the sprite driver's (SMW's tables under UberASM Tool's names) plus ours; our
   macros are left out where the user's macro library or the sprite defines have one of the name. The 1.x global file's
   `main:`, `nmi:` and `load:` are called where 2.x's readme moves them. Tested in the interpreter: `*` before the level's own,
   `-file` skips, extra bytes through `$00`, the DBR, a library label and a shared routine, game mode init/main/end, global init
   and the game mode word, the hooks' JMLs, and the errors; and a full project build beside the sprite driver with no warnings.
-  Not yet checked in Mesen: the frame, level main (incl. paused frames), NMI, the map. UberASM Tool's own routines (GPL) are not
+  **Checked in Mesen (2026-10-25), LoROM and SA-1 alike** (`Sa1DriversSetup`, reference/SA1_PORT.md phase 3): level 105's
+  `init:`, `main:` and `nmi:`, game mode 14's `main:`, Yoshi's Island's `main:`, the status bar's, and `%invoke_sa1`. Not yet:
+  paused frames, `end:`, `load:`, the global file. UberASM Tool's own routines (GPL) are not
   shipped; one a resource calls must be in the project (an imported folder brings the user's copies).
 
 ### 3. The window and Level Properties

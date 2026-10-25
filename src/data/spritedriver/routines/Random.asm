@@ -13,14 +13,14 @@
     CMP #$FF                    ; 0-FF: the number itself
     BEQ .all
     INC                         ; else the high byte of number x (max + 1)
-    STA $4202
-    LDA $148D
-    STA $4203
+    %mul_a()
+    LDA $148D|!addr
+    %mul_b()
     NOP #4
-    LDA $4217
+    LDA !MulHi
     BRA .done
 .all
-    LDA $148D
+    LDA $148D|!addr
 .done
     XBA
     PLA

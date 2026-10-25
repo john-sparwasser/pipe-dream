@@ -3,7 +3,7 @@
 ; C and V from that add, N and Z from X. 8-bit A/X/Y, X = the bounce slot, kept. DB on low RAM.
 ; Pipe Dream's, MIT, from SMW's $029111 and reference/PIXI_ROUTINES.md.
     PHX
-    LDA $16C9,x
+    LDA $16C9|!addr,x
     AND #$03
     TAX
     LDA.l $0290D2,x
@@ -12,13 +12,13 @@
     PLY
     PLX
     CLC
-    ADC $16B1,x
-    STA $16B1,x
+    ADC $16B1|!addr,x
+    STA $16B1|!addr,x
     TYA
     TXY
     CLC
-    ADC $16B5,x
-    STA $16B5,x
+    ADC $16B5|!addr,x
+    STA $16B5|!addr,x
     PHX
     PLX
     RTL

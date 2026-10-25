@@ -4,14 +4,14 @@
 ; set, Y = $FF when none is free (Y kept when the parent cannot). 8-bit A/X/Y, X = the parent,
 ; kept. DB on low RAM. Pipe Dream's, MIT, written from reference/PIXI_ROUTINES.md.
     XBA                         ; the number waits in B
-    LDA $15A0,x
-    ORA $186C,x
-    ORA $15D0,x
+    LDA !15A0,x
+    ORA !186C,x
+    ORA !15D0,x
     BEQ +
     SEC
     RTL
 +   LDY #$07
--   LDA $170B,y
+-   LDA $170B|!addr,y
     BEQ .found
     DEY
     BPL -
@@ -19,30 +19,30 @@
     RTL
 .found
     XBA
-    STA $170B,y
-    LDA $E4,x
+    STA $170B|!addr,y
+    LDA !E4,x
     CLC
     ADC $00
-    STA $171F,y
+    STA $171F|!addr,y
     LDA $00
     AND #$80
     BEQ +
     LDA #$FF
-+   ADC $14E0,x
-    STA $1733,y
-    LDA $D8,x
++   ADC !14E0,x
+    STA $1733|!addr,y
+    LDA !D8,x
     CLC
     ADC $01
-    STA $1715,y
+    STA $1715|!addr,y
     LDA $01
     AND #$80
     BEQ +
     LDA #$FF
-+   ADC $14D4,x
-    STA $1729,y
++   ADC !14D4,x
+    STA $1729|!addr,y
     LDA $02
-    STA $1747,y
+    STA $1747|!addr,y
     LDA $03
-    STA $173D,y
+    STA $173D|!addr,y
     CLC
     RTL

@@ -3,7 +3,7 @@
 ; slot, or C set and Y = $FF. 8-bit A/X/Y; X and $00-$07 kept. DB on low RAM.
 ; Pipe Dream's, MIT, written from reference/PIXI_ROUTINES.md.
     LDY #$03
--   LDA $17D0,y
+-   LDA $17D0|!addr,y
     BEQ .found
     DEY
     BPL -
@@ -11,28 +11,28 @@
     RTL
 .found
     XBA
-    STA $17D0,y
+    STA $17D0|!addr,y
     LDA $04
     CLC
     ADC $00
-    STA $17E0,y
+    STA $17E0|!addr,y
     LDA $00
     AND #$80
     BEQ +
     LDA #$FF
 +   ADC $05
-    STA $17EC,y
+    STA $17EC|!addr,y
     LDA $06
     CLC
     ADC $01
-    STA $17D4,y
+    STA $17D4|!addr,y
     LDA $01
     AND #$80
     BEQ +
     LDA #$FF
 +   ADC $07
-    STA $17E8,y
+    STA $17E8|!addr,y
     LDA $03
-    STA $17D8,y
+    STA $17D8|!addr,y
     CLC
     RTL

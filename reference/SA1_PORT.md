@@ -404,6 +404,52 @@ executed `BRK` opcode (SMW has none; the native BRK vector is `$FFFF`), read out
 in parallel runs (24 cores, ~90 s a batch). Reset executes before the script attaches, so an exec
 count of `$008000` is always 0.
 
+## Phase 3 findings (2026-10-25): the drivers
+
+`Sa1DriversSetup` (gated by `PIPEDREAM_SA1_DRIVERS`) builds one project per driver LoROM and again
+with ASM ▸ SA-1 on; a Mesen probe reads marks the project leaves in RAM on level `$105` (walk left
+from a new game, enter). Every driver gives the same marks on both ROMs, and every driver's LoROM
+build is byte-identical to before but music's (below).
+
+| driver | what changed for SA-1 | measured, LoROM = SA-1 |
+|---|---|---|
+| blocks | nothing: `defines.asm` already follows the header | a column of a block setting lives to 99 stops Mario and sets 99 |
+| patches | Asar assumes LoROM until a patch names a mapper and never reads the header, so an SA-1 build includes the patch from a wrapper that says `sa1rom` first; the patch's own mapper wins, errors keep its file and line | `org $808000` lands at PC `$200000` on a 4MB SA-1 image (`PatchTests`) |
+| music | `$1DF9-$1DFE` through `!addr`; the upload's direct page is work RAM `$0000` on SA-1 (I-RAM `$3000` is the SA-1 CPU's while an upload runs for frames; the pack keeps WRAM `$0000-$000F` as SNES scratch); the build's sound-code check takes the pack's `LDA $7DFB`. The pack's NMI hijack at `$816A` returns to `$8172`, before our hook | the level's song is in ARAM and echoed |
+| UberASM | `lorom` only on LoROM; the game mode, level and map read through `!BankA`; displaced code through `!addr`, the map's call replayed through whatever the ROM holds (`!OverworldMain`: the pack sends it to its own routine); the hook check takes the pack's forms (`UberInsert.Sa1Sites`); `invoke_sa1`/`invoke_snes` per the pack's guide; and the dispatch's `JML [$0000]` → `[$0000\|!dp]` | level init/main/nmi, game mode 14, the map, the status bar, `invoke_sa1` |
+| sprites | below | INIT, its extra byte, MAIN; `SubHorzPos`, `Random`, `Aiming`; a shooter, a generator, a sprite with six extra bytes read through the pointer |
+
+**Two bugs older than SA-1**, found on the way, both now fixed for LoROM too:
+
+- Music's NMI hook said `BRA $0081AA`, which Asar (upstream 1.91 as well) assembles as `80 AA`: a
+  number after a branch is the offset itself. Every build with music crashed on its first frame
+  with sound; the interpreter tests never ran the hook's own instructions. Music had never been
+  checked in Mesen. `MusicSnesTests` pins the hook now.
+- UberASM's dispatch jumped with `JML [$0000]`: an absolute operand, which on SA-1 is work RAM
+  rather than the direct page `$3000` the dispatch had just written. The block driver had it right
+  (`[$0000|!dp]`); the sprite driver's three are fixed the same way.
+
+**Sprites.** The pack rewrites SMW's level sprite loader to run with 16-bit X and Y (it indexes past
+255 bytes of sprite data) and takes over the load table (`$418A00`, 255 records) at the same eleven
+places our driver hooks for it. So on SA-1:
+
+- the load-table hooks and routines step aside (`!1938` = the pack's `!SprLoadStatus`);
+- `StepRecord` keeps Y's high byte (`%index16()`/`%index_back()` around the size lookup), adds the
+  record length to all 16 bits, and hands Lunar Magic's step (unchanged on SA-1, and fine with a
+  16-bit Y since its rebase only runs on `BMI`) the sign of the whole Y;
+- the spawn calls what the hook displaced (`!SpawnSetup`: SMW's `$07F7D2`, or the pack's wrapper of
+  it for the loader's widths), and the long extra-bytes pointer is built from all of Y;
+- the shooter-number hook moves to the pack's own JML at `$02AB9E` and does its `REP #$10 : PLY`;
+- everything else is addresses: a one-off rewrite took 401 operands in the driver and the 50
+  built-in routines to the defines (`!14C8`, `!E4`, `$xxxx|!addr`, `$00xx|!dp`),
+  and the sprite defines take the pack's 22-slot tables, PIXI's SA-1 per-slot tables (`$6040`…) and
+  `|!Base2` on the rest. By hand: the Map16 tables through `!BankA` (`$40/$41C800` on SA-1); the
+  8 x 8 multiplier through `%mul_a()`/`%mul_b()`/`!MulLo` (the SA-1's `$2250`, as sprite code runs on
+  the SA-1 CPU); CircleX/CircleY's PPU signed multiply as the SA-1's signed 16 x 16.
+
+Not exercised in Mesen: cluster, extended and the minor kinds (never run in Mesen on LoROM either),
+custom status entry points, per-level sprites.
+
 ## Plan
 
 **1. The switch and the build step.** ~~`BuiltinPatchRef` + the catalogue + download/cache/verify;
@@ -450,10 +496,12 @@ diffs generated from the oracle ROMs and checked against them by a `RealRomFact`
 prepped + pack boots and plays in Mesen (measured 2026-10-24 for the plain-save pieces) and opens
 in Lunar Magic 3.40.
 
-**3. The drivers**, least work first: blocks (already SA-1 aware in `defines.asm`) → user patches
+~~**3. The drivers**, least work first: blocks (already SA-1 aware in `defines.asm`) → user patches
 (Asar sees the header) → music SNES side → UberASM → sprites (22 slots, moved tables, hooks on the
-pack's code, the SA-1 multiplier, `invoke_sa1`/`invoke_snes`). Every hook asserts the bytes it
-expects, so a pack release that moves code fails the build with a message, not the game.
+pack's code, the SA-1 multiplier, `invoke_sa1`/`invoke_snes`).~~ Done (2026-10-25), above. Every
+hook asserts the bytes it expects, so a pack release that moves code fails the build with a
+message, not the game — true of music's and UberASM's; the sprite driver checks only the loader
+step, as on LoROM.
 
 **4. The compatibility report (B).**
 1. *Static*, on import and as a badge per resource: **ready** (uses `!sa1`/`!SA1`/`!addr`/`!dp`,

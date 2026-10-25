@@ -9,7 +9,7 @@
     PHB
     PHK
     PLB
-    LDA $16FF,x
+    LDA $16FF|!addr,x
     LSR
     LSR
     LSR
@@ -18,16 +18,16 @@
     LDA $13
     AND .every,y
     BNE .done
-    LDA $16E7,x
+    LDA $16E7|!addr,x
     TAY
     SEC
     SBC $1C
     CMP $00
     BCC .done
-    LDA $16E7,x
+    LDA $16E7|!addr,x
     BNE +
-    DEC $16F9,x
-+   DEC $16E7,x
+    DEC $16F9|!addr,x
++   DEC $16E7|!addr,x
     TYA
 .done
     PLB

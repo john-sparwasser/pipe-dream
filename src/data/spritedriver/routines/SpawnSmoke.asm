@@ -5,7 +5,7 @@
 ; when all are taken; this fails, as PIXI's does).
     XBA                         ; the type waits in B
     LDY #$03
--   LDA $17C0,y
+-   LDA $17C0|!addr,y
     BEQ .found
     DEY
     BPL -
@@ -13,16 +13,16 @@
     RTL
 .found
     XBA
-    STA $17C0,y
+    STA $17C0|!addr,y
     LDA $02
-    STA $17CC,y
-    LDA $D8,x
+    STA $17CC|!addr,y
+    LDA !D8,x
     CLC
     ADC $01
-    STA $17C4,y
-    LDA $E4,x
+    STA $17C4|!addr,y
+    LDA !E4,x
     CLC
     ADC $00
-    STA $17C8,y
+    STA $17C8|!addr,y
     CLC
     RTL

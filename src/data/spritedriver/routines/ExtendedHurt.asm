@@ -4,18 +4,18 @@
 ; Pipe Dream's, MIT, from SMW's extended sprite contact ($02A3F6) and reference/PIXI_ROUTINES.md.
 ; Unlike PIXI's, $02A469 runs with DB 2, as in SMW: PIXI's leaves DB 0, so Yoshi runs off at a
 ; speed read from bank 0 rather than SMW's table.
-    LDA $171F,x
+    LDA $171F|!addr,x
     CLC
     ADC #$03
     STA $04
-    LDA $1733,x
+    LDA $1733|!addr,x
     ADC #$00
     STA $0A
-    LDA $1715,x
+    LDA $1715|!addr,x
     CLC
     ADC #$03
     STA $05
-    LDA $1729,x
+    LDA $1729|!addr,x
     ADC #$00
     STA $0B
     LDA #$0A

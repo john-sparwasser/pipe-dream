@@ -10,31 +10,31 @@
     PLB
     JSL $01AB6F
     LDA #$02
-    STA $14C8,x
+    STA !14C8,x
     LDA #$D0
-    STA $AA,x
+    STA !AA,x
     LDY #$00                    ; away from the player
     LDA $94
     SEC
-    SBC $E4,x
+    SBC !E4,x
     STA $0E
     LDA $95
-    SBC $14E0,x
+    SBC !14E0,x
     STA $0F
     BPL +
     INY
 +   LDA .speed,y
-    STA $B6,x
-    LDA $18D2
+    STA !B6,x
+    LDA $18D2|!addr
     INC
     CMP #$08
     BCC +
     LDA #$08
-+   STA $18D2
++   STA $18D2|!addr
     JSL $02ACE5
-    LDY $18D2
+    LDY $18D2|!addr
     LDA .sound,y
-    STA $1DF9
+    STA $1DF9|!addr
     PLB
     RTL
 

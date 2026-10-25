@@ -108,6 +108,35 @@ public class Sa1BuildTests
         Assert.DoesNotContain("E230DC0000", all);                                    // and never SEP #$30 : JML [$0000]
     }
 
+    /// <summary>Custom sprites on SA-1 go round the pack's loader rather than through it: the shooter
+    /// number hooks the pack's JML at $02AB9E (which covers SMW's LDA $04), the spawn calls what the
+    /// pack calls there, and the load table's eleven sites keep the pack's own hooks (its table at
+    /// $418A00 is !1938). In Mesen (Sa1DriversSetup) the sprites run as on LoROM.</summary>
+    [Sa1BuildFact]
+    public async Task custom_sprites_on_sa1_hook_around_the_packs_loader()
+    {
+        Assert.True(TestConfigDir.SeedSa1());
+        var s = NewProject();
+        var data = s.Project!.Data;
+        data.Sprites["probe"] = new ProjectFile.SpriteEntry
+        {
+            Config = new PixiConfig { ActLike = 0x36, AsmFile = "probe.asm" }.ToJson(),
+            Source = "print \"INIT \",pc\n    RTL\nprint \"MAIN \",pc\n    RTL\n",
+        };
+        data.SpriteSlots["1A"] = "probe";
+        await s.SetSa1(true);
+        var rom = Rom.FromBytes(Built(s));
+        var pack = Rom.Load(s.Project.BaseRomPath);
+        var (errors, _) = new Sa1Target(ReferenceRoms.Sa1Pack).Install(pack, data.BaseRom.PrepVersion);
+        Assert.Empty(errors);
+
+        Assert.Equal(0x5C, rom.ReadByte(0x02AB9E));                                      // ours, where the pack's was
+        Assert.NotEqual(pack.ReadValue(0x02AB9F, 3), rom.ReadValue(0x02AB9F, 3));
+        Assert.Equal(pack.ReadValue(0x02A9CA, 3), rom.ReadValue(rom.ReadValue(0x02A9CA, 3) + 5, 3));   // Spawn: LDA $6040,x : PHA : JSL the pack's
+        foreach (int at in (int[])[0x02A856, 0x02ABF2, 0x02A8BB, 0x02A936, 0x01AC9C, 0x02D088, 0x02FF15, 0x038712, 0x03B8BA])
+            Assert.Equal(Convert.ToHexString(pack.Data, pack.FileOffset(at), 4), Convert.ToHexString(rom.Data, rom.FileOffset(at), 4));
+    }
+
     [Sa1BuildFact]
     public async Task sa1_cannot_be_switched_on_over_a_base_at_another_prep_version()
     {

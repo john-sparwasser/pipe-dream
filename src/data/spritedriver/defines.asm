@@ -108,6 +108,37 @@ macro debugmsg(msg)
     endif
 endmacro
 
+; The 8 x 8 multiplier, A 8-bit: %mul_a() takes A as the first factor, %mul_b() A as the second and
+; starts it, and the product is at !MulLo (16-bit) / !MulHi after a NOP #4. On SA-1, where sprite
+; code runs on the SA-1 CPU, the SA-1's ($2250 mode 0, $2251-$2254, the product from $2306; the
+; write to $2254 starts it), as the pack's guide has it; the SNES CPU's ($4202/$4203, $4216) otherwise.
+macro mul_a()
+    if !SA1
+        STZ $2250
+        STA $2251
+        STZ $2252
+    else
+        STA $4202
+    endif
+endmacro
+
+macro mul_b()
+    if !SA1
+        STA $2253
+        STZ $2254
+    else
+        STA $4203
+    endif
+endmacro
+
+if !SA1
+    !MulLo = $2306
+    !MulHi = $2307
+else
+    !MulLo = $4216
+    !MulHi = $4217
+endif
+
 ; Define !name as a table's address, its SA-1 one on an SA-1 ROM.
 macro define_sprite_table(name, addr, addr_sa1)
     if !SA1

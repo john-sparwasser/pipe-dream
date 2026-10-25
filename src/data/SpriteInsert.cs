@@ -71,6 +71,7 @@ public static partial class SpriteInsert
             incsrc "defines.asm"
             !SizeTable = ${rom.LmSpriteSizeBase:X6}
             !LmStep = ${lmStep:X6}
+            !SpawnSetup = ${rom.ReadValue(0x02A9CA, 3):X6}
             incsrc "main.asm"
             freedata
             SpriteTable:

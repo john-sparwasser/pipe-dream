@@ -5,31 +5,31 @@
 ; (0-7), kept. DB on low RAM. Pipe Dream's, MIT, from SMW's $02B466 and
 ; reference/PIXI_ROUTINES.md.
     XBA
-    LDA $17AB,x                 ; still counting
+    LDA $17AB|!addr,x                 ; still counting
     BNE .no
     XBA
-    STA $17AB,x
+    STA $17AB|!addr,x
     BCC +
     LDA $94                     ; the player within 16 pixels of it
     SEC
-    SBC $179B,x
+    SBC $179B|!addr,x
     CLC
     ADC #$11
     CMP #$22
     BCC .no
-+   LDA $178B,x                 ; off the screen, up or down
++   LDA $178B|!addr,x                 ; off the screen, up or down
     SEC
     SBC $1C
-    LDA $1793,x
+    LDA $1793|!addr,x
     SBC $1D
     BNE .no
-    LDA $179B,x                 ; or across
+    LDA $179B|!addr,x                 ; or across
     SEC
     SBC $1A
-    LDA $17A3,x
+    LDA $17A3|!addr,x
     SBC $1B
     BNE .no
-    LDA $179B,x                 ; or in its last 16 pixels on the right
+    LDA $179B|!addr,x                 ; or in its last 16 pixels on the right
     SEC
     SBC $1A
     CLC

@@ -15,12 +15,12 @@
     BEQ .y
     RTL
 .gravity
-    LDA $173D,x
+    LDA $173D|!addr,x
     CMP #$40
     BPL .both
     CLC
     ADC #$03
-    STA $173D,x
+    STA $173D|!addr,x
 .both                           ; SMW's routines end in RTS: reached through bank 2's RTL at $02B889
     PHK
     PEA.w .x-1

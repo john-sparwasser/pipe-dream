@@ -5,19 +5,19 @@
     %SmokeGetDrawInfo()
     BCC .out
     LDA $00
-    STA $0200,y
+    STA $0200|!addr,y
     LDA $01
-    STA $0201,y
+    STA $0201|!addr,y
     LDA $02
-    STA $0202,y
+    STA $0202|!addr,y
     LDA $03
-    STA $0203,y
+    STA $0203|!addr,y
     TYA
     LSR
     LSR
     TAY
     LDA $04
-    STA $0420,y
+    STA $0420|!addr,y
     SEC
 .out
     RTL

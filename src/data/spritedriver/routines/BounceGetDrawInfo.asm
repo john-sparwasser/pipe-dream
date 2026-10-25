@@ -6,24 +6,24 @@
     LDA #$02
     STA $03
     LDY #$00
-    LDA $1901,x
+    LDA $1901|!addr,x
     BPL +
     LDY #$04
-+   LDA $16A5,x
++   LDA $16A5|!addr,x
     SEC
-    SBC $001A,y
+    SBC $001A|!dp,y
     STA $00
-    LDA $16AD,x
-    SBC $001B,y
+    LDA $16AD|!addr,x
+    SBC $001B|!dp,y
     BEQ +
     LDA #$03
     STA $03
-+   LDA $16A1,x
++   LDA $16A1|!addr,x
     SEC
-    SBC $001C,y
+    SBC $001C|!dp,y
     STA $01
-    LDA $16A9,x
-    SBC $001D,y
+    LDA $16A9|!addr,x
+    SBC $001D|!dp,y
     BEQ +
     CLC
     RTL

@@ -327,7 +327,10 @@ Each phase ends shippable.
   so an imported PIXI 1.2.x routine set had never assembled; each routine is now included inside a
   macro of its own. `Cpu65816` gained the CPU's multiplier/divider, the PPU's signed multiply and
   the stack-relative ALU forms, all of which the routines use.
-  Not done: SA-1.
+  **SA-1 (2026-10-25):** the routines name SMW's RAM through the defines (the pack's 22-slot
+  tables, `|!addr`, `|!dp`, `!BankA` for the Map16 tables) and multiply with `%mul_a()`/`%mul_b()`
+  (the SA-1's `$2250` there) or, in CircleX/CircleY, the SA-1's signed 16 x 16 for the PPU's; see
+  reference/SA1_PORT.md, phase 3.
 - **PIXI 1.40's routines (2026-10-20): done.** The 23 that 1.40 adds (the `Bounce`, `Score`,
   `Smoke`, `SpinningCoin`, `MinorExtended` and cluster routines and the `*Generic` spawns, kept in
   folders there but the same macro names as ours, flat), plus `SpawnMinorExtendedGeneric`, the name

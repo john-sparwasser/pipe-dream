@@ -4,38 +4,38 @@
 ; $00-$07 kept. DB on low RAM. Pipe Dream's, MIT, from SMW's $02AD34 and
 ; reference/PIXI_ROUTINES.md.
     LDY #$05
--   LDA $16E1,y
+-   LDA $16E1|!addr,y
     BEQ .found
     DEY
     BPL -
-    DEC $18F7
+    DEC $18F7|!addr
     BPL +
     LDA #$05
-    STA $18F7
-+   LDY $18F7
+    STA $18F7|!addr
++   LDY $18F7|!addr
 .found
     XBA
-    STA $16E1,y
+    STA $16E1|!addr,y
     LDA $04
     CLC
     ADC $00
-    STA $16ED,y
+    STA $16ED|!addr,y
     LDA $00
     AND #$80
     BEQ +
     LDA #$FF
 +   ADC $05
-    STA $16F3,y
+    STA $16F3|!addr,y
     LDA $06
     CLC
     ADC $01
-    STA $16E7,y
+    STA $16E7|!addr,y
     LDA $01
     AND #$80
     BEQ +
     LDA #$FF
 +   ADC $07
-    STA $16F9,y
+    STA $16F9|!addr,y
     LDA #$30
-    STA $16FF,y
+    STA $16FF|!addr,y
     RTL

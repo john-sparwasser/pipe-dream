@@ -6,10 +6,10 @@
 ; $186C,x the off-screen flags, A = the vertical test's high byte and C its low byte >= $10.
 ; Too far off screen to draw, it returns past the graphics routine instead: to just after the
 ; JSR that called it, in bank DB, as SMW's does from bank 1.
-    STZ $186C,x
-    LDA $14E0,x                 ; $00-$01 = X - the camera's X
+    STZ !186C,x
+    LDA !14E0,x                 ; $00-$01 = X - the camera's X
     XBA
-    LDA $E4,x
+    LDA !E4,x
     REP #$20
     SEC
     SBC $1A
@@ -20,17 +20,17 @@
     SEP #$20
     LDA #$00
     ROL
-    STA $15C4,x
+    STA !15C4,x
     LDA $01                     ; off the screen at all
     BEQ +
     LDA #$01
-+   STA $15A0,x
-    LDA $15C4,x
++   STA !15A0,x
+    LDA !15C4,x
     BNE .gone
 
-    LDA $14D4,x                 ; d = Y - the camera's Y, kept on the stack
+    LDA !14D4,x                 ; d = Y - the camera's Y, kept on the stack
     XBA
-    LDA $D8,x
+    LDA !D8,x
     REP #$20
     SEC
     SBC $1C
@@ -40,11 +40,11 @@
     SEP #$20
     XBA
     BEQ +
-    LDA $190F,x
+    LDA !190F,x
     AND #$20
     BEQ +
     LDA #$02
-    STA $186C,x
+    STA !186C,x
 +   REP #$20                    ; bit 0: its own 16 rows are
     LDA $01,s
     CLC
@@ -54,13 +54,13 @@
     XBA
     TAY
     BEQ +
-    INC $186C,x
+    INC !186C,x
 +   PLA                         ; $01 = d's low byte, left in B; A = the test's high byte
     STA $01
     XBA
     PLA
     TYA
-    LDY $15EA,x
+    LDY !15EA,x
     RTL
 
 .gone

@@ -16,13 +16,27 @@
     CMP #$0100
     BCC +
     LDA #$00FF
-+   SEP #$20
++
+if !SA1                         ; the SA-1 CPU has no PPU: its own signed multiply, 16 x 16
+    STZ $2250
+    STA $2251
+    LDA $06
+    AND #$00FF
+    CMP #$0080
+    BCC ++
+    ORA #$FF00                  ; the radius sign-extended
+++  STA $2253                   ; (the write to $2254 starts it)
+    NOP #3
+    LDA $2307                   ; the product's bits 8-23, as the PPU's $2135
+else
+    SEP #$20
     STA $211B
     STZ $211B
     LDA $06
     STA $211C
     REP #$20
     LDA $2135
+endif
     STA $07
     PLA                         ; the second half turn: negative
     AND #$0100

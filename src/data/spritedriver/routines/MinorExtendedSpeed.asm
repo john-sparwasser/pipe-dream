@@ -9,40 +9,40 @@
     DEC
     BEQ .slowy
     LDY #$00                    ; fast Y
-    LDA $1820,x
+    LDA $1820|!addr,x
     BPL +
     DEY
 +   CLC
-    ADC $17FC,x
-    STA $17FC,x
+    ADC $17FC|!addr,x
+    STA $17FC|!addr,x
     TYA
-    ADC $1814,x
-    STA $1814,x
+    ADC $1814|!addr,x
+    STA $1814|!addr,x
     RTL
 .fastx
     LDY #$00
-    LDA $182C,x
+    LDA $182C|!addr,x
     BPL +
     DEY
 +   CLC
-    ADC $1808,x
-    STA $1808,x
+    ADC $1808|!addr,x
+    STA $1808|!addr,x
     TYA
-    ADC $18EA,x
-    STA $18EA,x
+    ADC $18EA|!addr,x
+    STA $18EA|!addr,x
     RTL
 .slowy
-    LDA $1820,x
+    LDA $1820|!addr,x
     ASL
     ASL
     ASL
     ASL
     CLC
-    ADC $1838,x
-    STA $1838,x
+    ADC $1838|!addr,x
+    STA $1838|!addr,x
     PHP
     LDY #$00
-    LDA $1820,x
+    LDA $1820|!addr,x
     LSR
     LSR
     LSR
@@ -52,24 +52,24 @@
     ORA #$F0
     DEY
 +   PLP
-    ADC $17FC,x
-    STA $17FC,x
+    ADC $17FC|!addr,x
+    STA $17FC|!addr,x
     TYA
-    ADC $1814,x
-    STA $1814,x
+    ADC $1814|!addr,x
+    STA $1814|!addr,x
     RTL
 .slowx
-    LDA $182C,x
+    LDA $182C|!addr,x
     ASL
     ASL
     ASL
     ASL
     CLC
-    ADC $1844,x
-    STA $1844,x
+    ADC $1844|!addr,x
+    STA $1844|!addr,x
     PHP
     LDY #$00
-    LDA $182C,x
+    LDA $182C|!addr,x
     LSR
     LSR
     LSR
@@ -79,9 +79,9 @@
     ORA #$F0
     DEY
 +   PLP
-    ADC $1808,x
-    STA $1808,x
+    ADC $1808|!addr,x
+    STA $1808|!addr,x
     TYA
-    ADC $18EA,x
-    STA $18EA,x
+    ADC $18EA|!addr,x
+    STA $18EA|!addr,x
     RTL
