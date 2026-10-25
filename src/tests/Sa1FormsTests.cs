@@ -238,8 +238,9 @@ public class Sa1FormsTests
     /// block, LM's grown routine sits at $0DE1F0 with its marker at $0DE20C, the bank-$1F engine
     /// reads the moved RAM, the ExAnimation setup hook names our engine and the engine calls our
     /// trampoline, the overworld engine is hooked, reads the moved RAM and calls the same trampoline, and
-    /// bank 04 reads the overworld sprite tables at the pack's $4188xx, and the midway routine
-    /// writes the moved RAM.</summary>
+    /// bank 04 reads the overworld sprite tables at the pack's $4188xx, the midway routine
+    /// writes the moved RAM, and the overworld palette hook reads and fills the moved RAM — ours
+    /// where LM 3.40's SA-1 save keeps its LoROM operands and loads the wrong colours.</summary>
     [Sa1LevelSaveFact]
     public void apply_sa1_leaves_the_image_the_first_boot_needed()
     {
@@ -269,6 +270,9 @@ public class Sa1FormsTests
         Assert.Equal(0x4188, rom.ReadValue(0x04F2B8, 2));                         // the OW sprite tables where the pack moved them, not LM's LoROM $7FC5xx
         Assert.Equal(0x4189, rom.ReadValue(0x04F2E7, 2));
         Assert.Equal(0x792A, rom.ReadValue(RomPrep.MidwayRoutineV22Snes + 0x24, 2));   // STA $792A, the midway's $192A where the pack moved it
+        Assert.Equal(RomPrep.OwPaletteHook, rom.ReadValue(RomPrep.LmOwPaletteHookSite + 1, 3));   // the palette hook ours, not the pack's LDA $7931 through it
+        Assert.Equal(0x7931, rom.ReadValue(RomPrep.OwPaletteHook + 2, 2));        // LDA $7931, the submap where the pack moved it
+        Assert.Equal(0x6703, rom.ReadValue(RomPrep.OwPaletteHook + 0x16, 2));     // LDY #$6703, the pack's palette buffer
     }
 
     private static Sa1Remap Remap() => Sa1Remap.FromSpriteTables(File.ReadAllText(Path.Combine(ReferenceRoms.Sa1Pack, "more_sprites", "sprite_tables.asm")));

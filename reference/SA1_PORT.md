@@ -181,8 +181,8 @@ pack's bytes, so the SA-1 stamp list must omit it (rule 1's "the pack's" byte).
   STA $02`) — needs the 4bpp oracle, not a sweep.~~ Done (below).
 - ~~The ExAnimation engines (level and overworld) — LM installs them on use; needs that oracle.~~
   Both done (below).
-- ~~The midway routine~~ — done (below). The OW palette engine (its hook block at `$13C800`, table at
-  `$13C900`) and layer 3 — as planned. (This line used to say midway `$13BC00` and palette
+- ~~The midway routine~~ — done (below). ~~The OW palette engine (its hook block at `$13C800`, table
+  at `$13C900`)~~ — done (below). Layer 3 — as planned. (This line used to say midway `$13BC00` and palette
   `$13C508`: `$13BC00` is v10's unreferenced copy of the midway blob and `$13C508` V22's tag for it.)
 - ~~Our own overworld code keeps `LDA $7Fxxxx,Y` where the pack moved vanilla's `$7E` to `$41`
   (64 bytes at `$04F2B8-$04F3D0`): the overworld runs on the SA-1 CPU under the pack, which
@@ -320,6 +320,36 @@ Two traps in that measurement:
   player falls off-screen.
 
 Before both were fixed, every build, LoROM included, showed a death, which looked like an SA-1 bug.
+
+## Phase 2 findings (2026-10-25, later): the overworld palette hook
+
+No new oracle was needed: `lm-sa1-ow-exanim.smc` already holds LM's SA-1 install of the palette
+hook, because LM's first overworld save on clean + pack installs it (on vanilla, `ow_exanim_1.smc`
+has none). LM put it at the same address as V32's, `JSL $13C808 : RTS` at `$00AD32`.
+
+**LM's SA-1 form is broken.** Its hook body is byte for byte the LoROM one: `LDA $1931` and
+`LDY #$0703` (the `MVN` destination). The pack moved both, to `$7931` and to the palette buffer
+`$6703` (the pack rewrites all five of vanilla bank 0's `$0703` operands). So the hook reads a
+stale submap number and fills a buffer nothing uploads.
+
+Measured in Mesen: a hash of each CGRAM row on the overworld, 120 frames after mode `$0E`, Yoshi's
+Island.
+
+| build | rows 0-5, 8-15 |
+|---|---|
+| vanilla, clean + pack | the same (rows 0-3 and 9-11 are vanilla's, not LM's conversion) |
+| our LoROM build | LM's converted table |
+| LM's SA-1 save, our SA-1 build before the fix | **every row wrong**, the same in both |
+| either with `$7931`/`$6703` | our LoROM build's, row for row |
+
+Rows 6-7 are the overworld's animated colours, and differ with timing (vanilla against clean +
+pack too).
+
+The fix is ours, not LM's: `AppendV32Stamps` says the two operands through `Asm.Sa1`, so the SA-1
+stamp list carries them and the LoROM one is unchanged (no prep version bump). LM keeps them: an
+overworld save by LM 3.40 over the fixed SA-1 build leaves `$7931`/`$6703` and the hook in place,
+and its overworld colours measure the same as before the save.
+Pinned by `Sa1FormsTests.apply_sa1_leaves_the_image_the_first_boot_needed`.
 
 **How the crash was found (Mesen, headless, one byte per run):** game mode and frame counter at
 `$6100`/`$3013`; exec callbacks over the whole bus with `emu.cpuType.snes`/`sa1`; the *last ROM

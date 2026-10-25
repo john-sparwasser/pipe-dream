@@ -843,13 +843,22 @@ public static partial class RomPrep
     /// at `$00AD2B` (left alone: which flag that is, is the hack's setting), so the second seven
     /// palettes are the ones after the special world is passed. The table block's body is zeros
     /// here; <see cref="BakeOwPaletteTable"/> fills it.
+    ///
+    /// On SA-1 the hook's two RAM addresses move with the pack's ($1931 → $7931, the palette
+    /// buffer $0703 → $6703). That is ours, not LM's: LM 3.40's SA-1 save writes this hook with its
+    /// LoROM bytes (lm-sa1-ow-exanim.smc), which loads every overworld colour wrong — measured
+    /// 2026-10-25 in Mesen, all sixteen CGRAM rows differing from clean + pack, and right with the
+    /// two operands moved (reference/SA1_PORT.md).
     /// </summary>
     private static void AppendV32Stamps(List<(int Pc, byte[] Bytes)> s)
     {
         int table = OwPaletteTable, hook = OwPaletteHook;
+        int submap = Asm.Sa1?.Abs(0x1931) ?? 0x1931, buffer = Asm.Sa1?.Abs(0x0703) ?? 0x0703;
         byte lo = (byte)table, hi = (byte)(table >> 8), bank = (byte)(table >> 16);
-        byte[] code = [.. Convert.FromHexString("AAAD3119290F003A189B1003690700EB0A69"), lo, hi,
-                       .. Convert.FromHexString("AAA00307A9FF018B5400"), bank,
+        byte[] code = [0xAA, 0xAD, (byte)submap, (byte)(submap >> 8),
+                       .. Convert.FromHexString("290F003A189B1003690700EB0A69"), lo, hi,
+                       0xAA, 0xA0, (byte)buffer, (byte)(buffer >> 8),
+                       .. Convert.FromHexString("A9FF018B5400"), bank,
                        .. Convert.FromHexString("ABE2306B4C4D0001")];
         s.Add((OwPaletteHookTagPc, Rats([.. code, .. Enumerable.Repeat((byte)0xFF, 0x30 - code.Length)])));
         s.Add((OwPaletteTableTagPc, Rats(new byte[OwPaletteTableSize])));

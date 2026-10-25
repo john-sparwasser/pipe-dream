@@ -34,8 +34,9 @@ internal static class LmSa1Forms
     /// <summary>From `.resources/sa1/lm-sa1.smc`: clean + SA-1 Pack v1.40, one level saved by Lunar
     /// Magic 3.40 — the bank-$1F engine, the level-entry blocks and hooks, the fixed blocks and
     /// in-place edits, the entrance routines, the acts-like core and the Map16 ladder. Pinned by
-    /// Sa1FormsTests. What a plain save does not install (ExAnimation, midway, overworld palette,
-    /// 4bpp, layer 3) is not here yet; reference/SA1_PORT.md lists the oracles still needed.</summary>
+    /// Sa1FormsTests. What a plain save does not install comes from the saves below; the overworld
+    /// palette hook's SA-1 form is ours (RomPrep.AppendV32Stamps), and layer 3's is still to come
+    /// (reference/SA1_PORT.md).</summary>
     public const string LevelSave = """
         00A2B3=78 00A2B6=78 00A2BB=78 00A2C6=6B 00A2CD=78 00A8A1=. 00BDA9=6B 00BDAB=6B
         00BDAD=6B 00BDC1=6B 00BDC5=6B 00BDC7=6B 00BDCB=6B 00BDE5=6B 00BDE7=6B 00BDE9=6C
