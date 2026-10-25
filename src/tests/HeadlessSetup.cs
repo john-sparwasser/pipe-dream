@@ -73,9 +73,36 @@ internal sealed class CloseTestWindowsAttribute : BeforeAfterTestAttribute
 /// </summary>
 internal static class TestConfigDir
 {
+    internal static string Root => Path.Combine(Path.GetTempPath(), "pipe-dream-tests", Environment.ProcessId.ToString());
+
+    /// <summary>The built-in patch cache goes the same way, so a test never downloads into the
+    /// user's cache — or from the network at all: <see cref="SeedSa1"/> fills it from the reference
+    /// folder.</summary>
     [System.Runtime.CompilerServices.ModuleInitializer]
-    internal static void Redirect() =>
-        Environment.SetEnvironmentVariable(
-            "PIPEDREAM_CONFIG_DIR",
-            Path.Combine(Path.GetTempPath(), "pipe-dream-tests", Environment.ProcessId.ToString()));
+    internal static void Redirect()
+    {
+        Environment.SetEnvironmentVariable("PIPEDREAM_CONFIG_DIR", Root);
+        Environment.SetEnvironmentVariable("PIPEDREAM_BUILTIN_DIR", Path.Combine(Root, "builtin"));
+    }
+
+    private static readonly object seedGate = new();
+
+    /// <summary>Install the SA-1 Pack into the test cache from the extracted copy beside the oracle
+    /// ROMs (<see cref="ReferenceRoms.Sa1Pack"/>). False when there is none; the caller skips.</summary>
+    internal static bool SeedSa1()
+    {
+        lock (seedGate)
+        {
+            string to = BuiltinPatches.Folder(BuiltinPatches.Sa1);
+            if (Directory.Exists(to)) return true;
+            if (!Directory.Exists(ReferenceRoms.Sa1Pack)) return false;
+            foreach (string f in Directory.EnumerateFiles(ReferenceRoms.Sa1Pack, "*", SearchOption.AllDirectories))
+            {
+                string dest = Path.Combine(to, Path.GetRelativePath(ReferenceRoms.Sa1Pack, f));
+                Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                File.Copy(f, dest);
+            }
+            return true;
+        }
+    }
 }

@@ -223,7 +223,7 @@ static class DebugCommands
         var rom = Rom.Load(romPath);
         int version = Enumerable.Range(1, RomPrep.Version).Reverse().FirstOrDefault(v => RomPrep.IsPrepped(rom, v));
         if (version == 0) { Console.WriteLine("not a prepped base"); return 1; }
-        var errors = new Sa1Target(packDir).Finish(rom, version);
+        var (errors, _) = new Sa1Target(packDir).Install(rom, version);
         foreach (var e in errors) Console.WriteLine("error: " + e);
         if (errors.Count > 0) return 1;
         File.WriteAllBytes(romPath, rom.Data);

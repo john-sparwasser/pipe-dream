@@ -20,7 +20,7 @@ What the user gets, and nothing short of it is done:
 | Where is the switch saved? | In `project.pdp` | The .pdp is the whole project. Absent = off, so older projects load unchanged. |
 | Where does the pack come from? | **Downloaded** from its GitHub release when first switched on | The pack (VitorVilela7/SMW-SA1-Pack) declares no licence — GitHub reports `license: null`, the README has credits and no terms — so it cannot be embedded and redistributed. Downloading leaves the user's copy as theirs. If upstream adds a licence, the same catalogue entry turns embedded and nothing else changes. |
 | Which version? | **The latest release at install, then pinned** | The project records tag + SHA-256. Builds use that tag, never "latest", so a new release cannot silently change a ROM. A newer release is offered (ASM menu), and taking it runs the same compatibility check as switching on. |
-| Cached where? | `%APPDATA%\PipeDream` (the platform equivalent elsewhere) | Builds work offline once installed; another machine downloads the recorded tag and must match the hash, else the build stops and says so. |
+| Cached where? | `%LOCALAPPDATA%\PipeDream\builtin` (the platform equivalent elsewhere) | Builds work offline once installed; another machine downloads the recorded tag and must match the hash, else the build stops and says so. |
 | ROM sizes | 4MB (`sa1rom`) first | The pack's `6mb.asm`/`8mb.asm` (`fullsa1rom`) are a later option. |
 
 ### Bundled patches, generally
@@ -406,16 +406,37 @@ count of `$008000` is always 0.
 
 ## Plan
 
-**1. The switch and the build step.** `BuiltinPatchRef` + the catalogue + download/cache/verify;
-ASM ▸ SA-1; a first build step that applies the pack and records its blocks as an `Owned` range.
+**1. The switch and the build step.** ~~`BuiltinPatchRef` + the catalogue + download/cache/verify;
+ASM ▸ SA-1; a first build step that applies the pack and records its blocks as an `Owned` range.~~
+Done (2026-10-25), below.
+
 Addressing follows the mapper: once the header says SA-1, PC ≥ 2MB is `$80-$BF`, never LoROM's
-`$40+` (BW-RAM on SA-1). Done for an image's own addressing (2026-10-25): `Rom.Map` follows the
-header live, and `FileOffset`, RATS allocation, the build's `Owned` ranges and the overlap check go
-through it; the static `Rom.SnesToPc`/`PcToSnes` are the LoROM map, for the base and the prep. Still
-to do: the hand-rolled bank math in `LunarMagic.ScanCodeAddr`. The build step is
-`RomTarget.Finish` (`Sa1Target`: the pack, then `ApplySa1`; `LoRomTarget`: nothing), and the
-switch picks the target. Done when SA-1 off builds
-byte-identical to today (golden hashes) and a project with no custom ASM builds with SA-1 on.
+`$40+` (BW-RAM on SA-1). `Rom.Map` follows the header live, and `FileOffset`, RATS allocation, the
+build's `Owned` ranges, the overlap check and LM's code scans (`ScanCodeAddr`, the sprite bank
+table, the GFX dispatch) go through it; the static `Rom.SnesToPc`/`PcToSnes` are the LoROM map, for
+the base and the prep.
+
+- **Catalogue and cache** (`BuiltinPatches`): an entry is id, version, release URL, SHA-256, entry
+  file and the licence note. Only listed versions can be pinned — the SA-1 forms are measured
+  against a release — so "latest at install" is the latest *listed*; v1.40 is also upstream's
+  latest. The release zip is refused unless its hash is the catalogue's, then extracted to
+  `%LOCALAPPDATA%\PipeDream\builtin\sa1\1.40` (a cache, so local rather than roaming;
+  `PIPEDREAM_BUILTIN_DIR` overrides, and the test run points it at its temp folder and seeds it
+  from `.resources/sa1/SA1-Pack-140`, so no test downloads).
+- **The switch** (`EditorSession.SetSa1`, ASM ▸ SA-1): a `BuiltinPatchRef` in the .pdp; off keeps
+  the pin. It is refused over a base not at `LmSa1Forms.PrepVersion` or used as provided. Both ways
+  ask first; switching on names the download and the licence, and says custom ASM is not checked
+  for SA-1 yet (the report, B, is phase 4).
+- **The build step** (`RomBuilder.InstallTarget` → `RomTarget.Install`) runs **first**, before
+  blocks, sprites, patches and data, so the image is SA-1 for everything after it. Measured
+  against applying the pack last: 23,289 bytes differ, all layout — the pack's freecode lands at
+  `$108150` instead of past our data, and its hooks' `JML` targets and our data move with it. The
+  Mesen layer-3 checks hold on the pack-first build. Every block the pack writes in expanded space
+  is inside a RATS tag (Asar's freecode), so the allocator steps around it; the overlap check owns
+  the pack's blocks ("the SA-1 Pack") and every byte of the prep's SA-1 form, LM's `$0DE1F0`
+  routine included (`RomPrep.Sa1Ranges`).
+- Off builds byte-identical to a project that never had the switch (`Sa1BuildTests`); the LoROM
+  prep hash is unchanged.
 
 **2. The prep under SA-1.** After the pack: restamp every prep hook the pack wrote (the jump wins),
 and stamp SA-1 forms of the routines behind them — the instruction a hook displaced is the pack's

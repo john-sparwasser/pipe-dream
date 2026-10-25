@@ -21,7 +21,7 @@ public partial class MainWindow
 {
     private MenuItem recentMenu = null!, upgradePrepItem = null!, spriteOverlayItem = null!,
                      animateItem = null!, runEmulatorItem = null!, layer3PreviewItem = null!,
-                     viewCameraItem = null!;
+                     viewCameraItem = null!, sa1Item = null!;
 
     /// <summary>Menu items whose state follows the session, and the shortcut captions.</summary>
     private void WireMenus()
@@ -34,6 +34,7 @@ public partial class MainWindow
         animateItem = this.GetControl<MenuItem>("AnimateItem");
         layer3PreviewItem = this.GetControl<MenuItem>("Layer3PreviewItem");
         viewCameraItem = this.GetControl<MenuItem>("ViewCameraItem");
+        sa1Item = this.GetControl<MenuItem>("Sa1Item");
         if (session.PreviewLayer3) layer3PreviewItem.Icon = new TextBlock { Text = "✓" };
         SetAnimating(true);             // tiles animate as the game does; View ▸ Animate tiles stops it
         // Rebuilt when the menu opens rather than kept in sync: the recent list changes behind
@@ -48,8 +49,8 @@ public partial class MainWindow
             if (item.HotKey is { } hotKey && item.InputGesture is null) item.InputGesture = hotKey;
     }
 
-    /// <summary>Fill in the parts of the File and View menus that depend on state: the recent
-    /// list, whether a prep upgrade is available, and the two view checkmarks.</summary>
+    /// <summary>Fill in the parts of the menus that depend on state: the recent list, whether a
+    /// prep upgrade is available, the two view checkmarks and ASM ▸ SA-1's.</summary>
     private void RefreshFileMenu()
     {
         // Says which emulator F4 will use — the one set, or "emulator" until one is found/chosen.
@@ -68,6 +69,8 @@ public partial class MainWindow
         upgradePrepItem.IsEnabled = session.CanUpgradeBasePrep;
         spriteOverlayItem.Icon = session.ShowSprites ? new TextBlock { Text = "✓" } : null;
         animateItem.Icon = animate is null ? null : new TextBlock { Text = "✓" };
+        sa1Item.Icon = session.Sa1On ? new TextBlock { Text = "✓" } : null;
+        sa1Item.IsEnabled = session.HasProject;
     }
 
     // ---- projects ----
@@ -263,6 +266,36 @@ public partial class MainWindow
         if (!session.HasProject) return;
         await new CustomSpritesWindow(session).ShowDialog(this);
         UpdateTitle();                               // every change dirties the project
+    }
+
+    /// <summary>
+    /// ASM ▸ SA-1: the build switch (reference/SA1_PORT.md). Either way it asks first, since a flip
+    /// changes what every later build is; nothing in the project changes but the switch, so the
+    /// way back is the same item. Switching on downloads the pack the first time, and a refusal
+    /// (a base it cannot go on, a failed download) is said in a dialog.
+    /// </summary>
+    private async void OnSa1(object? sender, RoutedEventArgs e)
+    {
+        if (!session.HasProject) return;
+        bool on = !session.Sa1On;
+        if (on && session.Sa1Blocker is { } why)
+        {
+            await ConfirmWindow.Notice("SA-1", "SA-1 cannot be switched on: " + why).ShowDialog(this);
+            return;
+        }
+        var pack = BuiltinPatches.Sa1;
+        string prompt = on
+            ? $"Build this project for the SA-1 chip?\n\nEvery build will apply the {pack.Name} v{pack.Version} to the ROM first. "
+              + "The editor works as it does now; only the built ROM changes.\n\n"
+              + pack.Licence + (BuiltinPatches.Installed(pack) ? " It is already downloaded." : " This downloads it now (190 KB), once.")
+              + "\n\nCustom blocks, sprites, UberASM, music and patches are not checked for SA-1 yet: code written for a plain ROM may not work on it."
+            : $"Build this project as a plain LoROM again?\n\nThe next build no longer applies the {pack.Name}. Nothing else in the project changes, and SA-1 can be switched back on at any time.";
+        var dlg = new ConfirmWindow("SA-1", prompt, on ? "Switch on" : "Switch off");
+        await dlg.ShowDialog(this);
+        if (!dlg.Confirmed) return;
+        string status = await session.SetSa1(on);
+        UpdateTitle();                               // the switch dirties the project
+        if (session.Sa1On != on) await ConfirmWindow.Notice("SA-1", status).ShowDialog(this);
     }
 
     private void OnUpgradePrep(object? sender, RoutedEventArgs e)

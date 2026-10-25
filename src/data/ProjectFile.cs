@@ -77,6 +77,23 @@ public sealed class ProjectFile
         public Dictionary<string, byte[]> Files { get; set; } = new();
     }
 
+    /// <summary>Patches Pipe Dream offers by name (the SA-1 Pack and the like), by id and pinned
+    /// version: a reference into <see cref="PipeDream.BuiltinPatches"/>, never the source. An entry
+    /// switched off keeps its pin, so switching it back on builds what it built before.</summary>
+    public List<BuiltinPatchRef> BuiltinPatches { get; set; } = new();
+
+    public sealed class BuiltinPatchRef
+    {
+        public string Id { get; set; } = "";
+        public string Version { get; set; } = "";
+        public string Sha256 { get; set; } = "";
+        public bool Enabled { get; set; } = true;
+    }
+
+    /// <summary>The SA-1 Pack's entry when it is switched on (reference/SA1_PORT.md).</summary>
+    [JsonIgnore]
+    public BuiltinPatchRef? Sa1 => BuiltinPatches.FirstOrDefault(b => b.Id == PipeDream.BuiltinPatches.Sa1.Id && b.Enabled);
+
     /// <summary>The custom sprites the project has (reference/PIXI_PORT.md): name → the sprite's
     /// config, ASM and included files. A sprite in no slot (<see cref="SpriteSlots"/>) stays here
     /// and is not inserted.</summary>

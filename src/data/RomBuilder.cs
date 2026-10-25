@@ -118,6 +118,29 @@ internal static class RomBuilder
         }
     }
 
+    /// <summary>
+    /// What the build is for (reference/SA1_PORT.md): with ASM ▸ SA-1 on, the SA-1 Pack goes onto
+    /// the fresh copy before anything else, with the prep restamped in its SA-1 form, so the image
+    /// is SA-1 from here on — its header says so, and every later write addresses it through
+    /// <see cref="Rom.Map"/>. Off, nothing happens and the build is what it always was. The pack's
+    /// blocks join the owned ranges, so a patch writing over them is named. Returns a build
+    /// failure, or null.
+    /// </summary>
+    private static string? InstallTarget(Rom rom, Project project, List<PatchInsert.Owned> owned)
+    {
+        if (project.Data.Sa1 is not { } sa1) return null;
+        if (!Asar.Available) return "build failed: SA-1 needs the Asar library, which was not found";
+        var (dir, err) = BuiltinPatches.Ensure(sa1);
+        if (dir is null) return "build failed: " + err;
+        var target = new Sa1Target(dir);
+        int version = project.Data.BaseRom.PrepVersion;
+        var (errors, written) = target.Install(rom, version);
+        if (errors.Count > 0) return "build failed: SA-1: " + string.Join("; ", errors);
+        owned.AddRange(written.Select(b => new PatchInsert.Owned(BuiltinPatches.Sa1.Name, rom.Map.SnesToPc(b.Snes), b.Length)));
+        owned.AddRange(RomPrep.Sa1Ranges(version, target).Select(r => new PatchInsert.Owned("Pipe Dream's ROM hooks", r.Pc, r.Length)));
+        return null;
+    }
+
     /// <summary>The project's custom blocks, inserted first: the cleanup frees the base's old
     /// blocks before anything else allocates, and the acts-like table is then the project's to
     /// write (ReplayMap16, next), block tiles included. Without the Asar library the blocks are
@@ -236,6 +259,7 @@ internal static class RomBuilder
             var rom = Rom.Load(project.BaseRomPath);
             var warnings = new List<string>();
             var owned = PrepOwned(project);
+            if (InstallTarget(rom, project, owned) is { } targetErr) return (targetErr, null);
             if (InsertGps(rom, project, owned, warnings) is { } gpsErr) return (gpsErr, null);
             if (InsertSprites(rom, project, owned, warnings) is { } spriteErr) return (spriteErr, null);
             if (InsertUber(rom, project, owned, warnings) is { } uberErr) return (uberErr, null);
@@ -401,7 +425,7 @@ internal static class RomBuilder
             string outPath = Path.Combine(project.Folder, "build", project.Name + ".smc");
             RatsWriter.SaveAs(rom, outPath);   // fixes the checksum before writing
             WriteSpriteAuxFiles(project.Data, outPath);
-            string status = $"built {Path.GetFileName(outPath)} ({project.Data.Levels.Count} level(s))"
+            string status = $"built {Path.GetFileName(outPath)} ({project.Data.Levels.Count} level(s){(project.Data.Sa1 is null ? "" : ", SA-1")})"
                           + (warnings.Count > 0 ? "  —  " + string.Join("; ", warnings) : "");
             return (status, outPath);
         }

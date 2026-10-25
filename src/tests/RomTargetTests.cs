@@ -46,6 +46,8 @@ public class RomTargetTests
         Assert.Equal(0x1931, RomTarget.LoRom.Ram(0x1931));
         Assert.Equal(0x7EC800, RomTarget.LoRom.RamLong(0x7EC800));
         Assert.Null(RomTarget.LoRom.ExAnimTrampoline);
-        Assert.Empty(RomTarget.LoRom.Finish(Rom.FromBytes(new byte[0x80000]), RomPrep.Version));
+        var (errors, written) = RomTarget.LoRom.Install(Rom.FromBytes(new byte[0x80000]), RomPrep.Version);
+        Assert.Empty(errors);
+        Assert.Empty(written);
     }
 }

@@ -892,12 +892,12 @@ public static class LunarMagic
         if (!rom.HasPixiSpriteHook) return -1;
         // The dispatch lives in the main hook's target bank; scan only there so the generic
         // `LDA $x,Y : STA $00 : LDA $y,Y : STA $01` pattern can't false-match vanilla code.
-        int pcBank = rom.Data[rom.FileOffset(0x0185C3) + 3] & 0x7F;   // JSL operand bank -> PC bank
-        int lo0 = pcBank * 0x8000 + rom.HeaderOffset, hi0 = Math.Min((pcBank + 1) * 0x8000 + rom.HeaderOffset, rom.Data.Length) - 10;
+        int bank = rom.Data[rom.FileOffset(0x0185C3) + 3] << 16;      // the JSL operand's bank
+        int lo0 = rom.FileOffset(bank | 0x8000), hi0 = Math.Min(lo0 + 0x8000, rom.Data.Length) - 10;
         for (int i = lo0; i <= hi0; i++)
             if (rom.Data[i] == 0xB9 && rom.Data[i + 3] == 0x85 && rom.Data[i + 4] == 0x00 &&
                 rom.Data[i + 5] == 0xB9 && rom.Data[i + 8] == 0x85 && rom.Data[i + 9] == 0x01)
-                return (pcBank << 16) | (rom.Data[i + 1] | rom.Data[i + 2] << 8);
+                return Canonical(rom, bank | rom.Data[i + 1] | rom.Data[i + 2] << 8);
         return -1;
     }
 
@@ -910,12 +910,15 @@ public static class LunarMagic
             rom.Data[fo] != 0x8B || rom.Data[fo + 1] != 0x4B || rom.Data[fo + 2] != 0xAB ||
             rom.Data[fo + 3] != 0xA4 || rom.Data[fo + 4] != 0x0E || rom.Data[fo + 5] != 0xB9 ||
             rom.Data[fo + 8] != 0x85 || rom.Data[fo + 9] != 0xD0) return -1;
-        return (t & 0x7F0000) | rom.Data[fo + 6] | (rom.Data[fo + 7] << 8);
+        return Canonical(rom, (t & 0xFF0000) | rom.Data[fo + 6] | (rom.Data[fo + 7] << 8));
     }
 
-    /// <summary>SNES address of the first byte matching <paramref name="pat"/> (-1 = wildcard), or -1.
-    /// Computes the LoROM SNES address directly (bank = PC&gt;&gt;15) so it's correct in the expanded
-    /// high banks where <see cref="Rom.PcToSnes"/>'s bank-0 mapping would be wrong.</summary>
+    /// <summary>A ROM address as the image's map names it, mirrors folded: LoROM's FastROM $80+ is
+    /// its $00+, where on SA-1 $80-$BF is ROM of its own.</summary>
+    private static int Canonical(Rom rom, int snes) => rom.Map.PcToSnes(rom.Map.SnesToPc(snes));
+
+    /// <summary>SNES address of the first byte matching <paramref name="pat"/> (-1 = wildcard), or -1,
+    /// through the image's own map: past 2MB an SA-1 image puts it in $80-$BF, not LoROM's $40+.</summary>
     private static int ScanCodeAddr(Rom rom, int[] pat)
     {
         for (int i = rom.HeaderOffset; i <= rom.Data.Length - pat.Length; i++)
@@ -923,8 +926,7 @@ public static class LunarMagic
             bool ok = true;
             for (int j = 0; j < pat.Length && ok; j++) ok = pat[j] < 0 || rom.Data[i + j] == pat[j];
             if (!ok) continue;
-            int pc = i - rom.HeaderOffset;
-            return ((pc >> 15) << 16) | (pc & 0x7FFF) | 0x8000;
+            return rom.Map.PcToSnes(i - rom.HeaderOffset);
         }
         return -1;
     }

@@ -5,8 +5,8 @@ namespace PipeDream.Ui.Tests;
 
 /// <summary>
 /// Builds the pair of ROMs for the SA-1 layer-3 check (reference/SA1_PORT.md): level $105 with all
-/// three layer-3 bypasses, through the project pipeline, then the same build made SA-1 by
-/// <see cref="Sa1Target.Finish"/>. A Mesen script then reads each back inside one run:
+/// three layer-3 bypasses, through the project pipeline, then built again with ASM ▸ SA-1 on
+/// (<see cref="EditorSession.SetSa1"/>). A Mesen script then reads each back inside one run:
 ///
 ///  • LG2 is a file whose byte i is (i*7+3) &amp; 0xFF, so VRAM at its window can be checked against
 ///    the formula without trusting anything else in VRAM;
@@ -23,7 +23,7 @@ namespace PipeDream.Ui.Tests;
 public class Sa1Layer3Setup(ITestOutputHelper log)
 {
     [Fact]
-    public void build_the_layer_3_pair_for_the_sa1_check()
+    public async Task build_the_layer_3_pair_for_the_sa1_check()
     {
         if (Environment.GetEnvironmentVariable("PIPEDREAM_SA1_L3") is not { } dir)
         { log.WriteLine("SKIP: set PIPEDREAM_SA1_L3 to an output folder"); return; }
@@ -57,16 +57,15 @@ public class Sa1Layer3Setup(ITestOutputHelper log)
         Assert.True(s.ApplyLayer3Advanced(new Layer3.Advanced(false, false, false, fast, fast, 1, 2)), s.Status);
         s.Save();
 
-        log.WriteLine(s.Build());
         string built = Path.Combine(s.Project!.Folder, "build", s.Project.Name + ".smc");
+        log.WriteLine(s.Build());
         File.Copy(built, Path.Combine(dir, "lorom.smc"));
+        Assert.True(TestConfigDir.SeedSa1(), "no SA-1 Pack beside the oracle ROMs");
+        log.WriteLine(await s.SetSa1(true));
+        log.WriteLine(s.Build());
+        File.Copy(built, Path.Combine(dir, "sa1.smc"));
 
-        var rom = Rom.Load(built);
-        int version = s.Project.Data.BaseRom.PrepVersion;
-        var errors = new Sa1Target(ReferenceRoms.Sa1Pack).Finish(rom, version);
-        Assert.Empty(errors);
-        File.WriteAllBytes(Path.Combine(dir, "sa1.smc"), rom.Data);
-        log.WriteLine($"prep v{version}; LG2 = ExGFX {id:X3}; scroll code {Layer3.ScrollCodes[fast]:X2}");
+        log.WriteLine($"prep v{s.Project.Data.BaseRom.PrepVersion}; LG2 = ExGFX {id:X3}; scroll code {Layer3.ScrollCodes[fast]:X2}");
         foreach (var name in (string[])["lorom.smc", "sa1.smc"])
         {
             var r = Rom.Load(Path.Combine(dir, name));
@@ -75,14 +74,15 @@ public class Sa1Layer3Setup(ITestOutputHelper log)
 
         // The overworld's tilemap bypass: Yoshi's Island (submap 1, where a new game lands) gets
         // GFX 28 as its layer-3 tilemap, 0x800 bytes at the start of the window (OverworldGfxTests).
-        var ow = Rom.Load(Path.Combine(dir, "lorom.smc"));
-        int fo = ow.FileOffset(ow.LmGfxBypassBase + (RomPrep.OwGfxRecordIndex + 1) * 0x20);
-        ow.Data[fo + 1] |= 0x20;
-        ow.Data[fo + 2] = 0x28; ow.Data[fo + 3] = 0x60;
-        RatsWriter.FixChecksum(ow);
-        File.WriteAllBytes(Path.Combine(dir, "owl3-lorom.smc"), ow.Data);
-        Assert.Empty(new Sa1Target(ReferenceRoms.Sa1Pack).Finish(ow, version));
-        File.WriteAllBytes(Path.Combine(dir, "owl3-sa1.smc"), ow.Data);
+        foreach (var name in (string[])["lorom", "sa1"])
+        {
+            var ow = Rom.Load(Path.Combine(dir, name + ".smc"));
+            int fo = ow.FileOffset(ow.LmGfxBypassBase + (RomPrep.OwGfxRecordIndex + 1) * 0x20);
+            ow.Data[fo + 1] |= 0x20;
+            ow.Data[fo + 2] = 0x28; ow.Data[fo + 3] = 0x60;
+            RatsWriter.FixChecksum(ow);
+            File.WriteAllBytes(Path.Combine(dir, $"owl3-{name}.smc"), ow.Data);
+        }
         int h = 0;
         foreach (byte b in Gfx.DecompressFile(Rom.Load(Path.Combine(dir, "lorom.smc")), 0x28).AsSpan(0, 0x800)) h = (h * 31 + b) % 251;
         log.WriteLine($"GFX 28's first 0x800 bytes hash {h}");

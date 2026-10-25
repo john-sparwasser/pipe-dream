@@ -29,3 +29,13 @@ Avalonia and AvaloniaEdit — MIT
 The user interface toolkit (https://github.com/AvaloniaUI/Avalonia) and the block editor's text
 editor (https://github.com/AvaloniaUI/AvaloniaEdit), both under the MIT licence; their
 copyright notices are in their repositories' LICENSE files.
+
+
+Downloaded, not shipped
+-----------------------
+These are not part of Pipe Dream. When a project switches one on, Pipe Dream downloads it from
+its author's release, checks it is exactly the release named here, and keeps it in a per-user
+cache; it is applied to the built ROM only.
+
+SA-1 Pack v1.40, by Vitor Vilela (https://github.com/VitorVilela7/SMW-SA1-Pack), for ASM > SA-1.
+It declares no licence, which is why it is downloaded rather than shipped.

@@ -2,7 +2,7 @@ namespace PipeDream;
 
 /// <summary>
 /// The prep on an SA-1 build (reference/SA1_PORT.md, phase 2). The base stays LoROM and byte-frozen;
-/// a build with SA-1 on (<see cref="Sa1Target.Finish"/>) applies the SA-1 Pack to its copy and then
+/// a build with SA-1 on (<see cref="Sa1Target.Install"/>) applies the SA-1 Pack to its copy and then
 /// <see cref="ApplySa1"/> writes the prep's SA-1 form over the result. Two things make that necessary:
 ///
 ///  • the pack moves RAM by rewriting operands at fixed vanilla offsets, and where the prep already
@@ -41,6 +41,20 @@ public static partial class RomPrep
             if (!lorom.TryGetValue(pc, out var l) || b != l || wrote.Contains(pc)) rom.Data[pc + rom.HeaderOffset] = b;
         RatsWriter.FixChecksum(rom);
         ResetScanCaches(rom);
+    }
+
+    /// <summary>The bytes the prep's SA-1 form covers, as runs of PC offsets — what an SA-1 build's
+    /// overlap check owns for the prep. <see cref="StampedRanges"/> is not enough there: LM's SA-1
+    /// forms bring routines of their own, such as the one at $0DE1F0, which no RATS tag protects.</summary>
+    internal static List<(int Pc, int Length)> Sa1Ranges(int version, Sa1Target target)
+    {
+        var o = Overlay(target.PrepStamps(version));
+        LmSa1Forms.Apply(o);
+        var runs = new List<(int Pc, int Length)>();
+        foreach (int pc in o.Keys.Order())
+            if (runs.Count > 0 && runs[^1].Pc + runs[^1].Length == pc) runs[^1] = (runs[^1].Pc, runs[^1].Length + 1);
+            else runs.Add((pc, 1));
+        return runs;
     }
 
     /// <summary>

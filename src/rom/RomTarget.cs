@@ -31,9 +31,11 @@ public abstract class RomTarget
     /// <summary>The prep's stamp list of <paramref name="version"/> for this target.</summary>
     public abstract List<(int Pc, byte[] Bytes)> PrepStamps(int version);
 
-    /// <summary>The build's last step over a prepped image of <paramref name="version"/>; the
-    /// errors that stopped it, none when it is done.</summary>
-    public abstract IReadOnlyList<string> Finish(Rom rom, int version);
+    /// <summary>The build's first step, over a fresh copy of a base prepped at
+    /// <paramref name="version"/>: make it this target's image, so that everything the build writes
+    /// after is written for it. The errors that stopped it, or the blocks it wrote (SNES addresses),
+    /// which the build's overlap check then owns.</summary>
+    public abstract (IReadOnlyList<string> Errors, IReadOnlyList<Asar.WrittenBlock> Written) Install(Rom rom, int version);
 }
 
 /// <summary>A plain LoROM build: RAM where vanilla has it, and nothing after the prep.</summary>
@@ -46,13 +48,13 @@ public sealed class LoRomTarget : RomTarget
     public override int DmaChannel(int channel) => channel;
     public override int? ExAnimTrampoline => null;
     public override List<(int Pc, byte[] Bytes)> PrepStamps(int version) => RomPrep.BuildStamps(version, this);
-    public override IReadOnlyList<string> Finish(Rom rom, int version) => [];
+    public override (IReadOnlyList<string> Errors, IReadOnlyList<Asar.WrittenBlock> Written) Install(Rom rom, int version) => ([], []);
 }
 
 /// <summary>
 /// An SA-1 build on the SA-1 Pack in <see cref="PackDir"/>: RAM where the pack moved it
 /// (<see cref="Sa1Remap"/>, its sprite tables read from the pack), the prep's SA-1 form, and the
-/// pack applied last with the prep restamped over it (<see cref="RomPrep.ApplySa1"/>).
+/// pack applied first with the prep restamped over it (<see cref="RomPrep.ApplySa1"/>).
 /// </summary>
 public sealed class Sa1Target(string packDir) : RomTarget
 {
@@ -68,11 +70,13 @@ public sealed class Sa1Target(string packDir) : RomTarget
     public override int? ExAnimTrampoline => LmExAnimEngine.Sa1TrampolineSnes;
     public override List<(int Pc, byte[] Bytes)> PrepStamps(int version) => RomPrep.Sa1Stamps(version, this);
 
-    public override IReadOnlyList<string> Finish(Rom rom, int version)
+    public override (IReadOnlyList<string> Errors, IReadOnlyList<Asar.WrittenBlock> Written) Install(Rom rom, int version)
     {
+        if (version != LmSa1Forms.PrepVersion)
+            return ([$"SA-1 needs the base at prep v{LmSa1Forms.PrepVersion}, and this one is at v{version}"], []);
         var r = Asar.Patch(rom, Path.Combine(packDir, "sa1.asm"));
-        if (!r.Ok) return r.Errors;
+        if (!r.Ok) return (r.Errors, []);
         RomPrep.ApplySa1(rom, version, this, r.Blocks.Select(b => (b.Snes, b.Length)));
-        return [];
+        return ([], r.Blocks);
     }
 }
