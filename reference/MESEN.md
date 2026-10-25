@@ -18,7 +18,8 @@ Tooling lives in `tools/mesen/`:
 |---|---|
 | `Invoke-MesenTest.ps1` | runs a ROM + script, returns `{ExitCode, TimedOut, Seconds}` |
 | `New-MesenProbe.ps1` | pastes `prelude.lua` in front of a Lua body, writes it, runs it |
-| `prelude.lua` | `T.rb/rw/vram`, `T.pass/fail/report`, `T.hold`, `T.each`, `T.mode`, `T.onOverworld`, `T.bootToLevel`, `T.inLevel`, `T.OverworldFrame`, `T.LevelFrame` |
+| `prelude.lua` | `T.rb/rw/vram/wb`, `T.pass/fail/report`, `T.hold`, `T.each`, `T.mode`, `T.onOverworld`, `T.bootToLevel`, `T.inLevel`, `T.inLevel105`, `T.OverworldFrame`, `T.LevelFrame`; `T.sa1()`, then `T.ram(addr)` for SMW's RAM by its vanilla address and `T.mark(n)` for a test project's marks, on either build |
+| `Test-Sa1Drivers.ps1` | every driver (blocks, music, UberASM, sprites) built LoROM and SA-1 by `Sa1DriversSetup`, ~45 checks on both, a table (reference/SA1_PORT.md, phase 3) |
 | `Test-RomBoots.ps1` | smoke: ROM reaches the gameplay loop and keeps ticking |
 | `Test-RomOverworld.ps1` | smoke: ROM reaches the MAP and keeps ticking; `-Reference` diffs its tile graphics against another ROM |
 | `Test-RomLevel.ps1` | smoke on a CHOSEN level: walks the map (`-Walk left` = `$105`), enters, reports the level |

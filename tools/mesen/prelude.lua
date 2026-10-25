@@ -56,8 +56,26 @@ end
 -- and the direct page to I-RAM $3000, so the same bytes live elsewhere: M.sa1() switches them
 -- (reference/SA1_PORT.md). The game mode of such a ROM read at $7E0100 is noise.
 M.ModeAddr, M.CounterAddr, M.SubmapAddr, M.LevelAddr = 0x7E0100, 0x7E0013, 0x7E1F11, 0x7E010B
-function M.sa1() M.ModeAddr, M.CounterAddr, M.SubmapAddr, M.LevelAddr = 0x006100, 0x003013, 0x007F11, 0x00610B end
+M.isSa1 = false
+function M.sa1()
+    M.ModeAddr, M.CounterAddr, M.SubmapAddr, M.LevelAddr = 0x006100, 0x003013, 0x007F11, 0x00610B
+    M.isSa1 = true
+end
 function M.mode() return M.rb(M.ModeAddr) end
+
+-- SMW's RAM $0000-$1FFF by its vanilla address, wherever this build keeps it: WRAM, or on SA-1 the
+-- direct page in I-RAM ($3000) and the rest in BW-RAM through the $6000 window.
+function M.ram(addr)
+    if not M.isSa1 then return 0x7E0000 + addr end
+    if addr < 0x100 then return 0x3000 + addr end
+    return 0x6000 + addr
+end
+function M.wb(addr, v) emu.write(addr, v, emu.memType.snesMemory) end
+
+-- Free RAM both CPUs reach by a long address, for a test project's marks: WRAM $7FB100 on LoROM,
+-- BW-RAM $404000 on SA-1 (the pack's docs: "Empty. Not cleared."). Sa1DriversSetup's sources
+-- use the same two addresses.
+function M.mark(n) return (M.isSa1 and 0x404000 or 0x7FB100) + n end
 
 -- Where pulsing Start from boot gets to, measured on vanilla and on a prep v28 base: the
 -- file select, a new game, the intro level (mode 0x14 by frame ~600), and then THE OVERWORLD
@@ -90,5 +108,17 @@ function M.bootToLevel(frame, dir)
 end
 
 function M.inLevel() return M.mode() == 0x14 end
+
+-- Walk into level $105 and call fn(n) every frame after, n counting from 0 at the first frame of
+-- gameplay; fail 253 if the level never comes. fn may T.hold its own buttons: it runs after the walk.
+function M.inLevel105(fn)
+    local entered = nil
+    M.each(function(f)
+        M.bootToLevel(f, 'left')
+        if not entered and f > M.OverworldFrame and M.inLevel() then entered = f end
+        if entered then fn(f - entered)
+        elseif f > M.LevelFrame + 1500 then M.fail(253) end
+    end)
+end
 
 return M

@@ -172,8 +172,9 @@ refused. `MusicSnesTests` runs SMW's 65816 code and ours against the SPC interpr
 **First Mesen check (2026-10-25)**, which found the game crashing on its first frame with sound: the NMI hook's `BRA $0081AA`
 assembled as `80 AA`, because Asar takes a number after a branch as the offset itself (upstream 1.91 as well), and the
 interpreter tests call `Nmi` directly, never the hook. With a label it boots, and in level 105, LoROM and SA-1 alike
-(`Sa1DriversSetup`), the driver holds the level's song and the engine has echoed it. Not yet heard: a song change, the P-switch
-and star songs, an effect cutting a channel.
+(`Sa1DriversSetup`, `tools/mesen/Test-Sa1Drivers.ps1`), the driver holds the level's song and the engine has echoed it, the
+song sounds (voice 0's envelope in the DSP), a song change uploads, the star and P-switch songs play from the global set
+without one, and a `$1DFC` effect sounds on voices 6-7.
 - The SPC700 engine in `data/musicdriver/` (Asar `spc700`): the N-SPC command set and AMK's hex
   commands per the reference, the song and sound-effect channels, volume, pan, pitch, vibrato,
   tremolo, echo, the `$1DFA`/`$1DFB` protocol, and `#asm`/`#jsr` slots.

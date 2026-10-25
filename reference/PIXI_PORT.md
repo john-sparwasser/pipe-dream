@@ -344,7 +344,10 @@ Each phase ends shippable.
   ours by macro name, wherever its file sits (1.40 has `Spawn/Sprite.asm` for SpawnSprite). The
   build now also inserts the routines a `_header.asm` calls, and `defines.asm` no longer defines
   `%LDE()`, which 1.40's headers do: a sprite using 1.40's `sprites/_header.asm` spawn macros builds.
-  Not done: a real minor, cluster or bounce sprite run in Mesen; there is none on this machine.
+  Not done: a real minor, cluster or bounce sprite run in Mesen; there is none on this machine. Probes
+  of each kind are (2026-10-25, `tools/mesen/Test-Sa1Drivers.ps1`): spawned by a sprite's INIT, every
+  ASM-only kind runs its MAIN each frame, an extended one its CAPE while the cape spins, on LoROM and
+  SA-1. A cluster sprite runs only while `$18B8` is set, which is the spawner's job, as in SMW.
 
 ## Open questions
 

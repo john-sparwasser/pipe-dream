@@ -25,12 +25,23 @@ namespace PipeDream.Ui.Tests;
 ///    speeds toward ($30, $40) at size $20 ($0F63, $0F64; the multiplier, on both CPUs).
 ///  • kinds-*.smc: a custom shooter (C0, counting at $0F65) and generator (D0, $0F66), and a sprite
 ///    with six extra bytes 11-66, whose INIT reads the fifth ($55) through the pointer into $0F67.
+///  • listed-*.smc: a spawner for every ASM-only kind, per-level sprites, a CARRIABLE entry point and
+///    an extended sprite's CAPE, marking at !mark (free RAM both CPUs reach; see Marks).
 ///
+/// tools/mesen/Test-Sa1Drivers.ps1 builds these and holds what each mark must read.
 /// Skipped unless PIPEDREAM_SA1_DRIVERS names the output folder.
 /// </summary>
 public class Sa1DriversSetup(ITestOutputHelper log)
 {
     private static string? Dir => Environment.GetEnvironmentVariable("PIPEDREAM_SA1_DRIVERS");
+
+    /// <summary>!mark: free RAM both CPUs reach by a long address, for marks in code that may run on
+    /// either or that would collide with SMW's tables (tools/mesen/prelude.lua M.mark has the same two).</summary>
+    private const string Marks = "if !sa1\n    !mark = $404000\nelse\n    !mark = $7FB100\nendif\n";
+    /// <summary>Count frames at mark <paramref name="n"/> (A 8-bit; INC has no long form).</summary>
+    private static string Count(int n) => $"    LDA.l !mark+{n}\n    INC\n    STA.l !mark+{n}\n";
+    /// <summary>Store <paramref name="value"/> at mark <paramref name="n"/>.</summary>
+    private static string Set(int n, int value) => $"    LDA #${value:X2}\n    STA.l !mark+{n}\n";
 
     /// <summary>The project at <paramref name="name"/>, with level $105 put in as the base has it.</summary>
     private static EditorSession NewProject(string dir, string name)
@@ -106,6 +117,11 @@ public class Sa1DriversSetup(ITestOutputHelper log)
             m.Songs[$"s{n:X2}.mml"] = $"#amk 2\n#0 t60 @0 o4 c4 d4 e4 f{n % 8 + 1}";
             m.SongList.Add(new MusicState.SongSlot { Number = n, Path = $"s{n:X2}.mml" });
         }
+        foreach (int n in (int[])[0x05, 0x06])                                             // the star and the P-switch: always in ARAM
+        {
+            m.Songs[$"g{n:X2}.mml"] = $"#amk 2\n#0 t80 @2 o3 c16 c16 c{n * 4}";
+            m.SongList.Add(new MusicState.SongSlot { Number = n, Path = $"g{n:X2}.mml", Global = true });
+        }
         await BuildPair(s, dir, "music");
     }
 
@@ -117,7 +133,10 @@ public class Sa1DriversSetup(ITestOutputHelper log)
         var s = NewProject(dir, "uber");
         var u = s.Project!.Data.Uber;
         void File(string path, string text) => u.Files[path] = System.Text.Encoding.UTF8.GetBytes(text);
-        File("level/probe.asm", """
+        File("level/probe.asm", Marks + """
+            load:
+            """ + "\n" + Set(4, 0x44) + """
+                RTL
             init:
                 LDA #$11
                 STA $0F5E|!addr
@@ -125,6 +144,9 @@ public class Sa1DriversSetup(ITestOutputHelper log)
             main:
                 INC $0F5F|!addr
                 %invoke_sa1(on_sa1)
+                RTL
+            end:
+            """ + "\n" + Count(3) + """
                 RTL
             nmi:
                 INC $0F60|!addr
@@ -138,6 +160,7 @@ public class Sa1DriversSetup(ITestOutputHelper log)
         File("gamemode/gm14.asm", "main:\n    INC $0F61|!addr\n    RTL\n");
         File("overworld/yi.asm", "main:\n    INC $0F62|!addr\n    RTL\n");
         File("other/status_code.asm", "main:\n    INC $0F63|!addr\n    RTS\n");
+        File("other/global_code.asm", Marks + "init:\n" + Set(0, 0x33) + "    RTS\nmain:\n" + Count(1) + "    RTS\nnmi:\n" + Count(2) + "    RTS\n");
         UberImport.ParseList("level:\n105 probe.asm\ngamemode:\n14 gm14.asm\noverworld:\n1 yi.asm\n", u, []);
         await BuildPair(s, dir, "uber");
     }
@@ -233,5 +256,57 @@ public class Sa1DriversSetup(ITestOutputHelper log)
         Assert.True(edit.SetData(sd.Sprites.Count - 1, 0x1B, 2, [0x11, 0x22, 0x33, 0x44, 0x55, 0x66]));
         data.Level(0x105).Sprites = sd.Sprites.Select(ProjectFile.SpriteDto.From).ToList();
         await BuildPair(s, dir, "kinds");
+    }
+
+    /// <summary>The kinds custom code only meets when something spawns them, and the rest of the sprite
+    /// driver: a spawner whose INIT puts one custom cluster, extended, minor extended, smoke, spinning
+    /// coin, score and bounce sprite in the game, each counting frames at its mark; per-level sprites;
+    /// a custom status entry point; and an extended sprite's CAPE.</summary>
+    [Fact]
+    public async Task build_the_listed_kinds_pair()
+    {
+        if (Dir is not { } dir) { log.WriteLine("SKIP: set PIPEDREAM_SA1_DRIVERS to an output folder"); return; }
+        Directory.CreateDirectory(dir);
+        var s = NewProject(dir, "listed");
+        var data = s.Project!.Data;
+        void Sprite(string name, string kind, string slot, string source, int extraBytes = 0)
+        {
+            string config = PixiImport.HasConfig(kind)
+                ? new PixiConfig { Type = kind == "sprite" ? 1 : 2, ActLike = 0x36, AsmFile = name + ".asm", ExtraBytes = extraBytes }.ToJson() : "";
+            data.Sprites[name] = new ProjectFile.SpriteEntry { Kind = kind, Config = config, Source = Marks + source };
+            data.SpriteSlots[slot] = name;
+        }
+        // The spawner: each generic spawn takes the custom number (list number 0 + the kind's offset)
+        // in B, a position from $00-$07 (all 0 here; these sprites draw nothing), and a free slot.
+        string spawn(string routine, string offset) => $"    LDA #!{offset}\n    XBA\n    %{routine}()\n";
+        Sprite("spawner", "sprite", "1A", "print \"INIT \",pc\n    PHB : PHK : PLB\n    REP #$20\n    STZ $00\n    STZ $02\n    STZ $04\n    STZ $06\n    SEP #$20\n"
+            + "    LDA #$01                    ; SMW runs its cluster sprites only while $18B8 is set: the caller's job\n    STA $18B8|!addr\n"
+            + spawn("SpawnClusterGeneric", "ClusterOffset") + spawn("SpawnExtendedGeneric", "ExtendedOffset")
+            + spawn("SpawnMinorExtendedGeneric", "MinorExtendedOffset") + spawn("SpawnSmokeGeneric", "SmokeOffset")
+            + spawn("SpawnSpinningCoinGeneric", "SpinningCoinOffset") + spawn("SpawnScoreGeneric", "ScoreOffset")
+            + "    LDY #$03                    ; bounce sprites have no generic spawn: slot 3 by hand\n"
+            + "    LDA #!BounceOffset\n    STA !bounce_num,y\n    LDA #$00\n    STA !bounce_timer,y\n"
+            + "    PLB\n    RTL\nprint \"MAIN \",pc\n    RTL\n");
+        string[] kinds = ["cluster", "extended", "minorextended", "smoke", "spinningcoin", "score", "bounce"];
+        for (int i = 0; i < kinds.Length; i++)
+            Sprite($"{kinds[i]}_probe", kinds[i], $"{kinds[i]} 00", $"print \"MAIN \",pc\n{Count(0x10 + i)}    RTL\n"
+                + (kinds[i] == "extended" ? $"print \"CAPE \",pc\n{Count(0x17)}    RTL\n" : ""));
+        // Per-level: a global B0 and level 105's own; the one placed in 105 must be 105's.
+        Sprite("everywhere", "sprite", "B0", $"print \"INIT \",pc\n{Set(0x18, 0x33)}    RTL\nprint \"MAIN \",pc\n    RTL\n");
+        Sprite("here", "sprite", "105:B0", $"print \"INIT \",pc\n{Set(0x18, 0x44)}    RTL\nprint \"MAIN \",pc\n    RTL\n", extraBytes: 1);
+        // A custom status: MAIN makes the sprite carriable (09) once, after which its CARRIABLE runs.
+        Sprite("carry", "sprite", "1C", "print \"INIT \",pc\n    RTL\nprint \"MAIN \",pc\n    LDA #$09\n    STA !14C8,x\n    RTL\n"
+            + $"print \"CARRIABLE \",pc\n{Count(0x19)}    RTL\n");
+
+        var baseRom = Rom.Load(s.Project.BaseRomPath);
+        var sd = SpriteData.Parse(baseRom, 0x105);
+        var edit = new SpriteEdit(sd, null, false);
+        foreach (var (number, x, bytes) in new (int, int, byte[]?)[] { (0x1A, 12, null), (0xB0, 14, [1, 2, 3, 4]), (0x1C, 15, null) })
+        {
+            Assert.True(edit.Place(number, x, 22));
+            Assert.True(edit.SetData(sd.Sprites.Count - 1, number, 2, bytes));
+        }
+        data.Level(0x105).Sprites = sd.Sprites.Select(ProjectFile.SpriteDto.From).ToList();
+        await BuildPair(s, dir, "listed");
     }
 }

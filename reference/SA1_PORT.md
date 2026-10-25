@@ -447,8 +447,20 @@ places our driver hooks for it. So on SA-1:
   8 x 8 multiplier through `%mul_a()`/`%mul_b()`/`!MulLo` (the SA-1's `$2250`, as sprite code runs on
   the SA-1 CPU); CircleX/CircleY's PPU signed multiply as the SA-1's signed 16 x 16.
 
-Not exercised in Mesen: cluster, extended and the minor kinds (never run in Mesen on LoROM either),
-custom status entry points, per-level sprites.
+**`tools/mesen/Test-Sa1Drivers.ps1`** reruns all of it: it builds the pairs and runs 45 checks on
+both ROMs, a table out. Beyond the above it covers (2026-10-25, all equal on LoROM and SA-1):
+
+- sprites: one custom cluster, extended, minor extended, smoke, spinning coin, score and bounce
+  sprite, spawned by a sprite's INIT, each running its MAIN every frame; an extended sprite's CAPE
+  while Mario spins the cape (0 without it: the control); per-level `105:B0` over a global `B0`; a
+  custom CARRIABLE entry point;
+- UberASM: `load:`, `end:`, the global file's `init:`/`main:`/`nmi:`, and level `main:` while paused;
+- music: a song change uploads, the star and P-switch songs (global) play without one, the song
+  sounds (voice 0's envelope in the DSP), and a `$1DFC` effect sounds on voices 6-7, quiet before.
+
+Marks that could meet SMW's tables, or are written from either CPU, go to free RAM both reach by a
+long address: `$7FB100` on LoROM, BW-RAM `$404000` on SA-1 ("Empty. Not cleared." in the pack's
+docs). Counters are checked by growth between two frames, since RAM starts as it likes.
 
 ## Plan
 

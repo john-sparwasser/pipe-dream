@@ -81,8 +81,9 @@ Each phase ends shippable.
   `-file` skips, extra bytes through `$00`, the DBR, a library label and a shared routine, game mode init/main/end, global init
   and the game mode word, the hooks' JMLs, and the errors; and a full project build beside the sprite driver with no warnings.
   **Checked in Mesen (2026-10-25), LoROM and SA-1 alike** (`Sa1DriversSetup`, reference/SA1_PORT.md phase 3): level 105's
-  `init:`, `main:` and `nmi:`, game mode 14's `main:`, Yoshi's Island's `main:`, the status bar's, and `%invoke_sa1`. Not yet:
-  paused frames, `end:`, `load:`, the global file. UberASM Tool's own routines (GPL) are not
+  `load:`, `init:`, `main:` (also while paused), `end:` and `nmi:`, game mode 14's `main:`, Yoshi's Island's `main:`, the
+  status bar's, the global file's `init:`/`main:`/`nmi:`, and `%invoke_sa1` (`tools/mesen/Test-Sa1Drivers.ps1`). UberASM Tool's
+  own routines (GPL) are not
   shipped; one a resource calls must be in the project (an imported folder brings the user's copies).
 
 ### 3. The window and Level Properties
