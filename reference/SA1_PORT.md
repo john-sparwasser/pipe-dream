@@ -659,6 +659,17 @@ Steps:
    On sgdq2024, 106 of 126 sprites placed in seven levels draw. The other 20 are generators and
    scroll commands, which never capture, and sprites with nothing to draw.
 3. **ExAnimation** (`ExAnimation.ResolveGlobal` runs LM's processor in the CPU).
+
+   **Done (2026-10-26).** Finding LM's engine and reading its slots already worked on SA-1: LM's SA-1
+   engine keeps the byte signatures the scans look for, and the slot records are the same. One fix:
+   LM's SA-1 engine sets D = `$3000`, so the level (`$FE`) and the frame counter (`$14`) it reads
+   are I-RAM's, and `ResolveGlobal` now seeds them through `cpu.At`. Measured (`Sa1OpenTests`): on
+   LM's own SA-1 install (`lm-sa1-exanim.smc`) against its LoROM one (`exanim_1.smc`), level 105's
+   slots read the same and its 64-frame timeline is identical. The overworld slots of
+   `lm-sa1-ow-exanim.smc` read as `ow_exanim_1.smc`'s. On sgdq2024 the global list (six slots)
+   resolves to 48 uploads in 64 frames, each to one of the six slots' destination tiles with that
+   slot's tile count. Speed is unchanged: `PerfProbeTests` against the commit before step 1, three
+   runs each, within 2%.
 4. **sgdq2024 against Lunar Magic**: spot-check levels LM draws, ours beside.
 5. **Saving into an SA-1 hack** is a separate question: a base used as provided, whose patches (an
    installed PIXI, say) may clash with our drivers, as on a LoROM hack. Not in this plan.

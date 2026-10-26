@@ -270,13 +270,13 @@ public sealed class ExAnimation
         if (setup < 0 || proc < 0 || (rom.LmGlobalExAnimPtr < 0 && level <= 0)) return result;
 
         var cpu = new Cpu65816(rom);
-        cpu.Ram7E[0xFE] = (byte)(level + 1); cpu.Ram7E[0xFF] = (byte)((level + 1) >> 8);
+        cpu.At(0x7E00FE) = (byte)(level + 1); cpu.At(0x7E00FF) = (byte)((level + 1) >> 8);   // I-RAM on SA-1
         try
         {
             cpu.CallLong(setup);                    // populate the $7FC0xx control block once
             for (int f = 0; f < frames; f++)
             {
-                cpu.Ram7E[0x14] = (byte)f;          // advance the frame counter each tick
+                cpu.At(0x7E0014) = (byte)f;         // advance the frame counter each tick
                 cpu.CallLong(proc);                 // fills $7FC0C0 for slots whose timer fires now
                 for (int i = 0; i < 8; i++)
                 {
