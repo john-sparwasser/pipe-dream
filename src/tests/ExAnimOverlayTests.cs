@@ -110,4 +110,24 @@ public class ExAnimOverlayTests(ITestOutputHelper log) : IDisposable
         Assert.Contains(cache[0x2A], c => c >> 24 == 0x80);
         Assert.DoesNotContain(cache[0x2B], c => c >> 24 == 0x80);
     }
+
+    /// <summary>The blocks a hit from below brings out (021-024) draw nothing in the game; they are drawn as a
+    /// see-through ? block (11F), so they can be seen and picked.</summary>
+    [Fact]
+    public void a_hidden_block_is_a_see_through_question_block()
+    {
+        if (!File.Exists(Vanilla)) return;
+        var rom = Rom.Load(Vanilla);
+        var h = LevelParser.Parse(rom, 0x105).Header;
+        var fg = Gfx.FgTiles.Load(rom, h.Tileset, 0x105);
+        var pal = Palette.Load(rom, h, 0x105);
+        var cache = Map16.ComposeAll(rom, h, fg, pal);
+        var ghostQ = cache[0x11F].Select(c => c == 0 ? 0 : c & 0xFFFFFF | Map16.GhostAlpha);
+        foreach (int t in new[] { 0x21, 0x22, 0x23, 0x24 }) Assert.Equal(ghostQ, cache[t]);
+        Assert.DoesNotContain(cache[0x25], c => c >> 24 == 0x80);
+
+        cache[0x22] = new uint[256];
+        Map16.ComposeInto(cache, rom, h, fg, pal, [0x11F]);                   // recomposing the ? block redraws them
+        Assert.Equal(ghostQ, cache[0x22]);
+    }
 }

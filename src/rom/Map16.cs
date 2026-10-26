@@ -78,7 +78,22 @@ public static class Map16
             tiles[t] = Compose(Or(Definition(rom, defPtr, t), wordOr), fg.Fetch, pal, fg.Ghost);
         for (int t = FgTiles; t < tiles.Length; t++)
             if (rom.HasMap16Def(t)) tiles[t] = Compose(Or(LmExtendedDef(rom, t), wordOr), fg.Fetch, pal, fg.Ghost);
+        foreach (int t in HiddenBlocks) GhostHiddenBlock(tiles, t);
         return tiles;
+    }
+
+    /// <summary>The invisible coin, 1-UP and note blocks a hit from below brings out (021-024), and the ? block (11F)
+    /// they are drawn as.</summary>
+    private static readonly int[] HiddenBlocks = [0x21, 0x22, 0x23, 0x24];
+    private const int QuestionBlock = 0x11F;
+
+    /// <summary>A hidden block that draws nothing gets the ? block's pixels as ghosts, so it is placed and found like
+    /// any other block. Lunar Magic shows these (View ▸ Other Invisible Objects) in art of its own; a see-through ?
+    /// block says the same in the level's own graphics. One a hack has given a picture of its own keeps it.</summary>
+    private static void GhostHiddenBlock(uint[][] tiles, int t)
+    {
+        if (tiles[t] is not { } px || px.Any(c => c != 0) || tiles[QuestionBlock] is not { } q) return;
+        tiles[t] = [.. q.Select(c => c == 0 ? 0 : c & 0xFFFFFF | GhostAlpha)];
     }
 
     private static Word[] Or(Word[] words, int bits)
@@ -100,10 +115,13 @@ public static class Map16
                                    Palette pal, IEnumerable<int> tiles)
     {
         var defPtr = BuildDefPointers(rom, h.Tileset);
-        foreach (int t in tiles)
+        var set = tiles.ToHashSet();
+        if (set.Contains(QuestionBlock)) set.UnionWith(HiddenBlocks);      // they are drawn as it
+        foreach (int t in set)
             if (t >= 0 && t < cache.Length)
                 cache[t] = !rom.HasMap16Def(t) ? null!
                          : Compose(t < FgTiles ? Definition(rom, defPtr, t) : LmExtendedDef(rom, t), fg.Fetch, pal, fg.Ghost);
+        foreach (int t in HiddenBlocks) if (set.Contains(t)) GhostHiddenBlock(cache, t);
     }
 
     /// <summary>Compose the 0x200 BG Map16 tiles (defs at fixed $0D9100 + idx*8, CONTRACT §10).</summary>
