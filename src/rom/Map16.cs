@@ -133,7 +133,10 @@ public static class Map16
     /// </summary>
     public static (uint[] px, int w, int h) ComposeLevel(Rom rom, LevelHeader h, Map16Grid grid, int level = -1, int animPhase = 0)
     {
-        var cache = ComposeAll(rom, h, level, animPhase);
+        var fg = Gfx.FgTiles.Load(rom, h.Tileset, level, animPhase);
+        var pal = Palette.Load(rom, h, level, animPhase);
+        var cache = ComposeAll(rom, h, fg, pal);
+        bool vertical = rom.IsVerticalMode(h.LevelMode);
         uint backdrop = Palette.Load(rom, h, level).Rgba[0];
         // The engine sizes the grid to the level's height (27 rows vanilla, LM's LUT height
         // otherwise, a vertical level's full extent), so every row is shown. A 32-row grid from
@@ -150,13 +153,12 @@ public static class Map16
         }
         else if (level >= 0 && ObjectEngine.RenderLayer2(rom, h, level) is { } l2grid)
         {
-            var l2Cache = Layer2WordOr(h.Tileset) is var bits and not 0
-                ? ComposeAll(rom, h, Gfx.FgTiles.Load(rom, h.Tileset, level, animPhase), Palette.Load(rom, h, level, animPhase), bits)
-                : cache;
-            DrawGrid(img, W, H, l2grid, l2Cache, Layer2Halved(rom, h.LevelMode));
+            int bits = Layer2WordOr(h.Tileset);
+            var l2Cache = bits != 0 ? ComposeAll(rom, h, fg, pal, bits) : cache;
+            DrawGrid(img, W, H, l2grid, l2Cache, Layer2Halved(rom, h.LevelMode), ComposePipes(rom, fg, pal, vertical, bits));
         }
 
-        DrawGrid(img, W, H, grid, cache);
+        DrawGrid(img, W, H, grid, cache, pipes: ComposePipes(rom, fg, pal, vertical));
         return (img, W, H);
     }
 
@@ -258,15 +260,64 @@ public static class Map16
         return o;
     }
 
+    // ---- pipe colours ----
+
+    /// <summary>The eight pipe tiles, 0x133-0x13A, whose definitions the game swaps per screen.</summary>
+    public const int PipeFirst = 0x133, PipeCount = 8;
+
+    /// <summary>`$058776`: the four pipe sets' addresses in bank $0D, by screen mod 4 — orange, green, yellow, blue.</summary>
+    private const int PipeSetTable = 0x058776;
+
+    /// <summary>
+    /// The pipe tiles' four colour sets, or null when the ROM no longer has the routine that picks them. Before the game
+    /// draws a column it points tiles 0x133-0x13A at set <c>(column >> 4) &amp; 3</c> of <see cref="PipeSetTable"/>
+    /// (<c>LDA $47 : LSR #3 : AND #$0006 : TAX : ... LDA $058776,X : STA $0FBE,Y</c>, the read at `$05:80E8`, and at
+    /// `$05:87B7` for the other layer), so a pipe's colour is its screen's number mod 4 — down the level in a vertical one.
+    /// Lunar Magic draws them so; every pipe here was the green set.
+    /// </summary>
+    public static int[]? PipeSets(Rom rom)
+    {
+        // The read and store of that loop, at both sites.
+        foreach (int at in new[] { 0x0580E8, 0x0587B7 })
+            if (rom.ReadByte(at) != 0xBF || rom.ReadValue(at + 1, 3) != PipeSetTable || rom.ReadByte(at + 4) != 0x99) return null;
+        return [.. Enumerable.Range(0, 4).Select(i => 0x0D0000 | rom.ReadValue(PipeSetTable + i * 2, 2))];
+    }
+
+    /// <summary>The pipe tiles as each set draws them: [set][tile - <see cref="PipeFirst"/>].</summary>
+    public readonly record struct PipeColours(uint[][][] Sets, bool Vertical)
+    {
+        /// <summary>The picture for <paramref name="tile"/> at cell (cx, cy), or null when it is not a pipe tile.</summary>
+        public uint[]? At(int tile, int cx, int cy)
+            => tile is >= PipeFirst and < PipeFirst + PipeCount ? Sets[((Vertical ? cy : cx) >> 4) & 3][tile - PipeFirst] : null;
+    }
+
+    public static PipeColours? ComposePipes(Rom rom, Gfx.FgTiles fg, Palette pal, bool vertical, int wordOr = 0)
+    {
+        if (PipeSets(rom) is not { } sets) return null;
+        var px = new uint[4][][];
+        for (int s = 0; s < 4; s++)
+        {
+            px[s] = new uint[PipeCount][];
+            for (int t = 0; t < PipeCount; t++)
+            {
+                int fo = rom.FileOffset(sets[s] + t * 8);
+                var w = new Word[4];
+                for (int i = 0; i < 4; i++) w[i] = new Word((ushort)(rom.Data[fo + i * 2] | rom.Data[fo + i * 2 + 1] << 8));
+                px[s][t] = Compose(Or(w, wordOr), fg.Fetch, pal);
+            }
+        }
+        return new PipeColours(px, vertical);
+    }
+
     /// <summary>Draw a Map16 grid onto an existing canvas (transparent pixels leave it).</summary>
-    public static void DrawGrid(uint[] img, int W, int H, Map16Grid grid, uint[][] cache, bool half = false)
+    public static void DrawGrid(uint[] img, int W, int H, Map16Grid grid, uint[][] cache, bool half = false, PipeColours? pipes = null)
     {
         for (int cy = 0; cy < Math.Min(grid.Height, H / 16); cy++)
             for (int cx = 0; cx < grid.Width; cx++)
             {
                 int t = grid.Get(cx, cy);
                 if (t == Map16Grid.Empty) continue;
-                uint[]? tile = (t & ObjectEngine.Marker) != 0 || t >= cache.Length ? null : cache[t];
+                uint[]? tile = (t & ObjectEngine.Marker) != 0 || t >= cache.Length ? null : pipes?.At(t, cx, cy) ?? cache[t];
                 for (int y = 0; y < 16; y++)
                     for (int x = 0; x < 16; x++)
                     {
@@ -288,12 +339,13 @@ public static class Map16
     /// <summary>Compose a level canvas from precomputed caches (fast; for live edits).</summary>
     public static (uint[] px, int w, int h) ComposeLevel(uint[][] cache, uint backdrop, Map16Grid grid,
         ushort[]? bgImg = null, uint[][]? bgCache = null, Map16Grid? l2 = null, int visibleRows = 27,
-        Layer3Draw? layer3 = null, int bgPeriod = BgImage.VanillaRows, bool halfL2 = false, uint[][]? l2Cache = null)
+        Layer3Draw? layer3 = null, int bgPeriod = BgImage.VanillaRows, bool halfL2 = false, uint[][]? l2Cache = null,
+        PipeColours? pipes = null, PipeColours? l2Pipes = null)
     {
         int rows = Math.Min(visibleRows, grid.Height);
         int W = grid.Width * 16, H = rows * 16;
         return (ComposeLevelInto(new uint[W * H], cache, backdrop, grid, bgImg, bgCache, l2,
-                                 visibleRows, layer3, bgPeriod, halfL2, l2Cache),
+                                 visibleRows, layer3, bgPeriod, halfL2, l2Cache, pipes, l2Pipes),
                 W, H);
     }
 
@@ -304,7 +356,8 @@ public static class Map16
     /// </summary>
     public static uint[] ComposeLevelInto(uint[] img, uint[][] cache, uint backdrop, Map16Grid grid,
         ushort[]? bgImg, uint[][]? bgCache, Map16Grid? l2, int visibleRows,
-        Layer3Draw? layer3 = null, int bgPeriod = BgImage.VanillaRows, bool halfL2 = false, uint[][]? l2Cache = null)
+        Layer3Draw? layer3 = null, int bgPeriod = BgImage.VanillaRows, bool halfL2 = false, uint[][]? l2Cache = null,
+        PipeColours? pipes = null, PipeColours? l2Pipes = null)
     {
         int rows = Math.Min(visibleRows, grid.Height);
         int W = grid.Width * 16, H = rows * 16;
@@ -320,9 +373,9 @@ public static class Map16
 
         if (layer3 is { Screens.AboveBg2: false } under) L3(under.Back, under, under.Screens.Blend);
         if (bgImg is not null && bgCache is not null) DrawBgImage(img, W, H, grid.Width, bgImg, bgCache, bgPeriod, halfL2);
-        else if (l2 is not null) DrawGrid(img, W, H, l2, l2Cache ?? cache, halfL2);
+        else if (l2 is not null) DrawGrid(img, W, H, l2, l2Cache ?? cache, halfL2, l2Pipes);
         if (layer3 is { Screens.AboveBg2: true, Screens.AboveBg1: false } over) L3(over.Back, over, over.Screens.Blend);
-        DrawGrid(img, W, H, grid, cache);
+        DrawGrid(img, W, H, grid, cache, pipes: pipes);
         if (layer3 is { Screens.AboveBg1: true } top) L3(top.Back, top, top.Screens.Blend);
         if (layer3 is { Front: { } fp } front) L3(fp, front, front.FrontBlend && front.Screens.Blend);
         return img;

@@ -245,6 +245,29 @@ public class Layer3VramBoundsTests(ITestOutputHelper log)
         Assert.All(Enumerable.Range(0, 15).Where(t => t != 3), t => Assert.Equal(0, Map16.Layer2WordOr(t)));
     }
 
+    /// <summary>
+    /// A pipe's colour is its screen's number mod 4: before drawing a column the game points tiles 0x133-0x13A at one of
+    /// four sets from $058776 — orange, green, yellow, blue — by (column >> 4) &amp; 3. Lunar Magic draws them so (0C1's
+    /// orange and blue pipes); we drew every pipe green.
+    /// </summary>
+    [RealRomFact]
+    public void a_pipes_colour_is_its_screen_mod_4()
+    {
+        var rom = Rom.Load(TestRom.RealRomPath);
+        Assert.Equal([0x0D8AB0, 0x0D84E0, 0x0D8AF0, 0x0D8B30], Map16.PipeSets(rom)!);
+        // The green set is the one tile 0x133's own definition points at.
+        Assert.Equal(Map16.BuildDefPointers(rom, 0)[0x133], Map16.PipeSets(rom)![1]);
+
+        var sets = Enumerable.Range(0, 4).Select(s => Enumerable.Range(0, Map16.PipeCount).Select(t => new uint[] { (uint)(s * 16 + t) }).ToArray()).ToArray();
+        var across = new Map16.PipeColours(sets, Vertical: false);
+        Assert.Equal(0u, across.At(0x133, 15, 40)![0]);          // screen 0: orange
+        Assert.Equal(16u, across.At(0x133, 16, 0)![0]);          // screen 1: green
+        Assert.Equal(55u, across.At(0x13A, 0x3F, 0)![0]);        // screen 3: blue, the last tile
+        Assert.Equal(0u, across.At(0x133, 0x40, 0)![0]);         // screen 4 is screen 0 again
+        Assert.Null(across.At(0x132, 16, 0));                    // not a pipe tile
+        Assert.Equal(32u, new Map16.PipeColours(sets, Vertical: true).At(0x133, 0, 0x20)![0]);   // down a vertical level
+    }
+
     [RealRomFact]
     public void the_dark_background_modes_halve_layer_2()
     {

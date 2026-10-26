@@ -32,6 +32,11 @@ public sealed class LevelScene
     /// <summary>Layer-2 level data's own tile caches, per phase, where the game recolours it (Map16.Layer2WordOr); null
     /// where layer 2 draws from <see cref="TileCaches"/> like layer 1.</summary>
     public uint[][]?[] L2Caches { get; init; } = new uint[4][][];
+    /// <summary>The pipe tiles' four colour sets per phase, picked by screen (Map16.PipeColours); L2Pipes for layer-2
+    /// level data where it is recoloured. Null on a ROM without the game's picker.</summary>
+    public Map16.PipeColours?[] Pipes { get; init; } = new Map16.PipeColours?[4];
+    public Map16.PipeColours?[] L2Pipes { get; init; } = new Map16.PipeColours?[4];
+    public bool Vertical { get; init; }
 
     /// <summary>Layer 2's Map16 grid, or null when layer 2 is a background image instead — the
     /// two are exclusive, because the pointer's bank byte IS the mode (CONTRACT §10). Settable
@@ -96,6 +101,9 @@ public sealed class LevelScene
         var caches = new uint[4][][];
         var bgCaches = new uint[4][][];
         uint[][]?[] l2Caches = new uint[4][][];
+        var pipes = new Map16.PipeColours?[4];
+        var l2Pipes = new Map16.PipeColours?[4];
+        bool vertical = rom.IsVerticalMode(level.Header.LevelMode);
         var backdrop = new uint[4];
         var palettes = new Palette?[4];
         int w = 0, h = 0;
@@ -112,7 +120,9 @@ public sealed class LevelScene
                     pal.Bgr[i] = c;
                     pal.Rgba[i] = Palette.ToRgba(c);
                 }
-            caches[p] = Map16.ComposeAll(rom, level.Header, levelNum, p, pal);
+            var fgp = Gfx.FgTiles.Load(rom, level.Header.Tileset, levelNum, p);
+            caches[p] = Map16.ComposeAll(rom, level.Header, fgp, pal);
+            pipes[p] = Map16.ComposePipes(rom, fgp, pal, vertical);
             palettes[p] = pal;
             backdrop[p] = pal.Rgba[0];
             // Always, not only when layer 2 is a background image: these 0x200 defs are the Map16
@@ -126,9 +136,13 @@ public sealed class LevelScene
 
             // Layer-2 level data on tileset 3 is drawn with the game's palette OR (Map16.Layer2WordOr).
             if (layer2 is not null && Map16.Layer2WordOr(level.Header.Tileset) is var bits and not 0)
-                l2Caches[p] = Map16.ComposeAll(rom, level.Header, Gfx.FgTiles.Load(rom, level.Header.Tileset, levelNum, p), pal, bits);
+            {
+                l2Caches[p] = Map16.ComposeAll(rom, level.Header, fgp, pal, bits);
+                l2Pipes[p] = Map16.ComposePipes(rom, fgp, pal, vertical, bits);
+            }
             var (img, pw, ph) = Map16.ComposeLevel(caches[p], pal.Rgba[0], grid,
-                                                   bgImage, bgCaches[p], layer2, visRows, l3, bgPeriod, halfL2, l2Caches[p]);
+                                                   bgImage, bgCaches[p], layer2, visRows, l3, bgPeriod, halfL2, l2Caches[p],
+                                                   pipes[p], l2Pipes[p] ?? pipes[p]);
             if (sprites == SpriteDraw.Compose) overlay?.Draw(img, pw, ph, pal);
             phases[p] = img;
             w = pw; h = ph;
@@ -139,6 +153,7 @@ public sealed class LevelScene
             Phases = phases, Width = w, Height = h, Level = level, TileCaches = caches,
             Grid = grid, Backdrop = backdrop, Palettes = palettes,
             BgImage = bgImage, BgCaches = bgCaches, BgPeriod = bgPeriod, HalfL2 = halfL2, L2Caches = l2Caches, Layer2 = layer2,
+            Pipes = pipes, L2Pipes = l2Pipes, Vertical = vertical,
             Sprites = spriteData, Overlay = overlay, VisibleRows = visRows,
         };
     }
@@ -251,17 +266,26 @@ public sealed class LevelScene
             Backdrop[p] = pal.Rgba[0];
             TileCaches[p] = Map16.ComposeAll(rom, Level.Header, tiles, pal);
             BgCaches[p] = Map16.ComposeAllBg(rom, tiles, pal);
-            if (L2Caches[p] is not null) L2Caches[p] = Map16.ComposeAll(rom, Level.Header, tiles, pal, Map16.Layer2WordOr(Level.Header.Tileset));
+            RecomposeLayer2AndPipes(rom, p, tiles, pal);
 
             Phases[p] = Map16.ComposeLevelInto(Phases[p] ?? new uint[Width * Height],
                                                TileCaches[p], pal.Rgba[0], Grid,
                                                BgImage, BgCaches[p], Layer2, VisibleRows, bgPeriod: BgPeriod, halfL2: HalfL2,
-                                               l2Cache: L2Caches[p]);
+                                               l2Cache: L2Caches[p], pipes: Pipes[p], l2Pipes: L2Pipes[p] ?? Pipes[p]);
             DrawOverlay(p);
         }
 
         if (onlyPhase is { } q) Phase(q & 3);
         else Parallel.For(0, 4, Phase);
+    }
+
+    /// <summary>The caches that follow the tile caches: layer 2's recoloured copy, where it has one, and the pipe sets.</summary>
+    private void RecomposeLayer2AndPipes(Rom rom, int p, Gfx.FgTiles tiles, Palette pal)
+    {
+        int bits = Map16.Layer2WordOr(Level.Header.Tileset);
+        if (L2Caches[p] is not null) L2Caches[p] = Map16.ComposeAll(rom, Level.Header, tiles, pal, bits);
+        if (Pipes[p] is not null) Pipes[p] = Map16.ComposePipes(rom, tiles, pal, Vertical);
+        if (L2Pipes[p] is not null) L2Pipes[p] = Map16.ComposePipes(rom, tiles, pal, Vertical, bits);
     }
 
     private Palette PaletteFor(Rom rom, int levelNum, int p, IReadOnlyDictionary<int, ushort>? edits)
@@ -322,14 +346,14 @@ public sealed class LevelScene
             var tiles = Fg(rom, levelNum, p);
             Map16.ComposeInto(TileCaches[p], rom, Level.Header, tiles, pal, set);
             if (bgEdited) BgCaches[p] = Map16.ComposeAllBg(rom, tiles, pal);
-            if (L2Caches[p] is not null) L2Caches[p] = Map16.ComposeAll(rom, Level.Header, tiles, pal, Map16.Layer2WordOr(Level.Header.Tileset));
+            RecomposeLayer2AndPipes(rom, p, tiles, pal);
         });
         // A background image is drawn from those caches, so the level shows the edit too. (Every phase's palette was set above.)
         if (bgEdited && BgImage is not null)
             for (int p = 0; p < 4; p++)
                 Phases[p] = Map16.ComposeLevelInto(Phases[p] ?? new uint[Width * Height], TileCaches[p],
                                                    Palettes[p]!.Rgba[0], Grid, BgImage, BgCaches[p], Layer2, VisibleRows, bgPeriod: BgPeriod,
-                                                   halfL2: HalfL2, l2Cache: L2Caches[p]);
+                                                   halfL2: HalfL2, l2Cache: L2Caches[p], pipes: Pipes[p], l2Pipes: L2Pipes[p] ?? Pipes[p]);
 
         // The grid is small (a full-width level is under 14k cells) and scanning it beats
         // tracking a tile→cells index that every object edit would have to maintain.
@@ -368,9 +392,10 @@ public sealed class LevelScene
                 int idx = bgi[PipeDream.BgImage.Cell(within, row)];
                 Blit(img, bgc[idx & 0x1FF], px, py, HalfL2);
             }
-            else if (Layer2 is { } l2) DrawTile(img, l2.Get(cx, cy), L2Caches[p] ?? TileCaches[p], px, py, HalfL2);
+            else if (Layer2 is { } l2) DrawTile(img, l2.Get(cx, cy), L2Caches[p] ?? TileCaches[p], px, py, HalfL2,
+                                                      (L2Pipes[p] ?? Pipes[p])?.At(l2.Get(cx, cy), cx, cy));
 
-            DrawTile(img, Grid.Get(cx, cy), TileCaches[p], px, py);
+            DrawTile(img, Grid.Get(cx, cy), TileCaches[p], px, py, picture: Pipes[p]?.At(Grid.Get(cx, cy), cx, cy));
         }
     }
 
@@ -412,12 +437,14 @@ public sealed class LevelScene
         return changed;
     }
 
-    private void DrawTile(uint[] img, int tile, uint[][] cache, int px, int py, bool half = false)
+    /// <param name="picture">The tile's picture when the cell draws it from elsewhere — a pipe set by screen
+    /// (Map16.PipeColours) — rather than from <paramref name="cache"/>.</param>
+    private void DrawTile(uint[] img, int tile, uint[][] cache, int px, int py, bool half = false, uint[]? picture = null)
     {
         if (tile == Map16Grid.Empty) return;
         // Out-of-range or marker tiles draw magenta, as the ImGui canvas does, so a bad tile
         // number is visible rather than silently transparent.
-        uint[]? t = (tile & ObjectEngine.Marker) != 0 || tile >= cache.Length ? null : cache[tile];
+        uint[]? t = (tile & ObjectEngine.Marker) != 0 || tile >= cache.Length ? null : picture ?? cache[tile];
         if (t is null)
         {
             for (int y = 0; y < 16; y++)
