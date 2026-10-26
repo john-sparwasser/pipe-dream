@@ -687,6 +687,9 @@ Steps:
    - **11A's pipe** (tile 0x133, tileset 3): LM draws it orange (palette 3, the defs at `$0D8AB0`),
      ours green (palette 5, `$0D84E0`). Vanilla 11A on the clean ROM does the same.
 
-   Both are LoROM questions for later, with vanilla as the case.
+   Both were LoROM questions, and the comparison against LM was then run over all 488 vanilla
+   levels and fixed kind by kind (commits ac5a08d-579f8d7): layer 3 is picked by tileset (118), a
+   pipe's colour is its screen mod 4 (11A). Rerun on sgdq2024 afterwards: all twelve levels 0.1-2.8%
+   (118 0.5%), the rest LM's labels and sprite pictures.
 5. **Saving into an SA-1 hack** is a separate question: a base used as provided, whose patches (an
    installed PIXI, say) may clash with our drivers, as on a LoROM hack. Not in this plan.
