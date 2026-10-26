@@ -225,4 +225,19 @@ public class Layer3VramBoundsTests(ITestOutputHelper log)
         Assert.True(forced.AboveBg2);
         Assert.True(forced.Blend);
     }
+
+    /// <summary>
+    /// The dark-background modes halve layer 2 through colour math, and only they do: of vanilla's mode tables, 0C, 0D and
+    /// 11 set the half bit with layer 2 on the subscreen or in the math. Those are the levels Lunar Magic draws with a
+    /// halved background (004, 0F8, 114, 1D9, 1EA, 1FA in mode 0C; 10E, 1BD in mode 11), and the canvas now does too.
+    /// </summary>
+    [RealRomFact]
+    public void the_dark_background_modes_halve_layer_2()
+    {
+        var rom = Rom.Load(TestRom.RealRomPath);
+        var halved = Enumerable.Range(0, 0x20).Where(m => Map16.Layer2Halved(rom, m)).ToArray();
+        Assert.Equal([0x0C, 0x0D, 0x11], halved);
+        Assert.Equal(0xFF393939u, Map16.Half(0xFF737373u));      // 5-bit 14 → 7, widened as the palette widens (7<<3 | 7>>2)
+        Assert.Equal(0x80000000u, Map16.Half(0x80000000u));      // alpha kept
+    }
 }

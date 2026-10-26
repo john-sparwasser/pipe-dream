@@ -127,8 +127,15 @@ public static class BgImage
         return Join(low, page);
     }
 
-    /// <summary>How many rows a level's background repeats every, going down: 32 when it is (or the build will make it) LM's
-    /// custom kind, whose 512-pixel height is the game's own wrap; vanilla's 27 otherwise.</summary>
+    /// <summary>An EDITED background as the build will write it: with <see cref="ExtendRows(ushort[])"/> on a base that takes
+    /// LM's custom kind (RomBuilder.WriteBackground does the same), unchanged on one that rewrites in place. An unedited
+    /// background is never rewritten, so it keeps its blank rows and is shown with them.</summary>
+    public static ushort[] AsBuilt(Rom rom, ushort[] tiles) => rom.HasLmLayer2Custom ? ExtendRows(tiles) : tiles;
+
+    /// <summary>How many of a level's background rows hold picture: 32 when it is (or the build will make it) LM's custom
+    /// kind, vanilla's 27 otherwise. Either way the layer wraps at 32 rows, its 512-pixel tilemap, so a vanilla background
+    /// in a vertical level shows an empty band between repeats — as Lunar Magic draws it (0C2, 109, 0EA, 1ED). Repeating
+    /// every 27 shifted everything past the first picture (<see cref="Map16.DrawBgImage"/>).</summary>
     public static int Period(Rom rom, int level)
         => rom.HasLmLayer2Custom && (rom.Layer2IsCustomBackground(level) || rom.BgTilemaps.ContainsKey(level)) ? CustomRows : VanillaRows;
 

@@ -179,6 +179,26 @@ public class BgImageTests
         Assert.NotEqual(0xFF0000ABu, img[0]);   // NOT the page-0 twin
     }
 
+    /// <summary>Layer 2 wraps at 32 rows, its tilemap, and a vanilla background fills 27 of them: going down a vertical
+    /// level the picture repeats every 512 pixels with an empty band after it, as Lunar Magic draws 0C2. It repeated every
+    /// 27 rows, which shifted everything past the first picture.</summary>
+    [Fact]
+    public void a_vanilla_background_wraps_at_32_rows_with_its_last_five_empty()
+    {
+        var cache = new uint[0x200][];
+        for (int i = 0; i < cache.Length; i++) { cache[i] = new uint[16 * 16]; Array.Fill(cache[i], (uint)(0xFF000000 | i)); }
+        var bg = new ushort[BgImage.Tiles];
+        for (int r = 0; r < BgImage.CustomRows; r++) bg[BgImage.Cell(0, r)] = (ushort)(r + 1);
+        int rows = 40;
+        var img = new uint[16 * 16 * rows];
+
+        Map16.DrawBgImage(img, 16, 16 * rows, 1, bg, cache, BgImage.VanillaRows);
+        uint At(int row) => img[row * 16 * 16];
+        Assert.Equal(0xFF00001Bu, At(26));                                   // the last row of picture
+        for (int r = 27; r < 32; r++) Assert.Equal(0u, At(r));              // the band: nothing drawn
+        Assert.Equal(0xFF000001u, At(32));                                   // row 0 again, 512px down
+    }
+
     [RealRomFact]
     public void bg_defs_come_from_the_fixed_table_not_the_tileset_fg_tables()
     {

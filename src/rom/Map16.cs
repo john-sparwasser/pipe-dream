@@ -135,11 +135,11 @@ public static class Map16
         if (level >= 0 && LevelParser.DecodeBgImage(rom, level) is { } bgImg)
         {
             var bgCache = ComposeAllBg(rom, h, level, animPhase);
-            DrawBgImage(img, W, H, grid.Width, bgImg, bgCache, BgImage.Period(rom, level));
+            DrawBgImage(img, W, H, grid.Width, bgImg, bgCache, BgImage.Period(rom, level), Layer2Halved(rom, h.LevelMode));
         }
         else if (level >= 0 && ObjectEngine.RenderLayer2(rom, h, level) is { } l2grid)
         {
-            DrawGrid(img, W, H, l2grid, cache);
+            DrawGrid(img, W, H, l2grid, cache, Layer2Halved(rom, h.LevelMode));
         }
 
         DrawGrid(img, W, H, grid, cache);
@@ -147,25 +147,55 @@ public static class Map16
     }
 
     /// <summary>
-    /// Tile a decoded BG image across the canvas (repeats every 2 screens horizontally AND every
-    /// <paramref name="period"/> rows vertically — vertical levels tile the same image down the level, as the game does):
-    /// 27 for a vanilla background, 32 for LM's custom kind (<see cref="BgImage.Period"/>; cells by <see cref="BgImage.Cell"/>).
+    /// Tile a decoded BG image across the canvas: it repeats every 2 screens horizontally and every 32 rows vertically,
+    /// layer 2's tilemap wrap, which vertical levels show. Only the first <paramref name="period"/> rows hold picture — 27
+    /// for a vanilla background, 32 for LM's custom kind (<see cref="BgImage.Period"/>; cells by <see cref="BgImage.Cell"/>)
+    /// — and the rest stay empty, as Lunar Magic draws them. <paramref name="half"/> draws it at half brightness
+    /// (<see cref="Layer2Halved"/>).
     /// </summary>
-    public static void DrawBgImage(uint[] img, int W, int H, int gridW, ushort[] bgImg, uint[][] bgCache, int period = BgImage.VanillaRows)
+    public static void DrawBgImage(uint[] img, int W, int H, int gridW, ushort[] bgImg, uint[][] bgCache, int period = BgImage.VanillaRows,
+                                   bool half = false)
     {
         for (int cy = 0; cy < H / 16; cy++)
             for (int cx = 0; cx < gridW; cx++)
             {
+                int row = cy % BgImage.CustomRows;
+                if (row >= period) continue;
                 int within = cx & 0x1F;                          // 2-screen horizontal repeat
-                int idx = bgImg[BgImage.Cell(within, cy % period)];
+                int idx = bgImg[BgImage.Cell(within, row)];
                 uint[] tile = bgCache[idx & 0x1FF];
                 for (int y = 0; y < 16; y++)
                     for (int x = 0; x < 16; x++)
                     {
                         uint c = tile[y * 16 + x];
-                        if (c != 0) img[(cy * 16 + y) * W + (cx * 16 + x)] = c;
+                        if (c != 0) img[(cy * 16 + y) * W + (cx * 16 + x)] = half ? Half(c) : c;
                     }
             }
+    }
+
+    /// <summary>
+    /// Whether a level mode shows layer 2 at half brightness: its colour math halves (CGADSUB bit 6) and layer 2 takes part,
+    /// on the subscreen or in the math itself. That is modes 0C, 0D and 11 — the dark-background ghost houses and castles —
+    /// and those are exactly the vanilla levels Lunar Magic draws with a halved layer 2 (004, 0F8, 114, 1D9, 1EA, 1FA,
+    /// 10E, 1BD). Layer 1 stays as it is, as in LM.
+    /// </summary>
+    public static bool Layer2Halved(Rom rom, int mode)
+    {
+        int sub = rom.ReadByte(Layer3.SubScreenTable + (mode & 0x1F));
+        int math = rom.ReadByte(Layer3.CgAdSubTable + (mode & 0x1F));
+        return (math & 0x40) != 0 && ((sub & 0x02) != 0 || (math & 0x02) != 0);
+    }
+
+    /// <summary>A colour at half brightness, the way the console halves: on the 5-bit channels, then widened again.</summary>
+    public static uint Half(uint c)
+    {
+        uint o = c & 0xFF000000;
+        for (int s = 0; s <= 16; s += 8)
+        {
+            uint v = (c >> s & 0xFF) >> 3 >> 1;
+            o |= (v << 3 | v >> 2) << s;
+        }
+        return o;
     }
 
     /// <summary>
@@ -210,7 +240,7 @@ public static class Map16
     }
 
     /// <summary>Draw a Map16 grid onto an existing canvas (transparent pixels leave it).</summary>
-    public static void DrawGrid(uint[] img, int W, int H, Map16Grid grid, uint[][] cache)
+    public static void DrawGrid(uint[] img, int W, int H, Map16Grid grid, uint[][] cache, bool half = false)
     {
         for (int cy = 0; cy < Math.Min(grid.Height, H / 16); cy++)
             for (int cx = 0; cx < grid.Width; cx++)
@@ -223,7 +253,7 @@ public static class Map16
                     {
                         uint c = tile is null ? 0xFFFF00FFu : tile[y * 16 + x];
                         if (c == 0) continue;                   // transparent → keep what's behind
-                        img[(cy * 16 + y) * W + (cx * 16 + x)] = c;
+                        img[(cy * 16 + y) * W + (cx * 16 + x)] = half ? Half(c) : c;
                     }
             }
     }
@@ -239,12 +269,12 @@ public static class Map16
     /// <summary>Compose a level canvas from precomputed caches (fast; for live edits).</summary>
     public static (uint[] px, int w, int h) ComposeLevel(uint[][] cache, uint backdrop, Map16Grid grid,
         ushort[]? bgImg = null, uint[][]? bgCache = null, Map16Grid? l2 = null, int visibleRows = 27,
-        Layer3Draw? layer3 = null, int bgPeriod = BgImage.VanillaRows)
+        Layer3Draw? layer3 = null, int bgPeriod = BgImage.VanillaRows, bool halfL2 = false)
     {
         int rows = Math.Min(visibleRows, grid.Height);
         int W = grid.Width * 16, H = rows * 16;
         return (ComposeLevelInto(new uint[W * H], cache, backdrop, grid, bgImg, bgCache, l2,
-                                 visibleRows, layer3, bgPeriod),
+                                 visibleRows, layer3, bgPeriod, halfL2),
                 W, H);
     }
 
@@ -255,7 +285,7 @@ public static class Map16
     /// </summary>
     public static uint[] ComposeLevelInto(uint[] img, uint[][] cache, uint backdrop, Map16Grid grid,
         ushort[]? bgImg, uint[][]? bgCache, Map16Grid? l2, int visibleRows,
-        Layer3Draw? layer3 = null, int bgPeriod = BgImage.VanillaRows)
+        Layer3Draw? layer3 = null, int bgPeriod = BgImage.VanillaRows, bool halfL2 = false)
     {
         int rows = Math.Min(visibleRows, grid.Height);
         int W = grid.Width * 16, H = rows * 16;
@@ -268,8 +298,8 @@ public static class Map16
             => DrawLayer3(img, W, H, px, d.W, d.H, d.Screens.Blend, d.Screens.Half, d.OffX, d.OffY);
 
         if (layer3 is { Screens.AboveBg2: false } under) L3(under.Back, under);
-        if (bgImg is not null && bgCache is not null) DrawBgImage(img, W, H, grid.Width, bgImg, bgCache, bgPeriod);
-        else if (l2 is not null) DrawGrid(img, W, H, l2, cache);
+        if (bgImg is not null && bgCache is not null) DrawBgImage(img, W, H, grid.Width, bgImg, bgCache, bgPeriod, halfL2);
+        else if (l2 is not null) DrawGrid(img, W, H, l2, cache, halfL2);
         if (layer3 is { Screens.AboveBg2: true } over) L3(over.Back, over);
         DrawGrid(img, W, H, grid, cache);
         if (layer3 is { Front: { } fp } front) L3(fp, front);

@@ -24,9 +24,11 @@ public sealed class LevelScene
     public uint[] Backdrop { get; init; } = new uint[4];
     public Palette?[] Palettes { get; init; } = new Palette?[4];
     public ushort[]? BgImage { get; init; }
-    /// <summary>How many rows the background repeats every down the canvas: 27, or 32 for LM's custom kind (BgImage.Period).</summary>
+    /// <summary>How many of the background's 32 wrapping rows hold picture: 27, or 32 for LM's custom kind (BgImage.Period).</summary>
     public int BgPeriod { get; init; } = PipeDream.BgImage.VanillaRows;
     public uint[][]?[] BgCaches { get; init; } = new uint[4][][];
+    /// <summary>Layer 2 drawn at half brightness: the level mode's colour math halves it (Map16.Layer2Halved).</summary>
+    public bool HalfL2 { get; init; }
 
     /// <summary>Layer 2's Map16 grid, or null when layer 2 is a background image instead — the
     /// two are exclusive, because the pointer's bank byte IS the mode (CONTRACT §10). Settable
@@ -72,6 +74,7 @@ public sealed class LevelScene
         var bgImage = LevelParser.DecodeBgImage(rom, levelNum);
         int bgPeriod = PipeDream.BgImage.Period(rom, levelNum);
         var layer2 = bgImage is null ? ObjectEngine.RenderLayer2(rom, level.Header, levelNum) : null;
+        bool halfL2 = Map16.Layer2Halved(rom, level.Header.LevelMode);
 
         // The OAM capture is expensive and phase-independent, so it happens once.
         SpriteData? spriteData = null;
@@ -118,7 +121,7 @@ public sealed class LevelScene
             var l3 = previewLayer3 ? Layer3Preview(rom, level, levelNum, pal) : null;
 
             var (img, pw, ph) = Map16.ComposeLevel(caches[p], pal.Rgba[0], grid,
-                                                   bgImage, bgCaches[p], layer2, visRows, l3, bgPeriod);
+                                                   bgImage, bgCaches[p], layer2, visRows, l3, bgPeriod, halfL2);
             if (sprites == SpriteDraw.Compose) overlay?.Draw(img, pw, ph, pal);
             phases[p] = img;
             w = pw; h = ph;
@@ -128,7 +131,7 @@ public sealed class LevelScene
         {
             Phases = phases, Width = w, Height = h, Level = level, TileCaches = caches,
             Grid = grid, Backdrop = backdrop, Palettes = palettes,
-            BgImage = bgImage, BgCaches = bgCaches, BgPeriod = bgPeriod, Layer2 = layer2,
+            BgImage = bgImage, BgCaches = bgCaches, BgPeriod = bgPeriod, HalfL2 = halfL2, Layer2 = layer2,
             Sprites = spriteData, Overlay = overlay, VisibleRows = visRows,
         };
     }
@@ -238,7 +241,7 @@ public sealed class LevelScene
 
             Phases[p] = Map16.ComposeLevelInto(Phases[p] ?? new uint[Width * Height],
                                                TileCaches[p], pal.Rgba[0], Grid,
-                                               BgImage, BgCaches[p], Layer2, VisibleRows, bgPeriod: BgPeriod);
+                                               BgImage, BgCaches[p], Layer2, VisibleRows, bgPeriod: BgPeriod, halfL2: HalfL2);
             DrawOverlay(p);
         }
 
@@ -309,7 +312,8 @@ public sealed class LevelScene
         if (bgEdited && BgImage is not null)
             for (int p = 0; p < 4; p++)
                 Phases[p] = Map16.ComposeLevelInto(Phases[p] ?? new uint[Width * Height], TileCaches[p],
-                                                   Palettes[p]!.Rgba[0], Grid, BgImage, BgCaches[p], Layer2, VisibleRows, bgPeriod: BgPeriod);
+                                                   Palettes[p]!.Rgba[0], Grid, BgImage, BgCaches[p], Layer2, VisibleRows, bgPeriod: BgPeriod,
+                                                   halfL2: HalfL2);
 
         // The grid is small (a full-width level is under 14k cells) and scanning it beats
         // tracking a tile→cells index that every object edit would have to maintain.
@@ -341,14 +345,14 @@ public sealed class LevelScene
             for (int y = 0; y < 16; y++)
                 for (int x = 0; x < 16; x++) img[(py + y) * Width + px + x] = bg;
 
-            if (BgImage is { } bgi && BgCaches[p] is { } bgc)
+            if (BgImage is { } bgi && BgCaches[p] is { } bgc && cy % PipeDream.BgImage.CustomRows is var row && row < BgPeriod)
             {
-                // 2-screen horizontal repeat, BgPeriod-row vertical repeat (CONTRACT §10; 32 for LM's custom kind).
+                // 2-screen horizontal repeat, 32-row vertical wrap; only BgPeriod rows hold picture (Map16.DrawBgImage).
                 int within = cx & 0x1F;
-                int idx = bgi[PipeDream.BgImage.Cell(within, cy % BgPeriod)];
-                Blit(img, bgc[idx & 0x1FF], px, py);
+                int idx = bgi[PipeDream.BgImage.Cell(within, row)];
+                Blit(img, bgc[idx & 0x1FF], px, py, HalfL2);
             }
-            else if (Layer2 is { } l2) DrawTile(img, l2.Get(cx, cy), TileCaches[p], px, py);
+            else if (Layer2 is { } l2) DrawTile(img, l2.Get(cx, cy), TileCaches[p], px, py, HalfL2);
 
             DrawTile(img, Grid.Get(cx, cy), TileCaches[p], px, py);
         }
@@ -392,7 +396,7 @@ public sealed class LevelScene
         return changed;
     }
 
-    private void DrawTile(uint[] img, int tile, uint[][] cache, int px, int py)
+    private void DrawTile(uint[] img, int tile, uint[][] cache, int px, int py, bool half = false)
     {
         if (tile == Map16Grid.Empty) return;
         // Out-of-range or marker tiles draw magenta, as the ImGui canvas does, so a bad tile
@@ -404,16 +408,16 @@ public sealed class LevelScene
                 for (int x = 0; x < 16; x++) img[(py + y) * Width + px + x] = 0xFFFF00FFu;
             return;
         }
-        Blit(img, t, px, py);
+        Blit(img, t, px, py, half);
     }
 
-    private void Blit(uint[] img, uint[] tile, int px, int py)
+    private void Blit(uint[] img, uint[] tile, int px, int py, bool half = false)
     {
         for (int y = 0; y < 16; y++)
             for (int x = 0; x < 16; x++)
             {
                 uint c = tile[y * 16 + x];
-                if (c != 0) img[(py + y) * Width + px + x] = c;
+                if (c != 0) img[(py + y) * Width + px + x] = half ? Map16.Half(c) : c;
             }
     }
 }

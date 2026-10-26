@@ -40,7 +40,7 @@ public static class ProjectSession
             if (state.Header is { } hx) rom.LevelHeaderOverrides[lvl] = Convert.FromHexString(hx);
             if (state.Layer3Tilemap is { } l3) rom.Layer3Tilemaps[lvl] = Convert.FromBase64String(l3);
             if (state.BgTilemap is { } bg)
-                rom.BgTilemaps[lvl] = BgImage.ExtendRows(BgImage.Join(Convert.FromBase64String(bg),
+                rom.BgTilemaps[lvl] = BgImage.AsBuilt(rom, BgImage.Join(Convert.FromBase64String(bg),
                     state.BgTilemapPages is { } pg ? Convert.FromBase64String(pg) : BgImage.PagePlane(rom, lvl)));
             if (state.Layer3Advanced is { } adv) rom.Layer3AdvancedOverrides[lvl] = adv;
             else if (state.Layer3AdvancedOff) rom.Layer3AdvancedOverrides[lvl] = null;

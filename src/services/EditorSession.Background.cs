@@ -102,7 +102,10 @@ public sealed partial class EditorSession
         BgMap = new TilemapEdit(cells, BgCols, BgRows, 16, BgImage.Cell);
         BgMap.Committed += () =>
         {
-            rom.BgTilemaps[LevelNum] = [.. BgMap.Cells.Select(v => (ushort)v)];
+            // The first edit is where the five wrap rows get their picture (BgImage.AsBuilt); the grid shows it too.
+            var built = BgImage.AsBuilt(rom, [.. BgMap.Cells.Select(v => (ushort)v)]);
+            for (int i = 0; i < built.Length && i < BgMap.Cells.Length; i++) BgMap.Cells[i] = built[i];
+            rom.BgTilemaps[LevelNum] = built;
             if (Project is not null)
             {
                 var (low, page) = BgImage.Split(rom.BgTilemaps[LevelNum]);
@@ -349,6 +352,7 @@ public sealed partial class EditorSession
         else if (bytes.Length == bg.Cells.Length) tiles = BgImage.Join(bytes, BgImage.PagePlane(Rom, LevelNum));
         else { Report($"“{name}” holds {bytes.Length} bytes; this level's background has {bg.Cells.Length} cells"); return false; }
         if (BgFixedPage is { } fixedPage) for (int i = 0; i < tiles.Length; i++) tiles[i] = (ushort)BgPaintable(tiles[i]);
+        tiles = BgImage.AsBuilt(Rom, tiles);
         Rom.BgTilemaps[LevelNum] = tiles;
         var (low, page) = BgImage.Split(tiles);
         var state = Project.Data.Level(LevelNum);
