@@ -44,6 +44,18 @@ public sealed class Cpu65816(Rom rom)
         return ref Bus(a >> 16, a);
     }
 
+    /// <summary>Sprite slots: SMW's 12, the pack's 22 on SA-1.</summary>
+    public int SpriteSlots => sa1 ? 22 : 12;
+
+    /// <summary>Slot <paramref name="slot"/> of SMW's sprite table at <paramref name="table"/> (its
+    /// slot-0 address): on SA-1 the pack's 22-slot table (<see cref="Sa1Remap.SpriteTableBases"/>).</summary>
+    public ref byte Sprite(int table, int slot)
+    {
+        if (!sa1) return ref Ram7E[(table + slot) & 0xFFFF];
+        int a = Sa1Remap.SpriteTableBases[table] + slot;
+        return ref Bus(0, a);
+    }
+
     /// <summary>The RAM byte a bus address reaches. On LoROM that is bank $7F's, or else $7E's at the
     /// same offset (the low mirror); on SA-1 also I-RAM, the BW-RAM window and BW-RAM's banks.</summary>
     public ref byte Bus(int bank, int addr)
@@ -91,9 +103,18 @@ public sealed class Cpu65816(Rom rom)
         }
         if (bank is 0x7E or 0x7F) return -1;
         if (bank is >= 0x40 and < 0x80) return 0;                         // BW-RAM's bitmap view, unmapped
+        if (onSa1Cpu && addr == 0x018A && snesCallPending)
+        {
+            // The pack's call into the SNES (boost/sprites.asm .SwitchCPU, level_mode.asm): the SA-1 raises
+            // the IRQ ($2209), may still store what the SNES needs ($0100-$0103), then waits on $018A.
+            // The SNES runs [$0183] once the SA-1 waits, and its handler's INC $318A ends the wait.
+            snesCallPending = false;
+            RunOnOtherCpu(Iram[0x183] | Iram[0x184] << 8 | Iram[0x185] << 16);
+            Iram[0x18A]++;
+        }
         if (onSa1Cpu && addr < 0x2000) return addr < 0x0800 ? Iram[addr] : 0;
         if (addr is >= 0x3000 and < 0x3800) return Iram[addr - 0x3000];
-        if (addr is >= 0x6000 and < 0x8000) return Bwram[addr - 0x6000];
+        if (addr is >= 0x6000 and < 0x8000) return Bwram[Window(addr)];
         if (addr is >= 0x2306 and <= 0x230A) return (byte)(mathResult >> (addr - 0x2306) * 8);
         return -1;
     }
@@ -106,9 +127,14 @@ public sealed class Cpu65816(Rom rom)
         if (bank >= 0xC0) return true;                                    // ROM
         if (onSa1Cpu && addr < 0x2000) { if (addr < 0x0800) Iram[addr] = v; return true; }
         if (addr is >= 0x3000 and < 0x3800) { Iram[addr - 0x3000] = v; return true; }
-        if (addr is >= 0x6000 and < 0x8000) { Bwram[addr - 0x6000] = v; return true; }
+        if (addr is >= 0x6000 and < 0x8000) { Bwram[Window(addr)] = v; return true; }
         switch (addr)
         {
+            case 0x2209:                                        // the SA-1 calls the SNES: see Sa1Read's $018A
+                if ((v & 0x80) != 0 && onSa1Cpu) snesCallPending = true;
+                return true;
+            case 0x2224: snesBlock = v & 0x1F; return true;                  // BW-RAM block in the window, per CPU
+            case 0x2225: sa1Block = v & 0x7F; return true;
             case 0x2250: mathMode = v & 3; if ((v & 2) != 0) mathResult = 0; return true;
             case 0x2251: mathA = (mathA & 0xFF00) | v; return true;
             case 0x2252: mathA = (mathA & 0x00FF) | (v << 8); return true;
@@ -135,32 +161,62 @@ public sealed class Cpu65816(Rom rom)
     /// <summary>Running code the SA-1 CPU runs: its $0000-$07FF is I-RAM, and work RAM out of reach.</summary>
     private bool onSa1Cpu;
 
+    // The BW-RAM block each CPU sees at $6000-$7FFF ($2224 the SNES's, $2225 the SA-1's): 8KB blocks,
+    // 0 as the pack leaves them; MaxTile maps block 5 ($40:A000) for its flush.
+    private int snesBlock, sa1Block;
+    private int Window(int addr) => (((onSa1Cpu ? sa1Block : snesBlock) << 13) + addr - 0x6000) & 0x3FFFF;
+
+    /// <summary>Run the calls that follow as the SA-1 CPU does on an SA-1 image (the code the pack moved
+    /// there: sprites, for one): D = 0, its stack at $37FF and its $0000-$07FF as I-RAM.</summary>
+    public void RunAsSa1Cpu()
+    {
+        if (!sa1) return;
+        onSa1Cpu = true; DP = 0; SP = 0x37FF;
+    }
+
     /// <summary>
     /// The pack's call into the SA-1 (engine/snes_init.asm, copied to work RAM at boot): $1E80 wakes the
-    /// SA-1 to run the routine at [$3180] and waits for it; $1E85 only waits. There is one CPU here,
-    /// so the routine runs in place, entered as the pack's SA-1 IRQ handler enters it (sa1.asm
-    /// ProcessRequest: D = 0, 8-bit registers, the SA-1's stack at $37FF), and the caller gets back
-    /// its own registers, which a second CPU would never have touched.
+    /// SA-1 to run the routine at [$3180] and waits for it; $1E85 only waits. The routine runs on the
+    /// other CPU (<see cref="RunOnOtherCpu"/>) and the caller's JSR returns.
     /// </summary>
     private void Sa1Call(bool run)
     {
-        if (run)
+        if (run) RunOnOtherCpu(Iram[0x180] | Iram[0x181] << 8 | Iram[0x182] << 16);
+        PC = (Pull16() + 1) & 0xFFFF;
+    }
+
+    /// <summary>The SA-1 has raised the SNES's IRQ and the SNES has not run the call yet.</summary>
+    private bool snesCallPending;
+
+    /// <summary>The other CPU's stack pointer while this one runs; -1 until it has run.</summary>
+    private int parkedSp = -1;
+
+    /// <summary>
+    /// Run <paramref name="target"/> to its RTL on the CPU that is not running now: one CPU here, so the
+    /// routine runs in place and the caller gets back its own registers, which a second CPU would
+    /// never have touched. Each enters as the pack's IRQ handler enters it: the SA-1 with D = 0 and
+    /// its stack at $37FF (sa1.asm ProcessRequest), the SNES with D = $3000 (engine/snes_irq.asm),
+    /// both with 8-bit registers and the data bank 0.
+    /// </summary>
+    private void RunOnOtherCpu(int target)
+    {
+        var (a, x, y, p, sp, dp, dbr, pbr, pc) = (A, X, Y, P, SP, DP, DBR, PBR, PC);
+        bool toSa1 = !onSa1Cpu;
+        int otherSp = parkedSp >= 0 ? parkedSp : toSa1 ? 0x37FF : 0x01FF;
+        parkedSp = SP;
+        onSa1Cpu = toSa1;
+        P = 0x34; DP = toSa1 ? 0 : 0x3000; DBR = 0; SP = otherSp;
+        PBR = target >> 16 & 0xFF; PC = target & 0xFFFF;
+        Push(0xFF); Push16(0xFFFE);                             // a JSL frame: RTL lands on $FF:FFFF
+        long budget = 30_000_000;
+        while (!(PC == 0xFFFF && PBR == 0xFF))
         {
-            var (a, x, y, p, sp, dp, dbr, pbr, pc) = (A, X, Y, P, SP, DP, DBR, PBR, PC);
-            onSa1Cpu = true;
-            P = 0x34; DP = 0; DBR = 0; SP = 0x37FF;
-            PBR = Iram[0x182]; PC = Iram[0x180] | Iram[0x181] << 8;
-            Push(0xFF); Push16(0xFFFE);                         // a JSL frame: RTL lands on $FF:FFFF
-            long budget = 30_000_000;
-            while (!(PC == 0xFFFF && PBR == 0xFF))
-            {
-                if (--budget == 0) throw new InvalidOperationException("emulation overran instruction budget on the SA-1");
-                Step();
-            }
-            onSa1Cpu = false;
-            (P, A, X, Y, SP, DP, DBR, PBR, PC) = (p, a, x, y, sp, dp, dbr, pbr, pc);
+            if (--budget == 0) throw new InvalidOperationException("emulation overran instruction budget on the other CPU");
+            Step();
         }
-        PC = (Pull16() + 1) & 0xFFFF;                           // the caller's JSR returns
+        parkedSp = SP;
+        onSa1Cpu = !toSa1;
+        (P, A, X, Y, SP, DP, DBR, PBR, PC) = (p, a, x, y, sp, dp, dbr, pbr, pc);
     }
 
     /// <summary>Debug: when set, logs (PC, addr, value) for writes to $0200-$04FF.</summary>
@@ -499,6 +555,16 @@ public sealed class Cpu65816(Rom rom)
             case 0x45: EorM(Load(0, m), m); break; case 0x4D: EorM(Load(3, m), m); break;
             case 0x5D: EorM(Load(4, m), m); break; case 0x59: EorM(Load(5, m), m); break;
             case 0x4F: EorM(Load(6, m), m); break; case 0x51: EorM(Load(9, m), m); break;
+            case 0x55: EorM(Load(1, m), m); break; case 0x5F: EorM(Load(7, m), m); break;
+            case 0x47: EorM(Load(10, m), m); break; case 0x57: EorM(Load(11, m), m); break;
+            // (dp) and (dp,X): the SA-1 Pack's sprite code reaches its moved tables through
+            // direct-page pointers ($B4/$CC/$EE), e.g. SBC ($EE) in the off-screen checks.
+            case 0x12: OraM(Load(8, m), m); break; case 0x01: OraM(Load(12, m), m); break;
+            case 0x32: AndM(Load(8, m), m); break; case 0x21: AndM(Load(12, m), m); break;
+            case 0x52: EorM(Load(8, m), m); break; case 0x41: EorM(Load(12, m), m); break;
+            case 0x61: Adc(Load(12, m), m); break;
+            case 0xD2: Cmp(A & m, Load(8, m), m); break; case 0xC1: Cmp(A & m, Load(12, m), m); break;
+            case 0xF2: Sbc(Load(8, m), m); break; case 0xE1: Sbc(Load(12, m), m); break;
 
             case 0xC9: Cmp(A & m, m == 0xFF ? Fetch() : Fetch16(), m); break;
             case 0xC5: Cmp(A & m, Load(0, m), m); break; case 0xD5: Cmp(A & m, Load(1, m), m); break;

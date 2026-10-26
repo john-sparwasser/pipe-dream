@@ -402,7 +402,7 @@ public static partial class SpriteInsert
     private const int VanillaSprites = 0xC9;
     private static readonly int[] VanillaTweakers = [0x07F26C, 0x07F335, 0x07F3FE, 0x07F4C7, 0x07F590, 0x07F659];
 
-    private static string Driver(string name)
+    internal static string Driver(string name)
     {
         using var s = typeof(SpriteInsert).Assembly.GetManifestResourceStream("spritedriver/" + name)!;
         return new StreamReader(s).ReadToEnd();

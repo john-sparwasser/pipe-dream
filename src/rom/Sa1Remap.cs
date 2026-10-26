@@ -29,6 +29,13 @@ public sealed class Sa1Remap
     /// <summary>The general moves alone: no sprite tables, which need the installed pack's list.</summary>
     public static readonly Sa1Remap General = new(new Dictionary<int, int>());
 
+    /// <summary>Each of SMW's 50 sprite tables (its slot-0 address) to the pack's 22-slot table, as our
+    /// sprite driver's defines.asm lists them (<c>%define_sprite_table(name, $vanilla, $sa1)</c>), so
+    /// reading an SA-1 ROM needs no installed pack. A direct-page address is the I-RAM byte it names.</summary>
+    public static readonly IReadOnlyDictionary<int, int> SpriteTableBases =
+        Regex.Matches(SpriteInsert.Driver("defines.asm"), @"^%define_sprite_table\(\s*\w+\s*,\s*\$([0-9A-Fa-f]+)\s*,\s*\$([0-9A-Fa-f]+)\s*\)", RegexOptions.Multiline)
+             .ToDictionary(m => int.Parse(m.Groups[1].Value, NumberStyles.HexNumber), m => Bus(int.Parse(m.Groups[2].Value, NumberStyles.HexNumber)));
+
     /// <summary>The 12 slots of each <c>%define_sprite_table(name, vanilla, sa1, more_sprites)</c>,
     /// vanilla to More Sprites. A direct-page address on either side is the I-RAM byte it names.</summary>
     public static Sa1Remap FromSpriteTables(string asm)

@@ -628,6 +628,36 @@ Steps:
 2. **Sprites** (`SpriteRender`'s OAM capture): 22 slots, the More Sprites tables. These come from
    the pack's `sprite_tables.asm`; whether to require the installed pack or carry the list is
    decided then.
+
+   **Done (2026-10-26).** The tables come from our own sprite driver's `defines.asm`, which ships
+   with the app (`Sa1Remap.SpriteTableBases`), so no pack download is needed to open a ROM. Before,
+   no vanilla sprite captured on SA-1. What it took, each found by running a sprite and reading
+   where it went wrong:
+   - **The loader's register widths.** The pack runs the whole sprite loader with 16-bit X/Y
+     (`boost/sprite_load.asm`), and LM's SA-1 walker expects that too. The spawn is entered that
+     way; the frames run 8-bit, as the pack's sprite loop sets them.
+   - **Sprites run on the SA-1** (`Cpu65816.RunAsSa1Cpu`). The pack's code checks for it by its
+     stack page (`$37xx`).
+   - **The pack's per-slot pointers.** `SPRITE_MAIN_HACK` (at `$0180A9`) points `$B4`/`$CC`/`$EE`
+     at the slot's number, Y and X, and caches the number at `$87`. Its code reads the moved tables
+     through them (`LDY $87` in the generic drawing routine), so the capture sets them before each
+     frame.
+   - **MaxTile's flush** maps BW-RAM block 5 into the `$6000` window (`$2225`), so the window
+     follows each CPU's block register. The tiles are still in the OAM buffer (`$40:0200`) when the
+     frame ends, which is where the capture reads them.
+   - **The calls into the SNES CPU** (`$2209` with `$0183`): the SA-1 raises the IRQ, then stores
+     what the SNES needs, then waits on `$018A`. So the SNES side runs when the SA-1 starts waiting,
+     with D = `$3000` as the pack's IRQ handler sets it. The growing pipe and Bowser need this.
+   - **Six missing 65816 instructions**, the `(dp)` and `(dp,X)` forms of ORA/AND/EOR/CMP/SBC
+     (`SBC ($EE)` and others). The pack's code uses them to reach the moved tables; SMW's never did.
+
+   Measured (`Sa1OpenTests`), all 201 vanilla sprite numbers on `lm-sa1.smc` against `after.smc`:
+   177 identical, 16 draw nothing on either, and 5 big ones (28, 60, 90, 9F, C5) draw the same tiles
+   in a different OAM order (MaxTile pins the index at `$38`; ours on LoROM wraps). The last three
+   draw more on SA-1: 5E and 88 have tiles our LoROM capture loses past the end of OAM (5E's nine
+   tiles come out symmetrical; LoROM's stop at seven), and AE (Fishin' Boo) has its flames' flips.
+   On sgdq2024, 106 of 126 sprites placed in seven levels draw. The other 20 are generators and
+   scroll commands, which never capture, and sprites with nothing to draw.
 3. **ExAnimation** (`ExAnimation.ResolveGlobal` runs LM's processor in the CPU).
 4. **sgdq2024 against Lunar Magic**: spot-check levels LM draws, ours beside.
 5. **Saving into an SA-1 hack** is a separate question: a base used as provided, whose patches (an

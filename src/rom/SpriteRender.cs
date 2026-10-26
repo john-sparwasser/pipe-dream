@@ -39,14 +39,16 @@ public static class SpriteRender
         try
         {
             var cpu = new Cpu65816(rom);
-            var r = cpu.Ram7E;
+            cpu.RunAsSa1Cpu();                                         // under the SA-1 Pack sprites are the SA-1's
+            ref byte R(int a) => ref cpu.At(0x7E0000 | a);                       // SMW's RAM, where the pack moved it on SA-1
+            ref byte S(int table, int slot) => ref cpu.Sprite(table, slot);     // a sprite table's slot (22 on SA-1)
             if (Trace) { cpu.BankTrace = LastBanks = new(); cpu.PcHot = LastPcHot = new(); cpu.OamLog = new(); cpu.StatusLog = LastStatusLog = new(); cpu.StepLog = LastStepLog = new(); }
 
             int cx = cellX >= 0 ? cellX : s.AbsoluteX, cy = cellY >= 0 ? cellY : s.Y;
             int wx = cx * 16, wy = cy * 16;
             int bx = Math.Max(0, wx - 0x40), by = Math.Max(0, wy - 0x40);
-            r[0x1A] = (byte)bx; r[0x1B] = (byte)(bx >> 8);            // screen boundary X
-            r[0x1C] = (byte)by; r[0x1D] = (byte)(by >> 8);
+            R(0x1A) = (byte)bx; R(0x1B) = (byte)(bx >> 8);            // screen boundary X
+            R(0x1C) = (byte)by; R(0x1D) = (byte)(by >> 8);
             // Mario far LEFT of the sprite: on the side sprites expect an approaching
             // player (Banzai Bill's init erases itself when Mario is to its right,
             // $01838B) and too far for any contact. Exactly -0x140 because proximity
@@ -54,16 +56,16 @@ public static class SpriteRender
             // -0x140 aliases to -0x40, "near" enough to activate, while the true 16-bit
             // position stays far away.
             int mx = Math.Max(0, wx - 0x140);
-            r[0x94] = (byte)mx; r[0x95] = (byte)(mx >> 8);
-            r[0x96] = (byte)by; r[0x97] = (byte)(by >> 8);
+            R(0x94) = (byte)mx; R(0x95) = (byte)(mx >> 8);
+            R(0x96) = (byte)by; R(0x97) = (byte)(by >> 8);
             // SubHorizPos/SubVertPos ($01AD30/$01AD42) read Mario from the $D1-$D4
             // mirrors, not $94-$97 — unseeded they put Mario at (0,0), which makes
             // proximity gates (e.g. Monty Mole state 0) fail by X-low-byte accident.
-            r[0xD1] = (byte)mx; r[0xD2] = (byte)(mx >> 8);
-            r[0xD3] = (byte)by; r[0xD4] = (byte)(by >> 8);
-            r[0x64] = 0x30;                                            // priority
-            r[0x5B] = (byte)(vertical ? 1 : 0);                        // level orientation
-            r[0x190F] = 0; r[0x9D] = 0;                                // sprites not locked
+            R(0xD1) = (byte)mx; R(0xD2) = (byte)(mx >> 8);
+            R(0xD3) = (byte)by; R(0xD4) = (byte)(by >> 8);
+            R(0x64) = 0x30;                                            // priority
+            R(0x5B) = (byte)(vertical ? 1 : 0);                        // level orientation
+            R(0x190F) = 0; R(0x9D) = 0;                                // sprites not locked
 
             // Solid ground (Map16 $130) a few rows below the sprite, level-wide, plus
             // $5D screens-in-level — the block probe ($019441) treats any position whose
@@ -73,7 +75,7 @@ public static class SpriteRender
             // verified against the probe's pointer tables DATA_00BA60/BA9C (horizontal:
             // screen*$1B0, rows 16+ at +$100) and BA80/BABC (vertical: band*$200, right
             // half at +$100).
-            r[0x5D] = 0x20;
+            R(0x5D) = 0x20;
             int stride = heightRows * 16;                              // a horizontal column's bytes
             int cy2 = wy / 16;
             for (int gy = cy2 + 1; gy <= cy2 + 4; gy++)
@@ -84,7 +86,7 @@ public static class SpriteRender
                     int a = vertical
                         ? 0xC800 + (gy >> 4) * 0x200 + (gy & 15) * 16 + (gx & 15) + (gx >= 16 ? 0x100 : 0)
                         : 0xC800 + (gx >> 4) * stride + gy * 16 + (gx & 15);
-                    if (a >= 0xC800 && a < 0x10000) { r[a] = 0x30; cpu.Ram7F[a] = 0x01; }
+                    if (a >= 0xC800 && a < 0x10000) { R(a) = 0x30; cpu.At(0x7F0000 | a) = 0x01; }
                 }
             }
 
@@ -113,7 +115,7 @@ public static class SpriteRender
             if (s.ExtraBytes is { } eb) foreach (var b in eb) cpu.Ram7F[0x0100 + sl++] = b;
             cpu.Ram7F[0x0100 + sl] = 0xFF;                             // terminator
             if (band != 0) cpu.Ram7F[0x0100 + sl + 1] = 0xFE;
-            r[0xCE] = 0x00; r[0xCF] = 0x01; r[0xD0] = 0x7F;            // stream ptr -> $7F0100
+            R(0xCE) = 0x00; R(0xCF) = 0x01; R(0xD0) = 0x7F;            // stream ptr -> $7F0100
 
             // Enter the loop at the record-spawn BODY ($02A84E: column check → spawned
             // flag / classification, both tool-hijacked in LM ROMs → CreateSprite), with
@@ -129,7 +131,7 @@ public static class SpriteRender
             // init (hooked at $02ACA4) computes at level load. Seed the vanilla height and run
             // that init so the engine sees the level it expects; a vanilla ROM has neither. It
             // uses $00-$0F as scratch, so the column bytes below are set after it.
-            r[0x13D7] = (byte)stride; r[0x13D8] = (byte)(stride >> 8);
+            R(0x13D7) = (byte)stride; R(0x13D8) = (byte)(stride >> 8);
             // ...and the block probe's per-screen pointer tables, which the engine moves from ROM
             // ($00BA60/$00BA9C) into RAM ($0CB6 low bytes, $0CD6 high) and block B fills at level
             // load: one column stride per screen from $C800 (vanilla's own numbers at 0x1B0).
@@ -137,25 +139,28 @@ public static class SpriteRender
             {
                 int p = 0xC800 + sc * stride;
                 if (p > 0xFFFF) break;
-                r[0x0CB6 + sc] = (byte)p; r[0x0CD6 + sc] = (byte)(p >> 8);
+                R(0x0CB6 + sc) = (byte)p; R(0x0CD6 + sc) = (byte)(p >> 8);
             }
             cpu.PresetDbr(2);
             if (rom.ReadByte(0x02ACA4) == 0x22)
                 try { cpu.CallLong(rom.ReadValue(0x02ACA5, 3), 400_000); } catch (InvalidOperationException) { }
-            r[0x00] = (byte)((vertical ? wy : wx) & 0xF0);
-            r[0x01] = (byte)((vertical ? wy : wx) >> 8);
-            r[0x0A] = (byte)(band * 2);                                // LM's band, after the init's scratch use
-            r[0x13] = 0;
+            R(0x00) = (byte)((vertical ? wy : wx) & 0xF0);
+            R(0x01) = (byte)((vertical ? wy : wx) >> 8);
+            R(0x0A) = (byte)(band * 2);                                // LM's band, after the init's scratch use
+            R(0x13) = 0;
+            // The SA-1 Pack runs the whole loader with 16-bit X and Y (boost/sprite_load.asm: REP #$10
+            // at $02A82A, the loop head we skip), and its hooks and LM's SA-1 walker are written for it.
+            if (rom.Map is Sa1Map) cpu.PresetWidths(m8: true, x8: false);
             try { cpu.PresetX(0); cpu.PresetY(rec + 1); cpu.CallNear(0x02A84E, 400_000); }
             catch (InvalidOperationException) { }
             cpu.PresetDbr(1);                                          // sprite engine runs with DBR=1
-            if (Trace) LastSlots = r.AsSpan(0x14C8, 12).ToArray();
+            if (Trace) LastSlots = [.. Enumerable.Range(0, cpu.SpriteSlots).Select(i => cpu.Sprite(0x14C8, i))];
             int slot = -1;
-            for (int i = 0; i < 12; i++)
-                if (r[0x14C8 + i] != 0) { slot = i; break; }
+            for (int i = 0; i < cpu.SpriteSlots; i++)
+                if (S(0x14C8, i) != 0) { slot = i; break; }
             if (slot < 0) return null;                                 // loader rejected the record
-            r[0x15E9] = (byte)slot;                                    // current-slot mirror (LDX $15E9 users)
-            LastClip1662 = r[0x1662 + slot];                           // clipping tweaker, for hitbox derivation
+            R(0x15E9) = (byte)slot;                                    // current-slot mirror (LDX $15E9 users)
+            LastClip1662 = S(0x1662, slot);                           // clipping tweaker, for hitbox derivation
 
             // Run frames through HandleSprite ($018127): it dispatches on status $14C8 —
             // 1 → CallSpriteInit, 8 → CallSpriteMain, 9/A/B → the stunned/kicked/carried
@@ -177,13 +182,23 @@ public static class SpriteRender
             List<Oam>? last = null;
             for (int frame = 0; frame < 11; frame++)
             {
-                for (int i = 0; i < 0x200; i += 4) r[0x201 + i] = 0xF0;   // OAM Y offscreen
-                r[0x13]++; r[0x14]++;                                      // frame counters
-                r[0xE4 + slot] = (byte)wx; r[0x14E0 + slot] = (byte)(wx >> 8);
-                r[0xD8 + slot] = (byte)wy; r[0x14D4 + slot] = (byte)(wy >> 8);
-                r[0x157C + slot] = 1;                                      // face left
-                r[0x15A0 + slot] = 0;                                      // "offscreen" flag — spawn sets it 1;
+                for (int i = 0; i < 0x200; i += 4) R(0x201 + i) = 0xF0;   // OAM Y offscreen
+                R(0x13)++; R(0x14)++;                                      // frame counters
+                S(0xE4, slot) = (byte)wx; S(0x14E0, slot) = (byte)(wx >> 8);
+                S(0xD8, slot) = (byte)wy; S(0x14D4, slot) = (byte)(wy >> 8);
+                S(0x157C, slot) = 1;                                      // face left
+                S(0x15A0, slot) = 0;                                      // "offscreen" flag — spawn sets it 1;
                                                                            // nothing in our 2-call frame recomputes it
+                if (rom.Map is Sa1Map)
+                {
+                    // What the pack's sprite loop does before $0180D2 (more_sprites.asm SPRITE_MAIN_HACK,
+                    // at $0180A9): three direct-page pointers to the slot's number, Y and X low bytes,
+                    // which its code reads through, and the number cached at $87.
+                    void Pointer(int dp, int table) { int a = Sa1Remap.SpriteTableBases[table] + slot; R(dp) = (byte)a; R(dp + 1) = (byte)(a >> 8); }
+                    Pointer(0xB4, 0x9E); Pointer(0xCC, 0xD8); Pointer(0xEE, 0xE4);
+                    R(0x87) = S(0x9E, slot);
+                    cpu.PresetWidths(m8: true, x8: true);                  // the loop's SEP #$30: a frame may end 16-bit
+                }
                 // A frame stuck in a wait loop (e.g. fireball init spinning on state we
                 // don't emulate) overruns the budget; later frames still draw fine.
                 try { cpu.PresetX(slot); cpu.CallNear(0x0180D2, 400_000); }
@@ -193,16 +208,16 @@ public static class SpriteRender
                 var list = new List<Oam>();
                 for (int i = 0; i < 0x80; i++)
                 {
-                    int y = r[0x201 + i * 4];
+                    int y = R(0x201 + i * 4);
                     if (y >= 0xE0) continue;
-                    int sz = r[0x420 + i];
-                    int x = r[0x200 + i * 4] - ((sz & 1) << 8);
-                    int tile = r[0x202 + i * 4], attr = r[0x203 + i * 4];
+                    int sz = R(0x420 + i);
+                    int x = R(0x200 + i * 4) - ((sz & 1) << 8);
+                    int tile = R(0x202 + i * 4), attr = R(0x203 + i * 4);
                     list.Add(new Oam(x + bx, y + by, tile | ((attr & 1) << 8), attr, (sz & 2) != 0));
                 }
                 if (list.Count is > 0 and < 40) last = list;
             }
-            if (Trace) { LastOamWrites = cpu.OamLog?.Count ?? 0; LastStatus = r[0x14C8 + slot]; }
+            if (Trace) { LastOamWrites = cpu.OamLog?.Count ?? 0; LastStatus = S(0x14C8, slot); }
             return last;
         }
         catch { return null; }
