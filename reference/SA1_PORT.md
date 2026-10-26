@@ -671,5 +671,22 @@ Steps:
    slot's tile count. Speed is unchanged: `PerfProbeTests` against the commit before step 1, three
    runs each, within 2%.
 4. **sgdq2024 against Lunar Magic**: spot-check levels LM draws, ours beside.
+
+   **Done (2026-10-26).** LM's *File ▸ Levels ▸ Export Multiple Levels to Image Files* (command
+   9148; *Export Level to Image File* is 9149, after *Open Level Number*, 9102) wrote the 12 levels
+   the hack's author saved (0C5, 0C7, 105, 10E, 112, 118-11A, 120-123), and `--render … --l3` drew
+   ours. LM writes a colour as `c<<3` and we write `c<<3 | c>>2`, so they are compared on the 5-bit
+   values; LM also draws 10E at half brightness (its colour math), compared as such. Over LM's
+   width, 0.1% to 2.8% of pixels differ in eleven levels and 7.2% in 118. Every difference was
+   looked at, and none is SA-1's:
+   - LM's own drawing: entrance and sprite labels, its sprite pictures, and an animated colour on
+     another frame (the coins in 11A).
+   - **118's layer 3** (mode 2, option 3 "Tileset specific", tileset 1): LM draws castle bricks and
+     windows, ours the cage with Koopa statues. Vanilla 1CF on the clean ROM does the same, so it is
+     `Layer3.Tilemap` ignoring the tileset on LoROM too.
+   - **11A's pipe** (tile 0x133, tileset 3): LM draws it orange (palette 3, the defs at `$0D8AB0`),
+     ours green (palette 5, `$0D84E0`). Vanilla 11A on the clean ROM does the same.
+
+   Both are LoROM questions for later, with vanilla as the case.
 5. **Saving into an SA-1 hack** is a separate question: a base used as provided, whose patches (an
    installed PIXI, say) may clash with our drivers, as on a LoROM hack. Not in this plan.
