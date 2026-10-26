@@ -58,9 +58,11 @@ public sealed partial class EditorSession
     }
 
     /// <summary>One Map16 tile's 16x16 pixels in the open level's graphics (first phase), or null
-    /// with no level open or no such tile.</summary>
+    /// with no level open or no such tile. Premultiplied, as a bitmap takes them: an invisible POW tile's ghost
+    /// (Map16.GhostAlpha) comes out see-through.</summary>
     public uint[]? Map16TilePixels(int tile)
-        => Scene?.TileCaches[0] is { } c && tile >= 0 && tile < c.Length ? c[tile] : null;
+        => Scene?.TileCaches[0] is { } c && tile >= 0 && tile < c.Length && c[tile] is { } px
+            ? [.. px.Select(p => PipeDream.Map16.Over(0, p))] : null;
 
     /// <summary>The empty-page tile per phase, for the picker to tile over unallocated pages.</summary>
     public uint[]?[] PlaceholderPhases()

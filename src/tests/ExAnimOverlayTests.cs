@@ -85,4 +85,29 @@ public class ExAnimOverlayTests(ITestOutputHelper log) : IDisposable
         var pal = Palette.Load(rom, LevelParser.Parse(rom, 0x105).Header, 0x105);
         Assert.Equal(rom.ReadValue(0x00B60C + 2, 2), pal.Bgr[0x64]);   // the glint at frame 4: the cycle's second word
     }
+
+    /// <summary>
+    /// The coin, door and ? block a blue POW brings out are blank 8x8s until it does (`$05:BB74` swaps to the frames $26
+    /// ids on), so 014's room of coins was empty here. Lunar Magic draws what they show then at half strength; the coins
+    /// that turn into blocks show something either way and are drawn as they are.
+    /// </summary>
+    [Fact]
+    public void an_invisible_pow_coin_is_drawn_at_half_strength()
+    {
+        Assert.Equal(0xFF7B7B7Bu, Map16.Over(0xFF000000, Map16.GhostAlpha | 0xFFFFFF));
+        Assert.Equal(0xFFFFFFFFu, Map16.Over(0xFF000000, 0xFFFFFFFF));
+        Assert.Equal(0x807B7B7Bu, Map16.Over(0, Map16.GhostAlpha | 0xFFFFFF));          // premultiplied, alone
+        if (!File.Exists(Vanilla)) return;
+        var rom = Rom.Load(Vanilla);
+        var h = LevelParser.Parse(rom, 0x014).Header;
+        var fg = Gfx.FgTiles.Load(rom, h.Tileset, 0x014);
+        Assert.All(fg.Fetch(0x54), p => Assert.Equal(0, p));                   // the POW coin: blank
+        Assert.Contains(fg.Ghost(0x54)!, p => p != 0);                         // ... with the coin it becomes
+        Assert.NotNull(fg.Ghost(0x50));                                        // the POW door
+        Assert.NotNull(fg.Ghost(0x78));                                        // the POW ? block
+        Assert.Null(fg.Ghost(0x6C));                                           // the coin that turns into a block
+        var cache = Map16.ComposeAll(rom, h, fg, Palette.Load(rom, h, 0x014));
+        Assert.Contains(cache[0x2A], c => c >> 24 == 0x80);
+        Assert.DoesNotContain(cache[0x2B], c => c >> 24 == 0x80);
+    }
 }

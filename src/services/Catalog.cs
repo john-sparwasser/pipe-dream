@@ -159,7 +159,7 @@ public static class Catalog
                         if (c == 0) continue;
                         int dx = ox + (int)(((cx - minX) * 16 + px) * scale);
                         int dy = oy + (int)(((cy - minY) * 16 + py) * scale);
-                        if (dx >= 0 && dx < cell && dy >= 0 && dy < cell) img[dy * cell + dx] = c;
+                        if (dx >= 0 && dx < cell && dy >= 0 && dy < cell) img[dy * cell + dx] = Map16.Over(img[dy * cell + dx], c);
                     }
             }
             items.Add(new CatalogItem

@@ -460,7 +460,9 @@ public sealed class LevelScene
             for (int x = 0; x < 16; x++)
             {
                 uint c = tile[y * 16 + x];
-                if (c != 0) img[(py + y) * Width + px + x] = half ? Map16.Half(c) : c;
+                if (c == 0) continue;
+                int i = (py + y) * Width + px + x;
+                img[i] = Map16.Over(img[i], half ? Map16.Half(c) : c);
             }
     }
 }

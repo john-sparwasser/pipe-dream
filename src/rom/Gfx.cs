@@ -218,6 +218,17 @@ public static class Gfx
         // then BG2=w3, BG3=w2 (pages 4-5). CONTRACT §7d.
         private static readonly int[] BypassSlotWord = [7, 6, 5, 4, 3, 2];
 
+        /// <summary>How far on in `$05B999`'s list a POW-dependent id's frames are while its POW runs: `$05:BB74`
+        /// adds $26 to the id when the timer `$14AD,X` (X from `$05B97D`) is set.</summary>
+        private const int PowOnIds = 0x26;
+
+        // 8x8 tiles that are blank until a POW is hit, with what they show then (AddPowGhosts).
+        private readonly Dictionary<int, byte[]> ghosts = [];
+
+        /// <summary>What an invisible POW tile shows while its POW runs, or null for every other tile — the picture
+        /// Lunar Magic draws at half strength over a blank 8x8.</summary>
+        public byte[]? Ghost(int tileNum) => ghosts.GetValueOrDefault(tileNum & 0x3FF);
+
         /// <summary>The game's frame counter ($14) at the still Lunar Magic draws: animation phase p is this plus 8p.
         /// Measured by rendering every vanilla level at each of the 32 counters a cycle has: 12 matched best, by far
         /// (sum of differences over a 22-level sample 43.4 against 67.7 for the stepless phase 0; all 488: mean 1.87% →
@@ -271,19 +282,31 @@ public static class Gfx
             int an2File = byp is not null && (byp[0] & 0xFFF) != 0x7F ? byp[0] & 0xFFF : -1;
             byte[]? an2Data = an2File >= 0 ? Cached(rom, an2File) : null;
             int a2bpp = an2File >= 0 ? FileBpp(rom, an2File) : 4, a2tb = TileBytes(a2bpp);
+            byte[]? Source(int srcAddr) =>
+                srcAddr >= 0xAD00 && an2Data is not null
+                        && (srcAddr - 0xAD00) / 0x20 * a2tb + a2tb <= an2Data.Length
+                    ? DecodeTile(an2Data, (srcAddr - 0xAD00) / 0x20 * a2tb, a2bpp)
+                : srcAddr >= 0x7D00 && (srcAddr - 0x7D00) / 0x20 * a1tb + a1tb <= anim1.Length
+                    ? DecodeTile(anim1, (srcAddr - 0x7D00) / 0x20 * a1tb, a1bpp)
+                : srcAddr >= 0x2000 && srcAddr - 0x2000 + 0x20 <= anim2.Length
+                    ? DecodeTile(anim2, srcAddr - 0x2000, 4)
+                : null;
+
             void Overlay(int vramTile, int srcAddr)
             {
-                byte[]? px =
-                    srcAddr >= 0xAD00 && an2Data is not null
-                            && (srcAddr - 0xAD00) / 0x20 * a2tb + a2tb <= an2Data.Length
-                        ? DecodeTile(an2Data, (srcAddr - 0xAD00) / 0x20 * a2tb, a2bpp)
-                    : srcAddr >= 0x7D00 && (srcAddr - 0x7D00) / 0x20 * a1tb + a1tb <= anim1.Length
-                        ? DecodeTile(anim1, (srcAddr - 0x7D00) / 0x20 * a1tb, a1bpp)
-                    : srcAddr >= 0x2000 && srcAddr - 0x2000 + 0x20 <= anim2.Length
-                        ? DecodeTile(anim2, srcAddr - 0x2000, 4)
-                    : null;
-                if (px is null) return;
-                OverlayPx(vramTile, px);
+                if (Source(srcAddr) is { } px) OverlayPx(vramTile, px);
+            }
+
+            // A POW-dependent id that shows nothing until a POW is hit — the coin, door and ? block that appear then —
+            // keeps the frame it shows then as a ghost of its four tiles, which Lunar Magic draws at half strength
+            // (its View ▸ Invisible POW Objects). The ids that show something either way (coins that turn into blocks)
+            // draw as they are.
+            void AddPowGhosts(int vramTile, int offAddr, int onAddr)
+            {
+                for (int k = 0; k < 4; k++)
+                    if (Source(offAddr + k * 0x20) is { } off && off.Any(p => p != 0)) return;
+                for (int k = 0; k < 4; k++)
+                    if (Source(onAddr + k * 0x20) is { } on && on.Any(p => p != 0)) ghosts[vramTile + k] = on;
             }
 
             void OverlayPx(int vramTile, byte[] px)
@@ -291,6 +314,7 @@ public static class Gfx
                 // The FG sheet is tiles 000-3FF; a sprite (400-5FF) or layer-3 (1C00+) dest
                 // must not wrap onto an FG page through the &7 below.
                 if (vramTile is < 0 or >= 0x400) return;
+                if (px.Any(p => p != 0)) ghosts.Remove(vramTile);    // an ExAnimation drawing there: not invisible
                 int s = (vramTile >> 7) & 7, t = vramTile & 0x7F;
                 if (slots[s] is { } arr && t < arr.Length) slots[s][t] = px;
             }
@@ -304,6 +328,9 @@ public static class Gfx
                 if (behavior >= 2) animId += rom.ReadByte(0x05B98B + (tileset & 0x0F));
                 // behavior 1 = POW-dependent: editor shows the inactive state (id unchanged)
                 int srcAddr = rom.ReadValue(0x05B999 + animId * 8 + StepAt(id, phase) * 2, 2);
+                // The ghost stands still on its first step, face on, as Lunar Magic draws it.
+                if (behavior == 1 && dest != 0x800) AddPowGhosts(dest / 16, srcAddr,
+                    rom.ReadValue(0x05B999 + (id + PowOnIds) * 8, 2));
                 if (dest == 0x800)
                 {
                     // Berry slot ($00A3DA split): tiles 80/81 then 90/91. The 4 phase

@@ -75,9 +75,9 @@ public static class Map16
         // 0x200, + LM extended pages (§7a) up to the highest range; a tile in a hole stays null.
         var tiles = new uint[rom.Map16TileEnd][];
         for (int t = 0; t < FgTiles; t++)
-            tiles[t] = Compose(Or(Definition(rom, defPtr, t), wordOr), fg.Fetch, pal);
+            tiles[t] = Compose(Or(Definition(rom, defPtr, t), wordOr), fg.Fetch, pal, fg.Ghost);
         for (int t = FgTiles; t < tiles.Length; t++)
-            if (rom.HasMap16Def(t)) tiles[t] = Compose(Or(LmExtendedDef(rom, t), wordOr), fg.Fetch, pal);
+            if (rom.HasMap16Def(t)) tiles[t] = Compose(Or(LmExtendedDef(rom, t), wordOr), fg.Fetch, pal, fg.Ghost);
         return tiles;
     }
 
@@ -103,7 +103,7 @@ public static class Map16
         foreach (int t in tiles)
             if (t >= 0 && t < cache.Length)
                 cache[t] = !rom.HasMap16Def(t) ? null!
-                         : Compose(t < FgTiles ? Definition(rom, defPtr, t) : LmExtendedDef(rom, t), fg.Fetch, pal);
+                         : Compose(t < FgTiles ? Definition(rom, defPtr, t) : LmExtendedDef(rom, t), fg.Fetch, pal, fg.Ghost);
     }
 
     /// <summary>Compose the 0x200 BG Map16 tiles (defs at fixed $0D9100 + idx*8, CONTRACT §10).</summary>
@@ -323,7 +323,8 @@ public static class Map16
                     {
                         uint c = tile is null ? 0xFFFF00FFu : tile[y * 16 + x];
                         if (c == 0) continue;                   // transparent → keep what's behind
-                        img[(cy * 16 + y) * W + (cx * 16 + x)] = half ? Half(c) : c;
+                        int i = (cy * 16 + y) * W + (cx * 16 + x);
+                        img[i] = Over(img[i], half ? Half(c) : c);
                     }
             }
     }
@@ -404,7 +405,7 @@ public static class Map16
                 for (int x = 0; x < 16; x++)
                 {
                     uint c = img[y * 16 + x];
-                    sheet[(oy + y) * w + (ox + x)] = c == 0 ? 0xFF303030u : c;
+                    sheet[(oy + y) * w + (ox + x)] = c == 0 ? 0xFF303030u : Over(0xFF303030u, c);
                 }
         }
         return (sheet, w, ht);
@@ -425,7 +426,7 @@ public static class Map16
                 for (int x = 0; x < 16; x++)
                 {
                     uint c = img[y * 16 + x];
-                    sheet[(oy + y) * w + (ox + x)] = c == 0 ? 0xFF303030u : c;   // grey = transparent
+                    sheet[(oy + y) * w + (ox + x)] = c == 0 ? 0xFF303030u : Over(0xFF303030u, c);   // grey = transparent
                 }
         }
         return (sheet, w, ht);
@@ -485,7 +486,9 @@ public static class Map16
     /// palette-index pixels of an 8×8 VRAM tile by number; <paramref name="pal"/> is the level
     /// palette. Applies each quadrant word's palette row and H/V flip.
     /// </summary>
-    public static uint[] Compose(Word[] words, Func<int, byte[]> fetch8, Palette pal)
+    /// <param name="ghost8">An 8x8's ghost (Gfx.FgTiles.Ghost): drawn as <see cref="GhostAlpha"/> pixels, which
+    /// <see cref="Over"/> lays at half strength.</param>
+    public static uint[] Compose(Word[] words, Func<int, byte[]> fetch8, Palette pal, Func<int, byte[]?>? ghost8 = null)
     {
         var img = new uint[16 * 16];
         // quadrant screen offsets, matching word order TL, BL, TR, BR
@@ -493,7 +496,9 @@ public static class Map16
         for (int i = 0; i < 4; i++)
         {
             var w = words[i];
-            var src = fetch8(w.Tile);
+            var ghost = ghost8?.Invoke(w.Tile);
+            var src = ghost ?? fetch8(w.Tile);
+            uint alpha = ghost is null ? 0xFF000000u : GhostAlpha;
             int baseColor = w.Palette * 16;
             for (int y = 0; y < 8; y++)
                 for (int x = 0; x < 8; x++)
@@ -501,10 +506,31 @@ public static class Map16
                     int sx = w.FlipX ? 7 - x : x;
                     int sy = w.FlipY ? 7 - y : y;
                     int idx = src[sy * 8 + sx];
-                    uint rgba = idx == 0 ? 0u : pal.Rgba[baseColor + idx]; // color 0 transparent
+                    uint rgba = idx == 0 ? 0u : pal.Rgba[baseColor + idx] & 0xFFFFFF | alpha; // color 0 transparent
                     img[(q[i].oy + y) * 16 + (q[i].ox + x)] = rgba;
                 }
         }
         return img;
+    }
+
+    /// <summary>The alpha of a ghost pixel: an invisible POW tile's coin, door or ? block, as Lunar Magic draws it.</summary>
+    public const uint GhostAlpha = 0x80000000;
+
+    /// <summary>
+    /// A tile pixel laid over what is there: an opaque one covers it; a ghost (<see cref="GhostAlpha"/>) is averaged with
+    /// it, channel by channel, which is how Lunar Magic shows the coins and blocks a blue POW brings out (014's room of
+    /// coins). Transparent pixels are the caller's to skip; over a transparent one — a thumbnail's empty corner — a ghost
+    /// stays see-through, premultiplied as the bitmaps take it.
+    /// </summary>
+    public static uint Over(uint under, uint c)
+    {
+        if (c >> 24 != GhostAlpha >> 24) return c;
+        uint o = under == 0 ? GhostAlpha : 0xFF000000;
+        for (int s = 0; s <= 16; s += 8)
+        {
+            uint v = ((under >> s & 0xFF) >> 3) + ((c >> s & 0xFF) >> 3) >> 1;    // on the 5-bit channels, as LM averages
+            o |= (v << 3 | v >> 2) << s;
+        }
+        return o;
     }
 }
