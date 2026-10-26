@@ -210,20 +210,25 @@ public static class Map16
     /// own mode-0 value ($24) does NOT set it, so an ordinary level's layer 3 comes out bright.</param>
     /// <param name="ox">Layer 3's own scroll, in pixels: the console shows tilemap pixel
     /// x + $22 at screen x, so a positive offset moves the picture LEFT. Same for
-    /// <paramref name="oy"/> and $24. This is where the level's Initial X/Y Position lands.</param>
+    /// <paramref name="oy"/> and $24. This is where the level's Initial X/Y Position lands. Rows a negative
+    /// <paramref name="oy"/> puts above the tilemap's top stay empty rather than wrapping round, as Lunar Magic draws a
+    /// tide: nothing above the level's water.</param>
     public static void DrawLayer3(uint[] img, int W, int H, uint[] l3, int l3W, int l3H,
                                   bool blend = false, bool half = false, int ox = 0, int oy = 0)
     {
         if (l3W <= 0 || l3H <= 0) return;
         ox = ((ox % l3W) + l3W) % l3W;                  // negative offsets wrap the other way
-        oy = ((oy % l3H) + l3H) % l3H;
         for (int y = 0; y < H; y++)
+        {
+            if (y + oy < 0) continue;
+            int row = (y + oy) % l3H;
             for (int x = 0; x < W; x++)
             {
-                uint c = l3[((y + oy) % l3H) * l3W + (x + ox) % l3W];
+                uint c = l3[row * l3W + (x + ox) % l3W];
                 if (c == 0) continue;               // colour 0 is transparent on BG3
                 img[y * W + x] = blend ? Add(img[y * W + x], c, half) : c;
             }
+        }
     }
 
     /// <summary>Two colours added channel by channel, saturating — or halved first, which is
@@ -264,7 +269,7 @@ public static class Map16
     /// math has them blend with what they meet rather than cover it.
     /// </summary>
     public readonly record struct Layer3Draw(uint[] Back, uint[]? Front, int W, int H,
-                                             Layer3.Screens Screens, int OffX = 0, int OffY = 0);
+                                             Layer3.Screens Screens, int OffX = 0, int OffY = 0, bool FrontBlend = false);
 
     /// <summary>Compose a level canvas from precomputed caches (fast; for live edits).</summary>
     public static (uint[] px, int w, int h) ComposeLevel(uint[][] cache, uint backdrop, Map16Grid grid,
@@ -293,16 +298,19 @@ public static class Map16
         // Layer 3 sits BEHIND layer 2 and layer 1, which is the whole reason a preview has to go
         // through the compose rather than being painted over the finished canvas. Its priority
         // cells are the exception, and only when the header sets mode 1's BG3-priority bit: then
-        // they come out on top of everything instead.
-        void L3(uint[] px, Layer3Draw d)
-            => DrawLayer3(img, W, H, px, d.W, d.H, d.Screens.Blend, d.Screens.Half, d.OffX, d.OffY);
+        // they come out on top of everything instead — solid, as Lunar Magic draws them: a tide's water is its own
+        // colour there (0C1, 002), where adding it to what is under it washed the level out. LM's CGADSUB box, ticked,
+        // blends them (FrontBlend), which is what its help says the box is for.
+        void L3(uint[] px, Layer3Draw d, bool blend)
+            => DrawLayer3(img, W, H, px, d.W, d.H, blend, d.Screens.Half, d.OffX, d.OffY);
 
-        if (layer3 is { Screens.AboveBg2: false } under) L3(under.Back, under);
+        if (layer3 is { Screens.AboveBg2: false } under) L3(under.Back, under, under.Screens.Blend);
         if (bgImg is not null && bgCache is not null) DrawBgImage(img, W, H, grid.Width, bgImg, bgCache, bgPeriod, halfL2);
         else if (l2 is not null) DrawGrid(img, W, H, l2, cache, halfL2);
-        if (layer3 is { Screens.AboveBg2: true } over) L3(over.Back, over);
+        if (layer3 is { Screens.AboveBg2: true, Screens.AboveBg1: false } over) L3(over.Back, over, over.Screens.Blend);
         DrawGrid(img, W, H, grid, cache);
-        if (layer3 is { Front: { } fp } front) L3(fp, front);
+        if (layer3 is { Screens.AboveBg1: true } top) L3(top.Back, top, top.Screens.Blend);
+        if (layer3 is { Front: { } fp } front) L3(fp, front, front.FrontBlend && front.Screens.Blend);
         return img;
     }
 

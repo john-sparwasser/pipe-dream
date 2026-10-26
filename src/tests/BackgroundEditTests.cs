@@ -186,7 +186,7 @@ public class BackgroundEditTests(ITestOutputHelper log)
     public void editing_a_shared_layer_3_gives_this_level_a_tilemap_of_its_own()
     {
         if (Open(0x009) is not { Layer3Map: { } map } s) return;
-        Assert.False(s.Layer3TilemapImported);          // still on vanilla's (mode, option) pick
+        Assert.False(s.Layer3TilemapImported);          // still on vanilla's (tileset, option) pick
 
         // Somewhere the vanilla map never wrote, so the change is unambiguous.
         Assert.Equal(-1, map.At(60, 60));
@@ -198,10 +198,10 @@ public class BackgroundEditTests(ITestOutputHelper log)
         int at = Layer3.CellIndex(60, 60) * 2;
         Assert.Equal((2 << 10) | 0x41, raw[at] | (raw[at + 1] << 8));
 
-        // Level 01A is mode 2 option 3 as well, so vanilla hands both levels the SAME tilemap.
+        // Level 115 is tileset 3 option 3 as well, so vanilla hands both levels the SAME tilemap.
         // It must be untouched — that is the whole reason the edit forks a copy.
-        Assert.False(s.Rom.Layer3Tilemaps.ContainsKey(0x01A));
-        Assert.Equal(-1, Layer3.LevelTilemap(s.Rom, 0x01A, 2, 3)![Layer3.CellIndex(60, 60)]);
+        Assert.False(s.Rom.Layer3Tilemaps.ContainsKey(0x115));
+        Assert.Equal(-1, Layer3.LevelTilemap(s.Rom, 0x115, 3, 3)![Layer3.CellIndex(60, 60)]);
     }
 
     /// <summary>Words the vanilla script never wrote stay unwritten through a save: a flat file

@@ -1231,13 +1231,24 @@ LG1-LG4 fill exactly the **512 2bpp tiles** a tilemap word can name. A layer 3 i
 **512×512 pixels** — which is also where the ExAnimation destination range `1C00-1DFF` comes
 from (§12e) and why LM's tilemap-bypass file size defaults to `0x2000` = 64×64 words.
 
-**The tilemap is picked by (level mode, option), and it is a stripe image**  [CONFIRMED].
-`CODE_009FB8` computes `index = $1931*3 + ($1BE3-1)` — level mode by three, plus the Layer 3
-Options value below, which is why option 0 means no layer 3 at all. That index reads the
+**The tilemap is picked by (tileset, option), and it is a stripe image**  [CONFIRMED].
+`CODE_009FB8` computes `index = $1931*3 + ($1BE3-1)` — the TILESET by three (`$1931`; this
+entry once called it the level mode, which `$1925` is, and the editor drew the cage over castle
+and cave levels until a comparison with Lunar Magic caught it), plus the Layer 3 Options value
+below, which is why option 0 means no layer 3 at all. That index reads the
 3-byte `Layer3Ptr` at **`$059000`** (not `$058FFD`), and `$00A02F` hands the block to the
 **stripe-image uploader `$00871E`**. The table is exactly **45 entries** — it ends where the
-first tilemap block `DATA_059087` begins, so it covers level modes 0-14 only. Vanilla has six
+first tilemap block `DATA_059087` begins, so it covers tilesets 0-14. Vanilla has six
 distinct blocks in `$059087-$05A221`, default `$059549`.
+
+**Where it starts: the byte beside each pick, `$009F88`** (same index). A positive byte is a tide
+(`STA $1403`) and sets `$24` to `$70` (01, high and low tides) or `$40` (02, low tide only). A
+negative one: bit 6, or `$80` alone (which also copies a palette from `$00B66C`), sets `$D0`;
+anything else sets `$C0` on tilesets 1 and 3 (with `$22 = $1A/2`) and leaves `$24` alone on the
+rest. Vanilla's bytes: every tileset `01 02` for options 1-2 except tileset 1's `01 80` (the
+smasher); option 3 is `C0` on tilesets 0/2/7/8, `81` on 1/3/5/6/9/13/14, `80` on 4/10/11/12.
+`Layer3.InitialY` reads it. Against the camera a horizontal level opens on (`$1C = $C0`) a low tide
+sits 128 pixels below the tilemap's top, which is where Lunar Magic draws it.
 
 Stripe-image entry, 4 bytes then data — the format `$00871E` consumes:
 

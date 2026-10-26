@@ -404,7 +404,7 @@ static class DebugCommands
                     // 2bpp, so a group is four CGRAM entries — this is how "which groups are
                     // valid for layer 3" gets answered from the game's own maps rather than from
                     // the palette loader alone.
-                    string pals = Layer3.Tilemap(rom, mode, o) is { } m
+                    string pals = Layer3.Tilemap(rom, LevelParser.Parse(rom, lv).Header.Tileset, o) is { } m
                         ? "  pal " + string.Join(" ", m.Where(v => v >= 0).GroupBy(Layer3.PaletteOf)
                               .OrderBy(g => g.Key).Select(g => $"{g.Key}x{g.Count()}"))
                         : "  (no tilemap)";
@@ -430,7 +430,7 @@ static class DebugCommands
         Console.WriteLine($"  LG1-4 = {string.Join(" ", files.Select(f => $"{f:X2}"))}"
                         + (rom.LmLayer3Gfx(level) is null ? "  (vanilla)" : "  (LM bypass, record w0 bit 14)"));
         // A BUILT rom carries its custom tilemap as an ordinary GFX file named by the record, so
-        // reading vanilla's (mode, option) pick here would show the picture the game replaced.
+        // reading vanilla's (tileset, option) pick here would show the picture the game replaced.
         int[]? map = null;
         if (rom.LmLayer3Tilemap(level) is { } lt3 && Gfx.Cached(rom, lt3.File) is { } lt3Bytes)
         {
@@ -439,7 +439,7 @@ static class DebugCommands
                             + $"size 0x{Layer3.TilemapSizes[lt3.Size]:X}, file is 0x{lt3Bytes.Length:X} bytes");
             map = Layer3.FromBytes(lt3Bytes);
         }
-        map ??= Layer3.Tilemap(rom, header.LevelMode, option);
+        map ??= Layer3.Tilemap(rom, header.Tileset, option);
         if (map is null)
         {
             Console.WriteLine("no layer 3 in this level");

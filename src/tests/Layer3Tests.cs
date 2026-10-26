@@ -105,13 +105,35 @@ public class Layer3Tests(ITestOutputHelper log)
     }
 
     [Fact]
-    public void option_zero_has_no_tilemap_and_neither_does_a_mode_past_the_pointer_table()
+    public void option_zero_has_no_tilemap_and_neither_does_a_tileset_past_the_pointer_table()
     {
         if (Open() is not { } rom) return;
-        Assert.Null(Layer3.Tilemap(rom, levelMode: 0, option: 0));
-        // Layer3Ptr ends where the first tilemap block starts: 15 modes, 3 options each.
-        Assert.Null(Layer3.Tilemap(rom, levelMode: 15, option: 1));
-        Assert.NotNull(Layer3.Tilemap(rom, levelMode: 14, option: 3));
+        Assert.Null(Layer3.Tilemap(rom, tileset: 0, option: 0));
+        // Layer3Ptr ends where the first tilemap block starts: 15 tilesets, 3 options each.
+        Assert.Null(Layer3.Tilemap(rom, tileset: 15, option: 1));
+        Assert.NotNull(Layer3.Tilemap(rom, tileset: 14, option: 3));
+    }
+
+    /// <summary>
+    /// The game picks layer 3 by TILESET ($1931*3 + option-1 at $009FC7), and the byte beside each pick at $009F88 says
+    /// where it starts ($24). Indexed by level mode, 1CF (mode 2, tileset 1) drew the cage with Koopa statues where the
+    /// game and Lunar Magic draw castle windows; and with $24 ignored a tide sat 128 pixels up the level.
+    /// </summary>
+    [Fact]
+    public void layer_3_is_picked_by_tileset_and_starts_where_the_game_starts_it()
+    {
+        if (Open() is not { } rom) return;
+        Assert.Equal(1, LevelParser.Parse(rom, 0x1CF).Header.Tileset);
+        Assert.Equal(Layer3.Tilemap(rom, 1, 3), Layer3.LevelTilemap(rom, 0x1CF, 1, 3));
+
+        Assert.Equal(0x70, Layer3.InitialY(rom, 0, 1));          // high and low tides
+        Assert.Equal(0x40, Layer3.InitialY(rom, 0, 2));          // low tide only
+        Assert.Equal(0xD0, Layer3.InitialY(rom, 1, 2));          // tileset 1's option 2: the smasher ($80)
+        Assert.Equal(0xC0, Layer3.InitialY(rom, 1, 3));          // the castle windows ($81, tileset 1)
+        Assert.Null(Layer3.InitialY(rom, 9, 3));                 // $81 elsewhere: $24 left alone
+        // Lunar Magic draws the high-and-low tide at its high point (measured on 127).
+        Assert.Equal(0xA0, Layer3.PreviewY(rom, 0, 1));
+        Assert.Equal(0x40, Layer3.PreviewY(rom, 0, 2));
     }
 
     [Fact]
@@ -124,11 +146,11 @@ public class Layer3Tests(ITestOutputHelper log)
             int option = Layer3.Option(rom, level);
             if (option == 0) continue;
             found++;
-            int mode = LevelParser.Parse(rom, level).Header.LevelMode;
-            var map = Layer3.Tilemap(rom, mode, option);
-            Assert.True(map is not null, $"level {level:X3} (mode {mode}, option {option}) has no tilemap");
-            Assert.True(map!.Count(w => w >= 0) > 0x100,
-                        $"level {level:X3} wrote only {map.Count(w => w >= 0)} words");
+            int tileset = LevelParser.Parse(rom, level).Header.Tileset;
+            var map = Layer3.Tilemap(rom, tileset, option);
+            Assert.True(map is not null, $"level {level:X3} (tileset {tileset}, option {option}) has no tilemap");
+            // Not a whole screen each: tileset 9's option 3 (011, 130, 1C1) writes 36 words.
+            Assert.True(map!.Count(w => w >= 0) > 0, $"level {level:X3} wrote nothing");
         }
         log.WriteLine($"{found} vanilla levels carry a layer 3");
         Assert.Equal(26, found);
@@ -544,7 +566,7 @@ public class Layer3Tests(ITestOutputHelper log)
     {
         if (Open() is not { } rom) return;
         var header = LevelParser.Parse(rom, 0x009).Header;
-        var map = Layer3.Tilemap(rom, header.LevelMode, Layer3.Option(rom, 0x009));
+        var map = Layer3.Tilemap(rom, header.Tileset, Layer3.Option(rom, 0x009));
         var pal = Palette.Load(rom, header, 0x009);
         var (px, w, h) = Layer3.Render(map!, Layer3.Tiles(rom), pal, pal.Rgba[0]);
 

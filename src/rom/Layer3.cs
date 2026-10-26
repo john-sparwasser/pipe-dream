@@ -12,10 +12,12 @@ namespace PipeDream;
 /// tiles. That geometry is also where the ExAnimation destination range 1C00-1DFF comes from
 /// (§12e) and why LM's tilemap-bypass file size defaults to 0x2000 = 64×64 words.
 ///
-/// The tilemap itself is not per level but per (level mode, layer-3 option): $009FB8 indexes
-/// <see cref="PtrTable">Layer3Ptr</see> with <c>mode*3 + (option-1)</c> and runs the block it
-/// finds through vanilla's stripe-image uploader ($00871E). Option 0 means the level has no
-/// layer 3 at all.
+/// The tilemap itself is not per level but per (TILESET, layer-3 option): $009FB8 indexes
+/// <see cref="PtrTable">Layer3Ptr</see> with <c>$1931*3 + (option-1)</c> — $1931 is the tileset,
+/// which is why LM calls option 3 "Tileset Specific" — and runs the block it finds through
+/// vanilla's stripe-image uploader ($00871E). Option 0 means the level has no layer 3 at all.
+/// This read the index as the level MODE once, and drew the cage over castle and cave levels
+/// where Lunar Magic and the game draw the castle windows or nothing.
 ///
 /// A tilemap word's 3-bit palette field names one of EIGHT groups, and 2bpp makes a group four
 /// colours, so layer 3's whole palette space is CGRAM 00-1F — the two 16-colour rows SMW keeps
@@ -56,10 +58,40 @@ public static class Layer3
     // $1BE3 at $05D928. MainEntrance carries the same bits as Layer3Option.
     private const int OptionTable = 0x05F200;
 
-    // Layer3Ptr — 3-byte pointers, one per (mode, option-1). The table ends where the first
-    // tilemap block (DATA_059087) starts, which is 45 entries: level modes 0-14 only.
+    // Layer3Ptr — 3-byte pointers, one per (tileset, option-1). The table ends where the first
+    // tilemap block (DATA_059087) starts, which is 45 entries: the fifteen tilesets 0-14.
     private const int PtrTable = 0x059000;
     private const int PtrCount = 45;
+
+    // The byte per (tileset, option-1) that $009FCC reads before the tilemap: tides or not, and where layer 3 starts.
+    private const int SettingTable = 0x009F88;
+
+    /// <summary>
+    /// Layer 3's starting Y scroll (<c>$24</c>) as the game sets it at $009FCC from <see cref="SettingTable"/>, or null when
+    /// it leaves it alone. A positive byte is a tide ($1403): $70 for "high and low tides" (01), $40 for "low tide only" (02).
+    /// A negative one: bit 6, or nothing else set ($80, which also copies a palette), is $D0; anything else is $C0 on
+    /// tilesets 1 and 3 (which also scroll it at half layer 1's X) and untouched on the rest.
+    /// </summary>
+    public static int? InitialY(Rom rom, int tileset, int option)
+    {
+        if (option is < 1 or > 3 || tileset is < 0 or >= PtrCount / 3) return null;
+        int v = rom.ReadByte(SettingTable + tileset * 3 + option - 1);
+        if (v < 0x80) return (v >> 1) == 0 ? 0x70 : 0x40;
+        if ((v & 0x40) != 0 || (v & 0x7F) == 0) return 0xD0;
+        return tileset is 1 or 3 ? 0xC0 : null;
+    }
+
+    /// <summary>
+    /// Where Lunar Magic draws layer 3: the game's <see cref="InitialY"/>, except that a high-and-low tide (byte 01, which
+    /// the game starts at $70) sits 48 pixels higher, at $A0 — the water's high point rather than where it starts
+    /// (measured on 127, the one vanilla level with that tide: $A0 matches LM, $70 does not).
+    /// </summary>
+    public static int? PreviewY(Rom rom, int tileset, int option)
+        => InitialY(rom, tileset, option) is 0x70 ? 0xA0 : InitialY(rom, tileset, option);
+
+    /// <summary>Layer 1's Y scroll when a horizontal level opens: the camera the game starts on, which is what fixes where
+    /// a layer that does not scroll with it (a tide, say) sits against the level.</summary>
+    public const int HorizontalCameraY = 0xC0;
 
     /// <summary>The level's Layer 3 Options value, 0-3. 0 = the level has no layer 3.</summary>
     public static int Option(Rom rom, int level) => (rom.ReadByte(OptionTable + (level & 0x1FF)) >> 6) & 3;
@@ -97,7 +129,7 @@ public static class Layer3
     }
 
     /// <summary>
-    /// The layer-3 tilemap as VRAM words (index 0 = word $5000), or null when this level mode
+    /// The layer-3 tilemap as VRAM words (index 0 = word $5000), or null when this tileset
     /// and option have no tilemap — which includes every level whose option is 0.
     ///
     /// A word the script never writes comes back as <b>-1</b>, not 0. The scripts cover only
@@ -106,10 +138,10 @@ public static class Layer3
     /// redraws every frame. Tile 0 is a real tile (a font glyph in GFX28), so filling the
     /// untouched region with it would draw a screen of noise that the game never shows.
     /// </summary>
-    public static int[]? Tilemap(Rom rom, int levelMode, int option)
+    public static int[]? Tilemap(Rom rom, int tileset, int option)
     {
         if (option is < 1 or > 3) return null;
-        int index = levelMode * 3 + (option - 1);
+        int index = tileset * 3 + (option - 1);
         if (index is < 0 or >= PtrCount) return null;
         int ptr = rom.ReadValue(PtrTable + index * 3, 3);
         if (ptr <= 0xFFFF) return null;
@@ -121,21 +153,21 @@ public static class Layer3
 
     /// <summary>
     /// The tilemap to DRAW for a level: a tilemap the project imported for it, else vanilla's
-    /// (level mode, option) pick, else none.
+    /// (tileset, option) pick, else none.
     ///
     /// An import still needs the level to have a layer 3 at all. The bypass is copied in at the
     /// tail of vanilla's own tilemap picker (prep v15, CONTRACT §12b), and option 0 makes the
     /// game skip that routine entirely — so a bypassed map on an option-0 level never loads,
     /// and showing one here would be a picture the console does not draw.
     /// </summary>
-    public static int[]? LevelTilemap(Rom rom, int level, int levelMode, int option)
+    public static int[]? LevelTilemap(Rom rom, int level, int tileset, int option)
         => option is < 1 or > 3 ? null
          : rom.Layer3Tilemaps.TryGetValue(level, out var raw) ? FromBytes(raw)
          // A BUILT rom carries its custom tilemap as an ordinary GFX file named by the level's
          // record. Without this, opening one shows the picture the build replaced.
          : rom.LmLayer3Tilemap(level) is { } lt3 && Gfx.Cached(rom, lt3.File) is { } file
            ? FromBytes(file)
-         : Tilemap(rom, levelMode, option);
+         : Tilemap(rom, tileset, option);
 
     /// <summary>
     /// A flat tilemap file as VRAM words. LM's LT3 files are plain little-endian 16-bit maps of
@@ -340,11 +372,11 @@ public static class Layer3
     public const int MainScreenTable = 0x058437, SubScreenTable = 0x058457, CgAdSubTable = 0x058477;
 
     /// <summary>BG3's bit in every one of the three screen registers.</summary>
-    private const int Bg3Bit = 0x04, Bg2Bit = 0x02, HalfBit = 0x40;
+    private const int Bg3Bit = 0x04, Bg2Bit = 0x02, Bg1Bit = 0x01, HalfBit = 0x40;
 
     /// <summary>Where layer 3 lands relative to the background image, and whether it adds to
     /// what is under it rather than covering it.</summary>
-    public readonly record struct Screens(bool AboveBg2, bool Blend, bool Half);
+    public readonly record struct Screens(bool AboveBg2, bool Blend, bool Half, bool AboveBg1 = false);
 
     /// <summary>
     /// Read that setup for one level. LM's CGADSUB box adds BG3 to the colour-math targets; its
@@ -364,7 +396,10 @@ public static class Layer3
         bool inMath = adv is { } a ? a.CgAdSub : (math & Bg3Bit) != 0;
         // Nothing to add when the subscreen is empty, which is what the modes with sub $00 say.
         bool blend = onSub || (inMath && sub != 0);
-        return new Screens(AboveBg2: onSub || (main & Bg2Bit) == 0, blend, (math & HalfBit) != 0);
+        // A mode that leaves layer 1 off the main screen and puts layer 3 on it (0E: main $04, sub $13) has layer 3 over
+        // the whole level — 018's mist, which Lunar Magic draws in front of the bridges.
+        bool aboveBg1 = !onSub && (main & Bg1Bit) == 0 && (main & Bg3Bit) != 0;
+        return new Screens(AboveBg2: onSub || (main & Bg2Bit) == 0, blend, (math & HalfBit) != 0, aboveBg1);
     }
 
     /// <summary>LM's vertical scroll dropdown, in its own order. "Constant" scrolls in place

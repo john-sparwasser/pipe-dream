@@ -140,7 +140,7 @@ public sealed class LevelScene
     /// front, and where the level parks it. Null when the level has no layer-3 tilemap.</summary>
     private static Map16.Layer3Draw? Layer3Preview(Rom rom, Level level, int levelNum, Palette pal)
     {
-        if (Layer3.LevelTilemap(rom, levelNum, level.Header.LevelMode,
+        if (Layer3.LevelTilemap(rom, levelNum, level.Header.Tileset,
                                 Layer3.Option(rom, levelNum)) is not { } l3map)
             return null;
         // The console's own rules, as far as a still picture can carry them. The header's
@@ -155,14 +155,20 @@ public sealed class LevelScene
         // Where the level parks layer 3 to begin with. With a scroll rate of None that is
         // where it stays, so the canvas is exact; with any other rate it is the frame the
         // level opens on, which is the one frame a still picture can be right about.
+        // Without LM's record it is the game's own $24 against the camera a horizontal level opens on, which puts a tide
+        // at the bottom of the level where Lunar Magic draws it rather than half-way up (Layer3.PreviewY). A vertical
+        // level's first camera depends on its entrance, so it keeps the top-left.
         var (ox, oy) = adv is { } a
-            ? (Layer3.XPositions[a.XPos & 3] * 16, a.Y * 16) : (0, 0);
+            ? (Layer3.XPositions[a.XPos & 3] * 16, a.Y * 16)
+            : !rom.IsVerticalMode(level.Header.LevelMode)
+              && Layer3.PreviewY(rom, level.Header.Tileset, Layer3.Option(rom, levelNum)) is { } y0
+                ? (0, y0 - Layer3.HorizontalCameraY) : (0, 0);
         bool bg3Priority = level.Header.Layer3Priority != 0;
         // Backdrop 0: the gaps have to stay transparent, or the preview would paint the
         // level's own back-area colour over layer 2.
         var (lp, lw, lh) = Layer3.Render(l3map, tiles, pal, 0, bg3Priority ? 0 : null);
         var front = bg3Priority ? Layer3.Render(l3map, tiles, pal, 0, 1).Px : null;
-        return new Map16.Layer3Draw(lp, front, lw, lh, screens, ox, oy);
+        return new Map16.Layer3Draw(lp, front, lw, lh, screens, ox, oy, FrontBlend: adv?.CgAdSub == true);
     }
 
     /// <summary>The Map16 tile sheet for the palette drawer, 16 tiles per row — the same
