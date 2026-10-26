@@ -65,4 +65,24 @@ public class ExAnimOverlayTests(ITestOutputHelper log) : IDisposable
         Assert.True(s.SetExAnimSlot(global: true, slot), s.Status);  // RAM source through the engine
         Assert.Equal(Enumerable.Repeat((byte)1, 64), Tile0(s, 0));
     }
+
+    /// <summary>
+    /// The game steps its animated tiles a group at a time — on frame f, group f &amp; 7 (three ids each) moves to step
+    /// (f &gt;&gt; 3) &amp; 3 — so the still Lunar Magic draws, frame 12, has the groups up to 4 on step 1 and the rest on
+    /// step 0. Every phase is 8 frames on, and the glint colour is its own frame 4's (measured against LM's coins).
+    /// </summary>
+    [Fact]
+    public void the_still_is_frame_12_with_each_group_on_its_own_step()
+    {
+        Assert.Equal(12, Gfx.FgTiles.StillFrame);
+        Assert.Equal(1, Gfx.FgTiles.StepAt(0, 0));              // group 0, last stepped at frame 8
+        Assert.Equal(1, Gfx.FgTiles.StepAt(14, 0));             // group 4, stepped at frame 12 itself
+        Assert.Equal(0, Gfx.FgTiles.StepAt(15, 0));             // group 5, last stepped at frame 5
+        Assert.Equal(2, Gfx.FgTiles.StepAt(0, 1));              // a phase later, all a step on
+        Assert.Equal(0, Gfx.FgTiles.StepAt(0, 3));              // four steps wrap
+        if (!File.Exists(Vanilla)) return;
+        var rom = Rom.Load(Vanilla);
+        var pal = Palette.Load(rom, LevelParser.Parse(rom, 0x105).Header, 0x105);
+        Assert.Equal(rom.ReadValue(0x00B60C + 2, 2), pal.Bgr[0x64]);   // the glint at frame 4: the cycle's second word
+    }
 }

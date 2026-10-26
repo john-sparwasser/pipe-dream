@@ -16,15 +16,20 @@ public sealed class Palette
     // Row-offset selector table $00ABD3 (indexed by a palette-setting nibble).
     private const int Abd3 = 0x00ABD3;
 
+    /// <summary>The frame counter the glint colour is taken at in phase 0 (see Glint in <see cref="Load"/>).</summary>
+    public const int GlintFrame = 4;
+
     public static Palette Load(Rom rom, LevelHeader h, int level = -1, int animPhase = 0)
     {
         var p = new Palette();
         var cg = p.Bgr;
 
         // Global palette exanimation ($00A418): CGRAM color 0x64 (row 6 color 4) is
-        // rewritten every 4 frames from MorePalettes ($00B60C) — the gold/white glint.
-        // Our 4 display phases (8 frames each) sample byte offsets 0/4/8/12 of the cycle.
-        ushort Glint() => (ushort)rom.ReadValue(0x00B60C + ((animPhase & 3) * 4), 2);
+        // rewritten every 4 frames from MorePalettes ($00B60C) — the gold/white glint: the word at
+        // ((frame >> 2) & 7) * 2. Our 4 display phases are 8 frames apart, from GlintFrame. Lunar Magic's
+        // still shows the colour at frame 4 (035F), measured on its coins; the tiles' still frame
+        // (Gfx.FgTiles.StillFrame) gives another one.
+        ushort Glint() => (ushort)rom.ReadValue(0x00B60C + (((GlintFrame + 8 * animPhase) >> 2) & 7) * 2, 2);
 
         // LM per-level custom palette (CONTRACT §7e): a full CGRAM image replaces the
         // vanilla assembly entirely; word 0 of the blob is the back-area color.

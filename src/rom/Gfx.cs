@@ -218,8 +218,27 @@ public static class Gfx
         // then BG2=w3, BG3=w2 (pages 4-5). CONTRACT §7d.
         private static readonly int[] BypassSlotWord = [7, 6, 5, 4, 3, 2];
 
+        /// <summary>The game's frame counter ($14) at the still Lunar Magic draws: animation phase p is this plus 8p.
+        /// Measured by rendering every vanilla level at each of the 32 counters a cycle has: 12 matched best, by far
+        /// (sum of differences over a 22-level sample 43.4 against 67.7 for the stepless phase 0; all 488: mean 1.87% →
+        /// 1.59%).</summary>
+        public const int StillFrame = 12;
+
         /// <summary>
-        /// Overlay animation frame 0 onto the loaded slots (CONTRACT §12) — what LM displays.
+        /// Which of its four steps animated tile <paramref name="id"/> shows in <paramref name="phase"/>. The game does
+        /// not step them together: on frame f, `$05:BB3B` updates the three entries of group f &amp; 7 (ids 3g..3g+2) to
+        /// step (f &gt;&gt; 3) &amp; 3, so at any moment the groups sit at different steps. This is the step of the
+        /// last update of the id's group at frame <see cref="StillFrame"/> + 8 × phase.
+        /// </summary>
+        internal static int StepAt(int id, int phase)
+        {
+            int f = StillFrame + 8 * phase, g = id / 3;
+            return ((f - ((f - g) & 7)) >> 3) & 3;
+        }
+
+        /// <summary>
+        /// Overlay the animated tiles onto the loaded slots (CONTRACT §12) at the step each shows in the still LM draws
+        /// (<see cref="StepAt"/>).
         /// GFX32+33 sit at a fixed pointer (operands at $00B88B/$00B890, vanilla $08BFC0),
         /// 3bpp; the game's 4bpp conversion zero-fills plane 3, so source tile index =
         /// (addr - 0x7D00)/0x20 into the 3bpp data (24 bytes/tile).
@@ -284,7 +303,7 @@ public static class Gfx
                 int animId = id;
                 if (behavior >= 2) animId += rom.ReadByte(0x05B98B + (tileset & 0x0F));
                 // behavior 1 = POW-dependent: editor shows the inactive state (id unchanged)
-                int srcAddr = rom.ReadValue(0x05B999 + animId * 8 + (phase & 3) * 2, 2);
+                int srcAddr = rom.ReadValue(0x05B999 + animId * 8 + StepAt(id, phase) * 2, 2);
                 if (dest == 0x800)
                 {
                     // Berry slot ($00A3DA split): tiles 80/81 then 90/91. The 4 phase
