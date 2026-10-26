@@ -231,6 +231,20 @@ public class Layer3VramBoundsTests(ITestOutputHelper log)
     /// 11 set the half bit with layer 2 on the subscreen or in the math. Those are the levels Lunar Magic draws with a
     /// halved background (004, 0F8, 114, 1D9, 1EA, 1FA in mode 0C; 10E, 1BD in mode 11), and the canvas now does too.
     /// </summary>
+    /// <summary>
+    /// Layer-2 level data on tileset 3 is uploaded with $1000 ORed in, so palettes 0-3 draw as 4-7 — the game's own rule,
+    /// at both of bank 5's layer-2 upload routines, and Lunar Magic draws it so (Valley of Bowser's yellow walls).
+    /// </summary>
+    [RealRomFact]
+    public void tileset_3_layer_2_takes_the_palettes_high_bit()
+    {
+        var rom = Rom.Load(TestRom.RealRomPath);
+        foreach (int at in new[] { 0x058B9D, 0x058C81 })     // LDA $1931 : CMP #$03 : BNE +3 : LDY #$1000 : STY $03
+            Assert.Equal("AD3119C903D003A0001084", Convert.ToHexString(Enumerable.Range(0, 11).Select(i => rom.ReadByte(at + i)).Select(b => (byte)b).ToArray()));
+        Assert.Equal(0x1000, Map16.Layer2WordOr(3));
+        Assert.All(Enumerable.Range(0, 15).Where(t => t != 3), t => Assert.Equal(0, Map16.Layer2WordOr(t)));
+    }
+
     [RealRomFact]
     public void the_dark_background_modes_halve_layer_2()
     {

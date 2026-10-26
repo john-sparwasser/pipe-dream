@@ -69,17 +69,28 @@ public static class Map16
     /// but the graphics have not moved — and loading them is the expensive half (~11ms a phase
     /// against ~2ms to compose all 512 tiles), so a live colour drag reuses them.
     /// </summary>
-    public static uint[][] ComposeAll(Rom rom, LevelHeader h, Gfx.FgTiles fg, Palette pal)
+    public static uint[][] ComposeAll(Rom rom, LevelHeader h, Gfx.FgTiles fg, Palette pal, int wordOr = 0)
     {
         var defPtr = BuildDefPointers(rom, h.Tileset);
         // 0x200, + LM extended pages (§7a) up to the highest range; a tile in a hole stays null.
         var tiles = new uint[rom.Map16TileEnd][];
         for (int t = 0; t < FgTiles; t++)
-            tiles[t] = Compose(Definition(rom, defPtr, t), fg.Fetch, pal);
+            tiles[t] = Compose(Or(Definition(rom, defPtr, t), wordOr), fg.Fetch, pal);
         for (int t = FgTiles; t < tiles.Length; t++)
-            if (rom.HasMap16Def(t)) tiles[t] = Compose(LmExtendedDef(rom, t), fg.Fetch, pal);
+            if (rom.HasMap16Def(t)) tiles[t] = Compose(Or(LmExtendedDef(rom, t), wordOr), fg.Fetch, pal);
         return tiles;
     }
+
+    private static Word[] Or(Word[] words, int bits)
+        => bits == 0 ? words : [.. words.Select(w => new Word((ushort)(w.Raw | bits)))];
+
+    /// <summary>
+    /// What the game ORs into every layer-2 tilemap word it uploads for a level whose layer 2 is level data: $1000 — the
+    /// palette's high bit, so palettes 0-3 become 4-7 — on tileset 3, nothing on the rest. `$05:8B9D` and `$05:8C81`:
+    /// `LDA $1931 : CMP #$03 : BNE : LDY #$1000 : STY $03`. It is why Valley of Bowser's moving walls are yellow where the
+    /// same tiles on layer 1 are grey, and Lunar Magic draws them so (009, 115, 1E2, 1E3, 1EC, 1EF: 4-26% → about 1%).
+    /// </summary>
+    public static int Layer2WordOr(int tileset) => tileset == 3 ? 0x1000 : 0;
 
     /// <summary>
     /// Recompose JUST these tiles into an existing cache. Editing a Map16 definition changes one
@@ -139,7 +150,10 @@ public static class Map16
         }
         else if (level >= 0 && ObjectEngine.RenderLayer2(rom, h, level) is { } l2grid)
         {
-            DrawGrid(img, W, H, l2grid, cache, Layer2Halved(rom, h.LevelMode));
+            var l2Cache = Layer2WordOr(h.Tileset) is var bits and not 0
+                ? ComposeAll(rom, h, Gfx.FgTiles.Load(rom, h.Tileset, level, animPhase), Palette.Load(rom, h, level, animPhase), bits)
+                : cache;
+            DrawGrid(img, W, H, l2grid, l2Cache, Layer2Halved(rom, h.LevelMode));
         }
 
         DrawGrid(img, W, H, grid, cache);
@@ -274,12 +288,12 @@ public static class Map16
     /// <summary>Compose a level canvas from precomputed caches (fast; for live edits).</summary>
     public static (uint[] px, int w, int h) ComposeLevel(uint[][] cache, uint backdrop, Map16Grid grid,
         ushort[]? bgImg = null, uint[][]? bgCache = null, Map16Grid? l2 = null, int visibleRows = 27,
-        Layer3Draw? layer3 = null, int bgPeriod = BgImage.VanillaRows, bool halfL2 = false)
+        Layer3Draw? layer3 = null, int bgPeriod = BgImage.VanillaRows, bool halfL2 = false, uint[][]? l2Cache = null)
     {
         int rows = Math.Min(visibleRows, grid.Height);
         int W = grid.Width * 16, H = rows * 16;
         return (ComposeLevelInto(new uint[W * H], cache, backdrop, grid, bgImg, bgCache, l2,
-                                 visibleRows, layer3, bgPeriod, halfL2),
+                                 visibleRows, layer3, bgPeriod, halfL2, l2Cache),
                 W, H);
     }
 
@@ -290,7 +304,7 @@ public static class Map16
     /// </summary>
     public static uint[] ComposeLevelInto(uint[] img, uint[][] cache, uint backdrop, Map16Grid grid,
         ushort[]? bgImg, uint[][]? bgCache, Map16Grid? l2, int visibleRows,
-        Layer3Draw? layer3 = null, int bgPeriod = BgImage.VanillaRows, bool halfL2 = false)
+        Layer3Draw? layer3 = null, int bgPeriod = BgImage.VanillaRows, bool halfL2 = false, uint[][]? l2Cache = null)
     {
         int rows = Math.Min(visibleRows, grid.Height);
         int W = grid.Width * 16, H = rows * 16;
@@ -306,7 +320,7 @@ public static class Map16
 
         if (layer3 is { Screens.AboveBg2: false } under) L3(under.Back, under, under.Screens.Blend);
         if (bgImg is not null && bgCache is not null) DrawBgImage(img, W, H, grid.Width, bgImg, bgCache, bgPeriod, halfL2);
-        else if (l2 is not null) DrawGrid(img, W, H, l2, cache, halfL2);
+        else if (l2 is not null) DrawGrid(img, W, H, l2, l2Cache ?? cache, halfL2);
         if (layer3 is { Screens.AboveBg2: true, Screens.AboveBg1: false } over) L3(over.Back, over, over.Screens.Blend);
         DrawGrid(img, W, H, grid, cache);
         if (layer3 is { Screens.AboveBg1: true } top) L3(top.Back, top, top.Screens.Blend);

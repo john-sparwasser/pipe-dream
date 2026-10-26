@@ -29,6 +29,9 @@ public sealed class LevelScene
     public uint[][]?[] BgCaches { get; init; } = new uint[4][][];
     /// <summary>Layer 2 drawn at half brightness: the level mode's colour math halves it (Map16.Layer2Halved).</summary>
     public bool HalfL2 { get; init; }
+    /// <summary>Layer-2 level data's own tile caches, per phase, where the game recolours it (Map16.Layer2WordOr); null
+    /// where layer 2 draws from <see cref="TileCaches"/> like layer 1.</summary>
+    public uint[][]?[] L2Caches { get; init; } = new uint[4][][];
 
     /// <summary>Layer 2's Map16 grid, or null when layer 2 is a background image instead — the
     /// two are exclusive, because the pointer's bank byte IS the mode (CONTRACT §10). Settable
@@ -92,6 +95,7 @@ public sealed class LevelScene
         var phases = new uint[4][];
         var caches = new uint[4][][];
         var bgCaches = new uint[4][][];
+        uint[][]?[] l2Caches = new uint[4][][];
         var backdrop = new uint[4];
         var palettes = new Palette?[4];
         int w = 0, h = 0;
@@ -120,8 +124,11 @@ public sealed class LevelScene
             // per phase anyway because the palette can differ, and it is cheap next to the level.
             var l3 = previewLayer3 ? Layer3Preview(rom, level, levelNum, pal) : null;
 
+            // Layer-2 level data on tileset 3 is drawn with the game's palette OR (Map16.Layer2WordOr).
+            if (layer2 is not null && Map16.Layer2WordOr(level.Header.Tileset) is var bits and not 0)
+                l2Caches[p] = Map16.ComposeAll(rom, level.Header, Gfx.FgTiles.Load(rom, level.Header.Tileset, levelNum, p), pal, bits);
             var (img, pw, ph) = Map16.ComposeLevel(caches[p], pal.Rgba[0], grid,
-                                                   bgImage, bgCaches[p], layer2, visRows, l3, bgPeriod, halfL2);
+                                                   bgImage, bgCaches[p], layer2, visRows, l3, bgPeriod, halfL2, l2Caches[p]);
             if (sprites == SpriteDraw.Compose) overlay?.Draw(img, pw, ph, pal);
             phases[p] = img;
             w = pw; h = ph;
@@ -131,7 +138,7 @@ public sealed class LevelScene
         {
             Phases = phases, Width = w, Height = h, Level = level, TileCaches = caches,
             Grid = grid, Backdrop = backdrop, Palettes = palettes,
-            BgImage = bgImage, BgCaches = bgCaches, BgPeriod = bgPeriod, HalfL2 = halfL2, Layer2 = layer2,
+            BgImage = bgImage, BgCaches = bgCaches, BgPeriod = bgPeriod, HalfL2 = halfL2, L2Caches = l2Caches, Layer2 = layer2,
             Sprites = spriteData, Overlay = overlay, VisibleRows = visRows,
         };
     }
@@ -244,10 +251,12 @@ public sealed class LevelScene
             Backdrop[p] = pal.Rgba[0];
             TileCaches[p] = Map16.ComposeAll(rom, Level.Header, tiles, pal);
             BgCaches[p] = Map16.ComposeAllBg(rom, tiles, pal);
+            if (L2Caches[p] is not null) L2Caches[p] = Map16.ComposeAll(rom, Level.Header, tiles, pal, Map16.Layer2WordOr(Level.Header.Tileset));
 
             Phases[p] = Map16.ComposeLevelInto(Phases[p] ?? new uint[Width * Height],
                                                TileCaches[p], pal.Rgba[0], Grid,
-                                               BgImage, BgCaches[p], Layer2, VisibleRows, bgPeriod: BgPeriod, halfL2: HalfL2);
+                                               BgImage, BgCaches[p], Layer2, VisibleRows, bgPeriod: BgPeriod, halfL2: HalfL2,
+                                               l2Cache: L2Caches[p]);
             DrawOverlay(p);
         }
 
@@ -313,13 +322,14 @@ public sealed class LevelScene
             var tiles = Fg(rom, levelNum, p);
             Map16.ComposeInto(TileCaches[p], rom, Level.Header, tiles, pal, set);
             if (bgEdited) BgCaches[p] = Map16.ComposeAllBg(rom, tiles, pal);
+            if (L2Caches[p] is not null) L2Caches[p] = Map16.ComposeAll(rom, Level.Header, tiles, pal, Map16.Layer2WordOr(Level.Header.Tileset));
         });
         // A background image is drawn from those caches, so the level shows the edit too. (Every phase's palette was set above.)
         if (bgEdited && BgImage is not null)
             for (int p = 0; p < 4; p++)
                 Phases[p] = Map16.ComposeLevelInto(Phases[p] ?? new uint[Width * Height], TileCaches[p],
                                                    Palettes[p]!.Rgba[0], Grid, BgImage, BgCaches[p], Layer2, VisibleRows, bgPeriod: BgPeriod,
-                                                   halfL2: HalfL2);
+                                                   halfL2: HalfL2, l2Cache: L2Caches[p]);
 
         // The grid is small (a full-width level is under 14k cells) and scanning it beats
         // tracking a tile→cells index that every object edit would have to maintain.
@@ -358,7 +368,7 @@ public sealed class LevelScene
                 int idx = bgi[PipeDream.BgImage.Cell(within, row)];
                 Blit(img, bgc[idx & 0x1FF], px, py, HalfL2);
             }
-            else if (Layer2 is { } l2) DrawTile(img, l2.Get(cx, cy), TileCaches[p], px, py, HalfL2);
+            else if (Layer2 is { } l2) DrawTile(img, l2.Get(cx, cy), L2Caches[p] ?? TileCaches[p], px, py, HalfL2);
 
             DrawTile(img, Grid.Get(cx, cy), TileCaches[p], px, py);
         }
