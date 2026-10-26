@@ -179,6 +179,48 @@ public class Sa1BuildTests
         w.Close();
     }
 
+    /// <summary>The overworld's tables stay where they are under the pack (it moves RAM, not data), so
+    /// every overworld edit changes the same bytes to the same values on SA-1 as on LoROM. The build
+    /// writes them into the tables the loader names, after the pack: a pack that rewrote a loader
+    /// operand would send a writer elsewhere, and this would see it.</summary>
+    [Sa1BuildFact]
+    public async Task overworld_edits_land_on_sa1_where_they_land_on_lorom()
+    {
+        Assert.True(TestConfigDir.SeedSa1());
+        var s = NewProject();
+        var plainLo = Built(s);
+        await s.SetSa1(true);
+        var plainSa1 = Built(s);
+
+        var ow = s.Overworld!;
+        var o = s.Project!.Data.Overworld;
+        static string Words(ushort[] w, int i, ushort v) { var c = (ushort[])w.Clone(); c[i] = v; return Convert.ToBase64String(ProjectSession.BytesOf(c)); }
+        static string Bytes(byte[] b, int i) { var c = (byte[])b.Clone(); c[i] ^= 0x01; return Convert.ToBase64String(c); }
+        o.Layer2 = Words(ow.Layer2, 0x101, ow.Layer2[0x100]);
+        o.Layer1 = Words(ow.Layer1, 0x101, ow.Layer1[0x100]);
+        o.EventPieces = Words(ow.EventPieces, 3, (ushort)(ow.EventPieces[3] ^ 0x0001));
+        o.Layer1Defs = Words(ow.Layer1Defs, 5, (ushort)(ow.Layer1Defs[5] ^ 0x0001));
+        o.BaseEvents = Bytes(ow.BaseEventTable, 2);
+        o.ExitDirs = Bytes(ow.ExitDirTable, 2);
+        o.Warps = Bytes(ow.WarpTable, 0);
+        o.Exits = Bytes(ow.ExitTable, 0);
+        int colour = Palette.OverworldSource(s.Rom!, 0, 0x22)!.Value;                 // the prep's palette table, bank $13
+        o.Palette[colour] = 0x1234;
+
+        var editedSa1 = Built(s);
+        await s.SetSa1(false);
+        var editedLo = Built(s);
+
+        // In place, below the expanded area: freespace moves with the pack's code, and is the allocator's.
+        static List<(int, byte)> Diff(byte[] a, byte[] b) => [.. Enumerable.Range(0, 0x80000).Where(i => a[i] != b[i]).Select(i => (i, b[i]))];
+        var lo = Diff(plainLo, editedLo);
+        Assert.Contains(lo, d => Rom.PcToSnes(d.Item1) >> 16 == 0x05);              // base events, layer 1 defs
+        Assert.Contains(lo, d => Rom.PcToSnes(d.Item1) >> 16 == 0x0C);              // event pieces
+        Assert.Equal(lo, Diff(plainSa1, editedSa1));
+        foreach (var built in new[] { editedLo, editedSa1 })
+            Assert.Equal(0x1234, Rom.FromBytes(built).ReadValue(colour, 2));
+    }
+
     [Sa1BuildFact]
     public async Task sa1_cannot_be_switched_on_over_a_base_at_another_prep_version()
     {

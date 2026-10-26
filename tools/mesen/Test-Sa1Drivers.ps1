@@ -52,6 +52,11 @@ function After([string]$Write, [string]$Expr, [int]$At) {
 function Loudest([string]$Voices, [int]$From, [int]$To, [string]$Write = '') {
     "local m = 0 T.inLevel105(function(n) T.hold({}) if n == 120 then $Write end if n >= $From then for _, v in ipairs({$Voices}) do m = math.max(m, emu.read(v * 16 + 8, emu.memType.spcDspRegisters, false)) end end if n == $To then T.report(m) end end)"
 }
+# A byte on the map, 60 frames after a new game reaches it (Yoshi's Island); 255 when it never does.
+function OnMap([string]$Expr) {
+    "T.each(function(f) T.bootPulse(f) if f == 2460 then if not T.onOverworld() then T.fail(255) end T.report($Expr) end end)"
+}
+$tilemaps = '(function() local s = 0 for a = 0x4000, 0x7FFF do s = s + T.vram(a) end return s end)()'
 $positive = { param($v) $v -gt 0 }
 $frames = { param($v) $v -ge 50 }             # a counter that ran nearly every frame of 60
 
@@ -123,6 +128,13 @@ $checks = @(
     @{ Name = 'listed: CARRIABLE';           Rom = 'listed'; Want = $positive; Says = '> 0'; Lua = Delta 'T.rb(T.mark(0x19))' }
     @{ Name = 'listed: extended CAPE';       Rom = 'listed'; Want = $positive; Says = '> 0'
        Lua = "local a T.inLevel105(function(n) T.wb(T.ram(0x19), 2) T.hold((n % 16 < 2) and { y = true } or {}) if n == 100 then a = T.rb(T.mark(0x17)) end if n == 300 then T.report((T.rb(T.mark(0x17)) - a) % 256) end end)" }
+
+    # the overworld: layer 2 all sea, a layer 1 tile and colour $22 edited (the plain build's tilemaps
+    # hash 143/140 here, colour $22 is 0: measured on blocks-*, 2026-10-25)
+    @{ Name = 'overworld: colour $22 low';   Rom = 'overworld'; Want = { param($v) $v -eq 0x34 }; Says = '$34'; Lua = OnMap 'emu.read(0x44, emu.memType.snesCgRam, false)' }
+    @{ Name = 'overworld: colour $22 high';  Rom = 'overworld'; Want = { param($v) $v -eq 0x12 }; Says = '$12'; Lua = OnMap 'emu.read(0x45, emu.memType.snesCgRam, false)' }
+    @{ Name = 'overworld: tilemaps (mod 251)'; Rom = 'overworld'; Want = { param($v) $v -ne 143 -and $v -ne 255 }; Says = 'not plain''s'; Lua = OnMap "$tilemaps % 251" }
+    @{ Name = 'overworld: tilemaps (mod 239)'; Rom = 'overworld'; Want = { param($v) $v -ne 140 -and $v -ne 255 }; Says = 'not plain''s'; Lua = OnMap "$tilemaps % 239" }
 ) | Where-Object { $_.Name -like "*$Only*" }
 
 # ---- run both ROMs of every check ----

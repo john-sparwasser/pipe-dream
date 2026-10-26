@@ -27,6 +27,7 @@ namespace PipeDream.Ui.Tests;
 ///    with six extra bytes 11-66, whose INIT reads the fifth ($55) through the pointer into $0F67.
 ///  • listed-*.smc: a spawner for every ASM-only kind, per-level sprites, a CARRIABLE entry point and
 ///    an extended sprite's CAPE, marking at !mark (free RAM both CPUs reach; see Marks).
+///  • overworld-*.smc: no driver, the build's own overworld writes — read on the map, not level $105.
 ///
 /// tools/mesen/Test-Sa1Drivers.ps1 builds these and holds what each mark must read.
 /// Skipped unless PIPEDREAM_SA1_DRIVERS names the output folder.
@@ -308,5 +309,25 @@ public class Sa1DriversSetup(ITestOutputHelper log)
         }
         data.Level(0x105).Sprites = sd.Sprites.Select(ProjectFile.SpriteDto.From).ToList();
         await BuildPair(s, dir, "listed");
+    }
+
+    /// <summary>overworld-*.smc: the map's tables stay where they are under the pack, and the map runs on
+    /// the SA-1 CPU there. Every word of layer 2 is the top-left one (the sea, everywhere), the layer 1
+    /// tile left of Mario's start is the start's own, and Yoshi's Island's colour $22 is $1234: what
+    /// reaches VRAM and CGRAM on the map is the same on both, and not the plain build's (blocks-lorom).</summary>
+    [Fact]
+    public async Task build_the_overworld_pair()
+    {
+        if (Dir is not { } dir) { log.WriteLine("SKIP: set PIPEDREAM_SA1_DRIVERS to an output folder"); return; }
+        var s = NewProject(dir, "overworld");
+        s.ShowLevel(0x105);
+        var ow = s.Overworld!;
+        var o = s.Project!.Data.Overworld;
+        o.Layer2 = Convert.ToBase64String(ProjectSession.BytesOf([.. ow.Layer2.Select(_ => ow.Layer2[0])]));
+        var layer1 = (ushort[])ow.Layer1.Clone();
+        layer1[Overworld.Layer1Index(5, 7, true)] = layer1[Overworld.Layer1Index(6, 7, true)];
+        o.Layer1 = Convert.ToBase64String(ProjectSession.BytesOf(layer1));
+        o.Palette[Palette.OverworldSource(s.Rom!, 1, 0x22)!.Value] = 0x1234;
+        await BuildPair(s, dir, "overworld");
     }
 }

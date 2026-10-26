@@ -267,6 +267,25 @@ on SA-1. Nothing of ours depends on them. A hack LM saved on LoROM carries them 
 which matters for phase 1's switch: turning SA-1 on under an existing hack needs them in SA-1 form,
 from the same oracle.
 
+**Settled (2026-10-25): no project carries them.** The switch needs a base Pipe Dream prepared
+(`Sa1Blocker`), and a prepared base is verified vanilla plus the prep, which has none of LM's
+overworld-save hacks. Pipe Dream never writes them (nothing touches `$04D7F2`, `$04DBB9`, `$03BA10`,
+`$05DCD0`), and *Build and open in Lunar Magic* goes one way: what LM saves into the build output
+never comes back into the base. So the hack in LoROM form can't meet the pack, and none needs
+porting. LM installs its own SA-1 form when someone saves the overworld in the SA-1 build (above).
+An LM-saved hack can only be a base used as provided, and the switch refuses that.
+
+What a project *does* write into the overworld is the build's own replay of the map's tables
+(layer 1 and 2, event pieces and steps, layer 1's Map16, base events, exit directions, warps,
+exits, colours, GFX records). It runs after the pack, into the tables the loader names, and the
+pack moves RAM, not data:
+- `Sa1BuildTests.overworld_edits_land_on_sa1_where_they_land_on_lorom`: every edit changes the
+  same bytes to the same values below the expanded area on both, 12.7k bytes in banks
+  `$04`/`$05`/`$0C`. The colour lands in the prep's palette table in bank `$13` on both.
+- In Mesen (`Test-Sa1Drivers.ps1`, the `overworld` pair: all layer 2 one tile, a layer 1 tile, colour
+  `$22` of Yoshi's Island = `$1234`), the tilemaps' VRAM hashes 166/79 on both ROMs (the plain
+  build: 143/140), and CGRAM holds `$1234` on both.
+
 ## Phase 2 findings (2026-10-24, later): LM's 4bpp mode on SA-1
 
 LM installs its 4bpp mode on an import, not a save: on its command line `-ExportGFX`, `-ImportGFX`,
@@ -560,5 +579,8 @@ step, as on LoROM.
 
 Layer 1 needs nothing from phases 2-3 and can ship with phase 1.
 
-**Out of scope for now:** opening other people's SA-1 ROMs, 6/8MB, and the overworld unless the
-pack turns out to break our overworld writes.
+~~**5. LM's overworld-save hacks in SA-1 form.**~~ Not needed: no base the switch accepts carries
+them (2026-10-25, under "What an overworld save also does on SA-1"). The pack doesn't break our
+overworld writes either, measured there.
+
+**Out of scope for now:** opening other people's SA-1 ROMs, and 6/8MB.
