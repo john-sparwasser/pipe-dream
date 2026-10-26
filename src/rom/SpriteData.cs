@@ -137,13 +137,13 @@ public sealed class SpriteData
         DrawHex(img, W, px + 8, py + 5, s.Number & 0xF);
     }
 
-    private static void DrawHex(uint[] img, int W, int px, int py, int digit)
+    internal static void DrawHex(uint[] img, int W, int px, int py, int digit, uint colour = 0xFFFFFFFFu)
     {
         for (int r = 0; r < 6; r++)
         {
             int bits = FontRows[digit * 6 + r];
             for (int c = 0; c < 4; c++)
-                if ((bits & (8 >> c)) != 0) img[(py + r) * W + px + c] = 0xFFFFFFFFu;
+                if ((bits & (8 >> c)) != 0) img[(py + r) * W + px + c] = colour;
         }
     }
 }

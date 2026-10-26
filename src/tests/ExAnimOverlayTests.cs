@@ -130,4 +130,28 @@ public class ExAnimOverlayTests(ITestOutputHelper log) : IDisposable
         Map16.ComposeInto(cache, rom, h, fg, pal, [0x11F]);                   // recomposing the ? block redraws them
         Assert.Equal(ghostQ, cache[0x22]);
     }
+
+    /// <summary>The 1-UP points (06F-072) draw nothing in the game; they are drawn as a see-through 1-UP mushroom
+    /// with their number, 1-4, in red, as Lunar Magic shows them.</summary>
+    [Fact]
+    public void a_one_up_point_is_a_see_through_mushroom_with_its_number()
+    {
+        if (!File.Exists(Vanilla)) return;
+        var rom = Rom.Load(Vanilla);
+        var h = LevelParser.Parse(rom, 0x006).Header;
+        var fg = Gfx.FgTiles.Load(rom, h.Tileset, 0x006);
+        var pal = Palette.Load(rom, h, 0x006);
+        var cache = Map16.ComposeAll(rom, h, fg, pal);
+        foreach (int t in new[] { 0x6F, 0x70, 0x71, 0x72 })
+        {
+            Assert.Contains(cache[t], c => c >> 24 == 0x80);
+            Assert.All(cache[t], c => Assert.True(c == 0 || c >> 24 == 0x80));
+            Assert.Contains(cache[t], c => c == (Map16.GhostAlpha | 0xF8));      // the red number
+        }
+        Assert.NotEqual(cache[0x6F], cache[0x70]);                              // ... a different one on each
+
+        cache[0x71] = new uint[256];
+        Map16.ComposeInto(cache, rom, h, fg, pal, [0x71]);
+        Assert.Contains(cache[0x71], c => c == (Map16.GhostAlpha | 0xF8));
+    }
 }

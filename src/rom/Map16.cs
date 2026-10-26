@@ -79,7 +79,35 @@ public static class Map16
         for (int t = FgTiles; t < tiles.Length; t++)
             if (rom.HasMap16Def(t)) tiles[t] = Compose(Or(LmExtendedDef(rom, t), wordOr), fg.Fetch, pal, fg.Ghost);
         foreach (int t in HiddenBlocks) GhostHiddenBlock(tiles, t);
+        GhostOneUpPoints(rom, h, tiles, pal, OneUpPoints);
         return tiles;
+    }
+
+    /// <summary>The 1-UP points (06F-072): touched in order, the fourth gives a 1-UP.</summary>
+    private static readonly int[] OneUpPoints = [0x6F, 0x70, 0x71, 0x72];
+
+    /// <summary>
+    /// A 1-UP point that draws nothing gets the 1-UP mushroom (sprite 78's picture, from the level's sprite graphics)
+    /// with its place in the order, 1-4, in red, all as ghost pixels — what Lunar Magic shows for them (View ▸ Other
+    /// Invisible Objects). The sprite graphics are the sprite set's, without a level's GFX bypass, since composing
+    /// tiles knows no level. One a hack has given a picture of its own keeps it.
+    /// </summary>
+    private static void GhostOneUpPoints(Rom rom, LevelHeader h, uint[][] tiles, Palette pal, IEnumerable<int> which)
+    {
+        var blank = which.Where(t => t < tiles.Length && tiles[t] is { } px && px.All(c => c == 0)).ToList();
+        if (blank.Count == 0 || !SpriteDisplay.TryGet(0x78, out var rel) || rel.Length == 0) return;
+        byte[][] sp;
+        try { sp = SpriteRender.LoadMap16Tiles(rom, SpriteRender.ResolveSpFiles(rom, h, -1)); } catch { return; }
+        int x0 = rel.Min(o => o.X), y0 = rel.Min(o => o.Y);
+        var mushroom = new uint[256];
+        SpriteRender.Draw(mushroom, 16, 16, [.. rel.Select(o => o with { X = o.X - x0, Y = o.Y - y0 })], sp, pal);
+        foreach (int t in blank)
+        {
+            var px = (uint[])mushroom.Clone();
+            for (int x = 5; x <= 6; x++)                                    // twice over, bold as LM's
+                SpriteData.DrawHex(px, 16, x, 3, Array.IndexOf(OneUpPoints, t) + 1, 0xFF0000F8);   // red (ABGR)
+            tiles[t] = [.. px.Select(c => c == 0 ? 0 : c & 0xFFFFFF | GhostAlpha)];
+        }
     }
 
     /// <summary>The invisible coin, 1-UP and note blocks a hit from below brings out (021-024), and the ? block (11F)
@@ -122,6 +150,7 @@ public static class Map16
                 cache[t] = !rom.HasMap16Def(t) ? null!
                          : Compose(t < FgTiles ? Definition(rom, defPtr, t) : LmExtendedDef(rom, t), fg.Fetch, pal, fg.Ghost);
         foreach (int t in HiddenBlocks) if (set.Contains(t)) GhostHiddenBlock(cache, t);
+        GhostOneUpPoints(rom, h, cache, pal, OneUpPoints.Where(set.Contains));
     }
 
     /// <summary>Compose the 0x200 BG Map16 tiles (defs at fixed $0D9100 + idx*8, CONTRACT §10).</summary>
