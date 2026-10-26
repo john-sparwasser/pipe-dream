@@ -140,6 +140,9 @@ public static class ObjectEngine
         W(0x192B, (byte)header.SpriteSet);
         W(0x5B, rom.ReadByte(0x058417 + (header.LevelMode & 0x1F)));   // VerticalTable
         W(0x1933, (byte)layer);
+        // Every switch palace pressed ($1F27-$1F2A, green yellow blue red), as Lunar Magic draws a level: the switch
+        // block objects lay the solid page-1 blocks then, the dotted page-0 outline otherwise ($0DB583, $0DB916).
+        for (int i = 0; i < 4; i++) W(0x1F27 + i, 1);
 
         // LM-patched plane maps: mode entries repointed below $8000 reference RAM tables
         // that LM's init builds at level load. The emulated loader reads them via [$00],

@@ -29,7 +29,9 @@ public static class PortedObjectEngine
         int[] netV = ReadTable(rom, 0x0DB49C, 2);      // net vertical edge tiles (by type)
         int[] netVT = ReadTable(rom, 0x0DB4D5, 2);     // ... when joining a top edge (tile 0x08)
         int[] netVB = ReadTable(rom, 0x0DB4D7, 2);     // ... when joining a bottom edge (tile 0x0E)
-        int[] swTile = ReadTable(rom, 0x0DB91A, 2);    // switch block tiles (blue, red)
+        // Switch blocks are drawn with their palace's switch pressed ($1F27,X set), as Lunar Magic draws them: the
+        // pressed table's tiles on page 1, solid, where an unpressed one places the page-0 outline.
+        int[] swTile = [.. ReadTable(rom, 0x0DB91C, 2).Select(t => t | 0x100)];   // switch block tiles (blue, red)
         int[] trunkT = ReadTable(rom, 0x0DB962, 2);    // small trunk top tiles (by type)
         int[] trunkB = ReadTable(rom, 0x0DB964, 2);    // small trunk lower tiles
         int[] fedgeT = ReadTable(rom, 0x0DBA44, 4);    // forest edge top tiles (by type)
@@ -328,11 +330,11 @@ public static class PortedObjectEngine
                 g.Set(ax, ay, ReadTable(rom, 0x0DDA7A, 3)[(ext - 0x7C) % 3]);
                 g.Set(ax, ay + 1, ReadTable(rom, 0x0DDA7D, 3)[(ext - 0x7C) % 3]);
                 break;
-            case 0x0DB583:                              // yellow switch block (outline)
-                g.Set(ax, ay, ReadTable(rom, 0x0DB589, 2)[1]);
+            case 0x0DB583:                              // yellow switch block, pressed (see swTile)
+                g.Set(ax, ay, ReadTable(rom, 0x0DB587, 2)[1] | 0x100);
                 break;
-            case 0x0DB58B:                              // green switch block (outline)
-                g.Set(ax, ay, ReadTable(rom, 0x0DB589, 2)[0]);
+            case 0x0DB58B:                              // green switch block, pressed
+                g.Set(ax, ay, ReadTable(rom, 0x0DB587, 2)[0] | 0x100);
                 break;
             case 0x0DB2CA:                              // Yoshi coin (top + bottom)
                 g.Set(ax, ay, 0x02D); g.Set(ax, ay + 1, 0x02E);
