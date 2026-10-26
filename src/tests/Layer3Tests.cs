@@ -136,6 +136,20 @@ public class Layer3Tests(ITestOutputHelper log)
         Assert.Equal(0x40, Layer3.PreviewY(rom, 0, 2));
     }
 
+    /// <summary>The smasher (tileset 1's option 2, byte $80) brings its own colours: the layer-3 setup copies $00B66C over
+    /// CGRAM 0C-0F, so 01F's falling pillar is brown, as Lunar Magic draws it, not the level's group-3 colours.</summary>
+    [Fact]
+    public void the_smasher_loads_its_own_colours()
+    {
+        if (Open() is not { } rom) return;
+        Assert.True(Layer3.LoadsSmasherColours(rom, 1, 2));
+        Assert.False(Layer3.LoadsSmasherColours(rom, 0, 2));
+        var h = LevelParser.Parse(rom, 0x01F).Header;
+        var pal = Palette.Load(rom, h, 0x01F);
+        for (int i = 0; i < 4; i++)
+            Assert.Equal(rom.ReadValue(Layer3.SmasherColours + i * 2, 2), pal.Bgr[Layer3.SmasherCgram + i]);
+    }
+
     [Fact]
     public void every_vanilla_level_that_claims_a_layer_3_actually_has_one()
     {

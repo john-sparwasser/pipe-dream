@@ -334,7 +334,7 @@ public static class Map16
     /// math has them blend with what they meet rather than cover it.
     /// </summary>
     public readonly record struct Layer3Draw(uint[] Back, uint[]? Front, int W, int H,
-                                             Layer3.Screens Screens, int OffX = 0, int OffY = 0, bool FrontBlend = false);
+                                             Layer3.Screens Screens, int OffX = 0, int OffY = 0, bool Translucent = false);
 
     /// <summary>Compose a level canvas from precomputed caches (fast; for live edits).</summary>
     public static (uint[] px, int w, int h) ComposeLevel(uint[][] cache, uint backdrop, Map16Grid grid,
@@ -365,19 +365,21 @@ public static class Map16
         // Layer 3 sits BEHIND layer 2 and layer 1, which is the whole reason a preview has to go
         // through the compose rather than being painted over the finished canvas. Its priority
         // cells are the exception, and only when the header sets mode 1's BG3-priority bit: then
-        // they come out on top of everything instead — solid, as Lunar Magic draws them: a tide's water is its own
-        // colour there (0C1, 002), where adding it to what is under it washed the level out. LM's CGADSUB box, ticked,
-        // blends them (FrontBlend), which is what its help says the box is for.
+        // they come out on top of everything instead.
+        // It is drawn SOLID, as Lunar Magic draws it, wherever it shares the main screen with layer 1: a tide's water
+        // and the smasher are their own colours (0C1, 002, 01F), where adding them to what is under them, as the
+        // console's colour math does, washed the level out. Two cases blend: LM's CGADSUB box ticked (Translucent),
+        // which is what its help says the box is for; and a mode that puts layer 3 alone over everything (0E's mist).
         void L3(uint[] px, Layer3Draw d, bool blend)
             => DrawLayer3(img, W, H, px, d.W, d.H, blend, d.Screens.Half, d.OffX, d.OffY);
 
-        if (layer3 is { Screens.AboveBg2: false } under) L3(under.Back, under, under.Screens.Blend);
+        if (layer3 is { Screens.AboveBg2: false } under) L3(under.Back, under, under.Translucent && under.Screens.Blend);
         if (bgImg is not null && bgCache is not null) DrawBgImage(img, W, H, grid.Width, bgImg, bgCache, bgPeriod, halfL2);
         else if (l2 is not null) DrawGrid(img, W, H, l2, l2Cache ?? cache, halfL2, l2Pipes);
-        if (layer3 is { Screens.AboveBg2: true, Screens.AboveBg1: false } over) L3(over.Back, over, over.Screens.Blend);
+        if (layer3 is { Screens.AboveBg2: true, Screens.AboveBg1: false } over) L3(over.Back, over, over.Translucent && over.Screens.Blend);
         DrawGrid(img, W, H, grid, cache, pipes: pipes);
         if (layer3 is { Screens.AboveBg1: true } top) L3(top.Back, top, top.Screens.Blend);
-        if (layer3 is { Front: { } fp } front) L3(fp, front, front.FrontBlend && front.Screens.Blend);
+        if (layer3 is { Front: { } fp } front) L3(fp, front, front.Translucent && front.Screens.Blend);
         return img;
     }
 

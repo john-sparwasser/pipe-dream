@@ -74,12 +74,25 @@ public static class Layer3
     /// </summary>
     public static int? InitialY(Rom rom, int tileset, int option)
     {
-        if (option is < 1 or > 3 || tileset is < 0 or >= PtrCount / 3) return null;
-        int v = rom.ReadByte(SettingTable + tileset * 3 + option - 1);
+        if (Setting(rom, tileset, option) is not { } v) return null;
         if (v < 0x80) return (v >> 1) == 0 ? 0x70 : 0x40;
         if ((v & 0x40) != 0 || (v & 0x7F) == 0) return 0xD0;
         return tileset is 1 or 3 ? 0xC0 : null;
     }
+
+    /// <summary>The <see cref="SettingTable"/> byte for this (tileset, option), or null when there is none.</summary>
+    public static int? Setting(Rom rom, int tileset, int option)
+        => option is < 1 or > 3 || tileset is < 0 or >= PtrCount / 3 ? null
+         : rom.ReadByte(SettingTable + tileset * 3 + option - 1);
+
+    /// <summary>
+    /// Whether the level's layer-3 setup also loads the smasher's colours: byte $80 copies 8 bytes from <see
+    /// cref="SmasherColours"/> over CGRAM 0C-0F (`$00A007`: <c>LDX #7 : LDA $B66C,X : STA $071B,X</c>), layer 3's group 3.
+    /// Tileset 1's option 2 — the falling smasher in 01F, 1D4 and 1FC, which Lunar Magic draws brown with them.
+    /// </summary>
+    public static bool LoadsSmasherColours(Rom rom, int tileset, int option) => Setting(rom, tileset, option) == 0x80;
+
+    public const int SmasherColours = 0x00B66C, SmasherCgram = 0x0C;
 
     /// <summary>
     /// Where Lunar Magic draws layer 3: the game's <see cref="InitialY"/>, except that a high-and-low tide (byte 01, which

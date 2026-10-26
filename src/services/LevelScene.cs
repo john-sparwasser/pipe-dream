@@ -190,7 +190,7 @@ public sealed class LevelScene
         // level's own back-area colour over layer 2.
         var (lp, lw, lh) = Layer3.Render(l3map, tiles, pal, 0, bg3Priority ? 0 : null);
         var front = bg3Priority ? Layer3.Render(l3map, tiles, pal, 0, 1).Px : null;
-        return new Map16.Layer3Draw(lp, front, lw, lh, screens, ox, oy, FrontBlend: adv?.CgAdSub == true);
+        return new Map16.Layer3Draw(lp, front, lw, lh, screens, ox, oy, Translucent: adv?.CgAdSub == true);
     }
 
     /// <summary>The Map16 tile sheet for the palette drawer, 16 tiles per row — the same

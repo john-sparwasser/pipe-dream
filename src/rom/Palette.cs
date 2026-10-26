@@ -67,6 +67,9 @@ public sealed class Palette
         Load(0x02, 0x00B0B0 + Off(h.BgPalette), 6, 2); // BG colors 2-7, palettes 0-1
         Load(0x29, 0x00B674, 7, 3);                    // colors 9-F, object palettes 2-4
         Load(0x99, 0x00B674, 7, 3);                    // colors 9-F, sprite palettes 9-B
+        // The smasher's colours: layer 3's own setup copies them over CGRAM 0C-0F (Layer3.LoadsSmasherColours).
+        if (level >= 0 && Layer3.LoadsSmasherColours(rom, h.Tileset, Layer3.Option(rom, level)))
+            Load(Layer3.SmasherCgram, Layer3.SmasherColours, 4, 1);
         cg[0x64] = Glint();
 
         for (int i = 0; i < 256; i++) p.Rgba[i] = ToRgba(cg[i]);
