@@ -6,13 +6,25 @@ namespace PipeDream;
 /// Native mode only, no decimal, no interrupts. Reads ROM via LoROM mapping; banks
 /// $7E/$7F are RAM; banks $00-$3F/$80-$BF mirror $7E low RAM below $2000. Writes
 /// outside RAM are ignored (PPU/DMA registers are irrelevant for tile expansion).
+///
+/// On an SA-1 image the memory is the bus's under the SA-1 Pack (reference/SA1_PORT.md, "Opening an
+/// SA-1 ROM"): I-RAM at $3000-$37FF, BW-RAM in banks $40-$43 and through the $6000-$7FFF window
+/// (block 0, as the pack leaves it), ROM in $80-$BF as the second 2MB and in $C0-$FF whole, the
+/// SA-1's arithmetic unit, and D = $3000. $0000-$1FFF stays work RAM, as the SNES CPU sees it: the
+/// pack's code reaches its own variables through D and the window. One unified bus serves code of
+/// either CPU. Callers say SMW's addresses through <see cref="At"/>, which follows the pack's moves.
 /// </summary>
 public sealed class Cpu65816(Rom rom)
 {
     public readonly byte[] Ram7E = new byte[0x10000];
     public readonly byte[] Ram7F = new byte[0x10000];
 
-    private int A, X, Y, SP = 0x01FF, DP;
+    private readonly bool sa1 = rom.Map is Sa1Map;
+    /// <summary>The SA-1's I-RAM ($3000-$37FF) and BW-RAM ($40:0000-$43:FFFF); unused on LoROM.</summary>
+    public readonly byte[] Iram = new byte[0x800];
+    public readonly byte[] Bwram = new byte[0x40000];
+
+    private int A, X, Y, SP = 0x01FF, DP = rom.Map is Sa1Map ? 0x3000 : 0;
     private int DBR, PBR, PC;
     private bool NF, VF, ZF, CF, M = true, XF = true;   // start in 8-bit M/X (SEP #$30 state)
 
@@ -22,9 +34,35 @@ public sealed class Cpu65816(Rom rom)
     /// <summary>Called before every instruction, so a test can run the SPC700 alongside.</summary>
     public Action? EachStep;
 
+    /// <summary>The RAM byte SMW's variable at <paramref name="vanilla"/> (a $7E/$7F address) lives in:
+    /// itself on LoROM, where the SA-1 Pack moved it on SA-1 (<see cref="Sa1Remap.General"/>: the
+    /// direct page to I-RAM, $0100-$1FFF and the Map16 buffers to BW-RAM).</summary>
+    public ref byte At(int vanilla)
+    {
+        if (!sa1) return ref (vanilla >> 16 & 0xFF) == 0x7F ? ref Ram7F[vanilla & 0xFFFF] : ref Ram7E[vanilla & 0xFFFF];
+        int a = Sa1Remap.General.Long(vanilla);
+        return ref Bus(a >> 16, a);
+    }
+
+    /// <summary>The RAM byte a bus address reaches. On LoROM that is bank $7F's, or else $7E's at the
+    /// same offset (the low mirror); on SA-1 also I-RAM, the BW-RAM window and BW-RAM's banks.</summary>
+    public ref byte Bus(int bank, int addr)
+    {
+        bank &= 0xFF; addr &= 0xFFFF;
+        if (bank == 0x7F) return ref Ram7F[addr];
+        if (sa1)
+        {
+            if (bank is >= 0x40 and < 0x50) return ref Bwram[((bank & 3) << 16) | addr];
+            if (bank != 0x7E && addr is >= 0x3000 and < 0x3800) return ref Iram[addr - 0x3000];
+            if (bank != 0x7E && addr is >= 0x6000 and < 0x8000) return ref Bwram[addr - 0x6000];
+        }
+        return ref Ram7E[addr];
+    }
+
     public byte Read(int bank, int addr)
     {
         bank &= 0xFF; addr &= 0xFFFF;
+        if (sa1 && Sa1Read(bank, addr) is >= 0 and var s) return (byte)s;
         if (bank == 0x7E) return Ram7E[addr];
         if (ApuRead is not null && addr is >= 0x2140 and <= 0x2143 && (bank < 0x40 || (bank >= 0x80 && bank < 0xC0))) return ApuRead(addr - 0x2140);
         if (bank == 0x7F) return Ram7F[addr];
@@ -39,6 +77,90 @@ public sealed class Cpu65816(Rom rom)
             if ((uint)fo < (uint)rom.Data.Length && addr >= 0x8000) return rom.Data[fo];
         }
         return 0;
+    }
+
+    /// <summary>What SA-1's bus answers that LoROM's does not, or -1 to read on as LoROM: BW-RAM, ROM
+    /// past the first 2MB, I-RAM, the BW-RAM window and the arithmetic unit's result.</summary>
+    private int Sa1Read(int bank, int addr)
+    {
+        if (bank is >= 0x40 and < 0x50) return Bwram[((bank & 3) << 16) | addr];
+        if (bank >= 0xC0 || (bank >= 0x80 && addr >= 0x8000 && bank < 0xC0))
+        {
+            int fo = rom.FileOffset((bank << 16) | addr);
+            return (uint)fo < (uint)rom.Data.Length ? rom.Data[fo] : 0;
+        }
+        if (bank is 0x7E or 0x7F) return -1;
+        if (bank is >= 0x40 and < 0x80) return 0;                         // BW-RAM's bitmap view, unmapped
+        if (onSa1Cpu && addr < 0x2000) return addr < 0x0800 ? Iram[addr] : 0;
+        if (addr is >= 0x3000 and < 0x3800) return Iram[addr - 0x3000];
+        if (addr is >= 0x6000 and < 0x8000) return Bwram[addr - 0x6000];
+        if (addr is >= 0x2306 and <= 0x230A) return (byte)(mathResult >> (addr - 0x2306) * 8);
+        return -1;
+    }
+
+    /// <summary>Store where SA-1's bus puts it, or false to store as LoROM.</summary>
+    private bool Sa1Write(int bank, int addr, byte v)
+    {
+        if (bank is >= 0x40 and < 0x50) { Bwram[((bank & 3) << 16) | addr] = v; return true; }
+        if (bank is >= 0x40 and < 0x80) return bank < 0x7E;               // $7E/$7F are work RAM, the rest nothing
+        if (bank >= 0xC0) return true;                                    // ROM
+        if (onSa1Cpu && addr < 0x2000) { if (addr < 0x0800) Iram[addr] = v; return true; }
+        if (addr is >= 0x3000 and < 0x3800) { Iram[addr - 0x3000] = v; return true; }
+        if (addr is >= 0x6000 and < 0x8000) { Bwram[addr - 0x6000] = v; return true; }
+        switch (addr)
+        {
+            case 0x2250: mathMode = v & 3; if ((v & 2) != 0) mathResult = 0; return true;
+            case 0x2251: mathA = (mathA & 0xFF00) | v; return true;
+            case 0x2252: mathA = (mathA & 0x00FF) | (v << 8); return true;
+            case 0x2253: mathB = (mathB & 0xFF00) | v; return true;
+            case 0x2254:                                        // the high byte of B starts it
+                mathB = (mathB & 0x00FF) | (v << 8);
+                if ((mathMode & 1) != 0)                        // signed A / unsigned B: quotient, remainder
+                {
+                    int q = mathB == 0 ? 0 : (short)mathA / mathB, r = mathB == 0 ? 0 : (short)mathA - q * mathB;
+                    if (r < 0) { q--; r += mathB; }
+                    mathResult = (ushort)q | (long)(ushort)r << 16;
+                }
+                else if ((mathMode & 2) != 0) mathResult = (mathResult + (short)mathA * (long)(short)mathB) & 0xFF_FFFF_FFFF;
+                else mathResult = (uint)((short)mathA * (short)mathB);
+                return true;
+        }
+        return false;
+    }
+
+    // The SA-1's arithmetic unit: $2250 mode (bit 0 divide, bit 1 cumulative sum), A and B, the result.
+    private int mathMode, mathA, mathB;
+    private long mathResult;
+
+    /// <summary>Running code the SA-1 CPU runs: its $0000-$07FF is I-RAM, and work RAM out of reach.</summary>
+    private bool onSa1Cpu;
+
+    /// <summary>
+    /// The pack's call into the SA-1 (engine/snes_init.asm, copied to work RAM at boot): $1E80 wakes the
+    /// SA-1 to run the routine at [$3180] and waits for it; $1E85 only waits. There is one CPU here,
+    /// so the routine runs in place, entered as the pack's SA-1 IRQ handler enters it (sa1.asm
+    /// ProcessRequest: D = 0, 8-bit registers, the SA-1's stack at $37FF), and the caller gets back
+    /// its own registers, which a second CPU would never have touched.
+    /// </summary>
+    private void Sa1Call(bool run)
+    {
+        if (run)
+        {
+            var (a, x, y, p, sp, dp, dbr, pbr, pc) = (A, X, Y, P, SP, DP, DBR, PBR, PC);
+            onSa1Cpu = true;
+            P = 0x34; DP = 0; DBR = 0; SP = 0x37FF;
+            PBR = Iram[0x182]; PC = Iram[0x180] | Iram[0x181] << 8;
+            Push(0xFF); Push16(0xFFFE);                         // a JSL frame: RTL lands on $FF:FFFF
+            long budget = 30_000_000;
+            while (!(PC == 0xFFFF && PBR == 0xFF))
+            {
+                if (--budget == 0) throw new InvalidOperationException("emulation overran instruction budget on the SA-1");
+                Step();
+            }
+            onSa1Cpu = false;
+            (P, A, X, Y, SP, DP, DBR, PBR, PC) = (p, a, x, y, sp, dp, dbr, pbr, pc);
+        }
+        PC = (Pull16() + 1) & 0xFFFF;                           // the caller's JSR returns
     }
 
     /// <summary>Debug: when set, logs (PC, addr, value) for writes to $0200-$04FF.</summary>
@@ -124,16 +246,19 @@ public sealed class Cpu65816(Rom rom)
                     if (vramIncOnHigh) vramAddr += vramStep;
                     break;
             }
-        if (StreamOwner is not null && Ram7E[0x67] == 0x7F)
+        if (StreamOwner is not null && At(0x7E0067) == 0x7F)
         {
-            int p = ((Ram7E[0x66] << 8) | Ram7E[0x65]) - 3;
+            int p = ((At(0x7E0066) << 8) | At(0x7E0065)) - 3;
             ushort id = (uint)p < (uint)StreamOwner.Length ? StreamOwner[p] : (ushort)0;
-            if (bank == 0x7E) Owner7E![addr] = id;
-            else if (bank == 0x7F) Owner7F![addr] = id;
+            // The pack's Map16 buffers are BW-RAM banks $40/$41: the owner planes keep their names.
+            int plane = sa1 && bank is 0x40 or 0x41 ? bank + 0x3E : bank;
+            if (plane == 0x7E) Owner7E![addr] = id;
+            else if (plane == 0x7F) Owner7F![addr] = id;
             else if (addr < 0x2000 && (bank < 0x40 || (bank >= 0x80 && bank < 0xC0))) Owner7E![addr] = id;
-            if (WriteLog is not null && id != 0 && (bank == 0x7F || (bank == 0x7E && addr >= 0xC800)))
-                WriteLog.Add((bank, addr, id));
+            if (WriteLog is not null && id != 0 && (plane == 0x7F || (plane == 0x7E && addr >= 0xC800)))
+                WriteLog.Add((plane, addr, id));
         }
+        if (sa1 && Sa1Write(bank, addr, v)) return;
         if (bank == 0x7E) Ram7E[addr] = v;
         else if (bank == 0x7F) Ram7F[addr] = v;
         else if (addr < 0x2000 && (bank < 0x40 || (bank >= 0x80 && bank < 0xC0))) Ram7E[addr] = v;
@@ -296,6 +421,7 @@ public sealed class Cpu65816(Rom rom)
     {
         EachStep?.Invoke();
         ring[ringPos++ & 63] = (PBR << 16) | PC;
+        if (sa1 && !onSa1Cpu && (PBR & 0x40) == 0 && PC is 0x1E80 or 0x1E85) { Sa1Call(PC == 0x1E80); return; }
         BankTrace?.Add(PBR);
         if (PcHot is not null && ((PBR & 0x7F) is not (0x00 or 0x01 or 0x05 or 0x07)
                                   && !((PBR & 0x7F) == 0x02 && PC < 0xA7FC)))

@@ -79,7 +79,7 @@ public static class ObjectEngine
     {
         var cpu = new Cpu65816(rom);
         LastCpu = cpu;
-        Array.Fill(cpu.Ram7E, (byte)0x25, 0xC800, 0x3800);
+        for (int i = 0; i < 0x3800; i++) cpu.At(0x7EC800 + i) = 0x25;
         for (int i = 0; i < encoded.Length && i < 0xC000; i++) cpu.Ram7F[i] = encoded[i];
         if (streamOwner is not null)
         {
@@ -96,7 +96,7 @@ public static class ObjectEngine
         var cpu = new Cpu65816(rom);
         LastCpu = cpu;
         // Tilemap init as at $058074: low planes 0x25, high planes 0x00.
-        Array.Fill(cpu.Ram7E, (byte)0x25, 0xC800, 0x3800);
+        for (int i = 0; i < 0x3800; i++) cpu.At(0x7EC800 + i) = 0x25;
         return RenderEmulatedCore(rom, cpu, header, dataPtrSnes, layer, out _, out _, 30_000_000, heightRows);
     }
 
@@ -131,7 +131,7 @@ public static class ObjectEngine
         byte RomOrRam(int snes)     // $65 pointer may target ROM (real level) or $7F RAM (edited stream)
             => (snes >> 16) == 0x7F ? cpu.Ram7F[snes & 0xFFFF] : rom.ReadByte(snes);
 
-        void W(int addr, byte v) => cpu.Ram7E[addr] = v;
+        void W(int addr, byte v) => cpu.At(0x7E0000 | addr) = v;
         int data = dataPtrSnes + 5;                       // past the 5-byte header copy
         W(0x65, (byte)data); W(0x66, (byte)(data >> 8)); W(0x67, (byte)(data >> 16));
         W(0x1925, (byte)header.LevelMode);
@@ -154,7 +154,7 @@ public static class ObjectEngine
             if (stride == 0x1B0)
             {
                 for (int i = 0; i < 0x20 * 3; i++)
-                    cpu.Ram7E[(scr + i) & 0xFFFF] = rom.ReadByte(van + i);
+                    cpu.Bus(0, scr + i) = rom.ReadByte(van + i);
                 continue;
             }
             // A taller level: what LM's init ($8E65 in block B) computes — the vanilla table's
@@ -163,9 +163,9 @@ public static class ObjectEngine
             for (int s = 0; s < 0x20; s++)
             {
                 int p = first + s * stride;
-                cpu.Ram7E[(scr + s * 3) & 0xFFFF] = (byte)p;
-                cpu.Ram7E[(scr + s * 3 + 1) & 0xFFFF] = (byte)(p >> 8);
-                cpu.Ram7E[(scr + s * 3 + 2) & 0xFFFF] = (byte)(p >> 16);
+                cpu.Bus(0, scr + s * 3) = (byte)p;
+                cpu.Bus(0, scr + s * 3 + 1) = (byte)(p >> 8);
+                cpu.Bus(0, scr + s * 3 + 2) = (byte)(p >> 16);
             }
         }
 
@@ -189,11 +189,13 @@ public static class ObjectEngine
         // object (CODE_058676) — validated across all screens since handlers may clobber.
         int Mem24(int snes) => cpu.Read(snes >> 16, snes) | cpu.Read(snes >> 16, snes + 1) << 8
                                                           | (cpu.Read(snes >> 16, snes + 2) << 16);
+        // The level's tilemap: work RAM, or on SA-1 the pack's BW-RAM banks.
+        bool TilemapBank(int bank) => bank is 0x7E or 0x7F || (rom.Map is Sa1Map && bank is 0x40 or 0x41);
         bool ValidTbl(int tbl, int entries)
         {
             if (tbl == 0) return false;
             for (int s = 0; s < entries; s++)
-                if ((Mem24(tbl + s * 3) >> 16) is not (0x7E or 0x7F)) return false;
+                if (!TilemapBank(Mem24(tbl + s * 3) >> 16)) return false;
             return true;
         }
         int mode = header.LevelMode & 0x1F;
@@ -201,8 +203,8 @@ public static class ObjectEngine
         int highScr = rom.ReadValue(rom.ReadValue(0x00BEAC + layer * 2, 2) + mode * 2, 2);
         if (!ValidTbl(lowScr, 1) || !ValidTbl(highScr, 1))
         {
-            lowScr = cpu.Ram7E[0x00] | cpu.Ram7E[0x01] << 8 | (cpu.Ram7E[0x02] << 16);
-            highScr = cpu.Ram7E[0x0D] | cpu.Ram7E[0x0E] << 8 | (cpu.Ram7E[0x0F] << 16);
+            lowScr = cpu.At(0x7E0000) | cpu.At(0x7E0001) << 8 | (cpu.At(0x7E0002) << 16);
+            highScr = cpu.At(0x7E000D) | cpu.At(0x7E000E) << 8 | (cpu.At(0x7E000F) << 16);
             if (!ValidTbl(lowScr, screens) || !ValidTbl(highScr, screens))
                 throw new InvalidOperationException("no valid plane tables (vanilla static + loader scratch both dead)");
         }
@@ -223,8 +225,8 @@ public static class ObjectEngine
         }
         stacks = perAddr is not null ? new Dictionary<int, ushort[]>() : null;
 
-        byte Ram(int bank, int addr) => bank == 0x7F ? cpu.Ram7F[addr & 0xFFFF] : cpu.Ram7E[addr & 0xFFFF];
-        ushort Owner(int bank, int addr) => bank == 0x7F ? cpu.Owner7F![addr & 0xFFFF] : cpu.Owner7E![addr & 0xFFFF];
+        byte Ram(int bank, int addr) => cpu.Bus(bank, addr);
+        ushort Owner(int bank, int addr) => bank is 0x7F or 0x41 ? cpu.Owner7F![addr & 0xFFFF] : cpu.Owner7E![addr & 0xFFFF];
         for (int s = 0; s < screens; s++)
         {
             int lo = Mem24(lowScr + s * 3);        // tables may live in RAM on LM ROMs
@@ -254,7 +256,7 @@ public static class ObjectEngine
                 int loAddr = (lo + (half << 8) + pos) & 0xFFFF;
                 owners?.Set(cx, cy, Owner(lo >> 16, loAddr));                    // low plane: always written
                 if (perAddr is not null &&
-                    perAddr.TryGetValue(((lo >> 16) == 0x7F ? 0x10000 : 0) | loAddr, out var hist))
+                    perAddr.TryGetValue(((lo >> 16) is 0x7F or 0x41 ? 0x10000 : 0) | loAddr, out var hist))
                     stacks![cy * g.Width + cx] = hist.ToArray();
             }
         }

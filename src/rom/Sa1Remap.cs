@@ -26,6 +26,9 @@ public sealed class Sa1Remap
 
     public Sa1Remap(IReadOnlyDictionary<int, int> spriteTables) => sprite = new(spriteTables);
 
+    /// <summary>The general moves alone: no sprite tables, which need the installed pack's list.</summary>
+    public static readonly Sa1Remap General = new(new Dictionary<int, int>());
+
     /// <summary>The 12 slots of each <c>%define_sprite_table(name, vanilla, sa1, more_sprites)</c>,
     /// vanilla to More Sprites. A direct-page address on either side is the I-RAM byte it names.</summary>
     public static Sa1Remap FromSpriteTables(string asm)

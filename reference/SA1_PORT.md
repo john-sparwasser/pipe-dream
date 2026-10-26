@@ -583,4 +583,52 @@ Layer 1 needs nothing from phases 2-3 and can ship with phase 1.
 them (2026-10-25, under "What an overworld save also does on SA-1"). The pack doesn't break our
 overworld writes either, measured there.
 
-**Out of scope for now:** opening other people's SA-1 ROMs, and 6/8MB.
+**6. Opening an SA-1 ROM** (someone else's hack, or our own SA-1 build): below.
+
+**Out of scope for now:** 6/8MB.
+
+## Opening an SA-1 ROM (plan, 2026-10-25)
+
+Nothing refuses one: `Rom.Map` follows the header, so addresses resolve. Measured on
+`lm-sa1.smc` (clean + pack + one LM level save, so vanilla content) against `after.smc` (the same
+save on LoROM), and on sgdq2024 (a 4MB SA-1 hack):
+
+- **Right:** every level opens. Level pointers into the SA-1's upper banks resolve (sgdq2024 level
+  105 at `$85A674`). LM's level heights read 432 on both. The overworld is identical: layers 1 and
+  2, event pieces, layer 1's Map16, all seven submaps' palettes.
+- **Wrong:** 196 of 512 levels draw differently, and every level comes out 512 px tall. The level
+  canvas runs the ROM's own loader in `Cpu65816`, whose memory is the LoROM game's: WRAM only,
+  D = 0, banks `$40+` read as ROM. The pack's loader runs with D = `$3000` and writes the tilemap
+  to `$40/$41C800`, so the plane tables fail `ValidTbl` and `ObjectEngine.Render` falls back to the
+  hand-ported engine, which knows no LM objects or heights.
+
+Steps:
+
+1. **`Cpu65816` on an SA-1 image.** Its memory as the bus has it under the pack's settings: I-RAM
+   at `$3000-$37FF`, BW-RAM at `$40-$43` and through the `$6000-$7FFF` window (block 0), ROM in
+   `$80-$BF` as the second 2MB and in `$C0-$FF` whole, the SA-1's arithmetic (`$2250-$2254`,
+   results at `$2306`), and D = `$3000` at entry. A LoROM image keeps today's memory exactly.
+   Callers say SMW's addresses (`cpu.At(0x7E0065)`), mapped by the pack's rules (`Sa1Remap`), so
+   they read the same on both. `ObjectEngine` first. Done when `lm-sa1.smc` draws pixel for pixel
+   as `after.smc`, all 512 levels, with object selection (the owner planes) working.
+
+   **Done (2026-10-25).** One more thing was needed: the pack's loader hands work to the SA-1
+   through `JSR $1E80`, a routine `engine/snes_init.asm` copies to work RAM at boot (wake the SA-1
+   to run `[$3180]`, wait). `Cpu65816` has one CPU, so `$1E80` runs the routine in place, entered
+   as the pack's IRQ handler enters it (`sa1.asm` ProcessRequest: D = 0, 8-bit registers, the
+   SA-1's stack at `$37FF`), with `$0000-$07FF` as I-RAM while it runs, and the caller's registers
+   restored after, as a second CPU leaves them. `$1E85` (only the wait) returns at once.
+   Measured (`Sa1OpenTests`): 511 of 512 levels draw pixel for pixel as `after.smc`. Level 105 is
+   the exception, because each oracle saved it with different content. In the vertical levels 0E7
+   and 1CE, layer 2 below row 240 differs too; that is past their last screen and past layer 2's
+   tilemap RAM, where LoROM reads on into the next bank. The owner planes and the stack of
+   writers under each cell match LoROM's. On sgdq2024 all 488 non-empty levels run the real
+   loader (none fall back), and level 105 draws the hack's custom-block legend, layer 3 text and
+   all. The LoROM paths are unchanged (full suite).
+2. **Sprites** (`SpriteRender`'s OAM capture): 22 slots, the More Sprites tables. These come from
+   the pack's `sprite_tables.asm`; whether to require the installed pack or carry the list is
+   decided then.
+3. **ExAnimation** (`ExAnimation.ResolveGlobal` runs LM's processor in the CPU).
+4. **sgdq2024 against Lunar Magic**: spot-check levels LM draws, ours beside.
+5. **Saving into an SA-1 hack** is a separate question: a base used as provided, whose patches (an
+   installed PIXI, say) may clash with our drivers, as on a LoROM hack. Not in this plan.
