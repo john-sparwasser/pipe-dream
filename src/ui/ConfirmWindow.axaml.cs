@@ -1,3 +1,4 @@
+using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
@@ -16,7 +17,16 @@ public partial class ConfirmWindow : Window
     {
         Title = title;
         this.GetControl<TextBlock>("Prompt").Text = prompt;
-        this.GetControl<Button>("Action").Content = action;
+        var act = this.GetControl<Button>("Action");
+        act.Content = action;
+        // Destructive verbs get a rose button and Enter cancels, so a reflex Enter can't wipe work.
+        if (new[] { "Clear", "Delete", "Remove", "Reset", "Discard", "Unlink" }.Any(v => action.StartsWith(v, System.StringComparison.Ordinal)))
+        {
+            act.Classes.Remove("accent");
+            act.Classes.Add("danger");
+            act.IsDefault = false;
+            this.GetControl<Button>("Cancel").IsDefault = true;
+        }
     }
 
     /// <summary>A message with one button — a result or a problem, not a choice.</summary>

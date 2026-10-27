@@ -824,7 +824,7 @@ public partial class MainWindow
             BorderBrush = open ? UiColors.Accent : this.FindResource("BorderBrush") as IBrush,
             // Transparent, never null: a null background is not hit-testable, so the card
             // would take no clicks except on the controls inside it.
-            Background = open ? UiColors.SelectionFill : Brushes.Transparent,
+            Background = open ? (this.FindResource("RaisedBrush") as IBrush) : Brushes.Transparent,
             Cursor = UiCursors.Hand,
         };
         // An UNUSED bin (0x7F) is clickable too: selecting it is how it gets given something.
@@ -856,8 +856,5 @@ public partial class MainWindow
                 Stretch = true,
                 BottomCornerRadius = 4,
             });
-        else
-            block.Children.Add(new TextBlock { Text = "(empty)", Classes = { "mono" },
-                                               Margin = new Thickness(8, 6) });
     }
 }

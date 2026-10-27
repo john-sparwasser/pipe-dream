@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="PipeDream.Ui.BlocksWindow"
-        Title="Custom blocks" Width="560" Height="520"
+        Title="Custom blocks" Width="640" Height="520" MinWidth="600" MinHeight="400"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
 
@@ -12,59 +12,110 @@
       <Setter Property="FontSize" Value="12"/>
     </Style>
     <Style Selector="TextBlock.mono">
-      <Setter Property="FontFamily" Value="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"/>
+      <Setter Property="FontFamily" Value="{DynamicResource MonoFont}"/>
       <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
       <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
     <Style Selector="TextBlock.note">
       <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="FontFamily" Value="{DynamicResource MonoFont}"/>
       <Setter Property="FontSize" Value="11"/>
       <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
+    <Style Selector="Button">
+      <Setter Property="MinHeight" Value="32"/>
+      <Setter Property="Padding" Value="12,0"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="ListBoxItem">
+      <Setter Property="MinHeight" Value="32"/>
+      <Setter Property="Padding" Value="8,4"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    </Style>
+    <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
+    </Style>
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource SelectionBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="BorderThickness" Value="2,0,0,0"/>
+    </Style>
   </Window.Styles>
 
-  <DockPanel Margin="14">
-    <!-- Header bar: New and Import always; Remove, Edit and Open act on the selected block.
+  <DockPanel Margin="16">
+    <!-- Library actions on the left; Remove, Edit and Open act on the selected block, on the right.
          Import GPS folder brings a whole GPS folder in: its driver, routines, blocks and list. -->
-    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8">
-      <Button x:Name="NewButton" Content="New…" Click="OnNew" ToolTip.Tip="Adds a block from the template, with a name and an icon"/>
-      <Button x:Name="ImportButton" Content="Import…" Click="OnImport" ToolTip.Tip="Adds .asm files from disk to the library"/>
-      <Button x:Name="RemoveButton" Content="Remove" Click="OnRemove" IsEnabled="False"/>
-      <Button x:Name="EditButton" Content="Edit" Click="OnEdit" IsEnabled="False"/>
-      <Button x:Name="OpenButton" Click="OnOpen" IsEnabled="False"
-              ToolTip.Tip="Open the block in your text editor (File ▸ Preferences); saving there updates the project"/>
-      <Button Content="Import GPS folder…" Click="OnImportGps"
-              ToolTip.Tip="Bring in a GPS folder: its blocks, its list of which tile runs which, and the routines they call"/>
-    </StackPanel>
+    <TextBlock DockPanel.Dock="Top" Classes="dim" TextWrapping="Wrap" Margin="0,0,0,12"
+               Text="Blocks run ASM when Mario touches a tile. Assign one to a tile from the Map16 editor's Custom button."/>
+    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto">
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Button x:Name="NewButton" Classes="accent" Content="New…" Click="OnNew" ToolTip.Tip="Adds a block from the template, with a name and an icon"/>
+        <Button x:Name="ImportButton" ToolTip.Tip="Add block .asm files, or a whole GPS folder, to the library">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <TextBlock Text="Import" VerticalAlignment="Center"/>
+            <TextBlock Text="▾" FontSize="10" VerticalAlignment="Center" Foreground="{DynamicResource TextDimBrush}"/>
+          </StackPanel>
+          <Button.Flyout>
+            <MenuFlyout Placement="BottomEdgeAlignedLeft">
+              <MenuItem Header="Block .asm files…" Click="OnImport" ToolTip.Tip="Adds .asm files from disk to the library"/>
+              <MenuItem Header="GPS folder…" Click="OnImportGps"
+                        ToolTip.Tip="Bring in a GPS folder: its blocks, its list of which tile runs which, and the routines they call"/>
+            </MenuFlyout>
+          </Button.Flyout>
+        </Button>
+      </StackPanel>
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+        <Button x:Name="EditButton" Content="Edit…" Click="OnEdit" IsEnabled="False"
+                ToolTip.Tip="Edit the block's name, icon and code here"/>
+        <Button x:Name="OpenButton" Click="OnOpen" IsEnabled="False"
+                ToolTip.Tip="Open the block in your text editor (File ▸ Preferences); saving there updates the project"/>
+        <Button x:Name="RemoveButton" Classes="danger" Content="Remove" Click="OnRemove" IsEnabled="False"/>
+      </StackPanel>
+    </Grid>
 
     <!-- A base GPS already put blocks on: nothing here may change until their folder is imported
          (EditorSession.BlocksLockedReason). -->
-    <Border x:Name="LockNotice" DockPanel.Dock="Top" IsVisible="False" Margin="0,10,0,0" Padding="10,8"
-            CornerRadius="4" Background="#3A2E12" BorderBrush="#8A6D1F" BorderThickness="1">
-      <TextBlock x:Name="LockText" TextWrapping="Wrap" Foreground="#F2D58A" FontSize="12"/>
+    <Border x:Name="LockNotice" DockPanel.Dock="Top" IsVisible="False" Margin="0,16,0,0" Padding="12,8"
+            CornerRadius="6" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+      <Panel>
+        <Border Background="{DynamicResource WarnBrush}" Opacity="0.1" CornerRadius="6" Margin="-12,-8"/>
+        <TextBlock x:Name="LockText" TextWrapping="Wrap" Foreground="{DynamicResource WarnBrush}" FontSize="12"/>
+      </Panel>
     </Border>
 
-    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right"
-                Spacing="8" Margin="0,12,0,0">
-      <TextBlock x:Name="Hint" Classes="dim" TextWrapping="Wrap" MaxWidth="440"/>
-      <Button Content="Close" Click="OnClose" IsCancel="True"/>
-    </StackPanel>
+    <DockPanel DockPanel.Dock="Bottom" Margin="0,16,0,0">
+      <Button DockPanel.Dock="Right" Content="Close" Click="OnClose" IsCancel="True" Margin="8,0,0,0"/>
+      <TextBlock x:Name="Hint" Classes="dim" TextWrapping="Wrap"/>
+    </DockPanel>
 
-    <ListBox x:Name="Library" Margin="0,10,0,0" SelectionChanged="OnSelect" DoubleTapped="OnEdit">
+    <Panel Margin="0,16,0,0">
+    <ListBox x:Name="Library" Padding="4" SelectionChanged="OnSelect" DoubleTapped="OnEdit"
+             Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource BorderBrush}"
+             BorderThickness="1" CornerRadius="12">
       <ListBox.ItemTemplate>
         <DataTemplate>
-          <!-- icon, name, description (the block's first print, trimmed to fit), how many tiles run it -->
-          <Grid ColumnDefinitions="16,Auto,*,Auto,Auto" ColumnSpacing="8">
-            <Image Source="{Binding Icon}" Width="16" Height="16" RenderOptions.BitmapInterpolationMode="None"/>
-            <TextBlock Grid.Column="1" Text="{Binding Name}" Classes="mono"/>
+          <!-- icon slot, name, description (the block's first print, trimmed to fit), how many tiles run it -->
+          <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto">
+            <Border Width="16" Height="16" Margin="0,0,8,0" CornerRadius="3" Background="Transparent"
+                    IsVisible="{Binding Icon, Converter={x:Static ObjectConverters.IsNotNull}}">
+              <Image Source="{Binding Icon}" Width="16" Height="16" RenderOptions.BitmapInterpolationMode="None"/>
+            </Border>
+            <TextBlock Grid.Column="1" Text="{Binding Name}" Classes="mono" Margin="0,0,12,0"/>
             <TextBlock Grid.Column="2" Text="{Binding Description}" Classes="dim" TextTrimming="CharacterEllipsis"
                        ToolTip.Tip="{Binding Description}"/>
-            <TextBlock Grid.Column="3" Text="{Binding Note}" Classes="note"/>
+            <TextBlock Grid.Column="3" Text="{Binding Note}" Classes="note" Margin="12,0,0,0"/>
             <!-- How it fares on SA-1 (reference/SA1_PORT.md, phase 4); the lines behind it on hover. -->
-            <TextBlock Grid.Column="4" Text="{Binding Sa1}" Classes="note" ToolTip.Tip="{Binding Sa1Tip}"/>
+            <TextBlock Grid.Column="4" Text="{Binding Sa1}" Classes="note" Margin="8,0,0,0" ToolTip.Tip="{Binding Sa1Tip}"/>
           </Grid>
         </DataTemplate>
       </ListBox.ItemTemplate>
     </ListBox>
+    <StackPanel IsVisible="{Binding !#Library.ItemCount}" IsHitTestVisible="False" Spacing="4"
+                HorizontalAlignment="Center" VerticalAlignment="Center">
+      <TextBlock Text="No custom blocks yet" HorizontalAlignment="Center" FontSize="13" Foreground="{DynamicResource TextDimBrush}"/>
+    </StackPanel>
+    </Panel>
   </DockPanel>
 </Window>

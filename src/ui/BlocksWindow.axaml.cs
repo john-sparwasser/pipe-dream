@@ -59,6 +59,7 @@ public partial class BlocksWindow : Window
         library.ItemsSource = rows;
         library.SelectedItem = rows.FirstOrDefault(r => r.Name == want);
         if (rows.Count == 0) hint.Text = "no blocks yet — New… starts one, Import… adds .asm files";
+        else if (string.IsNullOrEmpty(hint.Text)) hint.Text = "Select a block to edit it or open its source.";
         var locked = session.BlocksLockedReason;
         this.GetControl<Border>("LockNotice").IsVisible = locked is not null;
         this.GetControl<TextBlock>("LockText").Text = locked;

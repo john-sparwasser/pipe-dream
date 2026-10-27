@@ -46,6 +46,7 @@ public partial class GfxBrowserWindow : Window
     private TextBox filter = null!;
     private RadioButton showCustom = null!;
     private TextBlock renameHint = null!;
+    private TextBlock empty = null!;
 
     /// <summary>Parameterless for the XAML loader; the real entry point is the other one.</summary>
     public GfxBrowserWindow() => AvaloniaXamlLoader.Load(this);
@@ -57,6 +58,7 @@ public partial class GfxBrowserWindow : Window
         filter = this.GetControl<TextBox>("Filter");
         showCustom = this.GetControl<RadioButton>("ShowCustom");
         renameHint = this.GetControl<TextBlock>("RenameHint");
+        empty = this.GetControl<TextBlock>("Empty");
         this.GetControl<TextBlock>("Purpose").Text = purpose;
 
         filter.TextChanged += (_, _) => Refresh();
@@ -78,8 +80,12 @@ public partial class GfxBrowserWindow : Window
             if (session.GfxBrowserView != view) session.GfxBrowserView = view;  // saves config
             ApplyView(view);
         }
-        files.SelectionChanged += (_, _) => renameHint.Text =
-            files.SelectedItem is Row { Custom: true, HasName: false } ? "unnamed" : "";
+        var renameBtn = this.GetControl<Button>("RenameBtn");
+        files.SelectionChanged += (_, _) =>
+        {
+            renameBtn.IsEnabled = files.SelectedItem is Row { Custom: true };
+            renameHint.Text = files.SelectedItem is Row { Custom: true, HasName: false } ? "Unnamed" : "";
+        };
         Refresh();
     }
 
@@ -102,10 +108,9 @@ public partial class GfxBrowserWindow : Window
                           .Select(i => new Row(i)).ToList();
         files.ItemsSource = rows;
         files.SelectedItem = rows.FirstOrDefault(r => r.Id == keep) ?? rows.FirstOrDefault();
-        if (rows.Count == 0)
-            renameHint.Text = filter.Text is { Length: > 0 }
-                ? "nothing matches that filter"
-                : "no custom GFX yet — Import .bin… makes one";
+        empty.Text = filter.Text is { Length: > 0 }
+            ? "No matches for that filter."
+            : showCustom.IsChecked == true ? "No custom graphics yet. Import a .bin to add one." : "No graphics to show.";
     }
 
     /// <summary>Import a raw planar .bin as a new custom file. It lands here rather than on a bin
@@ -149,7 +154,7 @@ public partial class GfxBrowserWindow : Window
         var dlg = new TextPromptWindow($"Name for GFX{r.Id:X3}", r.Name ?? "");
         await dlg.ShowDialog(this);
         if (dlg.Result is not { } name) return;
-        if (!session.RenameGfx(r.Id, name)) { renameHint.Text = "base files have no name"; return; }
+        if (!session.RenameGfx(r.Id, name)) { renameHint.Text = "Base files can't be renamed."; return; }
         Refresh();
     }
 }

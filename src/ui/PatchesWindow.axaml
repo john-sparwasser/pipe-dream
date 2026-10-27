@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="PipeDream.Ui.PatchesWindow"
-        Title="Patches" Width="620" Height="520"
+        Title="Patches" Width="620" Height="520" MinWidth="620" MinHeight="360"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
 
@@ -12,41 +12,71 @@
       <Setter Property="FontSize" Value="12"/>
     </Style>
     <Style Selector="TextBlock.mono">
-      <Setter Property="FontFamily" Value="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"/>
+      <Setter Property="FontFamily" Value="{DynamicResource MonoFont}"/>
       <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
       <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
     <Style Selector="TextBlock.note">
-      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}"/>
+      <Setter Property="FontFamily" Value="{DynamicResource MonoFont}"/>
       <Setter Property="FontSize" Value="11"/>
       <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
+    <Style Selector="ListBoxItem">
+      <Setter Property="MinHeight" Value="32"/>
+      <Setter Property="Padding" Value="8,4"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    </Style>
+    <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#0AFFFFFF"/>
+    </Style>
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource SelectionBrush}"/>
+    </Style>
   </Window.Styles>
 
-  <DockPanel Margin="14">
+  <DockPanel Margin="16">
     <!-- The Custom blocks window's bar, plus the order: patches apply top to bottom, so where one
          sits in the list is part of what it does. -->
-    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8">
-      <Button Content="New…" Click="OnNew" ToolTip.Tip="Adds a patch from the template"/>
-      <Button Content="Import…" Click="OnImport"
+    <!-- one toolbar; with no patches the empty state below carries New/Import instead -->
+    <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="8"
+          IsVisible="{Binding !!#List.ItemCount}">
+      <Button Content="New…" Classes="accent" Click="OnNew" ToolTip.Tip="Adds a patch from the template"/>
+      <Button Grid.Column="1" Content="Import…" Click="OnImport"
               ToolTip.Tip="Adds .asm patches from disk, with every file each one includes from beside it"/>
-      <Button x:Name="RemoveButton" Content="Remove" Click="OnRemove" IsEnabled="False"/>
-      <Button x:Name="EditButton" Content="Edit" Click="OnEdit" IsEnabled="False"/>
-      <Button x:Name="OpenButton" Click="OnOpen" IsEnabled="False"
-              ToolTip.Tip="Open the patch in your text editor (File ▸ Preferences); saving there updates the project"/>
-      <Button x:Name="UpButton" Content="Move up" Click="OnUp" IsEnabled="False"
-              ToolTip.Tip="Apply this patch earlier"/>
-      <Button x:Name="DownButton" Content="Move down" Click="OnDown" IsEnabled="False"
-              ToolTip.Tip="Apply this patch later"/>
-    </StackPanel>
+      <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" Margin="8,0,0,0">
+        <Button x:Name="EditButton" Content="Edit" Click="OnEdit" IsEnabled="False"/>
+        <Button x:Name="OpenButton" Click="OnOpen" IsEnabled="False"
+                ToolTip.Tip="Open the patch in your text editor (File ▸ Preferences); saving there updates the project"/>
+        <StackPanel Orientation="Horizontal" Spacing="4">
+          <Button x:Name="UpButton" Width="32" VerticalAlignment="Stretch" Click="OnUp" IsEnabled="False"
+                  ToolTip.Tip="Apply earlier">
+            <PathIcon VerticalAlignment="Center" Width="12" Height="12" Data="M6 15l6-6 6 6" Foreground="{DynamicResource TextDimBrush}"/>
+          </Button>
+          <Button x:Name="DownButton" Width="32" VerticalAlignment="Stretch" Click="OnDown" IsEnabled="False"
+                  ToolTip.Tip="Apply later">
+            <PathIcon VerticalAlignment="Center" Width="12" Height="12" Data="M6 9l6 6 6-6" Foreground="{DynamicResource TextDimBrush}"/>
+          </Button>
+        </StackPanel>
+      </StackPanel>
+      <Button x:Name="RemoveButton" Grid.Column="4" Classes="danger" Content="Remove" Click="OnRemove" IsEnabled="False"/>
+    </Grid>
 
-    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right"
-                Spacing="8" Margin="0,12,0,0">
-      <TextBlock x:Name="Hint" Classes="dim" TextWrapping="Wrap" MaxWidth="500"/>
-      <Button Content="Close" Click="OnClose" IsCancel="True"/>
-    </StackPanel>
+    <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" Margin="0,16,0,0">
+      <StackPanel VerticalAlignment="Center" Spacing="2">
+        <TextBlock x:Name="Hint" Classes="dim" IsVisible="{Binding $self.Text, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" TextWrapping="Wrap" HorizontalAlignment="Left"/>
+        <TextBlock Classes="dim" TextWrapping="Wrap" HorizontalAlignment="Left" Foreground="{DynamicResource TextDimBrush}"
+                   Text="Applied top to bottom at build. Untick to keep a patch without applying it."
+                   IsVisible="{Binding !!#List.ItemCount}"/>
+      </StackPanel>
+      <Button Grid.Column="1" Content="Close" Click="OnClose" IsCancel="True" Margin="8,0,0,0"/>
+    </Grid>
 
-    <ListBox x:Name="List" Margin="0,10,0,0" SelectionChanged="OnSelect" DoubleTapped="OnEdit">
+    <Grid Margin="0,16,0,0">
+    <ListBox x:Name="List" Padding="4" Background="{DynamicResource PanelBrush}"
+             BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="12" ClipToBounds="True" SelectionChanged="OnSelect" DoubleTapped="OnEdit">
       <ListBox.ItemTemplate>
         <DataTemplate>
           <!-- on/off, name, description (the patch's first comment line), how many files it includes -->
@@ -63,5 +93,18 @@
         </DataTemplate>
       </ListBox.ItemTemplate>
     </ListBox>
+    <!-- empty state, over the list while it has no rows -->
+    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="4"
+                IsVisible="{Binding !#List.ItemCount}">
+      <TextBlock Text="No patches yet" Foreground="{DynamicResource TextBrush}" FontSize="14"
+                 FontWeight="Medium" HorizontalAlignment="Center"/>
+      <TextBlock Classes="dim" Text="Create a patch or import an .asm file to get started" HorizontalAlignment="Center"/>
+      <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" Margin="0,8,0,0">
+        <Button Content="New…" Classes="accent" Click="OnNew" ToolTip.Tip="Adds a patch from the template"/>
+        <Button Content="Import…" Click="OnImport"
+                ToolTip.Tip="Adds .asm patches from disk, with every file each one includes from beside it"/>
+      </StackPanel>
+    </StackPanel>
+    </Grid>
   </DockPanel>
 </Window>

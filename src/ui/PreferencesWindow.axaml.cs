@@ -26,8 +26,12 @@ public partial class PreferencesWindow : Window
     /// <summary>Put the current choices in the boxes; unset reads as what happens instead.</summary>
     private void ShowChoices()
     {
-        editorPath.Text = session.TextEditorPath ?? "the OS's program for .asm files";
+        editorPath.Text = session.TextEditorPath ?? "System default for .asm files";
         emulatorPath.Text = session.EmulatorPath ?? "Mesen, found automatically";
+        editorPath.Classes.Set("unset", session.TextEditorPath == null);
+        emulatorPath.Classes.Set("unset", session.EmulatorPath == null);
+        this.GetControl<Button>("DefaultEditorButton").IsEnabled = session.TextEditorPath != null;
+        this.GetControl<Button>("DefaultEmulatorButton").IsEnabled = session.EmulatorPath != null;
     }
 
     private async Task<string?> PickProgram(string title)

@@ -17,7 +17,7 @@
          every platform; colours are ui/Asar.xshd. -->
     <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4">
       <ae:TextEditor x:Name="Editor" ShowLineNumbers="True" WordWrap="False"
-                     FontFamily="avares://PipeDream/assets/fonts#JetBrains Mono, Cascadia Mono, Consolas, Menlo, monospace" FontSize="13"
+                     FontFamily="{DynamicResource MonoFont}" FontSize="13"
                      Foreground="#D4D4D4" LineNumbersForeground="#6E7681" Padding="4"
                      HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"/>
     </Border>

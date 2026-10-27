@@ -14,6 +14,35 @@
   <Application.Styles>
     <FluentTheme />
     <StyleInclude Source="avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml"/>
+    <!-- Primary and destructive buttons, app-wide so every dialog's main action looks the same:
+         Classes="accent" is the one filled accent action in a window (Apply, OK, Create);
+         Classes="danger" is a ghost button that turns rose on hover (Remove, Delete). -->
+    <Style Selector="Button.accent">
+      <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="FontWeight" Value="Medium"/>
+    </Style>
+    <Style Selector="Button.accent /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}"/>
+    </Style>
+    <Style Selector="Button.accent:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}"/>
+    </Style>
+    <Style Selector="Button.accent:pressed /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
+    </Style>
+    <Style Selector="Button.accent:disabled /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}"/>
+    </Style>
+    <Style Selector="Button.danger:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource DangerFillBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource DangerBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
+    </Style>
     <!-- Mode toggles: a row of ToggleButtons acting as radio buttons (the main toolbar's
          level/map16/gfx switch, the GFX browser's view switch). App-wide because more than
          one window draws them, and two copies of a style drift. -->
@@ -31,7 +60,7 @@
     </Style>
     <Style Selector="ToggleButton.mode:checked /template/ ContentPresenter">
       <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
-      <Setter Property="TextBlock.Foreground" Value="White"/>
+      <Setter Property="TextBlock.Foreground" Value="{DynamicResource OnAccentBrush}"/>
     </Style>
     <Style Selector="ToggleButton.mode:checked:pointerover /template/ ContentPresenter">
       <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
@@ -49,7 +78,7 @@
       <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
     <Style Selector="ToggleButton.mode:checked Path">
-      <Setter Property="Stroke" Value="White"/>
+      <Setter Property="Stroke" Value="{DynamicResource OnAccentBrush}"/>
     </Style>
     <!-- A stroked icon that is also filled, for tools whose variant IS "filled" (the Rect
          tool). Lucide has no filled set; a closed path plus this class is the whole trick. -->
@@ -57,7 +86,7 @@
       <Setter Property="Fill" Value="{DynamicResource TextDimBrush}"/>
     </Style>
     <Style Selector="ToggleButton.mode:checked Path.filled">
-      <Setter Property="Fill" Value="White"/>
+      <Setter Property="Fill" Value="{DynamicResource OnAccentBrush}"/>
     </Style>
     <!-- Popup content must be styled HERE, not in a window: a flyout is its own top level, so
          window styles never reach it and an unstyled Path has neither stroke nor fill — i.e.

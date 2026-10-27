@@ -15,7 +15,11 @@ namespace PipeDream.Ui;
 public partial class CustomSpritesWindow : Window
 {
     /// <summary><paramref name="Sa1"/>: its SA-1 badge (reference/SA1_PORT.md, phase 4), <paramref name="Sa1Tip"/> why.</summary>
-    public sealed record Row(string Name, string Kind, string Slots, string Description, string? Sa1 = null, string? Sa1Tip = null);
+    public sealed record Row(string Name, string Kind, string Slots, string Description, string? Sa1 = null, string? Sa1Tip = null)
+    {
+        public string KindLabel => Kind switch { "minorextended" => "Minor extended", "spinningcoin" => "Spinning coin", { Length: > 0 } k => char.ToUpperInvariant(k[0]) + k[1..], _ => Kind };
+        public bool NoSlot => Slots == "no slot";
+    }
 
     private readonly EditorSession session = null!;
     private ListBox list = null!;
@@ -50,7 +54,6 @@ public partial class CustomSpritesWindow : Window
             s.Slots.Count == 0 ? "no slot" : string.Join(", ", s.Slots), s.Description, s.Sa1, s.Sa1Tip)).ToList();
         list.ItemsSource = rows;
         list.SelectedItem = rows.FirstOrDefault(r => r.Name == want);
-        if (rows.Count == 0) hint.Text = "no custom sprites yet — New… starts one, Import PIXI folder… brings a whole PIXI setup";
         UpdateButtons();
     }
 
@@ -64,7 +67,7 @@ public partial class CustomSpritesWindow : Window
 
     private async void OnNew(object? sender, RoutedEventArgs e)
     {
-        string kind = (kindBox.SelectedItem as ComboBoxItem)?.Content as string ?? "sprite";
+        string kind = (kindBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "sprite";
         var ask = new TextPromptWindow($"Name for the new {kind}", "");
         await ask.ShowDialog(this);
         if (ask.Result is not { } name) return;

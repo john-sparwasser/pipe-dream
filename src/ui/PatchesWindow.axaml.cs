@@ -33,7 +33,7 @@ public partial class PatchesWindow : Window
         removeButton = this.GetControl<Button>("RemoveButton");
         editButton = this.GetControl<Button>("EditButton");
         openButton = this.GetControl<Button>("OpenButton");
-        openButton.Content = $"Open in {session.TextEditorName ?? "editor"}";
+        openButton.Content = $"Open in {session.TextEditorName ?? "text editor"}";
         upButton = this.GetControl<Button>("UpButton");
         downButton = this.GetControl<Button>("DownButton");
         hint = this.GetControl<TextBlock>("Hint");
@@ -51,7 +51,7 @@ public partial class PatchesWindow : Window
             p.Files switch { 0 => "", 1 => "1 file", int n => $"{n} files" }, p.Sa1, p.Sa1Tip)).ToList();
         list.ItemsSource = rows;
         list.SelectedItem = rows.FirstOrDefault(r => r.Name == want);
-        if (rows.Count == 0) hint.Text = "no patches yet — New… starts one, Import… adds .asm files";
+        if (rows.Count == 0) hint.Text = "";
         UpdateButtons();
     }
 

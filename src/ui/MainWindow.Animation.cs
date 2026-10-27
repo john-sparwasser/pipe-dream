@@ -230,9 +230,9 @@ public partial class MainWindow
                 : Mono(s.IsPalette ? $"palette {s.DestColor:X2} x{s.Colors}" : "(source not loaded)"));
             var card = new Border
             {
-                Child = block, CornerRadius = new CornerRadius(5), BorderThickness = new Thickness(2),
+                Child = block, CornerRadius = new CornerRadius(5), BorderThickness = new Thickness(1),
                 BorderBrush = open ? UiColors.Accent : this.FindResource("BorderBrush") as IBrush,
-                Background = open ? UiColors.SelectionFill : Brushes.Transparent, Cursor = UiCursors.Hand,
+                Background = open ? (this.FindResource("RaisedBrush") as IBrush) : Brushes.Transparent, Cursor = UiCursors.Hand,
             };
             int idx = s.Index;
             card.PointerPressed += (_, _) => { animSelected = idx; RefreshAnim(); };
@@ -252,8 +252,8 @@ public partial class MainWindow
         bool adv = animAdvanced.IsChecked == true;
         var type = AnimTypeBox(sel, adv);
         var trig = AnimTriggerBox(sel, adv);
-        row.Children.Add(Labelled("type", type));
-        row.Children.Add(Labelled("trigger", trig));
+        row.Children.Add(Labelled("Type", type));
+        row.Children.Add(Labelled("Trigger", trig));
         if (sel.IsPalette)
         {
             var color = HexBox(sel.DestColor.ToString("X2"), 2, v => PutSlot(sel with { DestWord = (sel.DestWord & 0xFF00) | (v & 0xFF) }));
@@ -264,7 +264,7 @@ public partial class MainWindow
         else
         {
             var dest = AnimDestinationButton(sel, palRow);
-            row.Children.Add(Labelled("destination", dest));
+            row.Children.Add(Labelled("Destination", dest));
         }
         animBody.Children.Add(row);
         string note = sel.Doubled ? "Stateful trigger: the first half of the frames plays untriggered, the second half once triggered."
@@ -300,7 +300,7 @@ public partial class MainWindow
             // which showed as a translucent grey on hover.
             var plus = new Button
             {
-                Content = "Add Frame", Height = 48, Padding = new Thickness(14, 0),
+                Content = "Add frame", Height = 28, Padding = new Thickness(14, 0),
                 HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center,
                 VerticalContentAlignment = Avalonia.Layout.VerticalAlignment.Center,
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, Margin = new Thickness(0, 0, 0, 6),
@@ -456,7 +456,7 @@ public partial class MainWindow
                                            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center };
             animPreviewBody.Children.Add(new Border { Child = preview, Padding = new Thickness(8), Background = (IBrush)this.FindResource("SurfaceBrush")!, CornerRadius = new CornerRadius(5),
                                                       HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center });
-            animPreviewBody.Children.Add(Dim($"{frames.Count} frame(s) at the game's rate (7.5 fps) → destination tile {sel.DestTile:X3}."));
+            animPreviewBody.Children.Add(Dim($"{frames.Count} frame{(frames.Count == 1 ? "" : "s")} · 7.5 fps → tile {sel.DestTile:X3}"));
             int at = 0;
             animPreview = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1000.0 / 7.5) };
             animPreview.Tick += (_, _) => { at = (at + 1) % frames.Count; preview.Source = frames[at]; };
@@ -533,9 +533,9 @@ public partial class MainWindow
     }
 
     /// <summary>Hover tones for the frame cards: one step lighter than RaisedColor/BorderColor.</summary>
-    private static readonly IBrush FrameCardHover = new SolidColorBrush(Color.Parse("#323947"));
+    private static readonly IBrush FrameCardHover = new SolidColorBrush(Color.Parse("#26262B"));
 
-    private static readonly IBrush FrameHeadHover = new SolidColorBrush(Color.Parse("#404757"));
+    private static readonly IBrush FrameHeadHover = new SolidColorBrush(Color.Parse("#2E2E33"));
 
     /// <summary>The 4px mat around a frame card's preview, so the pixels read as a framed
     /// thumbnail rather than art floating on the card.</summary>

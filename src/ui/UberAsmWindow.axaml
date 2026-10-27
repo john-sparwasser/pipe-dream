@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="PipeDream.Ui.UberAsmWindow"
-        Title="UberASM" Width="760" Height="680"
+        Title="UberASM" Width="760" Height="680" MinWidth="760" MinHeight="520"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
 
@@ -12,74 +12,132 @@
       <Setter Property="FontSize" Value="12"/>
     </Style>
     <Style Selector="TextBlock.mono">
-      <Setter Property="FontFamily" Value="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"/>
+      <Setter Property="FontFamily" Value="{DynamicResource MonoFont}"/>
       <Setter Property="FontSize" Value="12"/>
       <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
     <Style Selector="TextBlock.head">
-      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
-      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="FontWeight" Value="Medium"/>
+      <Setter Property="FontSize" Value="15"/>
+    </Style>
+    <Style Selector="ListBox">
+      <Setter Property="Background" Value="{DynamicResource PanelBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="CornerRadius" Value="12"/>
+      <Setter Property="Padding" Value="4"/>
+    </Style>
+    <Style Selector="TextBlock.col">
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="FontSize" Value="12"/>
+    </Style>
+    <Style Selector="ListBoxItem">
+      <Setter Property="Padding" Value="12,6"/>
+      <Setter Property="MinHeight" Value="32"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    </Style>
+    <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="#0AFFFFFF"/>
+    </Style>
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource SelectionBrush}"/>
     </Style>
   </Window.Styles>
 
-  <DockPanel Margin="14">
-    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right"
-                Spacing="8" Margin="0,12,0,0">
-      <TextBlock x:Name="Hint" Classes="dim" TextWrapping="Wrap" MaxWidth="560"/>
-      <Button Content="Close" Click="OnClose" IsCancel="True"/>
-    </StackPanel>
+  <DockPanel Margin="16">
+    <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="0,16,0,0">
+      <TextBlock x:Name="Hint" Classes="dim" TextWrapping="Wrap" HorizontalAlignment="Left"
+                 IsVisible="{Binding #Hint.Text, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+      <Button Grid.Column="1" Content="Close" Click="OnClose" IsCancel="True"/>
+    </Grid>
 
-    <!-- The list: what each level, game mode or map runs, as list.txt lines (* runs everywhere, before a number's own). -->
-    <DockPanel DockPanel.Dock="Bottom" Height="250" Margin="0,12,0,0">
-      <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,6">
-        <TextBlock Text="What runs where" Classes="head" VerticalAlignment="Center" Margin="0,0,8,0"
-                   ToolTip.Tip="UberASM Tool's list.txt: each line is a number (or * for all) and the files it runs, in order"/>
-        <ComboBox x:Name="KindBox" SelectedIndex="0" SelectionChanged="OnKind" MinWidth="140">
-          <ComboBoxItem Content="Levels"/>
-          <ComboBoxItem Content="Game modes"/>
-          <ComboBoxItem Content="Overworld maps"/>
-        </ComboBox>
-        <Button Content="Add…" Click="OnAddLine"
-                ToolTip.Tip="A number (or *) and its resources as list.txt has them: 105 waves.asm : 02, gradient.asm"/>
-        <Button x:Name="EditLineButton" Content="Edit…" Click="OnEditLine" IsEnabled="False"/>
-        <Button x:Name="RemoveLineButton" Content="Remove" Click="OnRemoveLine" IsEnabled="False"/>
-      </StackPanel>
-      <ListBox x:Name="LineList" SelectionChanged="OnSelect" DoubleTapped="OnEditLine">
-        <ListBox.ItemTemplate>
-          <DataTemplate>
-            <Grid ColumnDefinitions="60,*" ColumnSpacing="12">
-              <TextBlock Text="{Binding Where}" Classes="mono"/>
-              <TextBlock Grid.Column="1" Text="{Binding Line}" Classes="mono" TextTrimming="CharacterEllipsis"/>
-            </Grid>
-          </DataTemplate>
-        </ListBox.ItemTemplate>
-      </ListBox>
-    </DockPanel>
+    <Grid RowDefinitions="3*,24,2*">
+      <DockPanel>
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
+            <Button x:Name="EditButton" Content="Edit…" Click="OnEdit" IsEnabled="False"/>
+            <Button x:Name="RunInButton" Content="Run in…" Click="OnRunIn" IsEnabled="False"
+                    ToolTip.Tip="Which levels (game modes, maps) run this file: 105, several, or * for all"/>
+            <Button x:Name="DeleteButton" Classes="danger" Content="Delete" Click="OnDelete" IsEnabled="False"/>
+          </StackPanel>
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <TextBlock Text="Files" Classes="head" VerticalAlignment="Center"/>
+            <Button Content="New…" Click="OnNew" ToolTip.Tip="A new file: level, game mode or overworld code, a library file, a shared routine"/>
+            <Button Content="Import file…" Click="OnImportFile"/>
+            <Button Content="Import folder…" Click="OnImportFolder"
+                    ToolTip.Tip="Import an UberASM Tool folder: reads its resources, library, routines, other/ files and list.txt"/>
+          </StackPanel>
+        </DockPanel>
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,160,40,80" ColumnSpacing="12" Margin="17,0,17,4">
+          <TextBlock Text="Path" Classes="col"/>
+          <TextBlock Grid.Column="1" Text="Runs in" Classes="col"/>
+          <TextBlock Grid.Column="2" Text="SA-1" Classes="col"/>
+          <TextBlock Grid.Column="3" Text="Size" Classes="col" TextAlignment="Right"/>
+        </Grid>
 
-    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8">
-      <Button Content="New…" Click="OnNew" ToolTip.Tip="A new file: level, game mode or overworld code, a library file, a shared routine"/>
-      <Button Content="Import file…" Click="OnImportFile"/>
-      <Button x:Name="EditButton" Content="Edit…" Click="OnEdit" IsEnabled="False"/>
-      <Button x:Name="RunInButton" Content="Run in…" Click="OnRunIn" IsEnabled="False"
-              ToolTip.Tip="Which levels (game modes, maps) run this file: 105, several, or * for all"/>
-      <Button x:Name="DeleteButton" Content="Delete" Click="OnDelete" IsEnabled="False"/>
-      <Button Content="Import UberASM folder…" Click="OnImportFolder"
-              ToolTip.Tip="Reads UberASM Tool's folder: its resources, library, routines, other/ files and list.txt"/>
-    </StackPanel>
 
-    <ListBox x:Name="FileList" Margin="0,10,0,0" SelectionChanged="OnSelect" DoubleTapped="OnEdit">
+        <Panel>
+        <ListBox x:Name="FileList" SelectionChanged="OnSelect" DoubleTapped="OnEdit">
       <ListBox.ItemTemplate>
         <DataTemplate>
           <!-- path, where the list runs it, size -->
-          <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="12">
-            <TextBlock Text="{Binding Path}" Classes="mono"/>
-            <TextBlock Grid.Column="1" Text="{Binding RunsIn}" Classes="dim"/>
+          <Grid ColumnDefinitions="*,160,40,80" ColumnSpacing="12">
+            <TextBlock Text="{Binding Path}" Classes="mono" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Path}"/>
+            <TextBlock Grid.Column="1" Text="{Binding RunsIn}" Classes="dim mono" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding RunsIn}"/>
             <!-- How it fares on SA-1 (reference/SA1_PORT.md, phase 4); the lines behind it on hover. -->
-            <TextBlock Grid.Column="2" Text="{Binding Sa1}" Classes="dim" ToolTip.Tip="{Binding Sa1Tip}"/>
-            <TextBlock Grid.Column="3" Text="{Binding Size}" Classes="dim" MinWidth="80" TextAlignment="Right"/>
+            <TextBlock Grid.Column="2" Text="{Binding Sa1, TargetNullValue='—'}" Classes="dim" Foreground="{DynamicResource TextFaintBrush}" ToolTip.Tip="{Binding Sa1Tip}"/>
+            <TextBlock Grid.Column="3" Text="{Binding Size}" Classes="dim mono" TextAlignment="Right"/>
           </Grid>
         </DataTemplate>
       </ListBox.ItemTemplate>
     </ListBox>
+        <TextBlock Classes="dim" Foreground="{DynamicResource TextFaintBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                   Text="No files yet. New… or Import folder… to start."
+                   IsVisible="{Binding !#FileList.ItemCount}" IsHitTestVisible="False"/>
+        </Panel>
+      </DockPanel>
+    <!-- The list: what each level, game mode or map runs, as list.txt lines (* runs everywhere, before a number's own). -->
+    <DockPanel Grid.Row="2">
+      <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
+          <Button x:Name="EditLineButton" Content="Edit…" Click="OnEditLine" IsEnabled="False"/>
+          <Button x:Name="RemoveLineButton" Classes="danger" Content="Remove" Click="OnRemoveLine" IsEnabled="False"/>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <TextBlock Text="Assignments" Classes="head" VerticalAlignment="Center"
+                     ToolTip.Tip="UberASM Tool's list.txt: each line is a number (or * for all) and the files it runs, in order"/>
+          <ComboBox x:Name="KindBox" SelectedIndex="0" SelectionChanged="OnKind" MinWidth="140">
+            <ComboBoxItem Content="Levels"/>
+            <ComboBoxItem Content="Game modes"/>
+            <ComboBoxItem Content="Overworld maps"/>
+          </ComboBox>
+          <Button Content="Add…" Click="OnAddLine"
+                  ToolTip.Tip="A number (or *) and its resources as list.txt has them: 105 waves.asm : 02, gradient.asm"/>
+        </StackPanel>
+      </DockPanel>
+      <Grid DockPanel.Dock="Top" ColumnDefinitions="72,*" ColumnSpacing="12" Margin="17,0,17,4">
+        <TextBlock Text="Number" Classes="col"/>
+        <TextBlock Grid.Column="1" Text="Files" Classes="col"/>
+      </Grid>
+      <Panel>
+      <ListBox x:Name="LineList" SelectionChanged="OnSelect" DoubleTapped="OnEditLine">
+        <ListBox.ItemTemplate>
+          <DataTemplate>
+            <Grid ColumnDefinitions="72,*" ColumnSpacing="12">
+              <TextBlock Text="{Binding Where}" Classes="mono"/>
+              <TextBlock Grid.Column="1" Text="{Binding Line}" Classes="mono" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Line}"/>
+            </Grid>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+        <TextBlock Classes="dim" Foreground="{DynamicResource TextFaintBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                   Text="Nothing assigned yet. Add… a number and the files it runs."
+                   IsVisible="{Binding !#LineList.ItemCount}" IsHitTestVisible="False"/>
+      </Panel>
+    </DockPanel>
+
+    </Grid>
   </DockPanel>
 </Window>

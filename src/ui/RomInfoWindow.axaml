@@ -11,7 +11,7 @@
           <Grid ColumnDefinitions="150,*" Margin="0,2">
             <TextBlock Text="{Binding Label}" Foreground="{DynamicResource TextDimBrush}"/>
             <TextBlock Grid.Column="1" Text="{Binding Value}" TextWrapping="Wrap"
-                       FontFamily="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"
+                       FontFamily="{DynamicResource MonoFont}"
                        Foreground="{DynamicResource TextBrush}"/>
           </Grid>
         </DataTemplate>

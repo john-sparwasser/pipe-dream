@@ -24,7 +24,7 @@
       <Setter Property="TextWrapping" Value="Wrap"/>
     </Style>
     <Style Selector="ListBox.mono">
-      <Setter Property="FontFamily" Value="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"/>
+      <Setter Property="FontFamily" Value="{DynamicResource MonoFont}"/>
       <Setter Property="FontSize" Value="12"/>
     </Style>
   </Window.Styles>

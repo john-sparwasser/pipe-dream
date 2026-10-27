@@ -9,7 +9,7 @@
             Content="Close" Click="OnClose" IsCancel="True" IsDefault="True"/>
     <!-- Read-only rather than a TextBlock so the text can be selected and copied (a URL, a commit). -->
     <TextBox x:Name="Text" IsReadOnly="True" TextWrapping="NoWrap" AcceptsReturn="True"
-             FontFamily="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace" FontSize="12"
+             FontFamily="{DynamicResource MonoFont}" FontSize="12"
              ScrollViewer.HorizontalScrollBarVisibility="Auto"/>
   </DockPanel>
 </Window>

@@ -288,7 +288,7 @@ public partial class MainWindow
             loadingM16Props = true;
             m16Acts.Text = "-";
             m16ActsNote.Text = "";
-            m16Custom.IsEnabled = false;
+            m16Custom.IsVisible = false;
             m16Priority.IsChecked = false;
             m16Palette.SelectedIndex = -1;
             RefreshM16Colors(-1);
@@ -300,7 +300,7 @@ public partial class MainWindow
 
         int first = tiles[0];
         // A custom block is a project edit on an FG tile of pages 02-7F, as GPS has it.
-        m16Custom.IsEnabled = session.HasProject && tiles.All(t => t is >= 0x200 and < 0x8000);
+        m16Custom.IsVisible = session.HasProject && tiles.All(t => t is >= 0x200 and < 0x8000);
 
         var def = m16.ReadDef(first);
         m16Fields.IsVisible = def is not null;

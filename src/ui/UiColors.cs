@@ -48,7 +48,7 @@ internal static class UiColors
 
     /// <summary>Outline around the colour picker's square and hue strip — matches BorderColor
     /// in Theme.axaml, which the picker cannot reach because it draws itself.</summary>
-    public static readonly IBrush PickerEdge = new SolidColorBrush(Color.Parse("#333944"));
+    public static readonly IBrush PickerEdge = new SolidColorBrush(Color.Parse("#26262B"));
 
     /// <summary>Sprites highlight in their own hue: they overlap objects constantly, and one
     /// colour for both would make a sprite selection unreadable over a selected object.</summary>

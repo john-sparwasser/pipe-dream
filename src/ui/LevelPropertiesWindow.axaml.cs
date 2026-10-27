@@ -49,6 +49,29 @@ public partial class LevelPropertiesWindow : Window
         choices = c;
         this.uber = uber;
         Build();
+        var sv = this.GetControl<ScrollViewer>("FieldsScroll");
+        var fade = this.GetControl<Border>("ScrollFade");
+        void Fade() => fade.IsVisible = sv.Offset.Y < sv.Extent.Height - sv.Viewport.Height - 1;
+        sv.ScrollChanged += (_, _) => Fade();
+    }
+
+    /// <summary>Display only: "0 — slot 0" becomes a dim mono "00" and the meaning beside it.</summary>
+    private static Control ItemView(string? s)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        var parts = (s ?? "").Split(" — ", 2);
+        if (parts.Length == 2)
+        {
+            var code = new TextBlock { Text = parts[0].Length == 1 ? "0" + parts[0] : parts[0] };
+            code.Classes.Add("code");
+            row.Children.Add(code);
+            row.Children.Add(new TextBlock
+            {
+                Text = parts[1].Replace(", not in the project (the music fades)", " (not in project)"),
+            });
+        }
+        else row.Children.Add(new TextBlock { Text = s });
+        return row;
     }
 
     private readonly (string Line, string Star)? uber;
@@ -173,7 +196,9 @@ public partial class LevelPropertiesWindow : Window
     /// leads each entry so the ROM byte is still legible.</summary>
     private static Control Choice(string label, int value, IReadOnlyList<string> items, Action<int> set)
     {
-        var box = new ComboBox { ItemsSource = items, MinWidth = 320, VerticalAlignment = VerticalAlignment.Center };
+        var box = new ComboBox { ItemsSource = items, MinWidth = 320, VerticalAlignment = VerticalAlignment.Center,
+                                 ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<string>((s, _) => ItemView(s)) };
+        if (label == "Music") ToolTip.SetTip(box, "A song not in the project means the music fades out.");
         // A level on a base that lacks the engine behind a field (LM's level height, say) can
         // hold a value the list has no entry for. Show it empty rather than silently moving it.
         box.SelectedIndex = value < items.Count ? value : -1;

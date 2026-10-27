@@ -2,7 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ui="clr-namespace:PipeDream.Ui"
         x:Class="PipeDream.Ui.GfxBrowserWindow"
-        Title="Select GFX" Width="640" Height="620"
+        Title="Select GFX" Width="640" Height="620" MinWidth="640" MinHeight="360"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
 
@@ -20,72 +20,169 @@
       <Setter Property="FontSize" Value="12"/>
     </Style>
     <Style Selector="TextBlock.mono">
-      <Setter Property="FontFamily" Value="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"/>
+      <Setter Property="FontFamily" Value="{DynamicResource MonoFont}"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="FontWeight" Value="Normal"/>
+      <Setter Property="FontSize" Value="13"/>
+    </Style>
+    <Style Selector="TextBlock.heading">
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="FontSize" Value="15"/>
+      <Setter Property="FontWeight" Value="Medium"/>
+    </Style>
+    <Style Selector="ListBoxItem">
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="Padding" Value="8,6"/>
+      <Setter Property="Margin" Value="0,0,0,2"/>
+      <Setter Property="BorderThickness" Value="2,0,0,0"/>
+      <Setter Property="BorderBrush" Value="Transparent"/>
+    </Style>
+    <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
+    </Style>
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+      <Setter Property="CornerRadius" Value="0,6,6,0"/>
+      <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="BorderThickness" Value="2,0,0,0"/>
+    </Style>
+    <Style Selector="ListBoxItem:selected:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
+    </Style>
+    <!-- Segmented switches: one hairline pill, quiet checked state (Raised + accent icon). -->
+    <Style Selector="Border.seg">
+      <Setter Property="Height" Value="32"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+      <Setter Property="Padding" Value="2"/>
+    </Style>
+    <Style Selector="ToggleButton.mode">
+      <Setter Property="MinWidth" Value="36"/>
+      <Setter Property="Padding" Value="8,0"/>
+      <Setter Property="VerticalAlignment" Value="Stretch"/>
+    </Style>
+    <Style Selector="ToggleButton.mode:checked /template/ ContentPresenter, ToggleButton.mode:checked:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
+    </Style>
+    <Style Selector="ToggleButton.mode:checked Path">
+      <Setter Property="Stroke" Value="{DynamicResource AccentBrush}"/>
+    </Style>
+    <Style Selector="RadioButton.seg">
+      <Setter Property="MinWidth" Value="56"/>
+      <Setter Property="VerticalAlignment" Value="Stretch"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
       <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
-      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Template">
+        <ControlTemplate>
+          <Border Name="PART_Bg" CornerRadius="5" Background="Transparent" Padding="12,0" BorderThickness="1" BorderBrush="Transparent">
+            <ContentPresenter Content="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          </Border>
+        </ControlTemplate>
+      </Setter>
+    </Style>
+    <Style Selector="RadioButton.seg:pointerover /template/ Border#PART_Bg">
+      <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
+    </Style>
+    <Style Selector="RadioButton.seg:focus-visible /template/ Border#PART_Bg">
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+    </Style>
+    <Style Selector="RadioButton.seg:checked /template/ Border#PART_Bg">
+      <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
+      <Setter Property="BorderBrush" Value="#1AFFFFFF"/>
+      <Setter Property="BorderThickness" Value="1"/>
+    </Style>
+    <Style Selector="ToggleButton.mode:checked /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
+      <Setter Property="BorderBrush" Value="#1AFFFFFF"/>
+      <Setter Property="BorderThickness" Value="1"/>
+    </Style>
+    <Style Selector="RadioButton.seg:checked">
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+    </Style>
+    <Style Selector="Button.foot">
+      <Setter Property="Height" Value="32"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
     </Style>
   </Window.Styles>
 
-  <DockPanel Margin="14">
+  <DockPanel Margin="16">
     <StackPanel DockPanel.Dock="Top" Spacing="8">
-      <TextBlock x:Name="Purpose" Classes="dim" TextWrapping="Wrap"/>
-      <TextBlock Classes="dim" TextWrapping="Wrap"
-                 Text="Base is the ROM's own graphics; custom is what this project imported or saved. Imported files keep the name of the .bin they came from, and the filter matches names anywhere and hex ids by prefix."/>
-      <StackPanel Orientation="Horizontal" Spacing="8">
-        <TextBox x:Name="Filter" Width="220" Watermark="filter by name or id"/>
-        <RadioButton x:Name="ShowBase" GroupName="Source" Content="base" IsChecked="True"
-                     VerticalAlignment="Center"/>
-        <RadioButton x:Name="ShowCustom" GroupName="Source" Content="custom"
-                     VerticalAlignment="Center"/>
-        <Rectangle Width="1" Height="18" Fill="{DynamicResource TextDimBrush}" Margin="4,0"/>
-        <ToggleButton x:Name="ViewNames" Classes="mode" MinWidth="40" ToolTip.Tip="names only">
+      <TextBlock x:Name="Purpose" Classes="heading" TextWrapping="Wrap" Margin="0,0,0,8"/>
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
+        <Border Classes="seg"><StackPanel Orientation="Horizontal">
+        <ToggleButton x:Name="ViewNames" Classes="mode" ToolTip.Tip="Names only" AutomationProperties.Name="Names only">
           <Path Data="{StaticResource IconList}"/>
         </ToggleButton>
-        <ToggleButton x:Name="ViewList" Classes="mode" MinWidth="40" ToolTip.Tip="list with previews">
+        <ToggleButton x:Name="ViewList" Classes="mode" ToolTip.Tip="List with previews" AutomationProperties.Name="List with previews">
           <Path Data="{StaticResource IconLayoutList}"/>
         </ToggleButton>
-        <ToggleButton x:Name="ViewCards" Classes="mode" MinWidth="40" ToolTip.Tip="cards">
+        <ToggleButton x:Name="ViewCards" Classes="mode" ToolTip.Tip="Cards" AutomationProperties.Name="Cards">
           <Path Data="{StaticResource IconLayoutGrid}"/>
         </ToggleButton>
+        </StackPanel></Border>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <TextBox x:Name="Filter" Classes="clearButton" Width="220" Height="32" Watermark="Filter by name or ID"
+                   ToolTip.Tip="Matches names anywhere, hex ids by prefix. Imported files keep their .bin name."/>
+          <Border Classes="seg"><StackPanel Orientation="Horizontal">
+            <RadioButton x:Name="ShowBase" Classes="seg" GroupName="Source" Content="Base" IsChecked="True"
+                         ToolTip.Tip="Graphics from the ROM"/>
+            <RadioButton x:Name="ShowCustom" Classes="seg" GroupName="Source" Content="Custom"
+                         ToolTip.Tip="Imported or saved in this project"/>
+          </StackPanel></Border>
+        </StackPanel>
+      </DockPanel>
+    </StackPanel>
+
+    <DockPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
+        <Button Classes="foot" Content="Cancel" IsCancel="True" Click="OnCancel"/>
+        <Button x:Name="SelectBtn" Content="Select" Classes="accent foot" IsEnabled="{Binding !!#Files.SelectedItem}" Click="OnSelect" IsDefault="True"/>
       </StackPanel>
-    </StackPanel>
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Button Classes="foot" Content="Import .bin…" Click="OnImport"/>
+        <Button x:Name="RenameBtn" Classes="foot" IsEnabled="False" IsVisible="{Binding #ShowCustom.IsChecked}" Content="Rename…" Click="OnRename"/>
+        <TextBlock x:Name="RenameHint" Classes="dim" IsVisible="{Binding #ShowCustom.IsChecked}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="200"/>
+      </StackPanel>
+    </DockPanel>
 
-    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right"
-                Spacing="8" Margin="0,12,0,0">
-      <TextBlock x:Name="RenameHint" Classes="dim"/>
-      <Button Content="Import .bin…" Click="OnImport"/>
-      <Button Content="Rename…" Click="OnRename"/>
-      <Button Content="Cancel" Click="OnCancel"/>
-      <Button Content="Select" Click="OnSelect" IsDefault="True"/>
-    </StackPanel>
-
-    <ListBox x:Name="Files" Margin="0,10" Background="Transparent" BorderThickness="0"
+    <Grid Margin="0,12">
+    <TextBlock x:Name="Empty" Classes="dim" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
+               IsVisible="{Binding !#Files.ItemCount}"/>
+    <ListBox x:Name="Files" Padding="0,0,12,0" Background="Transparent" BorderThickness="0"
+             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
              DoubleTapped="OnSelect">
       <ListBox.Resources>
         <!-- The three views. Code-behind picks one by the remembered config value. -->
         <DataTemplate x:Key="NamesRow">
-          <TextBlock Text="{Binding Label}"/>
+          <TextBlock Classes="mono" Text="{Binding Label}"/>
         </DataTemplate>
         <DataTemplate x:Key="ListRow">
-          <StackPanel Orientation="Horizontal" Spacing="10">
+          <StackPanel Orientation="Horizontal" Spacing="12" ToolTip.Tip="{Binding Description}">
             <Image Source="{Binding Thumb}" Width="{Binding ThumbW}" Height="{Binding ThumbH}"/>
             <StackPanel VerticalAlignment="Center">
-              <TextBlock Text="{Binding Label}"/>
-              <TextBlock Text="{Binding Description}" Classes="mono"/>
+              <TextBlock Classes="mono" Text="{Binding Label}"/>
+              <!-- Description ("4 bits per pixel") is the same on every row; it lives in the tooltip. -->
             </StackPanel>
           </StackPanel>
         </DataTemplate>
         <!-- The drawer's bin-card look: darker header band on top, the sheet filling the rest
              through PixelBlit, bottom corners closing the card. -->
         <DataTemplate x:Key="CardRow">
-          <Border Width="140" CornerRadius="5" BorderThickness="2"
+          <Border Width="140" CornerRadius="6" BorderThickness="1"
                   BorderBrush="{DynamicResource BorderBrush}">
             <StackPanel>
               <Border Background="{DynamicResource SurfaceBrush}" Padding="8,6"
-                      CornerRadius="4,4,0,0">
-                <TextBlock Text="{Binding Label}" TextWrapping="Wrap"/>
+                      CornerRadius="5,5,0,0">
+                <TextBlock Classes="mono" Text="{Binding Label}" TextWrapping="Wrap"/>
               </Border>
-              <ui:PixelImage Source="{Binding Thumb}" Stretch="True" BottomCornerRadius="4"/>
+              <ui:PixelImage Source="{Binding Thumb}" Stretch="True" BottomCornerRadius="5"/>
             </StackPanel>
           </Border>
         </DataTemplate>
@@ -97,5 +194,6 @@
         </ItemsPanelTemplate>
       </ListBox.Resources>
     </ListBox>
+    </Grid>
   </DockPanel>
 </Window>

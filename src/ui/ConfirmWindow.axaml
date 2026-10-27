@@ -1,15 +1,46 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="PipeDream.Ui.ConfirmWindow"
-        Width="380" SizeToContent="Height" CanResize="False"
+        Width="420" SizeToContent="Height" CanResize="False"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
-  <StackPanel Margin="16" Spacing="12">
-    <TextBlock x:Name="Prompt" TextWrapping="Wrap"
-               Foreground="{DynamicResource TextBrush}"/>
+  <Window.Styles>
+    <Style Selector="Button.dlg">
+      <Setter Property="MinWidth" Value="80"/>
+      <Setter Property="MinHeight" Value="36"/>
+      <Setter Property="Padding" Value="16,0"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="Button.dlg:not(.accent):not(.danger)">
+      <Setter Property="Background" Value="#0AFFFFFF"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+    </Style>
+    <Style Selector="Button.dlg.danger">
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="FontWeight" Value="Medium"/>
+    </Style>
+    <Style Selector="Button.dlg.danger /template/ ContentPresenter, Button.dlg.danger:pointerover /template/ ContentPresenter, Button.dlg.danger:pressed /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource DangerBrush}"/>
+      <Setter Property="Foreground" Value="{DynamicResource OnAccentBrush}"/>
+    </Style>
+    <Style Selector="Button.dlg.danger:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource DangerHoverBrush}"/>
+    </Style>
+  </Window.Styles>
+  <StackPanel Margin="24" Spacing="24">
+    <StackPanel Spacing="8">
+      <TextBlock Text="{Binding Title, RelativeSource={RelativeSource AncestorType=Window}}"
+                 FontSize="16" LetterSpacing="-0.2" FontWeight="Medium" Foreground="White" TextWrapping="Wrap"/>
+      <TextBlock x:Name="Prompt" TextWrapping="Wrap" FontSize="14" LineHeight="20"
+                 Foreground="{DynamicResource TextDimBrush}"/>
+    </StackPanel>
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-      <Button x:Name="Cancel" Content="Cancel" Click="OnCancel" IsCancel="True"/>
-      <Button x:Name="Action" Click="OnConfirm" IsDefault="True"/>
+      <Button x:Name="Cancel" Classes="dlg" Content="Cancel" Click="OnCancel" IsCancel="True"/>
+      <Button x:Name="Action" Classes="dlg accent" Click="OnConfirm" IsDefault="True"/>
     </StackPanel>
   </StackPanel>
 </Window>

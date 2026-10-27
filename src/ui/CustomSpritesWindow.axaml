@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="PipeDream.Ui.CustomSpritesWindow"
-        Title="Custom sprites" Width="760" Height="540"
+        Title="Custom sprites" Width="760" Height="540" MinWidth="760" MinHeight="400"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
 
@@ -12,75 +12,106 @@
       <Setter Property="FontSize" Value="12"/>
     </Style>
     <Style Selector="TextBlock.mono">
-      <Setter Property="FontFamily" Value="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="FontFamily" Value="{DynamicResource MonoFont}"/>
       <Setter Property="FontSize" Value="12"/>
       <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
-    <Style Selector="TextBlock.note">
+    <Style Selector="TextBlock.mono.faint">
+      <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}"/>
+      <Setter Property="FontStyle" Value="Italic"/>
+    </Style>
+    <Style Selector="Button">
+      <Setter Property="Height" Value="30"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="Padding" Value="12,0"/>
+    </Style>
+    <Style Selector="TextBlock.head">
       <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
       <Setter Property="FontSize" Value="11"/>
-      <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="ListBoxItem">
+      <Setter Property="Padding" Value="12,8"/>
+      <Setter Property="CornerRadius" Value="6"/>
     </Style>
   </Window.Styles>
 
-  <DockPanel Margin="14">
+  <DockPanel Margin="16">
     <!-- The Custom blocks window's bar, plus a sprite's slots: a sprite in no slot stays in the
          project and is not inserted. -->
     <StackPanel DockPanel.Dock="Top" Spacing="8">
       <StackPanel Orientation="Horizontal" Spacing="8">
-        <Button Content="New…" Click="OnNew" ToolTip.Tip="Adds a sprite of the kind beside it, from the template"/>
-        <ComboBox x:Name="KindBox" SelectedIndex="0" MinWidth="110"
+        <ComboBox x:Name="KindBox" SelectedIndex="0" MinWidth="110" Height="30" VerticalAlignment="Center" AutomationProperties.Name="New sprite kind"
                   ToolTip.Tip="What New… makes: a sprite (slots 00-BF), a shooter (C0-CF), a generator (D0-DF), or an ASM-only kind numbered in a list of its own (cluster 00, smoke 00…)">
-          <ComboBoxItem Content="sprite"/>
-          <ComboBoxItem Content="shooter"/>
-          <ComboBoxItem Content="generator"/>
-          <ComboBoxItem Content="cluster"/>
-          <ComboBoxItem Content="extended"/>
-          <ComboBoxItem Content="minorextended"/>
-          <ComboBoxItem Content="bounce"/>
-          <ComboBoxItem Content="smoke"/>
-          <ComboBoxItem Content="spinningcoin"/>
-          <ComboBoxItem Content="score"/>
+          <ComboBoxItem Content="Sprite" Tag="sprite"/>
+          <ComboBoxItem Content="Shooter" Tag="shooter"/>
+          <ComboBoxItem Content="Generator" Tag="generator"/>
+          <ComboBoxItem Content="Cluster" Tag="cluster"/>
+          <ComboBoxItem Content="Extended" Tag="extended"/>
+          <ComboBoxItem Content="Minor extended" Tag="minorextended"/>
+          <ComboBoxItem Content="Bounce" Tag="bounce"/>
+          <ComboBoxItem Content="Smoke" Tag="smoke"/>
+          <ComboBoxItem Content="Spinning coin" Tag="spinningcoin"/>
+          <ComboBoxItem Content="Score" Tag="score"/>
         </ComboBox>
+        <Button Classes="accent" Content="New…" Click="OnNew" ToolTip.Tip="Adds a sprite of the chosen kind, from the template"/>
+        <Rectangle Width="1" Fill="{DynamicResource BorderBrush}" Margin="4,6"/>
         <Button Content="Import…" Click="OnImport"
                 ToolTip.Tip="Adds .json or .cfg sprites from disk, each with its ASM and what that includes; an ASM-only sprite is its .asm, from its kind's folder (cluster/, misc_sprites/smoke/…)"/>
         <Button Content="Import PIXI folder…" Click="OnImportFolder"
                 ToolTip.Tip="Adds every sprite PIXI's list.txt names, in its slots, with routines/ and ExtraDefines/"/>
-        <Button x:Name="RemoveButton" Content="Remove" Click="OnRemove" IsEnabled="False"/>
       </StackPanel>
-      <StackPanel Orientation="Horizontal" Spacing="8">
+      <DockPanel LastChildFill="False">
+      <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="8">
         <Button x:Name="SlotsButton" Content="Slots…" Click="OnSlots" IsEnabled="False"
-                ToolTip.Tip="Which numbers run this sprite: 1A for every level, 105:B0 for one level's own, cluster 01, smoke 00… for the ASM-only kinds"/>
+                ToolTip.Tip="A sprite with no slot stays in the project but isn't inserted. Slots are the numbers that run it: 1A for every level, 105:B0 for one level's own, cluster 01, smoke 00… for the ASM-only kinds"/>
         <Button x:Name="EditButton" Content="Edit ASM" Click="OnEdit" IsEnabled="False"/>
         <Button x:Name="ConfigButton" Content="Edit config" Click="OnConfig" IsEnabled="False"
                 ToolTip.Tip="The sprite's PIXI JSON: tweakers, acts-like, extra bytes, how Lunar Magic lists it (ASM-only sprites have none)"/>
         <Button x:Name="OpenButton" Click="OnOpen" IsEnabled="False"
                 ToolTip.Tip="Open the ASM in your text editor (File ▸ Preferences); saving there updates the project"/>
       </StackPanel>
+      <Button x:Name="RemoveButton" DockPanel.Dock="Right" Classes="danger" Content="Remove" Click="OnRemove" IsEnabled="False"
+              ToolTip.Tip="Removes the selected sprite, with its ASM, config and slots, from the project"/>
+      </DockPanel>
     </StackPanel>
 
-    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right"
-                Spacing="8" Margin="0,12,0,0">
-      <TextBlock x:Name="Hint" Classes="dim" TextWrapping="Wrap" MaxWidth="640"/>
-      <Button Content="Close" Click="OnClose" IsCancel="True"/>
-    </StackPanel>
+    <Grid DockPanel.Dock="Bottom" ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="0,16,0,0">
+      <TextBlock x:Name="Hint" Classes="dim" TextWrapping="Wrap" Text="Select a sprite to set its slots or edit its ASM."/>
+      <Button Grid.Column="1" Content="Close" Click="OnClose" IsCancel="True"/>
+    </Grid>
 
-    <ListBox x:Name="List" Margin="0,10,0,0" SelectionChanged="OnSelect" DoubleTapped="OnEdit">
+    <Border Margin="0,16,0,0" Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1" CornerRadius="12" Padding="4" ClipToBounds="True">
+    <DockPanel>
+      <Grid DockPanel.Dock="Top" ColumnDefinitions="*,110,140,48" ColumnSpacing="8" Margin="12,8,12,4">
+        <TextBlock Classes="head" Text="Name"/>
+        <TextBlock Grid.Column="1" Classes="head" Text="Kind"/>
+        <TextBlock Grid.Column="2" Classes="head" Text="Slots"/>
+        <TextBlock Grid.Column="3" Classes="head" Text="SA-1" HorizontalAlignment="Center"
+                   ToolTip.Tip="SA-1 compatibility; blank means no compatibility information is available"/>
+      </Grid>
+    <Panel>
+    <TextBlock Classes="dim" IsVisible="{Binding !#List.ItemCount}" HorizontalAlignment="Center" VerticalAlignment="Center"
+               TextAlignment="Center" TextWrapping="Wrap" Text="No custom sprites yet. New… starts one; Import PIXI folder… brings a whole setup."/>
+    <ListBox x:Name="List" Background="Transparent" BorderThickness="0" Padding="0" SelectionChanged="OnSelect" DoubleTapped="OnEdit">
       <ListBox.ItemTemplate>
         <DataTemplate>
-          <!-- name, kind, slots, the first name Lunar Magic lists it under -->
-          <Grid ColumnDefinitions="180,70,140,*,Auto" ColumnSpacing="8">
-            <TextBlock Text="{Binding Name}" Classes="mono" TextTrimming="CharacterEllipsis"/>
-            <TextBlock Grid.Column="1" Text="{Binding Kind}" Classes="note"/>
-            <TextBlock Grid.Column="2" Text="{Binding Slots}" Classes="mono" TextTrimming="CharacterEllipsis"
-                       ToolTip.Tip="{Binding Slots}"/>
-            <TextBlock Grid.Column="3" Text="{Binding Description}" Classes="dim" TextTrimming="CharacterEllipsis"
+          <!-- name (its Lunar Magic name on hover), kind, slots, SA-1 -->
+          <Grid ColumnDefinitions="*,110,140,48" ColumnSpacing="8">
+            <TextBlock Text="{Binding Name}" FontSize="13" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                        ToolTip.Tip="{Binding Description}"/>
+            <TextBlock Grid.Column="1" Text="{Binding KindLabel}" Classes="dim"/>
+            <TextBlock Grid.Column="2" Text="{Binding Slots}" Classes="mono" Classes.faint="{Binding NoSlot}" TextTrimming="CharacterEllipsis"
+                       ToolTip.Tip="{Binding Slots}"/>
             <!-- How it fares on SA-1 (reference/SA1_PORT.md, phase 4); the lines behind it on hover. -->
-            <TextBlock Grid.Column="4" Text="{Binding Sa1}" Classes="note" ToolTip.Tip="{Binding Sa1Tip}"/>
+            <TextBlock Grid.Column="3" Text="{Binding Sa1}" Classes="dim" HorizontalAlignment="Center" ToolTip.Tip="{Binding Sa1Tip}"/>
           </Grid>
         </DataTemplate>
       </ListBox.ItemTemplate>
     </ListBox>
+    </Panel>
+    </DockPanel>
+    </Border>
   </DockPanel>
 </Window>

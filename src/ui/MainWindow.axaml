@@ -81,7 +81,8 @@
            rows are the same control drawn twice rather than one imitating the other. -->
       <Setter Property="Template">
         <ControlTemplate>
-          <Border Background="{TemplateBinding Background}"
+          <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}"
                   CornerRadius="{TemplateBinding CornerRadius}">
             <ContentPresenter Content="{TemplateBinding Content}"
                               ContentTemplate="{TemplateBinding ContentTemplate}"
@@ -96,12 +97,15 @@
     <Style Selector="TabStrip.tabs TabStripItem:pointerover">
       <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
     </Style>
+    <!-- Second-level selector: raised fill + hairline, so the accent pill stays the mode strip's. -->
     <Style Selector="TabStrip.tabs TabStripItem:selected">
-      <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
-      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
     </Style>
     <Style Selector="TabStrip.tabs TabStripItem:selected:pointerover">
-      <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
+      <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
     </Style>
     <Style Selector="TabStrip.tabs Path">
       <Setter Property="Stroke" Value="{Binding $parent[TabStripItem].Foreground}"/>
@@ -140,7 +144,7 @@
     <Style Selector="Border.bar Button, Border.bar ToggleButton,
                      Border.bar ComboBox, Border.bar TextBox, Border.bar TabStripItem">
       <Setter Property="Padding" Value="10,3"/>
-      <Setter Property="CornerRadius" Value="5"/>
+      <Setter Property="CornerRadius" Value="6"/>
     </Style>
     <!-- A toolbar button's content sits in the middle of it. Fluent leaves the content STRETCHED,
          which for a label narrower than the button's MinWidth means the text is drawn against the
@@ -185,19 +189,66 @@
       <Setter Property="Stretch" Value="Uniform"/>
       <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
+    <!-- Secondary selected toggles (everything but the top mode strip): raised fill + hairline +
+         accent text, so the one solid accent pill on screen is the mode strip's. -->
+    <Style Selector="Border.bar:not(.modebar) ToggleButton">
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="BorderBrush" Value="Transparent"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+    </Style>
+    <Style Selector="Border.bar:not(.modebar) ToggleButton:checked /template/ ContentPresenter,
+                     Border.bar:not(.modebar) ToggleButton:checked:pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+      <Setter Property="TextBlock.Foreground" Value="{DynamicResource AccentBrush}"/>
+    </Style>
+    <Style Selector="Border.bar:not(.modebar) ToggleButton:checked Path:not(.filled)">
+      <Setter Property="Stroke" Value="{DynamicResource AccentBrush}"/>
+    </Style>
+    <Style Selector="Border.bar:not(.modebar) ToggleButton:checked Path.filled">
+      <Setter Property="Stroke" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="Fill" Value="{DynamicResource AccentBrush}"/>
+    </Style>
+    <!-- One rest state for every bar control: no fill, no hairline until hovered or checked. -->
+    <Style Selector="Border.bar Button:not(.accent) /template/ ContentPresenter,
+                     Border.bar:not(.modebar) ToggleButton:not(:checked) /template/ ContentPresenter">
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="BorderBrush" Value="Transparent"/>
+      <Setter Property="FontWeight" Value="Normal"/>
+    </Style>
+    <Style Selector="Border.bar Button:not(.accent):pointerover /template/ ContentPresenter,
+                     Border.bar:not(.modebar) ToggleButton:not(:checked):pointerover /template/ ContentPresenter">
+      <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+    </Style>
+    <Style Selector="Border.bar Button">
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+    </Style>
+    <!-- Zoom slider: a 12px thumb centred on a 20px row, in line with the Zoom / 100% text. -->
+    <Style Selector="Slider#ZoomSlider /template/ Grid#HorizontalTemplate">
+      <Setter Property="MinHeight" Value="0"/>
+    </Style>
+    <Style Selector="Slider#ZoomSlider /template/ Thumb">
+      <Setter Property="Width" Value="12"/>
+      <Setter Property="Height" Value="12"/>
+    </Style>
+    <!-- Canvas scroll bars: thin, auto-hiding, over the desk. -->
+    <Style Selector="ScrollViewer#CanvasScroll ScrollBar, ScrollViewer#BgScroll ScrollBar, ScrollViewer#OwScroll ScrollBar">
+      <Setter Property="AllowAutoHide" Value="True"/>
+      <Setter Property="Background" Value="Transparent"/>
+    </Style>
+    <Style Selector="ScrollViewer#CanvasScroll ScrollBar /template/ Thumb, ScrollViewer#BgScroll ScrollBar /template/ Thumb, ScrollViewer#OwScroll ScrollBar /template/ Thumb">
+      <Setter Property="Background" Value="{DynamicResource TextFaintBrush}"/>
+    </Style>
+    <Style Selector="Border.bar Button:pointerover /template/ ContentPresenter,
+                     Border.bar:not(.modebar) ToggleButton:not(:checked):pointerover /template/ ContentPresenter">
+      <Setter Property="TextBlock.Foreground" Value="{DynamicResource TextBrush}"/>
+    </Style>
     <Style Selector="Border.bar Button:disabled Path, Border.bar ToggleButton:not(.mode):disabled Path">
       <Setter Property="Stroke" Value="{DynamicResource TextFaintBrush}"/>
     </Style>
     <!-- The one action an otherwise empty canvas offers: accent-filled, so it reads as the thing
          to press rather than as chrome. -->
-    <Style Selector="Button.cta">
-      <Setter Property="Background" Value="{DynamicResource AccentBrush}"/>
-      <Setter Property="Foreground" Value="White"/>
-      <Setter Property="Padding" Value="20,11"/>
-      <Setter Property="CornerRadius" Value="6"/>
-      <Setter Property="FontSize" Value="14"/>
-      <Setter Property="BorderThickness" Value="0"/>
-    </Style>
     <!-- The overworld's Edit pill. Its colours are stated for every state: a Background set on
          the button itself loses to the theme's hover and pressed styles, and the map showing
          through a button is the one thing this button must never do. -->
@@ -219,12 +270,8 @@
       <Setter Property="Background" Value="{x:Static ui:UiColors.EditBadgePressed}"/>
       <Setter Property="TextBlock.Foreground" Value="White"/>
     </Style>
-    <Style Selector="Button.cta:pointerover /template/ ContentPresenter">
-      <Setter Property="Background" Value="{DynamicResource AccentHoverBrush}"/>
-      <Setter Property="TextBlock.Foreground" Value="White"/>
-    </Style>
-    <Style Selector="Button.cta Path">
-      <Setter Property="Stroke" Value="White"/>
+    <Style Selector="Button.accent Path">
+      <Setter Property="Stroke" Value="{DynamicResource OnAccentBrush}"/>
       <Setter Property="StrokeThickness" Value="1.5"/>
       <Setter Property="StrokeLineCap" Value="Round"/>
       <Setter Property="StrokeJoin" Value="Round"/>
@@ -263,7 +310,7 @@
       <Setter Property="FontSize" Value="12"/>
     </Style>
     <Style Selector="TextBlock.mono">
-      <Setter Property="FontFamily" Value="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"/>
+      <Setter Property="FontFamily" Value="{DynamicResource MonoFont}"/>
       <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
       <Setter Property="VerticalAlignment" Value="Center"/>
       <Setter Property="FontSize" Value="12"/>
@@ -400,7 +447,7 @@
     <!-- Header: canvas-mode toggle + per-mode controls. Groups are separated by a rule and the
          controls inside share one height, so the row reads left to right as three groups rather
          than a dozen differently-sized buttons. -->
-    <Border DockPanel.Dock="Top" Classes="panel bar" BorderThickness="0,0,0,1" Padding="10,6">
+    <Border DockPanel.Dock="Top" Classes="panel bar modebar" BorderThickness="0,0,0,1" Padding="10,6">
       <StackPanel Orientation="Horizontal" Spacing="6">
         <ToggleButton x:Name="ModeLevel" Classes="mode" IsChecked="True" Click="OnMode">
           <StackPanel Orientation="Horizontal" Spacing="6">
@@ -445,35 +492,34 @@
           </StackPanel>
         </ToggleButton>
 
+        <Rectangle Classes="sep" Margin="10,4"/>
+
+        <ComboBox x:Name="LevelBox" ToolTip.Tip="Current level" FontFamily="{DynamicResource MonoFont}" Width="104"/>
+        <Rectangle Classes="sep" Margin="10,4"/>
         <!-- Not a mode: opens the course manager, so a Button rather than a toggle. -->
-        <Button Classes="mode" Click="OnCourseBot"
+        <Button Click="OnCourseBot"
                 ToolTip.Tip="Organize entry levels by name — create, open and delete named courses">
           <StackPanel Orientation="Horizontal" Spacing="6">
             <Path Data="{StaticResource IconBot}"/>
             <TextBlock Text="Courses" VerticalAlignment="Center"/>
           </StackPanel>
         </Button>
-
-        <Rectangle Classes="sep" Margin="10,4"/>
-
-        <TextBlock Classes="dim" Text="level"/>
-        <ComboBox x:Name="LevelBox" Width="104"/>
       </StackPanel>
     </Border>
 
     <!-- Status bar. Zoom lives down here rather than in the header, where Lunar Magic keeps it:
          it is a view setting, not an edit tool. Percent, in 10% steps — "2x" is a rendering
          detail, "120%" is what the user is choosing. -, = step it from anywhere. -->
-    <Border DockPanel.Dock="Bottom" Classes="panel" BorderThickness="0,1,0,0" Padding="12,4">
+    <Border DockPanel.Dock="Bottom" Classes="panel" BorderThickness="0,1,0,0" Padding="12,0" Height="40">
       <Grid ColumnDefinitions="*,Auto">
         <!-- What is under the cursor, in the current canvas's own terms. Blank when the cursor is
              elsewhere. -->
         <TextBlock x:Name="Readout" Classes="mono" VerticalAlignment="Center"/>
         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" Margin="12,0,16,0">
-          <TextBlock Classes="dim" Text="zoom" VerticalAlignment="Center"/>
+          <TextBlock Classes="dim" Text="Zoom" VerticalAlignment="Center"/>
           <!-- Range and value are set from code per canvas mode (ApplyZoomTarget); these are
                only what the slider looks like before the window is wired up. -->
-          <Slider x:Name="ZoomSlider" Width="130" Minimum="100" Maximum="800" Value="100"
+          <Slider x:Name="ZoomSlider" Width="110" Height="20" MinHeight="20" Minimum="100" Maximum="800" Value="100"
                   TickFrequency="10" IsSnapToTickEnabled="True" VerticalAlignment="Center"
                   ToolTip.Tip="Zoom for the canvas that is showing — or press - and = to step it"/>
           <TextBlock x:Name="ZoomLabel" Classes="mono" Width="40" VerticalAlignment="Center"/>
@@ -537,7 +583,7 @@
               <Border x:Name="PaletteBar" DockPanel.Dock="Bottom" Classes="panel bar"
                       BorderThickness="0,1,0,0" Padding="10,6">
                 <StackPanel Orientation="Horizontal" Spacing="6">
-                  <TextBlock Classes="dim" Text="bank" VerticalAlignment="Center"/>
+                  <TextBlock Classes="dim" Text="Bank" VerticalAlignment="Center"/>
                   <ComboBox x:Name="BankBox" Width="82" SelectedIndex="0">
                     <ComboBoxItem Content="0 FG"/>
                     <ComboBoxItem Content="1 FG"/>
@@ -647,7 +693,7 @@
                   </TabStripItem>
                 </TabStrip>
               </Border>
-              <Border DockPanel.Dock="Top" Padding="10,8" Background="{DynamicResource SurfaceBrush}">
+              <Border DockPanel.Dock="Top" Classes="bar" Padding="10,6" BorderThickness="0,0,0,1" BorderBrush="{DynamicResource BorderBrush}" Background="{DynamicResource SurfaceBrush}">
                 <StackPanel Spacing="6">
                   <!-- One line: the submap drop-down on the Overworld tab, the actions beside it —
                        pushed right there, left on the Level tab where nothing sits before them. -->
@@ -659,10 +705,10 @@
                                 ToolTip.Tip="Show and edit each submap's second palette, the one the game loads once the special world is passed — the map beside draws in it too"/>
                     </StackPanel>
                     <WrapPanel x:Name="PaletteActions" ItemSpacing="8" LineSpacing="6" VerticalAlignment="Center">
-                      <Button x:Name="PaletteReset" Content="Reset" Padding="10,2" Click="OnResetPalette"/>
-                      <Button x:Name="PaletteExport" Content="Export…" Padding="10,2" Click="OnExportPalette"
+                      <Button x:Name="PaletteReset" Content="Reset" Click="OnResetPalette"/>
+                      <Button x:Name="PaletteExport" Content="Export…" Click="OnExportPalette"
                               ToolTip.Tip="Write this level's palette out as a 256-colour .pal (Lunar Magic, YY-CHR)"/>
-                      <Button x:Name="PaletteImport" Content="Import…" Padding="10,2" Click="OnImportPalette"
+                      <Button x:Name="PaletteImport" Content="Import…" Click="OnImportPalette"
                               ToolTip.Tip="Load a 256-colour .pal into this level, as ordinary colour edits"/>
                       <!-- Layer 3 can reach 32 of these 256, and hunting for them in a 16x16 block
                            is the whole problem. Four wide by eight tall over CGRAM 00-1F puts one
@@ -680,7 +726,7 @@
                    the overworld does not set colour 0, so its tab has nothing to show here. -->
               <StackPanel x:Name="PaletteBgRow" DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="8,8,8,0">
                 <ui:PaletteGridView x:Name="PaletteBg" Cols="1" Rows="1"/>
-                <TextBlock Classes="dim" Text="Background Color" VerticalAlignment="Center"/>
+                <TextBlock Classes="dim" Text="Background color" VerticalAlignment="Center"/>
               </StackPanel>
               <!-- The selected swatch's readout and how many colours are edited, at the foot of the
                    pane. The line is kept whether or not either has anything to say: at the top,
@@ -795,7 +841,7 @@
               <Border DockPanel.Dock="Top" Classes="panel bar" BorderThickness="0,0,0,1"
                       Padding="10,0" Height="{Binding #GfxEditorBar.Bounds.Height}">
                 <DockPanel>
-                  <Button DockPanel.Dock="Right" Content="Header" VerticalAlignment="Center"
+                  <Button DockPanel.Dock="Right" Content="Tilesets…" VerticalAlignment="Center"
                           Click="OnGfxHeader"
                           ToolTip.Tip="Which FG/BG tileset and sprite set this level's header loads"/>
                   <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
@@ -863,7 +909,7 @@
                everything else the ROM's depth), and this is the override for when that guess is
                wrong — an ExGFX file bound for a 2bpp slot has nothing in it that says so. -->
           <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
-            <TextBlock Classes="dim" Text="depth"/>
+            <TextBlock Classes="dim" Text="Depth"/>
             <ComboBox x:Name="GfxBpp" Width="88"
                       ToolTip.Tip="How to read this file: 4bpp tile data (FG/BG/sprites) or 2bpp (layer 3). Most files are STORED as three planes on an unconverted base — they still display 4bpp, with colours 8-15 out of reach"/>
           </StackPanel>
@@ -922,7 +968,7 @@
                   ToolTip.Tip="Write this palette group into cells that already have tiles, leaving the tiles alone"/>
           <!-- The colours themselves are edited on the Palette tab; this lands you there, on this
                group, with the tab narrowed to what layer 3 can reach. -->
-          <Button x:Name="BgEditPal" Content="Edit" Click="OnEditBgPalette" IsVisible="False"
+          <Button x:Name="BgEditPal" Content="Edit colors…" Click="OnEditBgPalette" IsVisible="False"
                   ToolTip.Tip="Edit this palette group's colours on the Palette tab"/>
         </StackPanel>
       </Border>
@@ -992,7 +1038,10 @@
               <Button x:Name="LevelUberButton" MinWidth="34"
                       ToolTip.Tip="UberASM — which of the project's level code this level runs">
                 <!-- Wider than tall (20×12 of Lucide's 24): a box its own shape, or the scaled icon sits at the top of a square. -->
-                <Path Data="{StaticResource IconCode}" Height="8.4"/>
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <Path Data="{StaticResource IconCode}" Height="8.4"/>
+                  <TextBlock Text="Code"/>
+                </StackPanel>
                 <Button.Flyout>
                   <Flyout Placement="BottomEdgeAlignedLeft" Opening="OnLevelUberOpening">
                     <StackPanel Spacing="6" MinWidth="280"/>
@@ -1001,7 +1050,10 @@
               </Button>
               <Button x:Name="LevelMusicButton" MinWidth="34"
                       ToolTip.Tip="Music — the song this level plays">
-                <Path Data="{StaticResource IconMusic}"/>
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <Path Data="{StaticResource IconMusic}"/>
+                  <TextBlock Text="Music"/>
+                </StackPanel>
                 <Button.Flyout>
                   <Flyout Placement="BottomEdgeAlignedLeft" Opening="OnLevelMusicOpening">
                     <StackPanel Spacing="4" MinWidth="280"/>
@@ -1016,7 +1068,7 @@
           </Border>
           <!-- The desk lives on the SCROLL VIEWER, not the canvas: a centred level no longer
                covers the whole viewport, and the space it leaves is desk like any other. -->
-          <ScrollViewer x:Name="CanvasScroll"
+          <ScrollViewer x:Name="CanvasScroll" AllowAutoHide="True"
                         Background="{x:Static ui:UiColors.DeskPattern}"
                         HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
             <ui:LevelView x:Name="Canvas"/>
@@ -1056,8 +1108,8 @@
               <!-- Either the fields or the warning, never both: an unallocated tile has nothing
                    to show them for. Which tile, and its custom block, are on the hover card. -->
               <StackPanel x:Name="M16Fields" Orientation="Horizontal" Spacing="6">
-                <TextBlock Classes="dim" Text="acts as"/>
-                <TextBox x:Name="M16Acts" Width="64"/>
+                <TextBlock Classes="dim" Text="Acts as (hex)"/>
+                <TextBox x:Name="M16Acts" FontFamily="{DynamicResource MonoFont}" Width="64"/>
                 <!-- The tile's custom block (GPS): a block in the project's library whose code
                      runs on the tile's contacts. Picked in a modal, since the list is the
                      project's library and can grow from inside it. Pages 02-7F only, as GPS has it. -->
@@ -1120,6 +1172,7 @@
           </Border>
           <Border x:Name="AnimEditorBar" DockPanel.Dock="Top" Classes="panel bar"
                   BorderThickness="0,0,0,1" Padding="10,6">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
             <StackPanel Orientation="Horizontal" Spacing="6">
               <!-- Which list the timeline edits: the level's own slots or the global list that
                    runs in every level. Same toggle grammar as the Level pane's layer buttons. -->
@@ -1139,7 +1192,7 @@
                 <TextBlock Text="Overworld" VerticalAlignment="Center"/>
               </ToggleButton>
               <StackPanel x:Name="AnimSubmapRow" Orientation="Horizontal" Spacing="6" IsVisible="False">
-                <TextBlock Classes="dim" Text="submap" VerticalAlignment="Center"/>
+                <TextBlock Classes="dim" Text="Submap" VerticalAlignment="Center"/>
                 <ComboBox x:Name="AnimSubmap" Width="170" SelectedIndex="0"
                           ToolTip.Tip="Which submap these slots animate — each has its own set, as each level does"/>
               </StackPanel>
@@ -1154,7 +1207,7 @@
                       ToolTip.Tip="Move the open slot to another slot number">
                 <TextBlock Text="Reassign slot" VerticalAlignment="Center"/>
               </Button>
-              <TextBlock Classes="dim" Text="source file" VerticalAlignment="Center" Margin="8,0,0,0"/>
+              <TextBlock Classes="dim" Text="Source file" VerticalAlignment="Center" Margin="8,0,0,0"/>
               <ComboBox x:Name="AnimFile" Width="96" SelectedIndex="0"
                         ToolTip.Tip="Which uncompressed file (ExGFX 60-63) this list's alternate-file slots read">
                 <ComboBoxItem Content="file 60"/><ComboBoxItem Content="file 61"/>
@@ -1166,6 +1219,7 @@
                             ToolTip.Tip="Show every slot type and trigger the engine supports"/>
               <TextBlock x:Name="AnimTitle" Classes="dim" VerticalAlignment="Center" Margin="12,0,0,0"/>
             </StackPanel>
+            </ScrollViewer>
           </Border>
           <!-- The timeline sits on the desk pattern (set in code: UiColors.DeskPattern). The Grid
                lets the empty-list Add Slot button sit truly centred over the desk. -->
@@ -1173,10 +1227,10 @@
             <ScrollViewer x:Name="AnimBodyScroll">
               <StackPanel x:Name="AnimBody" Margin="16" Spacing="6"/>
             </ScrollViewer>
-            <Button x:Name="AnimEmptyAdd" Classes="cta" Click="OnAnimAdd" IsVisible="False"
+            <Button x:Name="AnimEmptyAdd" Classes="accent" Padding="20,11" FontSize="14" Click="OnAnimAdd" IsVisible="False"
                     HorizontalAlignment="Center" VerticalAlignment="Center"
                     HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                    Content="Add Slot" ToolTip.Tip="Add a slot to this list"/>
+                    Content="Add slot" ToolTip.Tip="Add a slot to this list"/>
           </Grid>
         </DockPanel>
         <!-- Background canvas mode: the level's layer-2 background as a 16x16 tile map, and
@@ -1188,7 +1242,7 @@
             <!-- The settings button belongs to Layer 3 alone, so it is hidden on Layer 2 rather
                  than disabled: a control that can never apply to what is on screen is noise. -->
             <DockPanel>
-              <Button x:Name="BgOptions" DockPanel.Dock="Right" Content="Layer 3 Options"
+              <Button x:Name="BgOptions" DockPanel.Dock="Right" Content="Layer 3 options"
                       VerticalAlignment="Center" IsVisible="False" Click="OnLayer3Options"
                       ToolTip.Tip="Which layer 3 this level gets, and whether it draws in front"/>
               <!-- Painting is saved with the project like every other level edit, so these two
@@ -1215,12 +1269,17 @@
                 <!-- The project's saved tilemaps, for whichever layer is on screen: click one to
                      put it on this level, or keep this level's as a new one. Files are the
                      Import/Export buttons on the right; this is the library. -->
-                <Button x:Name="BgTilemaps" Content="Tilemaps ▾"
-                        ToolTip.Tip="Saved tilemaps in this project — apply one here, or save this level's"/>
+                <Button x:Name="BgTilemaps"
+                        ToolTip.Tip="Saved tilemaps in this project — apply one here, or save this level's">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="Tilemaps"/>
+                    <Path Data="M6 9l6 6 6-6" Width="10" Height="10"/>
+                  </StackPanel>
+                </Button>
               </StackPanel>
             </DockPanel>
           </Border>
-          <ScrollViewer x:Name="BgScroll" HorizontalScrollBarVisibility="Auto"
+          <ScrollViewer x:Name="BgScroll" AllowAutoHide="True" HorizontalScrollBarVisibility="Auto"
                         Background="{x:Static ui:UiColors.DeskPattern}">
             <ui:TilemapView x:Name="BgView" Margin="16"/>
           </ScrollViewer>
@@ -1231,6 +1290,7 @@
              paths, the level tiles' settings, event reveals, or the pipe/star/exit links. -->
         <DockPanel x:Name="OverworldPane" IsVisible="False" Background="{DynamicResource VoidBrush}">
           <Border x:Name="OwEditorBar" DockPanel.Dock="Top" Classes="panel bar"
+                  ToolTip.Tip="{Binding #OwNote.Text}"
                   BorderThickness="0,0,0,1" Padding="10,6">
             <DockPanel>
               <!-- Layer 2's brush: which palette row the drawer's 8x8 tile paints in, and its
@@ -1252,6 +1312,7 @@
                 <!-- View ▸ Layer 1: the level tiles and paths stay in view over the land while it is
                      painted, or go away to see the land alone. Tiles tab only — the other tabs
                      always show the layer they edit. -->
+                <TextBlock Classes="dim" Text="Show"/>
                 <ToggleButton x:Name="OwShowLayer1" MinWidth="34" IsChecked="True"
                               ToolTip.Tip="Show layer 1 — the level tiles and paths — over the land. It is only shown here; the Paths &amp; Levels tab edits it.">
                   <Path Data="{StaticResource IconCastle}"/>
@@ -1286,7 +1347,7 @@
                 </Button>
                 <Rectangle Classes="sep"/>
               </StackPanel>
-              <TextBlock x:Name="OwNote" Classes="dim" VerticalAlignment="Center"
+              <TextBlock x:Name="OwNote" Classes="dim" VerticalAlignment="Center" IsVisible="False"
                          TextTrimming="CharacterEllipsis" Margin="6,0,10,0"/>
             </DockPanel>
           </Border>
@@ -1390,7 +1451,7 @@
                of a lasso — and the map's own pointer handling is left exactly as it was. It is
                placed in viewport coordinates, so it follows the scroll. -->
           <Grid x:Name="OwMapArea">
-            <ScrollViewer x:Name="OwScroll" HorizontalScrollBarVisibility="Auto"
+            <ScrollViewer x:Name="OwScroll" AllowAutoHide="True" HorizontalScrollBarVisibility="Auto"
                           Background="{x:Static ui:UiColors.DeskPattern}">
               <ui:TilemapView x:Name="OwView" Margin="16"/>
             </ScrollViewer>
@@ -1405,6 +1466,7 @@
         <DockPanel x:Name="GfxScroll" IsVisible="False" Background="{DynamicResource VoidBrush}">
           <Border x:Name="GfxEditorBar" DockPanel.Dock="Top" Classes="panel bar"
                   BorderThickness="0,0,0,1" Padding="10,6">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
             <StackPanel Orientation="Horizontal" Spacing="6">
               <Button MinWidth="80" Click="OnBrowseGfx"
                       ToolTip.Tip="Load another graphics file into the editor">
@@ -1424,7 +1486,7 @@
                       ToolTip.Tip="Save a copy as a new custom ExGFX file">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                   <Path Data="{StaticResource IconSave}"/>
-                  <TextBlock Text="Save As" VerticalAlignment="Center"/>
+                  <TextBlock Text="Save as" VerticalAlignment="Center"/>
                 </StackPanel>
               </Button>
               <Rectangle Classes="sep"/>
@@ -1455,7 +1517,10 @@
                    than a hunt for a caret. The icon carries the current variant. -->
               <ToggleButton x:Name="GfxRect" Classes="mode" MinWidth="44" Click="OnGfxRect"
                             ToolTip.Tip="Rectangle — drag to draw one. Click the button for outline or filled. F cycles tools">
-                <Path x:Name="GfxRectIcon" Data="{StaticResource IconSquare}"/>
+                <StackPanel Orientation="Horizontal" Spacing="2">
+                  <Path x:Name="GfxRectIcon" Data="{StaticResource IconSquare}"/>
+                  <Path Data="M6 9l6 6 6-6" Width="8" Height="8" Opacity="0.6"/>
+                </StackPanel>
                 <!-- A plain Flyout of the SAME toggles the bar uses, not a MenuFlyout: a
                      MenuItem reserves an icon column and a submenu chevron, so an icon-only
                      item comes out wide and left-shifted. These size to the icons and show
@@ -1478,7 +1543,10 @@
               <!-- Same combo shape as Rect: one slot, outline or filled, icon carries which. -->
               <ToggleButton x:Name="GfxEllipse" Classes="mode" MinWidth="44" Click="OnGfxEllipse"
                             ToolTip.Tip="Ellipse — drag to draw one. Click the button for outline or filled. F cycles tools">
-                <Path x:Name="GfxEllipseIcon" Data="{StaticResource IconCircle}"/>
+                <StackPanel Orientation="Horizontal" Spacing="2">
+                  <Path x:Name="GfxEllipseIcon" Data="{StaticResource IconCircle}"/>
+                  <Path Data="M6 9l6 6 6-6" Width="8" Height="8" Opacity="0.6"/>
+                </StackPanel>
                 <FlyoutBase.AttachedFlyout>
                   <Flyout Placement="BottomEdgeAlignedLeft" FlyoutPresenterClasses="picker">
                     <StackPanel Orientation="Horizontal" Spacing="4">
@@ -1520,6 +1588,7 @@
                 <Path Data="{StaticResource IconFlipVertical}"/>
               </Button>
             </StackPanel>
+            </ScrollViewer>
           </Border>
           <!-- An empty bin has no sheet to draw, so the canvas offers the one thing that can
                change that instead of sitting blank. Same handler as the header's Load. -->
@@ -1527,7 +1596,7 @@
             <ScrollViewer x:Name="GfxSheetScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
               <ui:GfxCanvasView x:Name="GfxCanvas" Margin="8"/>
             </ScrollViewer>
-            <Button x:Name="GfxEmptyLoad" Classes="cta" IsVisible="False" Click="OnBrowseGfx"
+            <Button x:Name="GfxEmptyLoad" Classes="accent" Padding="20,11" FontSize="14" IsVisible="False" Click="OnBrowseGfx"
                     HorizontalAlignment="Center" VerticalAlignment="Center"
                     ToolTip.Tip="This bin has no graphics — load a file into it">
               <StackPanel Orientation="Horizontal" Spacing="8">

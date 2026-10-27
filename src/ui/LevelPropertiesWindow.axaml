@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="PipeDream.Ui.LevelPropertiesWindow"
-        Title="Level Properties" Width="500" Height="720"
+        Title="Level properties" Width="560" Height="740"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource SurfaceBrush}" RequestedThemeVariant="Dark">
 
@@ -12,41 +12,85 @@
       <Setter Property="FontSize" Value="12"/>
     </Style>
     <Style Selector="TextBlock.mono">
-      <Setter Property="FontFamily" Value="Cascadia Mono,Consolas,DejaVu Sans Mono,monospace"/>
+      <Setter Property="FontFamily" Value="{DynamicResource MonoFont}"/>
       <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}"/>
       <Setter Property="FontSize" Value="11"/>
     </Style>
+    <Style Selector="TextBlock.code">
+      <Setter Property="FontFamily" Value="{DynamicResource MonoFont}"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+      <Setter Property="Margin" Value="0,0,8,0"/>
+    </Style>
     <Style Selector="TextBlock.section">
-      <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
-      <Setter Property="FontWeight" Value="SemiBold"/>
-      <Setter Property="Margin" Value="0,12,0,4"/>
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="FontWeight" Value="Medium"/>
+      <Setter Property="Margin" Value="0,16,0,4"/>
+    </Style>
+    <Style Selector="TextBlock.section:nth-child(1)">
+      <Setter Property="Margin" Value="0,0,0,4"/>
+    </Style>
+    <Style Selector="ComboBox">
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="Width" Value="376"/>
+    </Style>
+    <Style Selector="NumericUpDown">
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
+      <Setter Property="FontFamily" Value="{DynamicResource MonoFont}"/>
+    </Style>
+    <Style Selector="NumericUpDown ButtonSpinner RepeatButton">
+      <Setter Property="Width" Value="26"/>
+      <Setter Property="MinWidth" Value="26"/>
+      <Setter Property="FontSize" Value="10"/>
+      <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
+    </Style>
+    <Style Selector="Button.footer">
+      <Setter Property="MinHeight" Value="32"/>
+      <Setter Property="MinWidth" Value="72"/>
+      <Setter Property="Padding" Value="14,0"/>
+      <Setter Property="CornerRadius" Value="6"/>
+      <Setter Property="HorizontalContentAlignment" Value="Center"/>
+      <Setter Property="VerticalContentAlignment" Value="Center"/>
     </Style>
   </Window.Styles>
 
-  <DockPanel Margin="14">
-    <Border DockPanel.Dock="Bottom" Padding="0,12,0,0">
-      <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-        <!-- Header only: entry settings write into the ROM in place, so undo is what takes
-             those back. Enabled only once this level actually carries a header edit. -->
-        <Button x:Name="RevertBtn" Content="Revert header" Click="OnRevert"/>
-        <Button Content="Cancel" Click="OnCancel"/>
-        <Button x:Name="ApplyBtn" Content="Apply" Click="OnApply"/>
+  <DockPanel>
+    <Border DockPanel.Dock="Bottom" Padding="16,12" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0">
+      <DockPanel>
+      <StackPanel Orientation="Horizontal" Spacing="8" DockPanel.Dock="Right">
+        <Button Classes="footer" Content="Cancel" Click="OnCancel"/>
+        <Button x:Name="ApplyBtn" Classes="footer accent" Content="Apply" Click="OnApply"/>
       </StackPanel>
+      <!-- Header only: entry settings write into the ROM in place, so undo is what takes
+           those back. Enabled only once this level actually carries a header edit. -->
+      <Button x:Name="RevertBtn" Classes="footer" ToolTip.Tip="Restores the original ROM header. Entry settings are not reverted." Content="Revert header" Click="OnRevert" HorizontalAlignment="Left"/>
+      </DockPanel>
     </Border>
 
     <!-- The two records these fields pack into. Hidden: the grouping above says what each
          setting does, and raw bytes under it asked the reader to care which record a field
          lands in. Still built and still kept current, so the test that the staged records are
          what would be written has something to read, and showing them again is one flag. -->
-    <Border DockPanel.Dock="Bottom" Padding="0,10,0,0" IsVisible="False">
+    <Border DockPanel.Dock="Bottom" Padding="16,10,16,0" IsVisible="False">
       <StackPanel Spacing="2">
         <TextBlock x:Name="HeaderBytes" Classes="mono"/>
         <TextBlock x:Name="EntryBytes" Classes="mono"/>
       </StackPanel>
     </Border>
 
-    <ScrollViewer>
-      <StackPanel x:Name="Fields" Spacing="2"/>
-    </ScrollViewer>
+    <Grid>
+      <ScrollViewer x:Name="FieldsScroll" HorizontalScrollBarVisibility="Disabled" Padding="16,16,16,8">
+        <StackPanel x:Name="Fields" Spacing="8"/>
+      </ScrollViewer>
+      <!-- Fades the bottom edge while more sections wait below the fold; hidden at the end. -->
+      <Border x:Name="ScrollFade" Height="24" VerticalAlignment="Bottom" IsHitTestVisible="False">
+        <Border.Background>
+          <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+            <GradientStop Offset="0" Color="#000F0F11"/>
+            <GradientStop Offset="1" Color="{DynamicResource SurfaceColor}"/>
+          </LinearGradientBrush>
+        </Border.Background>
+      </Border>
+    </Grid>
   </DockPanel>
 </Window>
