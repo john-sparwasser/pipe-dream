@@ -22,6 +22,7 @@ public partial class MainWindow
 {
     private ToggleButton layerOne = null!, layerTwo = null!, exitsMode = null!, entrancesMode = null!;
     private Button dropLayer2 = null!;
+    private StackPanel layerSwitch = null!;
     private TextBlock layer2Note = null!;
 
     /// <summary>Multi-tile stamp brush from a Ctrl+drag grab; null = the drawer's single tile.</summary>
@@ -35,6 +36,7 @@ public partial class MainWindow
         exitsMode = this.GetControl<ToggleButton>("ExitsMode");
         entrancesMode = this.GetControl<ToggleButton>("EntrancesMode");
         dropLayer2 = this.GetControl<Button>("DropLayer2");
+        layerSwitch = this.GetControl<StackPanel>("LayerSwitch");
         layer2Note = this.GetControl<TextBlock>("Layer2Note");
 
         canvas.Source = bitmap;
@@ -191,11 +193,8 @@ public partial class MainWindow
     /// would silently do nothing in-game.</summary>
     private void RefreshLayerBar()
     {
+        layerSwitch.IsVisible = session.Layer2Editable;
         layerOne.IsChecked = session.EditLayer == 0;
-        // Deliberately NOT disabled when layer 2 is a background image. Most levels are one, so
-        // the button spent most of its life greyed out and clicking it did nothing at all —
-        // whereas SetEditLayer already has the answer and can only say it if the click gets
-        // through.
         layerTwo.IsChecked = session.EditLayer == 1;
         dropLayer2.IsVisible = session.Layer2FromProject;
         layer2Note.Text = session.Layer2Editable && !session.LevelModeReadsLayer2 && session.Header is { } h

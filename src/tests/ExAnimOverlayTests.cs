@@ -112,9 +112,9 @@ public class ExAnimOverlayTests(ITestOutputHelper log) : IDisposable
     }
 
     /// <summary>The blocks a hit from below brings out (021-024) draw nothing in the game; they are drawn as a
-    /// see-through ? block (11F), so they can be seen and picked.</summary>
+    /// see-through ? block (11F), the two note blocks as a see-through note block (115), so they can be seen and picked.</summary>
     [Fact]
-    public void a_hidden_block_is_a_see_through_question_block()
+    public void a_hidden_block_is_a_see_through_visible_block()
     {
         if (!File.Exists(Vanilla)) return;
         var rom = Rom.Load(Vanilla);
@@ -122,13 +122,16 @@ public class ExAnimOverlayTests(ITestOutputHelper log) : IDisposable
         var fg = Gfx.FgTiles.Load(rom, h.Tileset, 0x105);
         var pal = Palette.Load(rom, h, 0x105);
         var cache = Map16.ComposeAll(rom, h, fg, pal);
-        var ghostQ = cache[0x11F].Select(c => c == 0 ? 0 : c & 0xFFFFFF | Map16.GhostAlpha);
-        foreach (int t in new[] { 0x21, 0x22, 0x23, 0x24 }) Assert.Equal(ghostQ, cache[t]);
+        uint[] Ghost(int t) => [.. cache[t].Select(c => c == 0 ? 0 : c & 0xFFFFFF | Map16.GhostAlpha)];
+        foreach (int t in new[] { 0x21, 0x22 }) Assert.Equal(Ghost(0x11F), cache[t]);
+        foreach (int t in new[] { 0x23, 0x24 }) Assert.Equal(Ghost(0x115), cache[t]);
         Assert.DoesNotContain(cache[0x25], c => c >> 24 == 0x80);
 
         cache[0x22] = new uint[256];
-        Map16.ComposeInto(cache, rom, h, fg, pal, [0x11F]);                   // recomposing the ? block redraws them
-        Assert.Equal(ghostQ, cache[0x22]);
+        cache[0x24] = new uint[256];
+        Map16.ComposeInto(cache, rom, h, fg, pal, [0x11F, 0x115]);            // recomposing the block redraws them
+        Assert.Equal(Ghost(0x11F), cache[0x22]);
+        Assert.Equal(Ghost(0x115), cache[0x24]);
     }
 
     /// <summary>The 1-UP points (06F-072) draw nothing in the game; they are drawn as a see-through 1-UP mushroom

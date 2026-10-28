@@ -78,7 +78,7 @@ public static class Map16
             tiles[t] = Compose(Or(Definition(rom, defPtr, t), wordOr), fg.Fetch, pal, fg.Ghost);
         for (int t = FgTiles; t < tiles.Length; t++)
             if (rom.HasMap16Def(t)) tiles[t] = Compose(Or(LmExtendedDef(rom, t), wordOr), fg.Fetch, pal, fg.Ghost);
-        foreach (int t in HiddenBlocks) GhostHiddenBlock(tiles, t);
+        foreach (var (t, drawn) in HiddenBlocks) GhostHiddenBlock(tiles, t, drawn);
         GhostOneUpPoints(rom, h, tiles, pal, OneUpPoints);
         return tiles;
     }
@@ -110,17 +110,17 @@ public static class Map16
         }
     }
 
-    /// <summary>The invisible coin, 1-UP and note blocks a hit from below brings out (021-024), and the ? block (11F)
-    /// they are drawn as.</summary>
-    private static readonly int[] HiddenBlocks = [0x21, 0x22, 0x23, 0x24];
-    private const int QuestionBlock = 0x11F;
+    /// <summary>The invisible coin, 1-UP and note blocks a hit from below brings out (021-024; $0DA8B4 and $0DA548 name the
+    /// tile each object places), each with the visible block it is drawn as: the ? block (11F) for the coin and the 1-UP,
+    /// the note block (115) for the two note blocks.</summary>
+    private static readonly (int Hidden, int Drawn)[] HiddenBlocks = [(0x21, 0x11F), (0x22, 0x11F), (0x23, 0x115), (0x24, 0x115)];
 
-    /// <summary>A hidden block that draws nothing gets the ? block's pixels as ghosts, so it is placed and found like
-    /// any other block. Lunar Magic shows these (View ▸ Other Invisible Objects) in art of its own; a see-through ?
-    /// block says the same in the level's own graphics. One a hack has given a picture of its own keeps it.</summary>
-    private static void GhostHiddenBlock(uint[][] tiles, int t)
+    /// <summary>A hidden block that draws nothing gets its visible block's pixels as ghosts, so it is placed and found like
+    /// any other block. Lunar Magic shows these (View ▸ Other Invisible Objects) in art of its own; a see-through block
+    /// says the same in the level's own graphics. One a hack has given a picture of its own keeps it.</summary>
+    private static void GhostHiddenBlock(uint[][] tiles, int t, int drawn)
     {
-        if (tiles[t] is not { } px || px.Any(c => c != 0) || tiles[QuestionBlock] is not { } q) return;
+        if (tiles[t] is not { } px || px.Any(c => c != 0) || tiles[drawn] is not { } q) return;
         tiles[t] = [.. q.Select(c => c == 0 ? 0 : c & 0xFFFFFF | GhostAlpha)];
     }
 
@@ -144,12 +144,12 @@ public static class Map16
     {
         var defPtr = BuildDefPointers(rom, h.Tileset);
         var set = tiles.ToHashSet();
-        if (set.Contains(QuestionBlock)) set.UnionWith(HiddenBlocks);      // they are drawn as it
+        foreach (var (t, drawn) in HiddenBlocks) if (set.Contains(drawn)) set.Add(t);      // they are drawn as it
         foreach (int t in set)
             if (t >= 0 && t < cache.Length)
                 cache[t] = !rom.HasMap16Def(t) ? null!
                          : Compose(t < FgTiles ? Definition(rom, defPtr, t) : LmExtendedDef(rom, t), fg.Fetch, pal, fg.Ghost);
-        foreach (int t in HiddenBlocks) if (set.Contains(t)) GhostHiddenBlock(cache, t);
+        foreach (var (t, drawn) in HiddenBlocks) if (set.Contains(t)) GhostHiddenBlock(cache, t, drawn);
         GhostOneUpPoints(rom, h, cache, pal, OneUpPoints.Where(set.Contains));
     }
 

@@ -224,10 +224,8 @@
     <Style Selector="Border.bar Button">
       <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
     </Style>
-    <!-- Zoom slider: a 12px thumb centred on a 20px row, in line with the Zoom / 100% text. -->
-    <Style Selector="Slider#ZoomSlider /template/ Grid#HorizontalTemplate">
-      <Setter Property="MinHeight" Value="0"/>
-    </Style>
+    <!-- Zoom slider: a 12px thumb, in line with the Zoom / 100% text. The Fluent template seats its track
+         about 6px below the slider's centre, which ZoomSlider's RenderTransform takes back. -->
     <Style Selector="Slider#ZoomSlider /template/ Thumb">
       <Setter Property="Width" Value="12"/>
       <Setter Property="Height" Value="12"/>
@@ -519,7 +517,7 @@
           <TextBlock Classes="dim" Text="Zoom" VerticalAlignment="Center"/>
           <!-- Range and value are set from code per canvas mode (ApplyZoomTarget); these are
                only what the slider looks like before the window is wired up. -->
-          <Slider x:Name="ZoomSlider" Width="110" Height="20" MinHeight="20" Minimum="100" Maximum="800" Value="100"
+          <Slider x:Name="ZoomSlider" Width="110" RenderTransform="translateY(-6px)" Minimum="100" Maximum="800" Value="100"
                   TickFrequency="10" IsSnapToTickEnabled="True" VerticalAlignment="Center"
                   ToolTip.Tip="Zoom for the canvas that is showing — or press - and = to step it"/>
           <TextBlock x:Name="ZoomLabel" Classes="mono" Width="40" VerticalAlignment="Center"/>
@@ -985,6 +983,8 @@
           <Border x:Name="LevelEditorBar" DockPanel.Dock="Top" Classes="panel bar"
                   BorderThickness="0,0,0,1" Padding="10,6">
             <StackPanel Orientation="Horizontal" Spacing="6">
+              <!-- Only a level with a layer-2 object stream has anything to switch to; the rest edit layer 1. -->
+              <StackPanel x:Name="LayerSwitch" Orientation="Horizontal" Spacing="6">
               <ToggleButton x:Name="LayerOne" Classes="mode" IsChecked="True" Click="OnEditLayer"
                             ToolTip.Tip="Edit layer 1's objects — the level itself">
                 <StackPanel Orientation="Horizontal" Spacing="6">
@@ -1000,6 +1000,7 @@
                 </StackPanel>
               </ToggleButton>
               <Rectangle Classes="sep"/>
+              </StackPanel>
               <!-- Exits are a property of the LEVEL, so they belong to the level canvas rather
                    than the mode bar, where they sat next to two modes that cannot use them.
                    A toggle, not a button: it arms a canvas mode that takes over from the layer
