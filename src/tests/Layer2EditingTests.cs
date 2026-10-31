@@ -228,6 +228,19 @@ public class Layer2EditingTests(ITestOutputHelper log) : IDisposable
         Assert.True(l1.IsChecked);                             // ...and the bar says so
         Assert.False(l2.IsChecked);
 
+        // +L2 is offered exactly when there is no object layer, and gives the level one; −L2 takes it back.
+        var add = w.GetControl<Button>("AddLayer2");
+        Assert.True(add.IsVisible);
+        add.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(session(w).Layer2Editable);
+        Assert.False(add.IsVisible);
+        Assert.True(drop.IsVisible);
+        drop.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(session(w).Layer2Editable);
+        Assert.True(add.IsVisible);
+
         static EditorSession session(MainWindow w) => (EditorSession)typeof(MainWindow)
             .GetField("session", System.Reflection.BindingFlags.NonPublic
                                | System.Reflection.BindingFlags.Instance)!.GetValue(w)!;
