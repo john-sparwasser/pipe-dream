@@ -184,6 +184,10 @@ public static class ObjectEngine
         // Full canvas (LM parity): content can sit past header.Screens. The loader filled
         // untouched RAM with blank sky ($25). Vertical caps at $1C bands ($C800+$1C*$200 = RAM end).
         int screens = vertical ? 0x1C : columns;
+        // Layer 2 data lives in the second half of that RAM ($00BB08: layer 1's screens 10-1F), so
+        // it has half the screens; past them its table runs into the next one and screens 1E/1F
+        // alias 00/01 — every layer-2 tile drew a second time 30 screens to the right.
+        if (layer == 1) screens /= 2;
 
         // Per-screen plane-pointer tables (24-bit addresses, 3 bytes/screen), from the
         // static tables at $00BEA8/$00BEAC (vanilla). If those are dead (a LM-patched

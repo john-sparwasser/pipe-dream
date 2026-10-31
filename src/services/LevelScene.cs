@@ -23,7 +23,9 @@ public sealed class LevelScene
 
     public uint[] Backdrop { get; init; } = new uint[4];
     public Palette?[] Palettes { get; init; } = new Palette?[4];
-    public ushort[]? BgImage { get; init; }
+    /// <summary>Layer 2's background image, or null when layer 2 is an object layer. Cleared by
+    /// <see cref="UseObjectLayer2"/>: the scene is built from the base ROM, which still has the image.</summary>
+    public ushort[]? BgImage { get; private set; }
     /// <summary>How many of the background's 32 wrapping rows hold picture: 27, or 32 for LM's custom kind (BgImage.Period).</summary>
     public int BgPeriod { get; init; } = PipeDream.BgImage.VanillaRows;
     public uint[][]?[] BgCaches { get; init; } = new uint[4][][];
@@ -361,6 +363,23 @@ public sealed class LevelScene
             for (int x = 0; x < Grid.Width; x++)
                 if (set.Contains(Grid.Get(x, y)) || (Layer2 is { } l2 && set.Contains(l2.Get(x, y))))
                     RecomposeCell(x, y);
+        RedrawOverlay();
+    }
+
+    /// <summary>
+    /// Make layer 2 an object layer on a scene built with a background image — a project's
+    /// conversion the base ROM knows nothing about. The two are exclusive, and while the image
+    /// stays every compose draws it instead of the grid, so layer-2 edits never showed.
+    /// </summary>
+    public void UseObjectLayer2()
+    {
+        if (BgImage is null && Layer2 is not null) return;
+        BgImage = null;
+        Layer2 ??= new Map16Grid(Grid.Width, Grid.Height);
+        // The old picture is in every cell, and the layer-2 render only repaints cells whose tile
+        // changed, so blank sky would keep showing the image.
+        for (int y = 0; y < Math.Min(VisibleRows, Grid.Height); y++)
+            for (int x = 0; x < Grid.Width; x++) RecomposeCell(x, y);
         RedrawOverlay();
     }
 

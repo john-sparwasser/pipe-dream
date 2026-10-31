@@ -59,6 +59,32 @@ public class Layer2EditingTests(ITestOutputHelper log) : IDisposable
         return s.NewProject(Path.Combine(dir, "proj"), Vanilla) ? s : null;
     }
 
+    /// <summary>A converted level is built from the base ROM's background image, which used to keep
+    /// drawing over layer 2 — painting changed no pixels — and layer 2 was read across all 32
+    /// screens, whose last two alias its first two, so the tile drew again 30 screens over.</summary>
+    [Fact]
+    public void painting_a_converted_layer_2_shows_in_that_cell_only()
+    {
+        if (Project(dir) is not { } s) { log.WriteLine("SKIP: no ROM"); return; }
+        s.ShowLevel(0x105);
+        if (s.Layer2Editable) { log.WriteLine("SKIP: $105 already has an object layer 2"); return; }
+        s.SetLayer2ObjectMode(true);
+        s.SetEditLayer(1);
+        Assert.False(s.Layer2IsBackgroundImage);
+        Assert.Equal(s.Scene!.Grid.Width / 2, s.Scene.Layer2!.Width);
+
+        var before = (uint[])s.Scene.Phases[0]!.Clone();
+        Assert.True(s.Edit!.Paint(5, 20, 0x130));
+        s.Edit.EndStroke();
+
+        var after = s.Scene.Phases[0]!;
+        int w = s.Scene.Width, inside = 0, outside = 0;
+        for (int i = 0; i < before.Length; i++)
+            if (before[i] != after[i]) { if (i % w / 16 == 5 && i / w / 16 == 20) inside++; else outside++; }
+        Assert.True(inside > 0, "the painted tile never showed");
+        Assert.Equal(0, outside);
+    }
+
     [Fact]
     public void editing_layer_2_writes_layer_2s_grid_and_leaves_layer_1_alone()
     {
@@ -227,6 +253,19 @@ public class Layer2EditingTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(0, session(w).EditLayer);                 // still layer 1...
         Assert.True(l1.IsChecked);                             // ...and the bar says so
         Assert.False(l2.IsChecked);
+
+        // +L2 is offered exactly when there is no object layer, and gives the level one; −L2 takes it back.
+        var add = w.GetControl<Button>("AddLayer2");
+        Assert.True(add.IsVisible);
+        add.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(session(w).Layer2Editable);
+        Assert.False(add.IsVisible);
+        Assert.True(drop.IsVisible);
+        drop.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+        Assert.False(session(w).Layer2Editable);
+        Assert.True(add.IsVisible);
 
         static EditorSession session(MainWindow w) => (EditorSession)typeof(MainWindow)
             .GetField("session", System.Reflection.BindingFlags.NonPublic

@@ -21,7 +21,7 @@ namespace PipeDream.Ui;
 public partial class MainWindow
 {
     private ToggleButton layerOne = null!, layerTwo = null!, exitsMode = null!, entrancesMode = null!;
-    private Button dropLayer2 = null!;
+    private Button addLayer2 = null!, dropLayer2 = null!;
     private StackPanel layerSwitch = null!;
     private TextBlock layer2Note = null!;
 
@@ -35,6 +35,7 @@ public partial class MainWindow
         layerTwo = this.GetControl<ToggleButton>("LayerTwo");
         exitsMode = this.GetControl<ToggleButton>("ExitsMode");
         entrancesMode = this.GetControl<ToggleButton>("EntrancesMode");
+        addLayer2 = this.GetControl<Button>("AddLayer2");
         dropLayer2 = this.GetControl<Button>("DropLayer2");
         layerSwitch = this.GetControl<StackPanel>("LayerSwitch");
         layer2Note = this.GetControl<TextBlock>("Layer2Note");
@@ -183,8 +184,15 @@ public partial class MainWindow
         AdoptSession();
     }
 
+    private void OnAddLayer2(object? sender, RoutedEventArgs e)
+    {
+        session.SetLayer2ObjectMode(true);
+        AdoptSession();
+    }
+
     private void OnDropLayer2(object? sender, RoutedEventArgs e)
     {
+        session.SetLayer2ObjectMode(false);
         AdoptSession();
     }
 
@@ -194,6 +202,7 @@ public partial class MainWindow
     private void RefreshLayerBar()
     {
         layerSwitch.IsVisible = session.Layer2Editable;
+        addLayer2.IsVisible = session.Scene is not null && !session.Layer2Editable;
         layerOne.IsChecked = session.EditLayer == 0;
         layerTwo.IsChecked = session.EditLayer == 1;
         dropLayer2.IsVisible = session.Layer2FromProject;
