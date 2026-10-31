@@ -485,9 +485,9 @@ public sealed partial class EditorSession
         layer2 = l2 is null ? null : new LevelEdit(Rom!, Scene!, l2, layer: 1);
         if (layer2 is not null)
         {
-            // A converted level has no layer-2 grid yet: the scene was composed from a
-            // background image, so give it one before the render replaces it.
-            Scene!.Layer2 ??= new Map16Grid(Scene.Grid.Width, Scene.Grid.Height);
+            // A converted level was composed from the base ROM's background image: drop it and
+            // give layer 2 a grid before the render replaces it.
+            Scene!.UseObjectLayer2();
             layer2.Rerender();
         }
         if (EditLayer == 1 && layer2 is null) EditLayer = 0;
@@ -560,7 +560,7 @@ public sealed partial class EditorSession
             layer2 = objectMode ? new LevelEdit(Rom, Scene, [], layer: 1) : null;
             if (objectMode)
             {
-                Scene.Layer2 ??= new Map16Grid(Scene.Grid.Width, Scene.Grid.Height);
+                Scene.UseObjectLayer2();
                 layer2!.Rerender();
             }
             Changed?.Invoke(this, EventArgs.Empty);
@@ -684,7 +684,7 @@ public sealed partial class EditorSession
             layer1.Rerender();
             if (l2 is not null)
             {
-                Scene.Layer2 ??= new Map16Grid(Scene.Grid.Width, Scene.Grid.Height);
+                Scene.UseObjectLayer2();
                 layer2 = new LevelEdit(Rom, Scene, l2, layer: 1);
                 layer2.Rerender();
             }
