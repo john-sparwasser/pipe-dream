@@ -31,6 +31,14 @@ editor (https://github.com/AvaloniaUI/AvaloniaEdit), both under the MIT licence;
 copyright notices are in their repositories' LICENSE files.
 
 
+BOWSIE — BSD 2-Clause
+---------------------
+Overworld sprites are inserted with the ASM of BOWSIE v1.21, the Better Overworld Sprite
+Insertion Engine, (c) 2024 Arinsu "Ari" (https://github.com/arinsuwu/bowsie): its vldc9 sprite
+system (originally by Lui37, Medic et al., with changes by JackTheSpades and Ari), its macros and
+its shared routines, one line of maxtile_defines.asm changed. Licence text: BOWSIE-LICENSE.txt.
+
+
 Downloaded, not shipped
 -----------------------
 These are not part of Pipe Dream. When a project switches one on, Pipe Dream downloads it from

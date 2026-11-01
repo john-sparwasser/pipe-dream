@@ -42,7 +42,7 @@
     <StackPanel DockPanel.Dock="Top" Spacing="8">
       <StackPanel Orientation="Horizontal" Spacing="8">
         <ComboBox x:Name="KindBox" SelectedIndex="0" MinWidth="110" Height="30" VerticalAlignment="Center" AutomationProperties.Name="New sprite kind"
-                  ToolTip.Tip="What New… makes: a sprite (slots 00-BF), a shooter (C0-CF), a generator (D0-DF), or an ASM-only kind numbered in a list of its own (cluster 00, smoke 00…)">
+                  ToolTip.Tip="What New… makes: a sprite (slots 00-BF), a shooter (C0-CF), a generator (D0-DF), an ASM-only kind numbered in a list of its own (cluster 00, smoke 00…), or an overworld sprite (overworld 01-7E). With Overworld chosen, Import… reads .asm files as overworld sprites">
           <ComboBoxItem Content="Sprite" Tag="sprite"/>
           <ComboBoxItem Content="Shooter" Tag="shooter"/>
           <ComboBoxItem Content="Generator" Tag="generator"/>
@@ -53,6 +53,7 @@
           <ComboBoxItem Content="Smoke" Tag="smoke"/>
           <ComboBoxItem Content="Spinning coin" Tag="spinningcoin"/>
           <ComboBoxItem Content="Score" Tag="score"/>
+          <ComboBoxItem Content="Overworld" Tag="overworld"/>
         </ComboBox>
         <Button Classes="accent" Content="New…" Click="OnNew" ToolTip.Tip="Adds a sprite of the chosen kind, from the template"/>
         <Rectangle Width="1" Fill="{DynamicResource BorderBrush}" Margin="4,6"/>
@@ -64,7 +65,7 @@
       <DockPanel LastChildFill="False">
       <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="8">
         <Button x:Name="SlotsButton" Content="Slots…" Click="OnSlots" IsEnabled="False"
-                ToolTip.Tip="A sprite with no slot stays in the project but isn't inserted. Slots are the numbers that run it: 1A for every level, 105:B0 for one level's own, cluster 01, smoke 00… for the ASM-only kinds"/>
+                ToolTip.Tip="A sprite with no slot stays in the project but isn't inserted. Slots are the numbers that run it: 1A for every level, 105:B0 for one level's own, cluster 01, smoke 00… for the ASM-only kinds, overworld 01-7E for an overworld sprite"/>
         <Button x:Name="EditButton" Content="Edit ASM" Click="OnEdit" IsEnabled="False"/>
         <Button x:Name="ConfigButton" Content="Edit config" Click="OnConfig" IsEnabled="False"
                 ToolTip.Tip="The sprite's PIXI JSON: tweakers, acts-like, extra bytes, how Lunar Magic lists it (ASM-only sprites have none)"/>

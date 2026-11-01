@@ -13,7 +13,7 @@ public partial class LicensesWindow : Window
 {
     /// <summary>The notice first, then the texts in the order it names them.</summary>
     private static readonly string[] Files =
-        ["THIRD-PARTY-NOTICES.txt", "Asar-LICENSE.txt", "LGPL-3.0.txt", "GPL-3.0.txt", "JetBrainsMono-OFL.txt"];
+        ["THIRD-PARTY-NOTICES.txt", "Asar-LICENSE.txt", "LGPL-3.0.txt", "GPL-3.0.txt", "JetBrainsMono-OFL.txt", "BOWSIE-LICENSE.txt"];
 
     public LicensesWindow()
     {

@@ -103,7 +103,7 @@ public static partial class SpriteInsert
         var global = new SortedDictionary<int, string>();
         var perLevel = new SortedDictionary<int, SortedDictionary<int, string>>();
         var listed = new Dictionary<string, SortedDictionary<int, string>>();
-        foreach (var (slot, name) in data.SpriteSlots)
+        foreach (var (slot, name) in data.SpriteSlots.Where(s => PixiImport.IsPixiSlot(s.Key)))
         {
             if (!data.Sprites.TryGetValue(name, out var s)) { warnings.Add($"slot {slot} names {name}, which is not in the project"); continue; }
             if (PixiImport.SlotKind(slot) is not { } kind || kind != s.Kind) { warnings.Add($"slot {slot} cannot hold {name}, a {s.Kind}"); continue; }

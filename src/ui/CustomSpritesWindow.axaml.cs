@@ -8,7 +8,7 @@ namespace PipeDream.Ui;
 
 /// <summary>
 /// The project's custom sprites (reference/PIXI_PORT.md): the library and the slots each sprite
-/// runs in. New adds one from the template, Import adds .json/.cfg sprites or a whole PIXI folder,
+/// runs in. New adds one from the template, Import adds .json/.cfg sprites (with Overworld chosen, .asm overworld sprites) or a whole PIXI folder,
 /// Slots… says which numbers run it, Edit ASM opens <see cref="BlockEditWindow"/> on the ASM and
 /// Edit config <see cref="SpriteConfigWindow"/> on the PIXI config, Open hands the ASM to the user's text editor, Remove deletes it.
 /// </summary>
@@ -30,11 +30,13 @@ public partial class CustomSpritesWindow : Window
     /// <summary>Parameterless for the XAML loader; the real entry point is the other one.</summary>
     public CustomSpritesWindow() => AvaloniaXamlLoader.Load(this);
 
-    internal CustomSpritesWindow(EditorSession session) : this()
+    /// <param name="kind">The kind New… and Import… start on ("overworld" from the Overworld's Sprites tab).</param>
+    internal CustomSpritesWindow(EditorSession session, string? kind = null) : this()
     {
         this.session = session;
         list = this.GetControl<ListBox>("List");
         kindBox = this.GetControl<ComboBox>("KindBox");
+        if (kind is not null) kindBox.SelectedItem = kindBox.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string?)i.Tag == kind);
         removeButton = this.GetControl<Button>("RemoveButton");
         slotsButton = this.GetControl<Button>("SlotsButton");
         editButton = this.GetControl<Button>("EditButton");
@@ -77,6 +79,7 @@ public partial class CustomSpritesWindow : Window
 
     private async void OnImport(object? sender, RoutedEventArgs e)
     {
+        string? kind = (kindBox.SelectedItem as ComboBoxItem)?.Tag as string == PixiImport.Overworld ? PixiImport.Overworld : null;
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             Title = "Add custom sprites to the project", AllowMultiple = true,
@@ -86,7 +89,7 @@ public partial class CustomSpritesWindow : Window
         foreach (var f in files)
             if (f.TryGetLocalPath() is { } path)
             {
-                hint.Text = session.ImportCustomSpriteFile(path, out var made);
+                hint.Text = session.ImportCustomSpriteFile(path, out var made, kind);
                 last = made ?? last;
             }
         Refresh(last ?? Selected);
@@ -114,7 +117,7 @@ public partial class CustomSpritesWindow : Window
     private async void OnSlots(object? sender, RoutedEventArgs e)
     {
         if (list.SelectedItem is not Row row) return;
-        var ask = new TextPromptWindow(!PixiImport.HasConfig(row.Kind) ? $"Slots for {row.Name} — e.g. {row.Kind} 01 (empty: none)" : $"Slots for {row.Name} — e.g. 1A, 105:B0 (empty: none)", row.Slots == "no slot" ? "" : row.Slots);
+        var ask = new TextPromptWindow(!PixiImport.HasConfig(row.Kind) ? $"Slots for {row.Name} — e.g. {row.Kind} {(row.Kind == PixiImport.Overworld ? "05" : "01")} (empty: none)" : $"Slots for {row.Name} — e.g. 1A, 105:B0 (empty: none)", row.Slots == "no slot" ? "" : row.Slots);
         await ask.ShowDialog(this);
         if (ask.Result is not { } slots) return;
         hint.Text = session.SetCustomSpriteSlots(row.Name, slots);

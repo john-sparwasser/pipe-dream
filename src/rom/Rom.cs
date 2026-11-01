@@ -345,6 +345,13 @@ public sealed class Rom
     /// (<see cref="Overworld.WarpTable"/>), or null to read the ROM's four arrays.</summary>
     public byte[]? OwWarps;
 
+    /// <summary>The edited custom overworld sprite list (<see cref="Overworld.Sprites"/>), or
+    /// null to read Lunar Magic's from the ROM.</summary>
+    public List<Overworld.OwSprite>? OwSprites;
+    /// <summary>The extra bytes each overworld sprite number will take once the project's sprite code is built in, over the
+    /// ROM's own size table (<see cref="OwSpriteInsert.ExtraCounts"/>); null to read the ROM's.</summary>
+    public int[]? OwSpriteExtra;
+
     /// <summary>The edited layer 2 event pieces — 0xD00 8x8 words, tile byte and property byte
     /// joined (<see cref="Overworld.EventPieces"/>) — or null to read the ROM's own.</summary>
     public ushort[]? OwEventPieces;

@@ -271,7 +271,7 @@ public static partial class UberInsert
     private static string Defines(ProjectFile data, string macroLib)
     {
         var s = new StringBuilder(Sprite("defines.asm"));
-        bool remapped = data.SpriteSlots.Count > 0;                          // our sprite driver moves the load table, as PIXI does
+        bool remapped = data.SpriteSlots.Keys.Any(PixiImport.IsPixiSlot);    // our sprite driver moves the load table, as PIXI does
         s.Append(Driver("defines.asm"));
         s.Append($"!Has255SpritesPerLevel = {(remapped ? 1 : 0)}\n");
         // Without our sprite driver the table stays SMW's — on LoROM; the SA-1 Pack moves it to $418A00 either way.

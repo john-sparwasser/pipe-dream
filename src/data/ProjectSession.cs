@@ -53,6 +53,12 @@ public static class ProjectSession
         if (data.Overworld.ExitDirs is { } owd) rom.OwExitDirs = Convert.FromBase64String(owd);
         if (data.Overworld.Warps is { } oww) rom.OwWarps = Convert.FromBase64String(oww);
         if (data.Overworld.Exits is { } owe) rom.OwExits = Convert.FromBase64String(owe);
+        if (data.Overworld.Sprites is { } owz) rom.OwSprites = [.. owz];
+        if (OwSpriteInsert.ExtraCounts(rom, data) is { } counts)
+        {
+            rom.OwSprites ??= Overworld.ReadSprites(rom);     // the base's list, read with the base's sizes first
+            rom.OwSpriteExtra = counts;
+        }
         if (data.Overworld.EventPieces is { } owp) rom.OwEventPieces = WordsOf(Convert.FromBase64String(owp));
         if (data.Overworld.Layer1Defs is { } owf) rom.OwLayer1Defs = WordsOf(Convert.FromBase64String(owf));
         if (data.Overworld.EventSteps is { } ows) rom.OwEventSteps = Overworld.UnpackEventSteps(Convert.FromBase64String(ows));
