@@ -70,10 +70,10 @@
         SEP #$20
 
     .oam_loop
-        CPY #!oam_limit
+        CPY.w #!oam_limit             ; Pipe Dream: .w, A or XY is 16-bit and a #= 0 define assembles 8-bit
         BCC +
     .loop_back
-        LDY #!oam_start
+        LDY.w #!oam_start             ; Pipe Dream: .w, A or XY is 16-bit and a #= 0 define assembles 8-bit
         LDA $06
         BNE .found_all_slots
         INC $06
@@ -94,7 +94,7 @@
         CPY $08
         BEQ .found_all_slots
         INY #4
-        CPY #!oam_limit
+        CPY.w #!oam_limit             ; Pipe Dream: .w, A or XY is 16-bit and a #= 0 define assembles 8-bit
         BCS .loop_back
         LDA.w oam_buffer[$00].y_pos,y
         CMP #$F0

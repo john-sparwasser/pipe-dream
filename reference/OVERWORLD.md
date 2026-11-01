@@ -296,6 +296,11 @@ read before that and written after, so its entries are repacked to the new sizes
 for our build). MaxTile is off (its LoROM code builds on the unlicensed SA-1 MaxTile); Overworld
 Revolution and custom methods are refused.
 
+Two upstream bugs show with MaxTile off, both found booting a build in Mesen: `LDA #!oam_start_p`
+(a `#= $0000` define) assembled 8-bit under `REP #$21`, so the per-frame loop crashed on its first
+frame (the sites with unsized defines are now `.w`, marked `Pipe Dream:`); and the loader treats only a
+zero bank as no list, so an empty list is written as 0, not `$FFFFFF`, once BOWSIE is in.
+
 ## 10. Lunar Magic's editor, for parity
 
 One canvas; **left click selects, right click pastes**, Ctrl+Right always pastes the selector's

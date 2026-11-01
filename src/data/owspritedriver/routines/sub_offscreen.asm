@@ -34,7 +34,7 @@
     STA $00
     if !offs_threshold_x != 0
         CLC
-        ADC #!offs_threshold_x
+        ADC.w #!offs_threshold_x             ; Pipe Dream: .w, A or XY is 16-bit and a #= 0 define assembles 8-bit
     endif
     if !bowsie_widescreen_ow    ;   widescreen overworld check
         CMP.w #$FFF0-(!offs_threshold_x*2)
@@ -50,7 +50,7 @@
     STA $02
     if !offs_threshold_y != 0
     CLC
-    ADC #!offs_threshold_y
+    ADC.w #!offs_threshold_y             ; Pipe Dream: .w, A or XY is 16-bit and a #= 0 define assembles 8-bit
     endif
     CMP.w #$00E0+(!offs_threshold_y*2)
 ++  RTL

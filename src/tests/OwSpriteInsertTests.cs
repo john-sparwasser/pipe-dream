@@ -49,6 +49,18 @@ public class OwSpriteInsertTests
     }
 
     [AsarFact]
+    public void the_per_frame_loop_keeps_16_bit_immediates_and_an_empty_list_is_a_zero_pointer()
+    {
+        var rom = TestRom.Create(size: 0x100000);
+        Assert.True(OwSpriteInsert.Insert(rom, Project()).Ok);
+        // run_ow_sprite under REP #$21: an 8-bit LDA #$00 here ran the next bytes as JML $BD2EA2 (crashed in Mesen).
+        Assert.Equal("A9 00 01 8D 5A 18 A9 00 00 8D 5C 18",
+                     string.Join(" ", Enumerable.Range(0x04F770, 12).Select(a => $"{rom.ReadByte(a):X2}")));
+        Assert.Null(Overworld.WriteSprites(rom, []));
+        Assert.Equal(0, Long(rom, Overworld.SpriteList));       // BOWSIE's loader reads $FFFFFF as a list
+    }
+
+    [AsarFact]
     public void the_new_overworld_sprite_template_builds_with_no_extra_bytes()
     {
         var rom = TestRom.Create(size: 0x100000);

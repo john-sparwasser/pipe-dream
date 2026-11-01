@@ -102,12 +102,13 @@ public sealed partial class Overworld
 
     /// <summary>Write the list back: the old block is released when it is ours (RATS-tagged, as
     /// LM's is) and the new one allocated in one bank — the game adds the offsets to a 16-bit
-    /// pointer. An empty list writes the vanilla $FFFFFF. Returns a reason when it cannot fit.</summary>
+    /// pointer. An empty list writes the vanilla $FFFFFF, or 0 under BOWSIE, whose loader takes only a zero bank as no list
+    /// and would read the sprites from $FFFFFF. Returns a reason when it cannot fit.</summary>
     public static string? WriteSprites(Rom rom, IReadOnlyList<OwSprite> sprites)
     {
         int p = rom.FileOffset(SpriteList), old = rom.Data[p] | rom.Data[p + 1] << 8 | rom.Data[p + 2] << 16;
         if (old is not (0 or 0xFFFFFF)) RatsWriter.Release(rom, old);
-        int at = 0xFFFFFF;
+        int at = OwSpriteInsert.Present(rom) ? 0 : 0xFFFFFF;
         if (sprites.Count > 0)
         {
             try { at = RatsWriter.Allocate(rom, PackSprites(rom, sprites), avoidBankCross: true); }

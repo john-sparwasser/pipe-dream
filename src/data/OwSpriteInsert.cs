@@ -23,6 +23,9 @@ public static partial class OwSpriteInsert
     public const int Used = 0x04EF3E;
     private static readonly byte[] Signature = [0x00, 0xCA, 0xC7, 0x05];
 
+    /// <summary>Whether BOWSIE (ours or its own) is in the ROM, by its signature.</summary>
+    public static bool Present(Rom rom) => Signature.Select((b, i) => rom.ReadByte(Used + i) == b).All(x => x);
+
     /// <summary>BOWSIE's limit, the sprite tables' size: $14C8 and on, 24 words each.</summary>
     private const int Slots = 24;
 
@@ -35,7 +38,7 @@ public static partial class OwSpriteInsert
         if (listed.Count == 0) return new(true, [], [], []);
         if (Enumerable.Range(0, 4).All(i => rom.ReadByte(0x048000 + i) == "YFOR"[i]))
             return Fail("this base has Overworld Revolution, which Pipe Dream does not insert BOWSIE for");
-        if (Signature.Select((b, i) => rom.ReadByte(Used + i) == b).All(x => x))
+        if (Present(rom))
             return Fail("this base already has BOWSIE in it: build from a base without it");
         if (data.SpriteSlots.FirstOrDefault(p => PixiImport.SlotKind(p.Key) == PixiImport.Overworld && !listed.ContainsKey(Number(p.Key))) is { Key: { } bad })
             return Fail($"slot {bad} names {data.SpriteSlots[bad]}, which is not an overworld sprite in the project");

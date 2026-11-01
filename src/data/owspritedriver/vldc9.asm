@@ -233,9 +233,9 @@ run_ow_sprite:
 
     REP #$21
     if not(!bowsie_maxtile)
-        LDA #!oam_start
+        LDA.w #!oam_start             ; Pipe Dream: .w, A or XY is 16-bit and a #= 0 define assembles 8-bit
         STA !ow_sprite_oam
-        LDA #!oam_start_p
+        LDA.w #!oam_start_p             ; Pipe Dream: .w, A or XY is 16-bit and a #= 0 define assembles 8-bit
         STA !ow_sprite_oam_p
     endif
 
