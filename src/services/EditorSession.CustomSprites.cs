@@ -145,8 +145,13 @@ public sealed partial class EditorSession
         if (Project is null) return Report2("no project open");
         if (FindSprite(name) is not { } s) return Report2($"{name} is not in the project");
         var wanted = new List<string>();
-        foreach (string raw in list.Split([',', ' ', ';'], StringSplitOptions.RemoveEmptyEntries))
+        var tokens = list.Split([',', ' ', ';'], StringSplitOptions.RemoveEmptyEntries);
+        for (int i = 0; i < tokens.Length; i++)
         {
+            string raw = tokens[i];
+            // A kind's slot is two words ("overworld 05", "cluster 01"): the kind takes the number after it.
+            if (PixiImport.NormalSlot(raw) is null && i + 1 < tokens.Length && PixiImport.NormalSlot($"{raw} {tokens[i + 1]}") is not null)
+                raw = $"{raw} {tokens[++i]}";
             if (PixiImport.NormalSlot(raw) is not { } key) return Report2($"\"{raw}\" is not a sprite slot (00-DF, level:B0-BF, or a kind and its list number: cluster 01, smoke 00…)");
             if (PixiImport.SlotKind(key) != s.Kind) return Report2($"slot {key} holds a {PixiImport.SlotKind(key)}, and {name} is a {s.Kind}");
             wanted.Add(key);
