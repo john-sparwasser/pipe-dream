@@ -262,10 +262,10 @@ public class OverworldTests(ITestOutputHelper log)
         Assert.True(w.GetControl<DockPanel>("OwToolPanel").IsVisible);
         Assert.True(w.GetControl<StackPanel>("OwBrushBar").IsVisible);
 
-        // The four sub-modes are the drawer's tabs, as the Level drawer's are. The layer 1 tabs
+        // The five sub-modes (Sprites the last) are the drawer's tabs, as the Level drawer's are. The layer 1 tabs
         // keep the same canvas and show layer 1's Map16 tiles in the drawer.
         var tabs = w.GetControl<TabStrip>("OwTabs");
-        Assert.Equal(4, tabs.ItemCount);
+        Assert.Equal(5, tabs.ItemCount);
         tabs.SelectedIndex = 1;
         Dispatcher.UIThread.RunJobs();
         Assert.Contains("layer 1", w.GetControl<TextBlock>("OwNote").Text);

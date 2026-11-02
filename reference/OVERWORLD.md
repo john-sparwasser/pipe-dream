@@ -296,6 +296,13 @@ read before that and written after, so its entries are repacked to the new sizes
 for our build). MaxTile is off (its LoROM code builds on the unlicensed SA-1 MaxTile); Overworld
 Revolution and custom methods are refused.
 
+On the Sprites tab a sprite draws as its code's look: BOWSIE's tooltip JSON (`tooltip`, `no_tiles`,
+`tile_1`..`tile_N` with `tile_num`, offsets, flips, `palette`, `second_page`, `is_16x16`), kept as the
+sprite's `Config`, read from the `.json` beside its `.asm` at import and edited as text in Edit config
+(`Overworld.SpriteLook.cs`). The tiles come from the submap's SP1-SP4 and sprite rows 8-F, raised by
+Z. A number with no look is a box with its number. The `.s16ov`/`.sscov` files BOWSIE writes for
+Lunar Magic's own display are not written.
+
 Two upstream bugs show with MaxTile off, both found booting a build in Mesen: `LDA #!oam_start_p`
 (a `#= $0000` define) assembled 8-bit under `REP #$21`, so the per-frame loop crashed on its first
 frame (the sites with unsized defines are now `.w`, marked `Pipe Dream:`); and the loader treats only a

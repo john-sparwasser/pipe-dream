@@ -100,4 +100,50 @@ public class OverworldSpriteTests
         Assert.True(Services.EditorSession.OwMapCell(col, row, out int cx, out int cy, out bool sub));
         Assert.Equal((x, y, submap != 0), (cx, cy, sub));
     }
+    [Fact]
+    public void a_sprites_look_reads_bowsies_tooltip_json_and_says_what_is_wrong()
+    {
+        var look = Overworld.ParseSpriteLook(Overworld.SpriteLookTemplate)!;
+        Assert.Equal(new SpriteRender.Oam(0, 0, 0, 0x20, true), Assert.Single(look.Tiles));
+        look = Overworld.ParseSpriteLook("""
+            { "tooltip": "Bird", "no_tiles": 1, "tile_1": { "is_16x16": false, "tile_num": 66, "x_offset": -4, "y_offset": 8,
+              "x_flip": true, "y_flip": true, "priority": 3, "palette": 5, "second_page": true } }
+            """)!;
+        Assert.Equal("Bird", look.Tooltip);
+        Assert.Equal(new SpriteRender.Oam(-4, 8, 0x142, 0xC0 | 0x30 | 5 << 1, false), Assert.Single(look.Tiles));
+        Assert.Null(Overworld.ParseSpriteLook(""));
+        Assert.Contains("tile_2 is missing", Assert.Throws<FormatException>(() => Overworld.ParseSpriteLook("""{ "no_tiles": 2, "tile_1": { "tile_num": 0 } }""")).Message);
+        Assert.Throws<FormatException>(() => Overworld.ParseSpriteLook("{ not json"));
+    }
+
+    /// <summary>The look in a submap's SP1-SP4 and sprite colours, its box from the tiles' offsets: two 16x16s side by
+    /// side, one 8px left of the sprite. GFX10's tile 0 (vanilla SP1 on the overworld) has drawn pixels.</summary>
+    [RealRomFact]
+    public void a_look_draws_from_the_submaps_sprite_graphics()
+    {
+        var ow = new Overworld(Rom.Load(TestRom.RealRomPath));
+        var look = Overworld.ParseSpriteLook("""
+            { "no_tiles": 2, "tile_1": { "is_16x16": true, "tile_num": 0, "x_offset": -8, "y_offset": 0 },
+                             "tile_2": { "is_16x16": true, "tile_num": 2, "x_offset": 8, "y_offset": 0 } }
+            """)!;
+        var art = ow.SpriteArt(look, "two", 1)!.Value;
+        Assert.Equal((32, 16, -8, 0), (art.W, art.H, art.X, art.Y));
+        Assert.Contains(art.Px, p => p != 0);
+        Assert.Same(art.Px, ow.SpriteArt(look, "two", 1)!.Value.Px);           // cached by its JSON
+    }
+
+    [Fact]
+    public void importing_an_overworld_sprite_takes_the_json_beside_it_as_its_look()
+    {
+        string dir = Directory.CreateTempSubdirectory("pd-owlook").FullName;
+        File.WriteAllText(Path.Combine(dir, "bird.asm"), "init:\nmain:\n    RTL\n");
+        File.WriteAllText(Path.Combine(dir, "bird.json"), Overworld.SpriteLookTemplate);
+        foreach (string pick in new[] { "bird.asm", "bird.json" })
+        {
+            var e = PixiImport.ReadSprite(Path.Combine(dir, pick), PixiImport.Overworld, out _);
+            Assert.Equal((Overworld.SpriteLookTemplate, "init:\nmain:\n    RTL\n"), (e.Config, e.Source));
+        }
+        File.WriteAllText(Path.Combine(dir, "bird.json"), "{ \"no_tiles\": 1 }");
+        Assert.Contains("bird.json does not read", Assert.Throws<FormatException>(() => PixiImport.ReadSprite(Path.Combine(dir, "bird.asm"), PixiImport.Overworld, out _)).Message);
+    }
 }

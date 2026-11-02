@@ -10,7 +10,7 @@ namespace PipeDream.Ui;
 /// The project's custom sprites (reference/PIXI_PORT.md): the library and the slots each sprite
 /// runs in. New adds one from the template, Import adds .json/.cfg sprites (with Overworld chosen, .asm overworld sprites) or a whole PIXI folder,
 /// Slots… says which numbers run it, Edit ASM opens <see cref="BlockEditWindow"/> on the ASM and
-/// Edit config <see cref="SpriteConfigWindow"/> on the PIXI config, Open hands the ASM to the user's text editor, Remove deletes it.
+/// Edit config <see cref="SpriteConfigWindow"/> on the PIXI config (an overworld sprite's look, BOWSIE's tooltip JSON, as text), Open hands the ASM to the user's text editor, Remove deletes it.
 /// </summary>
 public partial class CustomSpritesWindow : Window
 {
@@ -64,7 +64,7 @@ public partial class CustomSpritesWindow : Window
     private void UpdateButtons()
     {
         removeButton.IsEnabled = slotsButton.IsEnabled = editButton.IsEnabled = openButton.IsEnabled = list.SelectedIndex >= 0;
-        configButton.IsEnabled = list.SelectedItem is Row r && PixiImport.HasConfig(r.Kind);
+        configButton.IsEnabled = list.SelectedItem is Row r && (PixiImport.HasConfig(r.Kind) || r.Kind == PixiImport.Overworld);
     }
 
     private async void OnNew(object? sender, RoutedEventArgs e)
@@ -134,19 +134,31 @@ public partial class CustomSpritesWindow : Window
     private void OnEdit(object? sender, Avalonia.Input.TappedEventArgs e) => OnEdit(sender, (RoutedEventArgs)e);
 
     /// <summary>The config in <see cref="SpriteConfigWindow"/>; one PIXI could not read opens as
-    /// text, to fix by hand. A text edit PIXI could not read is refused, and the hint says why.</summary>
+    /// text, to fix by hand, as an overworld sprite's look always does. A text edit PIXI could not read is refused, and the hint says why.</summary>
     private async void OnConfig(object? sender, RoutedEventArgs e)
     {
-        if (Selected is not { } name) return;
+        if (list.SelectedItem is not Row row) return;
+        string name = row.Name;
+        if (row.Kind == PixiImport.Overworld)
+        {
+            await EditConfigText(name, session.CustomSpriteConfig(name) is { Length: > 0 } look ? look : Overworld.SpriteLookTemplate);
+            return;
+        }
         if (session.CustomSpriteModel(name) is { } model)
         {
             await new SpriteConfigWindow(session, name, model).ShowDialog(this);
             Refresh(name);
             return;
         }
+        await EditConfigText(name, session.CustomSpriteConfig(name) ?? "");
+    }
+
+    /// <summary>The config as text in <see cref="BlockEditWindow"/>: an overworld sprite's look (BOWSIE's tooltip JSON),
+    /// or a PIXI config the dialog could not read.</summary>
+    private async Task EditConfigText(string name, string text)
+    {
         string? status = null;
-        await new BlockEditWindow(name + " config", session.CustomSpriteConfig(name) ?? "",
-                                  json => status = session.SetCustomSpriteConfig(name, json)).ShowDialog(this);
+        await new BlockEditWindow(name + " config", text, json => status = session.SetCustomSpriteConfig(name, json)).ShowDialog(this);
         Refresh(name);
         if (status is not null) hint.Text = status;
     }

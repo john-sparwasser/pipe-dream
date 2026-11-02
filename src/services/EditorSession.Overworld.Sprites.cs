@@ -81,6 +81,18 @@ public sealed partial class EditorSession
     public IReadOnlyDictionary<int, string> OwSpriteCode
         => Project is null ? new Dictionary<int, string>() : OwSpriteInsert.Listed(Project.Data).ToDictionary(e => e.Key, e => e.Value.Name);
 
+    /// <summary>How each number with code draws on the map: its config read as BOWSIE's tooltip JSON, with that JSON
+    /// (the art's cache key). A number without one, or with one that does not read, is left out and drawn as a box.</summary>
+    public Dictionary<int, (Overworld.SpriteLook Look, string Json)> OwSpriteLooks()
+    {
+        var looks = new Dictionary<int, (Overworld.SpriteLook, string)>();
+        if (Project is null) return looks;
+        foreach (var (n, (_, e)) in OwSpriteInsert.Listed(Project.Data))
+            try { if (Overworld.ParseSpriteLook(e.Config) is { } look) looks[n] = (look, e.Config); }
+            catch (FormatException) { }
+        return looks;
+    }
+
     /// <summary>The overworld sprite code changed (a sprite added, edited, slotted or removed): the extra bytes each number
     /// takes follow it. The placed sprites are read first, with the sizes in force before any code came in.</summary>
     private void RefreshOwSpriteExtra()

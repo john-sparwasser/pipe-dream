@@ -85,6 +85,8 @@ internal static class PixiImport
     /// </summary>
     public static ProjectFile.SpriteEntry ReadSprite(string configPath, string kind, out List<string> missing)
     {
+        if (kind == Overworld && Path.GetExtension(configPath).Equals(".json", StringComparison.OrdinalIgnoreCase))
+            configPath = Path.ChangeExtension(configPath, ".asm");      // its look picked: the sprite is the .asm beside it
         if (!HasConfig(kind)) return ReadAsm(configPath, kind, out missing);
         string name = Path.GetFileNameWithoutExtension(configPath);
         string text = File.ReadAllText(configPath);
@@ -109,6 +111,13 @@ internal static class PixiImport
             throw new FormatException($"a {kind} sprite is an .asm, not {Path.GetFileName(asm)}");
         var entry = new ProjectFile.SpriteEntry { Kind = kind, Source = File.ReadAllText(asm) };
         entry.Files = PatchInsert.Includes(asm, out missing);
+        // An overworld sprite's look: BOWSIE's tooltip JSON, beside its .asm under the same name.
+        if (kind == Overworld && File.Exists(Path.ChangeExtension(asm, ".json")))
+        {
+            entry.Config = File.ReadAllText(Path.ChangeExtension(asm, ".json"));
+            try { PipeDream.Overworld.ParseSpriteLook(entry.Config); }
+            catch (FormatException e) { throw new FormatException($"its {Path.GetFileNameWithoutExtension(asm)}.json does not read: {e.Message}"); }
+        }
         return entry;
     }
 

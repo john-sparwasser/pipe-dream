@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using PipeDream.Services;
 
 namespace PipeDream.Ui;
@@ -176,24 +177,40 @@ public partial class MainWindow
         var code = session.OwSpriteCode;
         owSpriteNote.Text = $"{session.OwSprites.Count} custom sprites on the overworld, up to {Overworld.MaxSpritesPerSubmap} a submap. "
                           + (code.Count == 0 ? "They run in game once their code is in: add it in Sprite code… (kind Overworld) and give it a slot."
-                                             : "The build inserts this code with BOWSIE's overworld sprite system:");
+                                             : "The build inserts this code with BOWSIE's overworld sprite system. A sprite whose code has a look "
+                                               + "(Edit config: BOWSIE's .json, picked up at import) draws with it here:");
         owSpriteCodeList.Text = string.Join('\n', code.Select(e => $"{e.Key:X2}  {e.Value}"));
         owSpriteCodeList.IsVisible = code.Count > 0;
         RefreshOwNote();                            // it names the armed number
     }
 
-    /// <summary>Every custom sprite as a box with its number, the picked one ringed.</summary>
+    /// <summary>Every custom sprite as its code's config draws it (BOWSIE's tooltip JSON, raised by its Z), or as a
+    /// box with its number when it has none; the picked one ringed.</summary>
     private void DrawOwSprites(DrawingContext ctx, double step, double size)
     {
-        if (OwModeNow != OwMode.Sprites) return;
+        if (OwModeNow != OwMode.Sprites || session.Overworld is not { } ow) return;
+        var looks = session.OwSpriteLooks();
+        double px = step / 8;                                   // a canvas cell is 8 pixels
         for (int i = 0; i < session.OwSprites.Count; i++)
         {
             var s = session.OwSprites[i];
             var (col, row) = EditorSession.OwSpriteCell(s);
             var r = new Rect(col * step, row * step, 2 * step, 2 * step);
-            Overlay.Sprite(ctx, r);
-            Overlay.Badge(ctx, $"{s.Number:X2}", size, r.TopLeft + new Point(1, 1));
+            if (looks.TryGetValue(s.Number, out var look) && ow.SpriteArt(look.Look, look.Json, s.Submap) is { } art)
+            {
+                r = new Rect(col * step + art.X * px, row * step + (art.Y - 8 * s.Z) * px, art.W * px, art.H * px);
+                PixelBlit.Icon(owView, ctx, owSpriteBitmaps.GetValue(art.Px, p => LevelBitmap.FromPixels(p, art.W, art.H)),
+                               new Rect(0, 0, art.W, art.H), r);
+            }
+            else
+            {
+                Overlay.Sprite(ctx, r);
+                Overlay.Badge(ctx, $"{s.Number:X2}", size, r.TopLeft + new Point(1, 1));
+            }
             if (i == owSprite) Overlay.Selection(ctx, r);
         }
     }
+
+    /// <summary>Each drawn look's bitmap, held as long as the Overworld keeps its pixels: a GFX or colour edit drops them.</summary>
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<uint[], WriteableBitmap> owSpriteBitmaps = new();
 }

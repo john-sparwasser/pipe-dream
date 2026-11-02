@@ -35,12 +35,13 @@ public sealed partial class EditorSession
     /// <summary>A sprite's config JSON, or null.</summary>
     public string? CustomSpriteConfig(string name) => FindSprite(name)?.Config;
 
-    /// <summary>Replace a sprite's config. Refused, with the reason, when PIXI could not read it.</summary>
+    /// <summary>Replace a sprite's config. Refused, with the reason, when PIXI could not read it (an overworld sprite's:
+    /// when it is not BOWSIE's tooltip JSON, <see cref="Overworld.ParseSpriteLook"/>).</summary>
     public string SetCustomSpriteConfig(string name, string json)
     {
         if (Project is null) return Report2("no project open");
         if (FindSprite(name) is not { } s) return Report2($"{name} is not in the project");
-        try { PixiConfig.Parse(json); }
+        try { if (s.Kind == PixiImport.Overworld) Overworld.ParseSpriteLook(json); else PixiConfig.Parse(json); }
         catch (FormatException e) { return Report2($"{name}: config not saved: {e.Message}"); }
         if (s.Config == json) return Status;
         s.Config = json;
