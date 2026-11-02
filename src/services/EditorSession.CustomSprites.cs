@@ -35,12 +35,13 @@ public sealed partial class EditorSession
     /// <summary>A sprite's config JSON, or null.</summary>
     public string? CustomSpriteConfig(string name) => FindSprite(name)?.Config;
 
-    /// <summary>Replace a sprite's config. Refused, with the reason, when PIXI could not read it.</summary>
+    /// <summary>Replace a sprite's config. Refused, with the reason, when PIXI could not read it (an overworld sprite's:
+    /// when it is not BOWSIE's tooltip JSON, <see cref="Overworld.ParseSpriteLook"/>).</summary>
     public string SetCustomSpriteConfig(string name, string json)
     {
         if (Project is null) return Report2("no project open");
         if (FindSprite(name) is not { } s) return Report2($"{name} is not in the project");
-        try { PixiConfig.Parse(json); }
+        try { if (s.Kind == PixiImport.Overworld) Overworld.ParseSpriteLook(json); else PixiConfig.Parse(json); }
         catch (FormatException e) { return Report2($"{name}: config not saved: {e.Message}"); }
         if (s.Config == json) return Status;
         s.Config = json;
@@ -56,6 +57,7 @@ public sealed partial class EditorSession
         if (Project is null || FindSprite(name) is not { } s || s.Source == asm) return;
         s.Source = asm;
         Project.MarkDirty();
+        RefreshOwSpriteExtra();
     }
 
     /// <summary>Add a sprite of <paramref name="kind"/> from the template, in no slot yet. A cluster
@@ -71,12 +73,13 @@ public sealed partial class EditorSession
 
     /// <summary>Add one sprite from disk: a .json or .cfg, the ASM it names and what that includes
     /// (an ASM-only sprite: its .asm). Its kind comes from the folder it sits in, as PIXI's would
-    /// (shooters/, generators/, cluster/, extended/, misc_sprites/smoke/…).</summary>
-    public string ImportCustomSpriteFile(string path, out string? made)
+    /// (shooters/, generators/, cluster/, extended/, misc_sprites/smoke/…), unless <paramref name="kind"/> says: an
+    /// overworld sprite sits in a sprites/ folder as a PIXI one does.</summary>
+    public string ImportCustomSpriteFile(string path, out string? made, string? kind = null)
     {
         made = null;
         string folder = Path.GetFileName(Path.GetDirectoryName(path) ?? "").ToLowerInvariant();
-        string kind = folder switch
+        kind ??= folder switch
         {
             "shooters" => "shooter", "generators" => "generator",
             _ when PixiImport.AsmOnlyKinds.Contains(folder) => folder,
@@ -142,8 +145,13 @@ public sealed partial class EditorSession
         if (Project is null) return Report2("no project open");
         if (FindSprite(name) is not { } s) return Report2($"{name} is not in the project");
         var wanted = new List<string>();
-        foreach (string raw in list.Split([',', ' ', ';'], StringSplitOptions.RemoveEmptyEntries))
+        var tokens = list.Split([',', ' ', ';'], StringSplitOptions.RemoveEmptyEntries);
+        for (int i = 0; i < tokens.Length; i++)
         {
+            string raw = tokens[i];
+            // A kind's slot is two words ("overworld 05", "cluster 01"): the kind takes the number after it.
+            if (PixiImport.NormalSlot(raw) is null && i + 1 < tokens.Length && PixiImport.NormalSlot($"{raw} {tokens[i + 1]}") is not null)
+                raw = $"{raw} {tokens[++i]}";
             if (PixiImport.NormalSlot(raw) is not { } key) return Report2($"\"{raw}\" is not a sprite slot (00-DF, level:B0-BF, or a kind and its list number: cluster 01, smoke 00…)");
             if (PixiImport.SlotKind(key) != s.Kind) return Report2($"slot {key} holds a {PixiImport.SlotKind(key)}, and {name} is a {s.Kind}");
             wanted.Add(key);
@@ -231,7 +239,7 @@ public sealed partial class EditorSession
     /// <summary>The configs the level overlay draws custom placements from, by number; null when the
     /// project inserts no custom sprites, so extra bits 2/3 stay whatever the base makes them.</summary>
     private IReadOnlyDictionary<int, PixiConfig>? LevelCustomConfigs()
-        => Project?.Data.SpriteSlots.Count > 0 ? LevelCustomSprites().ToDictionary(p => p.Key, p => p.Value.Config) : null;
+        => Project?.Data.SpriteSlots.Keys.Any(PixiImport.IsPixiSlot) == true ? LevelCustomSprites().ToDictionary(p => p.Key, p => p.Value.Config) : null;
 
     private ProjectFile.SpriteEntry? FindSprite(string name) => Project?.Data.Sprites.GetValueOrDefault(name);
 
@@ -241,6 +249,7 @@ public sealed partial class EditorSession
     {
         Project!.MarkDirty();
         spriteCatalog = null;
+        RefreshOwSpriteExtra();
         if (Sprites is not null) RefreshSprites();
         return status;
     }
@@ -261,7 +270,23 @@ public sealed partial class EditorSession
     /// <summary>A sprite that does nothing yet: the two entry points PIXI's format asks for, as
     /// prints. A shooter or generator has only MAIN that matters, but INIT is still read; an
     /// ASM-only sprite has MAIN alone.</summary>
-    internal static string SpriteTemplate(string name, string kind) => !PixiImport.HasConfig(kind) ? $"""
+    internal static string SpriteTemplate(string name, string kind) => kind == PixiImport.Overworld ? $"""
+        ; {name}
+        ;
+        ; An overworld sprite, run by BOWSIE's system. init runs once when the map loads it, main every
+        ; frame; both end in RTL, with the data bank already set. Shared routines are macros:
+        ; %get_draw_info(), %sub_offscreen(), %spawn_sprite()… !extra is how many extra bytes its
+        ; placements carry, 0-8.
+
+        !extra = 0
+
+        init:
+            RTL
+
+        main:
+            RTL
+
+        """ : !PixiImport.HasConfig(kind) ? $"""
         ; {name}
         ;
         ; A custom {kind} sprite. MAIN runs every frame with X (and Y) the slot and the data bank set

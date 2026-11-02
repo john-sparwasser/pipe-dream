@@ -804,6 +804,12 @@
                       <TextBlock Text="Transitions" VerticalAlignment="Center"/>
                     </StackPanel>
                   </TabStripItem>
+                  <TabStripItem ToolTip.Tip="Sprites: Lunar Magic's custom overworld sprites. Right-click places one, drag moves it, Delete removes it. The game runs them once an overworld sprite system is inserted">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                      <Path Data="{StaticResource IconBird}"/>
+                      <TextBlock Text="Sprites" VerticalAlignment="Center"/>
+                    </StackPanel>
+                  </TabStripItem>
                 </TabStrip>
               </Border>
               <!-- The brush's palette row, under the sheet it recolours: the row the armed tile
@@ -1354,6 +1360,52 @@
               </StackPanel>
               <TextBlock x:Name="OwNote" Classes="dim" VerticalAlignment="Center" IsVisible="False"
                          TextTrimming="CharacterEllipsis" Margin="6,0,10,0"/>
+            </DockPanel>
+          </Border>
+          <!-- Sprites tab: the number a right-click places, and the picked sprite's fields. Shown
+               on that tab alone. -->
+          <Border x:Name="OwSpritePanel" DockPanel.Dock="Right" Classes="panel" BorderThickness="1,0,0,0"
+                  Width="300" IsVisible="False">
+            <DockPanel>
+              <Border DockPanel.Dock="Top" Classes="panel bar" BorderThickness="0,0,0,1" Padding="10,6">
+                <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                  <Path Classes="kind" Data="{StaticResource IconBird}"/>
+                  <TextBlock x:Name="OwSpriteTitle" Classes="subject"/>
+                </StackPanel>
+              </Border>
+              <StackPanel Margin="12,10" Spacing="8">
+                <DockPanel ToolTip.Tip="Sprite number, 01-7F hex: the slot the overworld sprite system runs it from">
+                  <TextBlock DockPanel.Dock="Left" Text="Number" Width="90" VerticalAlignment="Center"/>
+                  <TextBox x:Name="OwSpriteNumber" Classes="mono"/>
+                </DockPanel>
+                <StackPanel x:Name="OwSpriteFields" Spacing="8">
+                  <DockPanel ToolTip.Tip="Across its map, in 8px steps, 00-3F hex">
+                    <TextBlock DockPanel.Dock="Left" Text="X" Width="90" VerticalAlignment="Center"/>
+                    <TextBox x:Name="OwSpriteX" Classes="mono"/>
+                  </DockPanel>
+                  <DockPanel ToolTip.Tip="Down its map, in 8px steps, 00-3F hex">
+                    <TextBlock DockPanel.Dock="Left" Text="Y" Width="90" VerticalAlignment="Center"/>
+                    <TextBox x:Name="OwSpriteY" Classes="mono"/>
+                  </DockPanel>
+                  <DockPanel ToolTip.Tip="Height above the map, in 8px steps, 00-1F hex">
+                    <TextBlock DockPanel.Dock="Left" Text="Z" Width="90" VerticalAlignment="Center"/>
+                    <TextBox x:Name="OwSpriteZ" Classes="mono"/>
+                  </DockPanel>
+                  <DockPanel ToolTip.Tip="The sprite's extra bytes, hex. How many it takes is the ROM's size table's say for its number">
+                    <TextBlock DockPanel.Dock="Left" Text="Extra bytes" Width="90" VerticalAlignment="Center"/>
+                    <TextBox x:Name="OwSpriteExtra" Classes="mono"/>
+                  </DockPanel>
+                  <Button x:Name="OwSpriteDelete" ToolTip.Tip="Remove this sprite (Delete)">
+                    <TextBlock Text="Delete sprite" VerticalAlignment="Center"/>
+                  </Button>
+                </StackPanel>
+                <TextBlock x:Name="OwSpriteNote" Classes="dim" TextWrapping="Wrap"/>
+                <TextBlock x:Name="OwSpriteCodeList" Classes="mono" TextWrapping="Wrap"/>
+                <Button x:Name="OwSpriteCodeOpen"
+                        ToolTip.Tip="Custom sprites, set to the Overworld kind: add a sprite's ASM with New… or Import…, then give it a slot (overworld 01-7E). The build inserts them with BOWSIE's overworld sprite system">
+                  <TextBlock Text="Sprite code…" VerticalAlignment="Center"/>
+                </Button>
+              </StackPanel>
             </DockPanel>
           </Border>
           <!-- Transitions tab, with a star, pipe or exit tile picked: where it leads, what leads

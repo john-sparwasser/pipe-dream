@@ -364,9 +364,10 @@ public partial class MainWindow
     /// <summary>The Map16 drawer's CHR grid sizes its tiles to whatever width it is given, so the
     /// control row above it is the only thing with a width of its own — it sets the floor.</summary>
     private const double Map16BarWidth = 300;
-    /// <summary>The Overworld drawer's five tabs at their 82px minimum, six apart, in a bar padded
-    /// ten each side — the drawer can never be narrower than its own header.</summary>
-    private const double OwTabsWidth = 5 * 82 + 4 * 6 + 2 * 10;
+    /// <summary>The Overworld drawer's five tabs at their 82px minimum, Paths &amp; Levels taking
+    /// two, six apart, in a bar padded ten each side — the drawer can never be narrower than its
+    /// own header.</summary>
+    private const double OwTabsWidth = 6 * 82 + 5 * 6 + 2 * 10;
 
     /// <summary>What a pane's content actually needs: a whole Map16 tile row, the CHR grid's
     /// control row, or an uncut GFX bin card. The two CANVAS-mode panes open at the same width —
@@ -378,7 +379,7 @@ public partial class MainWindow
         Pane.Graphics => Math.Max(GfxBinCardWidth, Map16BarWidth),
         Pane.Animations => Math.Max(GfxBinCardWidth, Map16BarWidth),
         Pane.Background => Map16BarWidth,      // a whole BG Map16 row, like the Map16 drawer
-        Pane.Overworld => OwTabsWidth,         // five tabs across, wider than a tile row
+        Pane.Overworld => OwTabsWidth,         // the tabs across, wider than a tile row
         _ => Map16PaletteView.ContentWidth(Map16PaletteView.DefaultZoom),
     };
 

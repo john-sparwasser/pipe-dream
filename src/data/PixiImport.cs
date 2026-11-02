@@ -19,8 +19,15 @@ internal static class PixiImport
     /// lower case (MINOREXTENDED:).</summary>
     public static readonly string[] AsmOnlyKinds = ["cluster", "extended", "minorextended", "bounce", "smoke", "spinningcoin", "score"];
 
+    /// <summary>An overworld sprite: ASM alone, in slots "overworld 01"-"overworld 7E", inserted by BOWSIE's system
+    /// (<see cref="OwSpriteInsert"/>), not PIXI's driver.</summary>
+    public const string Overworld = "overworld";
+
     /// <summary>Whether a kind has a config (sprites, shooters, generators) rather than ASM alone.</summary>
-    public static bool HasConfig(string kind) => !AsmOnlyKinds.Contains(kind);
+    public static bool HasConfig(string kind) => !AsmOnlyKinds.Contains(kind) && kind != Overworld;
+
+    /// <summary>Whether a slot is one PIXI's driver runs: any but an overworld sprite's.</summary>
+    public static bool IsPixiSlot(string slot) => SlotKind(slot) != Overworld;
 
     /// <summary>How many list numbers an ASM-only kind has. A custom one's number in the game is its
     /// list number plus SMW's own count; cluster and smoke numbers keep bit 7 for a flag, so theirs
@@ -35,11 +42,13 @@ internal static class PixiImport
     };
 
     /// <summary>The kind of sprite a slot holds, or null for a slot that is not one: global 00-BF
-    /// sprites, C0-CF shooters, D0-DF generators (PIXI runs nothing custom from E0); per-level
+    /// sprites, C0-CF shooters, D0-DF generators (PIXI runs nothing custom from E0); "overworld 01"-"overworld 7E"; per-level
     /// "LLL:NN" only B0-BF of levels 000-1FF; "cluster NN", "smoke NN"… within the kind's
     /// <see cref="ListLength"/>.</summary>
     public static string? SlotKind(string slot)
     {
+        if (slot.Split(' ', StringSplitOptions.RemoveEmptyEntries) is [var ow, var owNum] && ow.Equals(Overworld, StringComparison.OrdinalIgnoreCase))
+            return int.TryParse(owNum, System.Globalization.NumberStyles.HexNumber, null, out int o) && o is >= 1 and <= 0x7E ? Overworld : null;
         if (slot.Split(' ', StringSplitOptions.RemoveEmptyEntries) is [var k, var num] && AsmOnlyKinds.Contains(k.ToLowerInvariant()))
             return int.TryParse(num, System.Globalization.NumberStyles.HexNumber, null, out int i) && i >= 0 && i < ListLength(k.ToLowerInvariant()) ? k.ToLowerInvariant() : null;
         int colon = slot.IndexOf(':');
@@ -76,6 +85,8 @@ internal static class PixiImport
     /// </summary>
     public static ProjectFile.SpriteEntry ReadSprite(string configPath, string kind, out List<string> missing)
     {
+        if (kind == Overworld && Path.GetExtension(configPath).Equals(".json", StringComparison.OrdinalIgnoreCase))
+            configPath = Path.ChangeExtension(configPath, ".asm");      // its look picked: the sprite is the .asm beside it
         if (!HasConfig(kind)) return ReadAsm(configPath, kind, out missing);
         string name = Path.GetFileNameWithoutExtension(configPath);
         string text = File.ReadAllText(configPath);
@@ -100,6 +111,13 @@ internal static class PixiImport
             throw new FormatException($"a {kind} sprite is an .asm, not {Path.GetFileName(asm)}");
         var entry = new ProjectFile.SpriteEntry { Kind = kind, Source = File.ReadAllText(asm) };
         entry.Files = PatchInsert.Includes(asm, out missing);
+        // An overworld sprite's look: BOWSIE's tooltip JSON, beside its .asm under the same name.
+        if (kind == Overworld && File.Exists(Path.ChangeExtension(asm, ".json")))
+        {
+            entry.Config = File.ReadAllText(Path.ChangeExtension(asm, ".json"));
+            try { PipeDream.Overworld.ParseSpriteLook(entry.Config); }
+            catch (FormatException e) { throw new FormatException($"its {Path.GetFileNameWithoutExtension(asm)}.json does not read: {e.Message}"); }
+        }
         return entry;
     }
 

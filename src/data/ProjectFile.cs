@@ -112,7 +112,8 @@ public sealed class ProjectFile
     public sealed class SpriteEntry
     {
         /// <summary>"sprite", "shooter" or "generator": which slots it can take (00-BF, C0-CF,
-        /// D0-DF) and which folder's _header.asm it assembles with.</summary>
+        /// D0-DF) and which folder's _header.asm it assembles with; an ASM-only kind
+        /// (<see cref="PixiImport.AsmOnlyKinds"/>), or "overworld" (<see cref="PixiImport.Overworld"/>).</summary>
         public string Kind { get; set; } = "sprite";
         /// <summary>PIXI's JSON (<see cref="PixiConfig"/>); a .cfg is converted at import.</summary>
         public string Config { get; set; } = "";
@@ -167,6 +168,10 @@ public sealed class ProjectFile
         /// <summary>The exit paths as one block — sources, destinations and arrival tiles,
         /// base64 (<see cref="PipeDream.Overworld.ExitTable"/>).</summary>
         public string? Exits { get; set; }
+        /// <summary>The custom overworld sprites, every submap's, in list order. Kept as entries, not
+        /// as Lunar Magic packs them: the packing depends on each number's extra-byte count, which the
+        /// build's overworld sprite code can change.</summary>
+        public List<PipeDream.Overworld.OwSprite>? Sprites { get; set; }
         /// <summary>The layer 2 event pieces as 0xD00 little-endian 8x8 words, base64
         /// (<see cref="PipeDream.Overworld.EventPieces"/>).</summary>
         public string? EventPieces { get; set; }

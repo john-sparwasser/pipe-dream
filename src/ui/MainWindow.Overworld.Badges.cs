@@ -29,6 +29,7 @@ public partial class MainWindow
         DrawOwTransitionPick(ctx, step);
         DrawOwTileBadges(ctx, ow, step, size);
         if (owShowWarps.IsChecked == true) DrawOwWarpBadges(ctx, ow, step, size);
+        DrawOwSprites(ctx, step, size);
     }
 
     /// <summary>Where a map's 16x16 cell sits on the canvas: the submap map is offset, as LM draws it.</summary>

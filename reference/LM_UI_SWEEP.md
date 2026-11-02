@@ -60,7 +60,7 @@ our canvas and gesture layer (`Gestures.cs`, `Overlay.cs`) and are not listed it
 | **Message box text** (`ov_overworld_message_box`) | **missing** | |
 | **Boss sequence text** (`ov_overworld_boss_text`) | **missing** | |
 | **Submap music selection** (`ov_overworld_music`) | **missing** | |
-| **Overworld sprite list** (`ov_overworld_sprite_list`) | **missing** | level sprites only |
+| **Overworld sprite list** (`ov_overworld_sprite_list`) | partial | custom sprites ($0EF55D) on the Overworld's Sprites tab; vanilla's 13 slots at $04F625 not yet |
 | **Reveal tile list** (`ov_overworld_reveal_list`) | **missing** | |
 | **Events passed / max 6x6 area** (`ov_overworld_passed`, `_max_6x6`) | **missing** | |
 | **Boss / star / switch / no-auto-move level lists** | **missing** | four separate dialogs |

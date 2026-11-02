@@ -23,6 +23,7 @@ namespace PipeDream;
 ///   Overworld.Levels.cs        the level each tile enters and the event its exit fires
 ///   Overworld.Transitions.cs   warps, exit tiles and Koopa Kid drops
 ///   Overworld.Events.cs        the pieces an event lays on the land
+///   Overworld.Sprites.cs       Lunar Magic's custom sprite list
 /// </summary>
 public sealed partial class Overworld
 {

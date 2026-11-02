@@ -40,6 +40,7 @@ public sealed partial class Overworld
         Drop(map16Px, k => k.Submap == submap);
         Drop(layer1Art, k => k.Submap == submap);
         Drop(quarters, k => k.Submap == submap);
+        Drop(spriteArt, k => k.Submap == submap);
     }
 
     /// <summary>Drop every submap's palette and the pixels composed with it, keeping the loaded
@@ -51,6 +52,7 @@ public sealed partial class Overworld
         map16Px.Clear();
         layer1Art.Clear();
         quarters.Clear();
+        spriteArt.Clear();
         fillerPx = null;
     }
 

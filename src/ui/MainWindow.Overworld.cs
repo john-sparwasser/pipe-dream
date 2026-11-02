@@ -14,6 +14,7 @@ namespace PipeDream.Ui;
 //   MainWindow.Overworld.Layer2.cs   the Tiles tab — the land, 8x8 words, brush and float
 //   MainWindow.Overworld.Layer1.cs   the Paths & Levels tab — level tiles and paths, 16x16
 //   MainWindow.Overworld.Badges.cs   Lunar Magic's View menu drawn over the map
+//   MainWindow.Overworld.Sprites.cs  the Sprites tab — Lunar Magic's custom overworld sprites
 // The map itself and the tables behind it come from EditorSession.Overworld.cs; the mode
 // switch that shows this pane is OnMode in MainWindow.axaml.cs.
 public partial class MainWindow
@@ -50,8 +51,8 @@ public partial class MainWindow
     /// <summary>What a click on the map edits — the drawer's tabs, in order. Tiles is layer 2,
     /// the land, in 8x8s; Paths &amp; Levels is layer 1 in 16x16s — Lunar Magic's Layer 1 16x16
     /// Editor, where level tiles and the invisible path tiles are one layer and move alike; the
-    /// other two are layer 1's tables.</summary>
-    private enum OwMode { Tiles, Layer1, Events, Transitions }
+    /// other two are layer 1's tables, and Sprites is Lunar Magic's custom sprite list.</summary>
+    private enum OwMode { Tiles, Layer1, Events, Transitions, Sprites }
 
     private OwMode OwModeNow => (OwMode)Math.Max(0, owTabs.SelectedIndex);
 
@@ -72,6 +73,7 @@ public partial class MainWindow
         WireOwEvents();
         WireOwTransitionPanel();
         WireOwView();
+        WireOwSprites();
     }
 
     /// <summary>The bar over the map: the flips for the selected land, and Lunar Magic's View toggles.</summary>
@@ -155,6 +157,7 @@ public partial class MainWindow
         owView.Picked += (_, c) =>
         {
             if (OwModeNow == OwMode.Events) OwEventClicked(c);
+            else if (OwModeNow == OwMode.Sprites) OwSpritePressed(c);
             else if (owLinkFrom is not null) OwLinkPicked(c);
             else if (OwModeNow == OwMode.Transitions) OwTransitionClicked(c);
         };
@@ -212,6 +215,7 @@ public partial class MainWindow
         owView.CellAt = (c, r) => r * EditorSession.Ow8Cols + c;
         owView.CellPixels = OwCellPixels;
         bool warps = OwModeNow == OwMode.Transitions && !colours, events = OwModeNow == OwMode.Events && !colours;
+        bool sprites = OwModeNow == OwMode.Sprites && !colours;
         owView.OverlayPixels = layer1Tab ? (c, r) => OwLayer1Overlay(c, r, paths)
                              : warps ? (c, r) => OwTransitionOverlay(c, r, layer1, paths)
                              : layer1 || paths ? (c, r) => session.Ow8Overlay(c, r, layer1, paths) : null;
@@ -220,7 +224,8 @@ public partial class MainWindow
         // what the Link pick asks for anyway.
         // The Events tab picks too: a click on a piece selects its event, and the map wears
         // neither the 8x8 reticle nor a lasso, which would promise an edit the tab does not make.
-        owView.PickOnLeft = warps || events;
+        // The Sprites tab picks as well: a press is a sprite to take hold of or a place for one.
+        owView.PickOnLeft = warps || events || sprites;
         // The Paths & Levels tab edits layer 1, the overlay: every gesture snaps to its 16x16
         // tiles (a cell right and down on the lower map), and the drag preview is the overlay's.
         owView.Snap = layer1Tab ? EditorSession.OwLayer1Block : null;
@@ -263,6 +268,7 @@ public partial class MainWindow
         ShowOwEventList(OwModeNow == OwMode.Events);
         RefreshOwEventPanel();                      // shows on the Events tab with an event picked, else not
         RefreshOwTransitionPanel();                 // and this one on the Transitions tab with a tile picked
+        RefreshOwSpritePanel();                     // and the sprites' on the Sprites tab
         RefreshOwNote();
     }
 
@@ -292,6 +298,7 @@ public partial class MainWindow
                                  ? $"event {owEvent:X2}: click where the {e.Size}x{e.Size} piece at 0x{e.Src:X3} should land — Esc calls it off"
                              : owEvent is { } ev ? $"event {ev:X2}: its steps are in the drawer on the right, its pieces ringed — click bare land to let go"
                              : "pick an event in the drawer, or click one of its pieces on the map",
+            OwMode.Sprites => $"custom sprites: right-click places sprite {owSpriteArmed:X2}, drag one to move it, Delete removes the picked one",
             _ => owLinkFrom is not null
                  ? "pick the tile this one leads to — Esc, or a click anywhere else, calls it off"
                  : "pipes, star roads and the red exit tiles: hover one to link it, "
@@ -362,6 +369,7 @@ public partial class MainWindow
     /// edits. One undo either way; the lasso stays, so the same spot can take the next stamp.</summary>
     private void OwDeleteSelection()
     {
+        if (OwModeNow == OwMode.Sprites && !OwColorsOnly) { OwDeleteSprite(); return; }
         if (OwColorsOnly || owView.Selection is not { } sel) return;
         bool changed = OwModeNow switch
         {

@@ -281,6 +281,33 @@ replacements `$04E5AC`/`$04E5B1`.
 bird, fish x3, piranha, cloud, Koopa kid x3, smoke x2, sign, Bowser, ghost x2). Mario's and
 Luigi's start positions are edited as sprites in LM.
 
+Custom sprites are a separate list LM keeps at `$0EF55D` (`src/rom/Overworld.Sprites.cs`): seven
+offset words, then per submap `xnnnnnnn yyyxxxxx zzzzzyyy` + extra bytes and a zero word; X, Y, Z
+in 8px steps. Entry length from LM's size table at `$0DE18C` (`dl table : db $42`, indexed by
+number-1 from LM 3.60), else 4. The game ignores the list until an overworld sprite system
+(BOWSIE) is inserted. The Sprites tab places them; the 13 vanilla slots and Mario/Luigi's start
+are not edited yet.
+
+The sprites' code is a custom sprite of the "overworld" kind (ASM ▸ Custom sprites, or Sprite code… on
+the Sprites tab) in an `overworld 01`-`7E` slot, kept out of the PIXI driver; the build inserts it with BOWSIE v1.21's own vldc9 system (`src/data/OwSpriteInsert.cs`,
+ASM in `src/data/owspritedriver/`, BSD-2): shared routines, then each sprite, then the system with
+its init/main pointer tables and the `$0DE18C` size table from each sprite's `!extra`. The list is
+read before that and written after, so its entries are repacked to the new sizes (meOWmeOW's job,
+for our build). MaxTile is off (its LoROM code builds on the unlicensed SA-1 MaxTile); Overworld
+Revolution and custom methods are refused.
+
+On the Sprites tab a sprite draws as its code's look: BOWSIE's tooltip JSON (`tooltip`, `no_tiles`,
+`tile_1`..`tile_N` with `tile_num`, offsets, flips, `palette`, `second_page`, `is_16x16`), kept as the
+sprite's `Config`, read from the `.json` beside its `.asm` at import and edited as text in Edit config
+(`Overworld.SpriteLook.cs`). The tiles come from the submap's SP1-SP4 and sprite rows 8-F, raised by
+Z. A number with no look is a box with its number. The `.s16ov`/`.sscov` files BOWSIE writes for
+Lunar Magic's own display are not written.
+
+Two upstream bugs show with MaxTile off, both found booting a build in Mesen: `LDA #!oam_start_p`
+(a `#= $0000` define) assembled 8-bit under `REP #$21`, so the per-frame loop crashed on its first
+frame (the sites with unsized defines are now `.w`, marked `Pipe Dream:`); and the loader treats only a
+zero bank as no list, so an empty list is written as 0, not `$FFFFFF`, once BOWSIE is in.
+
 ## 10. Lunar Magic's editor, for parity
 
 One canvas; **left click selects, right click pastes**, Ctrl+Right always pastes the selector's
@@ -293,7 +320,7 @@ a repeating pattern. Five edit modes and where they land in pipe-dream's bar:
 | Layer 1 16x16 Editor — level tiles AND the invisible path tiles are dragged like any tile; Alt+Right = Modify Level Tile Settings; Alt+Left on two star/pipe/exit tiles links them | Paths & Levels (places and moves the tiles, snapped to 16x16 over the 8x8 canvas; a level tile under the pointer grows an **Edit** button that opens LM's settings dialog — see below. Linking is the Transitions tab's Link button rather than Alt+Left here, and it covers the star and pipe half of LM's list) |
 | Layer 2 Event Editor — Page Up/Down event, Home/End step; Shift+Right pastes a silent step | Events |
 | Layer 1 Event Editor — silent only, for other submaps | Events |
-| Sprite Editor — 8px steps, Mario/Luigi start | not yet placed |
+| Sprite Editor — 8px steps, Mario/Luigi start | Sprites (custom sprites only — see §9) |
 
 View toggles worth matching: Layer 1, Layer 2, Sprites, Show Level Numbers, Show Event
 Numbers, Show Star/Pipe/Location Numbers, Show Exit Path Numbers, Layer 1 Mario Paths (green

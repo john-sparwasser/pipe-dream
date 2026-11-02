@@ -173,7 +173,7 @@ internal static class RomBuilder
     /// or null.</summary>
     private static string? InsertSprites(Rom rom, Project project, List<PatchInsert.Owned> owned, List<string> warnings)
     {
-        if (project.Data.SpriteSlots.Count == 0) return null;
+        if (!project.Data.SpriteSlots.Keys.Any(PixiImport.IsPixiSlot)) return null;
         if (!Asar.Available) { warnings.Add("custom sprites skipped (Asar library not found)"); return null; }
         var r = SpriteInsert.Insert(rom, project.Data);
         if (!r.Ok) return "build failed: custom sprites: " + string.Join("; ", r.Errors);
@@ -193,6 +193,19 @@ internal static class RomBuilder
         if (!r.Ok) return "build failed: UberASM: " + string.Join("; ", r.Errors);
         warnings.AddRange(r.Warnings.Select(w => "UberASM: " + w));
         owned.AddRange(r.Written.Select(b => new PatchInsert.Owned("the UberASM driver", rom.Map.SnesToPc(b.Snes), b.Length)));
+        return null;
+    }
+
+    /// <summary>The project's overworld sprite code (<see cref="OwSpriteInsert"/>), after the UberASM and before the patches.
+    /// Returns a build failure, or null.</summary>
+    private static string? InsertOwSprites(Rom rom, Project project, List<PatchInsert.Owned> owned, List<string> warnings)
+    {
+        if (OwSpriteInsert.Listed(project.Data).Count == 0) return null;
+        if (!Asar.Available) { warnings.Add("overworld sprite code skipped (Asar library not found)"); return null; }
+        var r = OwSpriteInsert.Insert(rom, project.Data);
+        if (!r.Ok) return "build failed: overworld sprites: " + string.Join("; ", r.Errors);
+        warnings.AddRange(r.Warnings.Select(w => "overworld sprites: " + w));
+        owned.AddRange(r.Written.Select(b => new PatchInsert.Owned("the overworld sprite system", rom.Map.SnesToPc(b.Snes), b.Length)));
         return null;
     }
 
@@ -266,6 +279,9 @@ internal static class RomBuilder
             if (InsertGps(rom, project, owned, warnings) is { } gpsErr) return (gpsErr, null);
             if (InsertSprites(rom, project, owned, warnings) is { } spriteErr) return (spriteErr, null);
             if (InsertUber(rom, project, owned, warnings) is { } uberErr) return (uberErr, null);
+            // The overworld sprite list is read before its code goes in: that changes how many bytes each entry takes.
+            var owSprites = project.Data.Overworld.Sprites ?? (OwSpriteInsert.Listed(project.Data).Count > 0 ? Overworld.ReadSprites(rom) : null);
+            if (InsertOwSprites(rom, project, owned, warnings) is { } owSpriteErr) return (owSpriteErr, null);
             if (ApplyPatches(rom, project, owned, warnings) is { } patchErr) return (patchErr, null);
             if (InsertMusic(rom, project, owned, warnings) is { } musicErr) return (musicErr, null);
             if (ReplayMap16(rom, project.Data) is { } err) return (err, null);
@@ -285,6 +301,7 @@ internal static class RomBuilder
             if (project.Data.Overworld.ExitDirs is { } owd) Overworld.WriteExitDirs(rom, Convert.FromBase64String(owd));
             if (project.Data.Overworld.Warps is { } oww) Overworld.WriteWarps(rom, Convert.FromBase64String(oww));
             if (project.Data.Overworld.Exits is { } owe) Overworld.WriteExits(rom, Convert.FromBase64String(owe));
+            if (owSprites is not null && Overworld.WriteSprites(rom, owSprites) is { } owzErr) warnings.Add(owzErr);
             if (project.Data.Overworld.EventPieces is { } owp
                 && Overworld.WriteEventPieces(rom, ProjectSession.WordsOf(Convert.FromBase64String(owp))) is { } owpErr)
                 warnings.Add("overworld: " + owpErr);

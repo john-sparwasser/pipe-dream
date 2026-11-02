@@ -294,6 +294,8 @@ public class PixiTests
         Assert.Equal(["1B"], s.CustomSprites.Single(r => r.Name == "Hopper").Slots);       // refused whole
         Assert.Equal("Gun in slot(s) C0", s.SetCustomSpriteSlots("Gun", "C0"));
         Assert.Equal("Hopper is in no slot", s.SetCustomSpriteSlots("Hopper", ""));
+        s.NewCustomSprite("Bird", PixiImport.Overworld, out _);
+        Assert.Equal("Bird in slot(s) overworld 05, overworld 06", s.SetCustomSpriteSlots("Bird", "overworld 05, Overworld 6"));   // a kind's slot is two words
     }
 
     /// <summary>The Custom sprites window lists the library with kinds and slots, and the
