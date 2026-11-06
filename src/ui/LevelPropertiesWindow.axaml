@@ -16,10 +16,9 @@
       <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}"/>
       <Setter Property="FontSize" Value="11"/>
     </Style>
-    <Style Selector="TextBlock.code">
+    <Style Selector="Run.code">
       <Setter Property="FontFamily" Value="{DynamicResource MonoFont}"/>
       <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
-      <Setter Property="Margin" Value="0,0,8,0"/>
     </Style>
     <Style Selector="TextBlock.section">
       <Setter Property="Foreground" Value="White"/>

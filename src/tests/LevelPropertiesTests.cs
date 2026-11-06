@@ -41,6 +41,37 @@ public class LevelPropertiesTests(ITestOutputHelper log)
         Assert.False(dlg.RevertRequested);
     }
 
+    /// <summary>Layer 2 sits with the header and is staged like it: Apply hands the choice
+    /// back, and a layer 2 the ROM ships as objects cannot be turned off.</summary>
+    [AvaloniaFact]
+    public void layer_2_objects_is_staged_and_locked_when_the_rom_ships_it()
+    {
+        if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
+        var rom = Rom.Load(RomPath);
+        var scene = LevelScene.Build(rom, 0x105, LevelScene.SpriteDraw.Skip);
+        static CheckBox Box(Window w) => w.GetControl<StackPanel>("Fields").Children.OfType<StackPanel>()
+            .Single(r => r.Children.OfType<TextBlock>().FirstOrDefault()?.Text == "Layer 2")
+            .Children.OfType<CheckBox>().Single();
+
+        var dlg = new LevelPropertiesWindow(scene.Level.Header, rom.ReadMainEntrance(0x105), false,
+                                            Services.LevelChoices.Default, layer2: (false, false));
+        dlg.Show();
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(Box(dlg).IsEnabled);
+        Box(dlg).IsChecked = true;
+        Assert.Null(dlg.AppliedLayer2Objects);                 // staged, not applied
+        dlg.GetControl<Button>("ApplyBtn").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Assert.True(dlg.AppliedLayer2Objects);
+
+        var shipped = new LevelPropertiesWindow(scene.Level.Header, rom.ReadMainEntrance(0x105), false,
+                                                Services.LevelChoices.Default, layer2: (true, true));
+        shipped.Show();
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(Box(shipped).IsChecked);
+        Assert.False(Box(shipped).IsEnabled);
+        shipped.Close();
+    }
+
     /// <summary>Revert is only offered once the level actually carries a header edit —
     /// otherwise there is nothing to revert TO.</summary>
     [AvaloniaFact]

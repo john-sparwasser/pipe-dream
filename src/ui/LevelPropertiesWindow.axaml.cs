@@ -34,20 +34,27 @@ public partial class LevelPropertiesWindow : Window
     public string? AppliedUber { get; private set; }
     public MainEntrance? AppliedEntry { get; private set; }
     public bool RevertRequested { get; private set; }
+    /// <summary>Set on Apply: whether layer 2 should be an object layer.</summary>
+    public bool? AppliedLayer2Objects { get; private set; }
+
+    private bool layer2Objects, layer2Locked;
 
     public LevelPropertiesWindow() => AvaloniaXamlLoader.Load(this);
 
     /// <summary>The choice lists come in already resolved: several are read out of the ROM's
     /// own tables, and this layer holds no ROM (see EditorSession.LevelOptionChoices).</summary>
     /// <param name="uber">The level's UberASM line and what <c>*</c> runs before it (null: not offered, no project).</param>
+    /// <param name="layer2">Whether layer 2 is objects, and whether that is the ROM's own (so it cannot be dropped).</param>
     public LevelPropertiesWindow(LevelHeader h, MainEntrance e, bool headerOverridden,
-                                 Services.LevelChoices c, (string Line, string Star)? uber = null) : this()
+                                 Services.LevelChoices c, (string Line, string Star)? uber = null,
+                                 (bool Objects, bool Locked) layer2 = default) : this()
     {
         header = h;
         entry = e;
         hasHeaderOverride = headerOverridden;
         choices = c;
         this.uber = uber;
+        (layer2Objects, layer2Locked) = layer2;
         Build();
         var sv = this.GetControl<ScrollViewer>("FieldsScroll");
         var fade = this.GetControl<Border>("ScrollFade");
@@ -56,22 +63,23 @@ public partial class LevelPropertiesWindow : Window
     }
 
     /// <summary>Display only: "0 — slot 0" becomes a dim mono "00" and the meaning beside it.</summary>
+    /// One TextBlock of two runs, not two TextBlocks: the mono and the UI font have different
+    /// line metrics, so side-by-side blocks centre differently and the meaning rode high.
+    /// Runs share a baseline.
     private static Control ItemView(string? s)
     {
-        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        var text = new TextBlock { VerticalAlignment = VerticalAlignment.Center };
         var parts = (s ?? "").Split(" — ", 2);
         if (parts.Length == 2)
         {
-            var code = new TextBlock { Text = parts[0].Length == 1 ? "0" + parts[0] : parts[0] };
+            var code = new Avalonia.Controls.Documents.Run(parts[0].Length == 1 ? "0" + parts[0] : parts[0]);
             code.Classes.Add("code");
-            row.Children.Add(code);
-            row.Children.Add(new TextBlock
-            {
-                Text = parts[1].Replace(", not in the project (the music fades)", " (not in project)"),
-            });
+            text.Inlines!.Add(code);
+            text.Inlines.Add(new Avalonia.Controls.Documents.Run(
+                "  " + parts[1].Replace(", not in the project (the music fades)", " (not in project)")));
         }
-        else row.Children.Add(new TextBlock { Text = s });
-        return row;
+        else text.Text = s;
+        return text;
     }
 
     private readonly (string Line, string Star)? uber;
@@ -99,6 +107,18 @@ public partial class LevelPropertiesWindow : Window
 
         H(Section("Level"));
         H(Choice("Level mode", header.LevelMode, choices.LevelMode, SetH(v => header with { LevelMode = v })));
+        // Under the mode because the two go together: a background level's mode usually never
+        // loads layer-2 objects, so turning this on means picking a mode that does.
+        // A labelled row rather than a Check: it reads as a field of the level beside the mode.
+        var l2 = new CheckBox { IsChecked = layer2Objects, VerticalAlignment = VerticalAlignment.Center };
+        l2.IsCheckedChanged += (_, _) => layer2Objects = l2.IsChecked == true;
+        if (layer2Locked)
+        {
+            l2.IsEnabled = false;
+            ToolTip.SetTip(l2, "The ROM ships this level's layer 2 as objects; there is no background image to go back to.");
+        }
+        else ToolTip.SetTip(l2, "Give layer 2 an editable object layer instead of a background image. Pick a level mode that loads layer-2 objects too.");
+        H(Row("Layer 2", l2));
         H(Number("Screens", header.Screens, 1, 32, SetH(v => header with { Screens = v })));
         // LM's level height: an index into a 32-entry LUT, and W columns of that height have to
         // fit the tilemap — the session refuses a pair that does not, which is why this is the
@@ -242,6 +262,7 @@ public partial class LevelPropertiesWindow : Window
         AppliedHeader = header;
         AppliedEntry = entry;
         AppliedUber = uberBox?.Text?.Trim();
+        AppliedLayer2Objects = layer2Objects;
         Close();
     }
 

@@ -21,7 +21,7 @@ namespace PipeDream.Ui;
 public partial class MainWindow
 {
     private ToggleButton layerOne = null!, layerTwo = null!, exitsMode = null!, entrancesMode = null!;
-    private Button addLayer2 = null!, dropLayer2 = null!;
+    private Button dropLayer2 = null!;
     private StackPanel layerSwitch = null!;
     private TextBlock layer2Note = null!;
 
@@ -35,7 +35,6 @@ public partial class MainWindow
         layerTwo = this.GetControl<ToggleButton>("LayerTwo");
         exitsMode = this.GetControl<ToggleButton>("ExitsMode");
         entrancesMode = this.GetControl<ToggleButton>("EntrancesMode");
-        addLayer2 = this.GetControl<Button>("AddLayer2");
         dropLayer2 = this.GetControl<Button>("DropLayer2");
         layerSwitch = this.GetControl<StackPanel>("LayerSwitch");
         layer2Note = this.GetControl<TextBlock>("Layer2Note");
@@ -187,25 +186,18 @@ public partial class MainWindow
         AdoptSession();
     }
 
-    private void OnAddLayer2(object? sender, RoutedEventArgs e)
-    {
-        session.SetLayer2ObjectMode(true);
-        AdoptSession();
-    }
-
     private void OnDropLayer2(object? sender, RoutedEventArgs e)
     {
         session.SetLayer2ObjectMode(false);
         AdoptSession();
     }
 
-    /// <summary>Show which layer is live and which of the layer-2 conversions is available. The
+    /// <summary>Show which layer is live and whether the project-made layer 2 can be dropped. The
     /// loudest case gets its own note: objects that exist on a level whose MODE never loads them
     /// would silently do nothing in-game.</summary>
     private void RefreshLayerBar()
     {
         layerSwitch.IsVisible = session.Layer2Editable;
-        addLayer2.IsVisible = session.Scene is not null && !session.Layer2Editable;
         layerOne.IsChecked = session.EditLayer == 0;
         layerTwo.IsChecked = session.EditLayer == 1;
         dropLayer2.IsVisible = session.Layer2FromProject;
@@ -398,7 +390,8 @@ public partial class MainWindow
         if (session.Header is not { } header || session.MainEntrance is not { } entrance) return;
         string uberLine = session.UberLine("level", session.LevelNum);
         var dlg = new LevelPropertiesWindow(header, entrance, session.HasHeaderOverride, session.LevelOptionChoices,
-            session.HasProject ? (uberLine, session.UberLine("level", UberEntry.All)) : null);
+            session.HasProject ? (uberLine, session.UberLine("level", UberEntry.All)) : null,
+            (session.Layer2Editable, session.Layer2Editable && !session.Layer2FromProject));
         await dlg.ShowDialog(this);
 
         if (dlg.RevertRequested) { session.RevertHeader(); AdoptSession(); return; }
@@ -410,6 +403,12 @@ public partial class MainWindow
         if (dlg.AppliedHeader is { } h && h != header)
         {
             session.ApplyHeader(h);
+            AdoptSession();
+        }
+        // Last: the conversion stashes and reloads the level, so it picks up the header above.
+        if (dlg.AppliedLayer2Objects is { } l2 && l2 != session.Layer2Editable)
+        {
+            session.SetLayer2ObjectMode(l2);
             AdoptSession();
         }
         UpdateTitle();

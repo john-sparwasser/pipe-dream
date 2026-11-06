@@ -517,7 +517,7 @@ public sealed partial class EditorSession
     {
         if (layer == EditLayer) return "";
         if (layer == 1 && layer2 is null)
-            return "layer 2 is a background image — use +L2 to give it an object layer";
+            return "layer 2 is a background image — turn on Layer 2 in Properties to edit it";
         EditLayer = layer;
         Changed?.Invoke(this, EventArgs.Empty);
         string note = $"editing layer {layer + 1} ({Edit?.Objects.Count ?? 0} objects)";
