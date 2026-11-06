@@ -56,15 +56,21 @@ public class LevelView : Control
     /// the two modes, exactly as in the ImGui editor.</summary>
     public SpriteEdit? Sprites { get; set; }
 
-    public enum EditMode { Objects, Sprites, Exits, Entrances }
+    public enum EditMode { Objects, Sprites }
     public EditMode Mode { get; set; } = EditMode.Objects;
 
-    /// <summary>Screen exits to draw in <see cref="EditMode.Exits"/>: which screen leads where.
+    /// <summary>The exits and entrances overlays. Drawn OVER whichever layer is being edited
+    /// rather than replacing it: a press goes to an overlay only when it lands on one of the
+    /// overlay's own controls, and everywhere else edits the level as usual.</summary>
+    public bool ShowExits { get; set; }
+    public bool ShowEntrances { get; set; }
+
+    /// <summary>Screen exits to draw when <see cref="ShowExits"/>: which screen leads where.
     /// The view only paints and hit-tests them — the table itself lives in the level stream, and
     /// the host writes it.</summary>
     public IReadOnlyList<(int Screen, int Dest, bool LmForm)> Exits { get; set; } = [];
 
-    /// <summary>A screen was clicked in exits mode. The argument is the screen number, whether
+    /// <summary>A screen's edit button was clicked. The argument is the screen number, whether
     /// or not it already has an exit.</summary>
     public event EventHandler<int>? ExitScreenClicked;
 
@@ -83,7 +89,11 @@ public class LevelView : Control
     /// re-deriving the layout arithmetic and testing its own copy of it.</summary>
     internal IReadOnlyList<(Rect Box, int Screen)> Badges => badges;
 
-    /// <summary>The entrances to draw in <see cref="EditMode.Entrances"/> — where this level
+    /// <summary>The hovered screen's edit button, where it was last drawn. One at a time: a
+    /// button on every screen would bury the level under chrome.</summary>
+    internal (Rect Box, int Screen)? ExitEditButton { get; private set; }
+
+    /// <summary>The entrances to draw when <see cref="ShowEntrances"/> — where this level
     /// puts Mario. Positions are level pixels; the host resolves them from the records.</summary>
     public IReadOnlyList<LevelEntrance> Entrances { get; set; } = [];
 
@@ -193,7 +203,12 @@ public class LevelView : Control
     /// object, the move over an entrance marker. Ignored while the camera has the cursor: the
     /// camera is drawn over every mode, so the mode underneath must not paint over the hand that
     /// says the thing under the pointer can be picked up.</summary>
-    private Cursor ModeCursor { set { if (!cameraCursor) Cursor = value; } }
+    private Cursor ModeCursor { set { if (!cameraCursor && !overlayCursor) Cursor = value; } }
+
+    /// <summary>Set for the length of one pointer move when an overlay control (an exit badge or
+    /// button, an entrance marker) is under the pointer: it is drawn over the layer, so the
+    /// layer's cursor must not claim it.</summary>
+    private bool overlayCursor;
 
     /// <summary>The hitbox of the tile at a cell, when the hitbox overlay is on; null turns it
     /// off. The window supplies it because the shape comes from the ROM's tables and the level's
@@ -251,6 +266,8 @@ public class LevelView : Control
         HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center;
         VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center;
         stroke = new(c => CellPainted?.Invoke(this, c));
+        // The exit badges hold to the part of a screen in view, so a scroll moves them.
+        EffectiveViewportChanged += (_, _) => { if (ShowExits) InvalidateVisual(); };
     }
 
     /// <summary>
@@ -351,13 +368,9 @@ public class LevelView : Control
         LastClickedCell = cell;
         CellPressed?.Invoke(this, cell);
 
-        // Exits mode owns the canvas: a click picks a SCREEN, and nothing else in here runs.
-        // The badge is the exception — it is a link to where the exit goes, so it gets the
-        // click before the screen under it does.
-        if (Mode == EditMode.Exits) { PressExit(e, cell, props); return; }
-        // Entrances owns the canvas too: a press on a marker picks it up, and a press anywhere
-        // else is swallowed rather than reaching the layer underneath.
-        if (Mode == EditMode.Entrances) { PressEntrance(e, props); return; }
+        // The overlays are drawn over the layer, so a press on one of THEIR controls is theirs;
+        // anywhere else falls through to the edit underneath.
+        if (props.IsLeftButtonPressed && (PressExit(e) || PressEntrance(e))) return;
 
         // Alt+left is the eyedropper, in every mode. A modifier rather than an armed tool: a
         // mode you can forget you are in costs more than a key you have to hold.
@@ -374,24 +387,28 @@ public class LevelView : Control
         PressObject(e, cell, props);
     }
 
-    /// <summary>Exits mode: a click picks a SCREEN, or follows the badge on it.</summary>
-    private void PressExit(PointerPressedEventArgs e, (int X, int Y) cell, PointerPointProperties props)
+    /// <summary>Exits overlay: the hovered screen's edit button opens its exit; the badge on a
+    /// screen with one follows it. False when the press is on neither.</summary>
+    private bool PressExit(PointerPressedEventArgs e)
     {
-        if (props.IsLeftButtonPressed)
-        {
-            if (BadgeAt(e.GetPosition(this)) is { } dest) ExitBadgeClicked?.Invoke(this, dest);
-            else ExitScreenClicked?.Invoke(this, ScreenOf(cell));
-        }
+        if (!ShowExits) return false;
+        var p = e.GetPosition(this);
+        if (ExitEditButton is { } b && b.Box.Contains(p)) ExitScreenClicked?.Invoke(this, b.Screen);
+        else if (BadgeAt(p) is { } dest) ExitBadgeClicked?.Invoke(this, dest);
+        else return false;
         e.Handled = true;
+        return true;
     }
 
-    /// <summary>Entrances mode: a press on a marker picks it up (double-click edits it).</summary>
-    private void PressEntrance(PointerPressedEventArgs e, PointerPointProperties props)
+    /// <summary>Entrances overlay: a press on a marker picks it up (double-click edits it), one
+    /// on its edit badge edits it. False when the press is on neither.</summary>
+    private bool PressEntrance(PointerPressedEventArgs e)
     {
+        if (!ShowEntrances) return false;
         var p = e.GetPosition(this);
-        if (props.IsLeftButtonPressed && EditBadgeAt(p) is { } badge)
+        if (EditBadgeAt(p) is { } badge)
             EntranceEditRequested?.Invoke(this, badge);
-        else if (props.IsLeftButtonPressed && EntranceAt(p, Zoom) is { } hit)
+        else if (EntranceAt(p, Zoom) is { } hit)
         {
             if (e.ClickCount == 2) EntranceEditRequested?.Invoke(this, hit);
             else
@@ -400,7 +417,9 @@ public class LevelView : Control
                 e.Pointer.Capture(this);
             }
         }
+        else return false;
         e.Handled = true;
+        return true;
     }
 
     /// <summary>Sprite mode: right places or duplicates, left selects, toggles or starts a drag.</summary>
@@ -521,12 +540,12 @@ public class LevelView : Control
         // held through the rest of this handler, which is where each mode sets its own.
         cameraCursor = ShowCamera && CameraGrab(e.GetPosition(this), e.KeyModifiers);
         Cursor = cameraCursor ? HandCursors.OpenHand : Cursor.Default;
-        // A badge is a link, so it says so under the cursor — otherwise nothing distinguishes it
-        // from the rest of the screen, which opens the prompt instead.
-        if (Mode == EditMode.Exits)
-            ModeCursor = BadgeAt(e.GetPosition(this)) is null ? Cursor.Default : UiCursors.Hand;
-
-        if (Mode == EditMode.Entrances) { MoveEntrance(e); return; }
+        if (dragEntrance is not null) { DragEntrance(e); return; }
+        // The overlays' controls claim the cursor over them. Not mid-drag: an object dragged
+        // across a marker is still the object being dragged.
+        overlayCursor = false;
+        if (!cameraCursor && e.Pointer.Captured != this)
+            overlayCursor = HoverEntrances(e.GetPosition(this)) || HoverExits(e.GetPosition(this));
 
         var cell = CellAt(e.GetPosition(this));
         if (cell != HoverCell) { HoverCell = cell; InvalidateVisual(); }
@@ -549,27 +568,43 @@ public class LevelView : Control
         MoveObject(e, c);
     }
 
-    /// <summary>Entrances mode: the hand over a badge, the move cursor over a marker, and the drag preview.</summary>
-    private void MoveEntrance(PointerEventArgs e)
+    /// <summary>Entrances overlay: tracks the hovered marker (which shows its edit badge) and
+    /// sets the hand over a badge, the move cursor over a marker. True when it set a cursor.</summary>
+    private bool HoverEntrances(Point p)
     {
-        var p = e.GetPosition(this);
+        if (!ShowEntrances) return false;
         var badge = EditBadgeAt(p);
         var over = EntranceAt(p, Zoom);
-        ModeCursor = badge is not null ? UiCursors.Hand
-                   : dragEntrance is not null || over is not null ? UiCursors.Move
-                   : Cursor.Default;
         var hov = over ?? badge ?? LabelAt(p);
         if (hov != hoverEntrance) { hoverEntrance = hov; InvalidateVisual(); }
-        // The drag PREVIEWS by moving the marker: the drop snaps to what the ROM can store,
-        // and seeing that happen is how the 8x16 grid explains itself.
-        if (dragEntrance is { } d)
-        {
-            var at = p - d.Grab;
-            static int Snap(double v) => (int)Math.Round(v / 16) * 16;    // the 16px cell Mario lands in
-            dragEntrance = (d.E with { X = Snap((at.X + Origin.X) / Zoom), Y = Snap((at.Y + Origin.Y) / Zoom) },
-                            d.Grab);
-            InvalidateVisual();
-        }
+        if (badge is not null) Cursor = UiCursors.Hand;
+        else if (over is not null) Cursor = UiCursors.Move;
+        else return false;
+        return true;
+    }
+
+    /// <summary>Exits overlay: the badges and the edit button are links, so they say so under
+    /// the cursor. True when it set one.</summary>
+    private bool HoverExits(Point p)
+    {
+        if (!ShowExits) return false;
+        bool onButton = ExitEditButton is { } b && b.Box.Contains(p);
+        if (!onButton && BadgeAt(p) is null) return false;
+        Cursor = UiCursors.Hand;
+        return true;
+    }
+
+    /// <summary>An entrance drag. It PREVIEWS by moving the marker: the drop snaps to what the
+    /// ROM can store, and seeing that happen is how the 8x16 grid explains itself.</summary>
+    private void DragEntrance(PointerEventArgs e)
+    {
+        if (dragEntrance is not { } d) return;
+        Cursor = UiCursors.Move;
+        var at = e.GetPosition(this) - d.Grab;
+        static int Snap(double v) => (int)Math.Round(v / 16) * 16;    // the 16px cell Mario lands in
+        dragEntrance = (d.E with { X = Snap((at.X + Origin.X) / Zoom), Y = Snap((at.Y + Origin.Y) / Zoom) },
+                        d.Grab);
+        InvalidateVisual();
     }
 
     /// <summary>Sprite mode: the live pixel band, the live move, or the hand over a selected sprite.</summary>
@@ -794,11 +829,6 @@ public class LevelView : Control
         if (ShowCamera) DrawCamera(ctx, z);
         if (Hitboxes is not null || (Spawns is not null && TileAt is not null)) DrawCellOverlays(ctx, z);
 
-        // Exits mode owns the overlay outright: no selection, no handles, no band — the whole
-        // point is that the level is being read screen by screen, not edited object by object.
-        if (Mode == EditMode.Exits) { DrawExits(ctx, z); return; }
-        if (Mode == EditMode.Entrances) { DrawEntrances(ctx, z); return; }
-
         if (Mode == EditMode.Sprites && Sprites is { } spv)
         {
             // Sprites highlight over their whole PIXEL display, not their spawn cell — the
@@ -832,6 +862,10 @@ public class LevelView : Control
         }
         else if (PixelBand is { } lasso && bandStart is not null)
             Overlay.Band(ctx, PixelRect(lasso.X, lasso.Y, lasso.W, lasso.H, z));
+
+        // The overlays last, over the selection: they are read alongside the edit, not instead of it.
+        if (ShowExits) DrawExits(ctx, z);
+        if (ShowEntrances) DrawEntrances(ctx, z);
     }
 
     private static readonly Pen SpritePen = new(UiColors.Sprite, 2);
@@ -861,27 +895,28 @@ public class LevelView : Control
             : CellRect(screen * 16, 0, Math.Min(16, cols - screen * 16), rows, z);
     }
 
-    /// <summary>Exits mode's overlay: every screen that HAS an exit is bordered in blue and
-    /// badged with its destination, and the screen under the cursor is ringed on top — so the
-    /// level's connections are readable at a glance instead of through a table of numbers.
-    /// The hover ring is a different hue on purpose: "this one leads somewhere" and "this is
-    /// the one you are about to click" are different statements and overlap constantly.</summary>
+    /// <summary>
+    /// The exits overlay: a small door badge at the top of every screen that HAS an exit, naming
+    /// where it leads (click it to go there), and on the screen under the cursor an edit button
+    /// in its top-right corner that opens that screen's exit. Small and corner-bound on purpose:
+    /// the layer underneath is still being edited, so the overlay must not cover it.
+    /// </summary>
     private void DrawExits(DrawingContext ctx, double z)
     {
+        badges.Clear();
+        ExitEditButton = null;
         if (Source is not { HasImages: true }) return;
 
-        // Exits first, hover second: on a screen that is both, the ring wins.
-        var border = new Pen(UiColors.Accent, 3);
-        foreach (var (screen, _, _) in Exits)
+        const double size = 11, pad = 5, icon = 12, h = 18;
+        // Badge and button keep to the part of their screen that is in VIEW: a screen is wider
+        // than many viewports, and a corner scrolled out of sight takes its button with it.
+        var vis = PixelBlit.Visible(this);
+        Rect InView(Rect screen, double w, bool right)
         {
-            var r = ScreenRect(screen, z);
-            if (r.Width > 0) ctx.DrawRectangle(null, border, r);
+            double x = right ? Math.Min(screen.Right, vis.Right) - w - 6 : Math.Max(screen.X, vis.X) + 6;
+            return new Rect(Math.Clamp(x, screen.X + 6, Math.Max(screen.X + 6, screen.Right - w - 6)),
+                            Math.Max(screen.Top, vis.Top) + 6, w, h);
         }
-
-        if (HoverCell is { } hc) Overlay.Selection(ctx, ScreenRect(ScreenOf(hc), z));
-
-        badges.Clear();
-        const double size = 13, padX = 6, padY = 4;
         foreach (var (screen, dest, lm) in Exits)
         {
             var r = ScreenRect(screen, z);
@@ -889,19 +924,38 @@ public class LevelView : Control
             // Two digits for a byte, three once the destination carries its ninth bit — the
             // badge should read as the level number the user typed.
             var text = Overlay.Text(lm ? $"{dest:X4}" : dest > 0xFF ? $"{dest:X3}" : $"{dest:X2}", size);
-            // The box is sized to the DIGITS, not to the line box.
-            var box = new Rect(r.Right - text.Width - padX * 2 - 8, r.Top + 6,
-                               text.Width + padX * 2, size + padY * 2);
-            // Anchored to the screen's top-right corner, not the viewport's: the badge names
-            // THIS screen, and one that floated would name whichever is scrolled into view.
+            // Anchored to the screen, not the viewport: the badge names THIS screen, and one that
+            // floated would name whichever is scrolled into view.
+            var box = InView(r, pad + icon + 3 + text.Width + pad, right: false);
             ctx.DrawRectangle(UiColors.Accent, BadgeEdge, box, 3, 3);
-            Overlay.DrawText(ctx, text, size, box.X + padX, box.Center.Y);
+            using (ctx.PushTransform(Matrix.CreateScale(icon / 24, icon / 24)
+                                     * Matrix.CreateTranslation(box.X + pad, box.Center.Y - icon / 2)))
+                ctx.DrawGeometry(null, DoorPen, DoorOpen);
+            Overlay.DrawText(ctx, text, size, box.X + pad + icon + 3, box.Center.Y);
             badges.Add((box, screen));
         }
+
+        // The edit button, on the hovered screen only — and not mid-drag, when the pointer is
+        // carrying something rather than pointing at a screen.
+        if (HoverCell is not { } hc || bandStart is not null || moveStart is not null
+            || resizeDrag is not null || pixelStart is not null || stroke.Active) return;
+        int hovered = ScreenOf(hc);
+        var sr = ScreenRect(hovered, z);
+        if (sr.Width <= 0) return;
+        var label = Overlay.Text("Edit exit", size);
+        var bb = InView(sr, label.Width + pad * 2, right: true);
+        ctx.DrawRectangle(UiColors.SelectionFill, LabelEdge, bb, 3, 3);
+        Overlay.DrawText(ctx, label, size, bb.X + pad, bb.Center.Y);
+        ExitEditButton = (bb, hovered);
     }
 
+    /// <summary>Lucide's door-open, the same glyph as the Exits toggle, in its 24px box.</summary>
+    private static readonly Geometry DoorOpen = Geometry.Parse(
+        "M13 4h3a2 2 0 0 1 2 2v14 M2 20h3 M13 20h9 M10 12v.01 M13 4.562v16.157a1 1 0 0 1-1.242.97L5 20V5.562a2 2 0 0 1 1.515-1.94l4-1A2 2 0 0 1 13 4.562Z");
+    private static readonly Pen DoorPen = new(Brushes.White, 2.5, lineCap: PenLineCap.Round, lineJoin: PenLineJoin.Round);
+
     /// <summary>
-    /// Entrances mode: a marker per place this level puts Mario, standing ON the spot with its
+    /// The entrances overlay: a marker per place this level puts Mario, standing ON the spot with its
     /// kind written beside it. The one being dragged is drawn at the cursor rather than at its
     /// stored position, snapped to the 16px cell as it moves — cells are what the ROM stores.
     /// </summary>
@@ -911,6 +965,7 @@ public class LevelView : Control
 
         editBadges.Clear();
         labelBoxes.Clear();
+        var placed = new List<Rect>();
         foreach (var e in Entrances)
         {
             // The dragged one is drawn from the drag's own copy, so it follows the cursor.
@@ -931,9 +986,15 @@ public class LevelView : Control
 
             var label = Overlay.Text(shown.Label, 11);
             var box = new Rect(r.Right + 3, r.Y + 1, label.Width + 11, 16);
+            // Entrances often share a spot (the main entrance and the midway, say), and their
+            // labels would land on top of each other: each one steps down below any it would hide.
+            while (placed.Exists(b => b.Intersects(box))) box = box.Translate(new Vector(0, 18));
+            placed.Add(box);
             ctx.DrawRectangle(UiColors.SelectionFill, LabelEdge, box, 3, 3);
             Overlay.DrawText(ctx, label, 11, box.X + 5, box.Center.Y);
-            labelBoxes.Add((box.Inflate(new Thickness(6)), e));   // generous: crossing a 3px gap must not drop the badge
+            // Generous sideways — crossing the 3px gap to the badge must not drop it — but only a
+            // pixel up and down, or a stacked label's hover would reach into its neighbour's.
+            labelBoxes.Add((box.Inflate(new Thickness(6, 1)), e));
 
             // Hovered: an edit badge after the label, the way into the entrance's settings.
             if (hoverEntrance is { } h && h.Kind == e.Kind && h.Index == e.Index && dragEntrance is null)

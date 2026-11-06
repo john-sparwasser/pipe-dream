@@ -97,11 +97,10 @@
     <Style Selector="TabStrip.tabs TabStripItem:pointerover">
       <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
     </Style>
-    <!-- Second-level selector: raised fill + hairline, so the accent pill stays the mode strip's. -->
+    <!-- Second-level selector: raised fill only, so the accent pill stays the mode strip's. No
+         border: a selected-only border insets the content and the label jumps a pixel. -->
     <Style Selector="TabStrip.tabs TabStripItem:selected">
       <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
-      <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
     </Style>
     <Style Selector="TabStrip.tabs TabStripItem:selected:pointerover">
@@ -189,25 +188,32 @@
       <Setter Property="Stretch" Value="Uniform"/>
       <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
-    <!-- Secondary selected toggles (everything but the top mode strip): raised fill + hairline +
-         accent text, so the one solid accent pill on screen is the mode strip's. -->
+    <!-- Secondary toggles (everything but the top mode strip) look like the drawer tabs: dim at
+         rest, raised fill on hover, raised fill + full-strength text and icon when checked. No
+         hairline, and no accent text — the one accent on screen is the mode strip's pill. The
+         border stays 1px but transparent, so a toggle is the same size as a bar Button. -->
     <Style Selector="Border.bar:not(.modebar) ToggleButton">
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="BorderBrush" Value="Transparent"/>
       <Setter Property="Foreground" Value="{DynamicResource TextDimBrush}"/>
     </Style>
+    <Style Selector="Border.bar:not(.modebar) ToggleButton /template/ ContentPresenter">
+      <Setter Property="BorderBrush" Value="Transparent"/>
+    </Style>
     <Style Selector="Border.bar:not(.modebar) ToggleButton:checked /template/ ContentPresenter,
                      Border.bar:not(.modebar) ToggleButton:checked:pointerover /template/ ContentPresenter">
       <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
-      <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
-      <Setter Property="TextBlock.Foreground" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="TextBlock.Foreground" Value="{DynamicResource TextBrush}"/>
+    </Style>
+    <Style Selector="Border.bar:not(.modebar) ToggleButton Path">
+      <Setter Property="Stroke" Value="{DynamicResource TextDimBrush}"/>
     </Style>
     <Style Selector="Border.bar:not(.modebar) ToggleButton:checked Path:not(.filled)">
-      <Setter Property="Stroke" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="Stroke" Value="{DynamicResource TextBrush}"/>
     </Style>
     <Style Selector="Border.bar:not(.modebar) ToggleButton:checked Path.filled">
-      <Setter Property="Stroke" Value="{DynamicResource AccentBrush}"/>
-      <Setter Property="Fill" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="Stroke" Value="{DynamicResource TextBrush}"/>
+      <Setter Property="Fill" Value="{DynamicResource TextBrush}"/>
     </Style>
     <!-- One rest state for every bar control: no fill, no hairline until hovered or checked. -->
     <Style Selector="Border.bar Button:not(.accent) /template/ ContentPresenter,
@@ -219,6 +225,8 @@
     <Style Selector="Border.bar Button:not(.accent):pointerover /template/ ContentPresenter,
                      Border.bar:not(.modebar) ToggleButton:not(:checked):pointerover /template/ ContentPresenter">
       <Setter Property="Background" Value="{DynamicResource RaisedBrush}"/>
+    </Style>
+    <Style Selector="Border.bar Button:not(.accent):pointerover /template/ ContentPresenter">
       <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
     </Style>
     <Style Selector="Border.bar Button">
@@ -395,7 +403,7 @@
         <MenuItem Header="_Properties…" Click="OnLevelProperties" HotKey="{OnPlatform Ctrl+L, macOS=Cmd+L}"/>
         <MenuItem Header="_Reload from project" Click="OnReloadLevel" HotKey="{OnPlatform Ctrl+R, macOS=Cmd+R}"/>
         <!-- The whole exit TABLE, with the water/secondary flags and the way into the secondary
-             entrance records. The canvas's Exits mode is the everyday route — it sets a
+             entrance records. The canvas's Exits overlay is the everyday route — it sets a
              destination per screen; this is for the parts a badge cannot show. -->
         <MenuItem Header="Screen e_xits…" Click="OnLevelExits"/>
         <!-- The selected sprite's number, extra bits and LM extra bytes — the one thing about a
@@ -447,43 +455,43 @@
          than a dozen differently-sized buttons. -->
     <Border DockPanel.Dock="Top" Classes="panel bar modebar" BorderThickness="0,0,0,1" Padding="10,6">
       <StackPanel Orientation="Horizontal" Spacing="6">
-        <ToggleButton x:Name="ModeLevel" Classes="mode" IsChecked="True" Click="OnMode">
+        <ToggleButton x:Name="ModeLevel" Classes="mode level" IsChecked="True" Click="OnMode">
           <StackPanel Orientation="Horizontal" Spacing="6">
             <Path Data="{StaticResource IconTentTree}"/>
             <TextBlock Text="Level" VerticalAlignment="Center"/>
           </StackPanel>
         </ToggleButton>
-        <ToggleButton x:Name="ModeMap16" Classes="mode" Click="OnMode">
+        <ToggleButton x:Name="ModeMap16" Classes="mode map16" Click="OnMode">
           <StackPanel Orientation="Horizontal" Spacing="6">
             <Path Data="{StaticResource IconGrid3x3}"/>
             <TextBlock Text="Map16" VerticalAlignment="Center"/>
           </StackPanel>
         </ToggleButton>
-        <ToggleButton x:Name="ModeGfx" Classes="mode" Click="OnMode">
+        <ToggleButton x:Name="ModeGfx" Classes="mode gfx" Click="OnMode">
           <StackPanel Orientation="Horizontal" Spacing="6">
             <Path Data="{StaticResource IconSquarePen}"/>
             <TextBlock Text="Graphics" VerticalAlignment="Center"/>
           </StackPanel>
         </ToggleButton>
-        <ToggleButton x:Name="ModePalette" Classes="mode" Click="OnMode">
+        <ToggleButton x:Name="ModePalette" Classes="mode palette" Click="OnMode">
           <StackPanel Orientation="Horizontal" Spacing="6">
             <Path Data="{StaticResource IconPalette}"/>
             <TextBlock Text="Palette" VerticalAlignment="Center"/>
           </StackPanel>
         </ToggleButton>
-        <ToggleButton x:Name="ModeBg" Classes="mode" Click="OnMode">
+        <ToggleButton x:Name="ModeBg" Classes="mode bg" Click="OnMode">
           <StackPanel Orientation="Horizontal" Spacing="6">
             <Path Data="{StaticResource IconImage}"/>
             <TextBlock Text="Background" VerticalAlignment="Center"/>
           </StackPanel>
         </ToggleButton>
-        <ToggleButton x:Name="ModeAnim" Classes="mode" Click="OnMode">
+        <ToggleButton x:Name="ModeAnim" Classes="mode anim" Click="OnMode">
           <StackPanel Orientation="Horizontal" Spacing="6">
             <Path Data="{StaticResource IconFilm}"/>
             <TextBlock Text="Animations" VerticalAlignment="Center"/>
           </StackPanel>
         </ToggleButton>
-        <ToggleButton x:Name="ModeOverworld" Classes="mode" Click="OnMode">
+        <ToggleButton x:Name="ModeOverworld" Classes="mode overworld" Click="OnMode">
           <StackPanel Orientation="Horizontal" Spacing="6">
             <Path Data="{StaticResource IconMap}"/>
             <TextBlock Text="Overworld" VerticalAlignment="Center"/>
@@ -1009,19 +1017,18 @@
               </StackPanel>
               <!-- Exits are a property of the LEVEL, so they belong to the level canvas rather
                    than the mode bar, where they sat next to two modes that cannot use them.
-                   A toggle, not a button: it arms a canvas mode that takes over from the layer
-                   being edited, rather than opening a table away from the level. -->
-              <!-- Where the level is entered, next to where it leads: the two halves of a
-                   connection, and only one of them can own the canvas at a time. -->
+                   Where the level is entered sits next to where it leads: the two halves of a
+                   connection. Both are overlays, shown over the layer being edited rather than
+                   taking the canvas from it, so either or both can stay on while you edit. -->
               <ToggleButton x:Name="EntrancesMode" Classes="mode" Click="OnEntrancesMode"
-                            ToolTip.Tip="Entrances: where this level puts Mario, from the overworld and from a secondary exit.">
+                            ToolTip.Tip="Entrances: show where this level puts Mario, from the overworld and from a secondary exit. Drag a marker to move it; hover it to edit it.">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                   <Path Data="{StaticResource IconDoorClosed}"/>
                   <TextBlock Text="Entrances" VerticalAlignment="Center"/>
                 </StackPanel>
               </ToggleButton>
               <ToggleButton x:Name="ExitsMode" Classes="mode" Click="OnExitsMode"
-                            ToolTip.Tip="Screen exits: every screen that leads somewhere is badged with where it goes. Click a screen to set it.">
+                            ToolTip.Tip="Screen exits: every screen that leads somewhere is badged with where it goes — click the badge to go there. Hover a screen for its Edit exit button.">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                   <Path Data="{StaticResource IconDoorOpen}"/>
                   <TextBlock Text="Exits" VerticalAlignment="Center"/>

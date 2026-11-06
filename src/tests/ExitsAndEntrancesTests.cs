@@ -183,12 +183,11 @@ public class ExitsAndEntrancesTests(ITestOutputHelper log) : IDisposable
         Assert.True(w.Applied[1].Secondary);
     }
 
-    /// <summary>The everyday route: a canvas MODE rather than a table. Arming it takes the
-    /// canvas away from whichever layer was being edited, hands the view the exit table to badge
-    /// the screens with, and turns a click into "this screen" — which is what the small
-    /// destination prompt hangs off.</summary>
+    /// <summary>The everyday route: an overlay over the level rather than a table. Turning it on
+    /// hands the view the exit table to badge the screens with, and leaves the layer being
+    /// edited exactly where it was — the overlay sits beside the edit, not instead of it.</summary>
     [AvaloniaFact]
-    public void exits_mode_takes_the_canvas_over_from_the_layer_toggles()
+    public void the_exits_overlay_leaves_the_layer_editable()
     {
         if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
         Program.RomPath = Vanilla;
@@ -204,28 +203,29 @@ public class ExitsAndEntrancesTests(ITestOutputHelper log) : IDisposable
         toggle.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
 
-        Assert.Equal(LevelView.EditMode.Exits, canvas.Mode);
-        Assert.False(layerOne.IsEnabled);      // the layer being edited is not in play
+        Assert.True(canvas.ShowExits);
+        Assert.Equal(LevelView.EditMode.Objects, canvas.Mode);
+        Assert.True(layerOne.IsEnabled);
         log.WriteLine($"badging {canvas.Exits.Count} exit(s)");
 
-        // A drawer tab must NOT take the canvas back — only the toggle does.
+        // The drawer tabs still move the edit between objects and sprites under it.
         w.GetControl<TabStrip>("PaletteTabs").SelectedIndex = 1;
         Dispatcher.UIThread.RunJobs();
-        Assert.Equal(LevelView.EditMode.Exits, canvas.Mode);
+        Assert.Equal(LevelView.EditMode.Sprites, canvas.Mode);
+        Assert.True(canvas.ShowExits);
 
         toggle.IsChecked = false;
         toggle.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
         Dispatcher.UIThread.RunJobs();
 
-        Assert.NotEqual(LevelView.EditMode.Exits, canvas.Mode);
-        Assert.True(layerOne.IsEnabled);
-        Assert.Empty(canvas.Exits);            // nothing to draw once the mode is gone
+        Assert.False(canvas.ShowExits);
+        Assert.Empty(canvas.Exits);            // nothing to draw once the overlay is off
     }
 
-    /// <summary>A left click on the canvas reports the screen it landed on — the hook the
-    /// destination prompt hangs off. Nothing else in the canvas may act on that click.</summary>
+    /// <summary>With the overlay on, a plain click on a screen still belongs to the level; only
+    /// the hovered screen's edit button asks for that screen's exit.</summary>
     [AvaloniaFact]
-    public void a_click_in_exits_mode_reports_the_screen_and_edits_nothing()
+    public void the_hovered_screens_edit_button_reports_the_screen()
     {
         if (Open() is not { } s) { log.WriteLine("SKIP: no ROM"); return; }
 
@@ -233,7 +233,7 @@ public class ExitsAndEntrancesTests(ITestOutputHelper log) : IDisposable
         // prompt, which a headless click would sit in forever.
         var bitmap = new LevelBitmap();
         bitmap.SetImages(s.Phases, s.PxW, s.PxH, 0);
-        var canvas = new LevelView { Source = bitmap, Edit = s.Edit, Mode = LevelView.EditMode.Exits };
+        var canvas = new LevelView { Source = bitmap, Edit = s.Edit, ShowExits = true };
         var w = new Window { Content = canvas, Width = 900, Height = 600 };
         w.Show();
         Dispatcher.UIThread.RunJobs();
@@ -243,12 +243,21 @@ public class ExitsAndEntrancesTests(ITestOutputHelper log) : IDisposable
 
         // Cell (20, 4) is screen 1: screens are 16 cells wide.
         var at = canvas.TranslatePoint(new Point(20 * 16 * canvas.Zoom + 8, 4 * 16 * canvas.Zoom + 8), w)!.Value;
+        w.MouseMove(at);
         w.MouseDown(at, MouseButton.Left);
         w.MouseUp(at, MouseButton.Left);
+        AvaloniaHeadlessPlatform.ForceRenderTimerTick();
         Dispatcher.UIThread.RunJobs();
+        Assert.Null(got);                          // the click went to the level
 
+        var button = Assert.IsType<(Rect Box, int Screen)>(canvas.ExitEditButton);
+        Assert.Equal(1, button.Screen);
+        var on = canvas.TranslatePoint(button.Box.Center, w)!.Value;
+        w.MouseMove(on);
+        w.MouseDown(on, MouseButton.Left);
+        w.MouseUp(on, MouseButton.Left);
+        Dispatcher.UIThread.RunJobs();
         Assert.Equal(1, got);
-        Assert.Empty(s.Edit!.Selection);           // no object was picked up on the way
     }
 
     /// <summary>A destination typed as a whole level number keeps the byte the ROM reads. It
@@ -363,10 +372,10 @@ public class ExitsAndEntrancesTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(main.Y, after.Y);                       // and Y is the main entrance's
     }
 
-    /// <summary>Entrances and Exits are the two halves of a connection and both want the canvas,
-    /// so they are exclusive with each other as well as with the layer being edited.</summary>
+    /// <summary>Entrances and Exits are overlays, so both can be on at once, and neither takes
+    /// the layer away from the edit.</summary>
     [AvaloniaFact]
-    public void the_two_overlay_modes_hand_the_canvas_to_each_other()
+    public void both_overlays_can_be_on_while_the_layer_is_edited()
     {
         if (!HaveRom) { log.WriteLine("SKIP: no ROM"); return; }
         Program.RomPath = Vanilla;
@@ -386,22 +395,20 @@ public class ExitsAndEntrancesTests(ITestOutputHelper log) : IDisposable
         }
 
         Click(exits, true);
-        Assert.Equal(LevelView.EditMode.Exits, canvas.Mode);
-
-        Click(entrances, true);                       // arming one disarms the other
-        Assert.Equal(LevelView.EditMode.Entrances, canvas.Mode);
-        Assert.False(exits.IsChecked);
-        Assert.False(layerOne.IsEnabled);             // the layer is still not in play
-        Assert.Empty(canvas.Exits);                   // and the exit badges are gone with it
+        Click(entrances, true);
+        Assert.True(exits.IsChecked);
+        Assert.True(canvas.ShowExits);
+        Assert.True(canvas.ShowEntrances);
+        Assert.True(layerOne.IsEnabled);
+        Assert.Equal(LevelView.EditMode.Objects, canvas.Mode);
 
         Click(entrances, false);
-        Assert.NotEqual(LevelView.EditMode.Entrances, canvas.Mode);
-        Assert.True(layerOne.IsEnabled);
+        Assert.False(canvas.ShowEntrances);
+        Assert.True(canvas.ShowExits);
     }
 
-    /// <summary>The badge is a link, not decoration: a click ON it says "follow this exit" and
-    /// a click anywhere else on the same screen still means "edit this exit". Both come out of
-    /// the same press, so the badge has to win.</summary>
+    /// <summary>The badge is a link, not decoration: a click ON it says "follow this exit", and
+    /// a click anywhere else on the same screen is the level's, not the exit's.</summary>
     [AvaloniaFact]
     public void the_destination_badge_takes_the_click_before_the_screen_under_it()
     {
@@ -411,7 +418,7 @@ public class ExitsAndEntrancesTests(ITestOutputHelper log) : IDisposable
         bitmap.SetImages(s.Phases, s.PxW, s.PxH, 0);
         var canvas = new LevelView
         {
-            Source = bitmap, Edit = s.Edit, Mode = LevelView.EditMode.Exits, Zoom = 1,
+            Source = bitmap, Edit = s.Edit, ShowExits = true, Zoom = 1,
             Exits = [(Screen: 1, Dest: 0x105, LmForm: false)],
         };
         var w = new Window { Content = canvas, Width = 900, Height = 600 };
@@ -428,9 +435,9 @@ public class ExitsAndEntrancesTests(ITestOutputHelper log) : IDisposable
 
         var badge = Assert.Single(canvas.Badges);
         Assert.Equal(1, badge.Screen);
-        // It belongs to screen 1's top-right corner: screens are 16 cells of 16px.
-        double right = 2 * 16 * 16 * canvas.Zoom;
-        Assert.InRange(badge.Box.Right, right - 40, right);
+        // It belongs to screen 1's top-left corner: screens are 16 cells of 16px.
+        double left = 16 * 16 * canvas.Zoom;
+        Assert.InRange(badge.Box.Left, left, left + 20);
         var onBadge = canvas.TranslatePoint(badge.Box.Center, w)!.Value;
         w.MouseDown(onBadge, MouseButton.Left);
         w.MouseUp(onBadge, MouseButton.Left);
@@ -438,13 +445,13 @@ public class ExitsAndEntrancesTests(ITestOutputHelper log) : IDisposable
         Assert.Equal(1, followed);
         Assert.Null(edited);
 
-        // The same screen, well clear of the badge, still opens the editor.
+        // The same screen, well clear of the badge, is the level's: neither follows nor edits.
         followed = null;
-        var onScreen = canvas.TranslatePoint(new Point(badge.Box.X - 40, badge.Box.Bottom + 80), w)!.Value;
+        var onScreen = canvas.TranslatePoint(new Point(badge.Box.X + 40, badge.Box.Bottom + 80), w)!.Value;
         w.MouseDown(onScreen, MouseButton.Left);
         w.MouseUp(onScreen, MouseButton.Left);
         Dispatcher.UIThread.RunJobs();
-        Assert.Equal(1, edited);
+        Assert.Null(edited);
         Assert.Null(followed);
     }
 

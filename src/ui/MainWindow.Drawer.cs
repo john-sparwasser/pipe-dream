@@ -186,11 +186,6 @@ public partial class MainWindow
     /// </summary>
     private void OnPaletteTab()
     {
-        // An overlay mode outranks the tabs: it took the canvas from whichever layer was being
-        // edited, and a drawer tab is not how you leave it — the toggle is.
-        if (canvas.Mode is LevelView.EditMode.Exits or LevelView.EditMode.Entrances)
-        { RefreshDrawer(); return; }
-
         var want = paletteTabs.SelectedIndex switch
         {
             1 => LevelView.EditMode.Sprites,

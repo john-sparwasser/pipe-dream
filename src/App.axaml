@@ -43,6 +43,18 @@
       <Setter Property="BorderBrush" Value="{DynamicResource DangerBrush}"/>
       <Setter Property="Foreground" Value="{DynamicResource DangerBrush}"/>
     </Style>
+    <!-- Toggles fire on mouse-down, like the tabs (TabStrip already selects on press): switching
+         a mode or a tool should not wait for the button to come back up. Every toggle kind is a
+         ToggleButton underneath, hence :is(). Plain Buttons keep release, so an action can still
+         be cancelled by dragging off it. -->
+    <Style Selector=":is(ToggleButton)">
+      <Setter Property="ClickMode" Value="Press"/>
+    </Style>
+    <!-- Except inside a picker flyout: the pick closes it on press, so the release would land on
+         whatever is underneath, usually the canvas. -->
+    <Style Selector="FlyoutPresenter.picker :is(ToggleButton)">
+      <Setter Property="ClickMode" Value="Release"/>
+    </Style>
     <!-- Mode toggles: a row of ToggleButtons acting as radio buttons (the main toolbar's
          level/map16/gfx switch, the GFX browser's view switch). App-wide because more than
          one window draws them, and two copies of a style drift. -->
@@ -77,6 +89,16 @@
       <Setter Property="Stretch" Value="Uniform"/>
       <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
+    <!-- The main window's mode tabs each carry their own icon colour, so the bar reads at a
+         glance; the checked one still goes white on the accent pill (next rule). A class per
+         tab, not #ModeLevel: a name selector did not match the Path inside. -->
+    <Style Selector="ToggleButton.mode.level Path"><Setter Property="Stroke" Value="#4ADE80"/></Style>
+    <Style Selector="ToggleButton.mode.map16 Path"><Setter Property="Stroke" Value="#FB923C"/></Style>
+    <Style Selector="ToggleButton.mode.gfx Path"><Setter Property="Stroke" Value="#F472B6"/></Style>
+    <Style Selector="ToggleButton.mode.palette Path"><Setter Property="Stroke" Value="#A78BFA"/></Style>
+    <Style Selector="ToggleButton.mode.bg Path"><Setter Property="Stroke" Value="#38BDF8"/></Style>
+    <Style Selector="ToggleButton.mode.anim Path"><Setter Property="Stroke" Value="#FACC15"/></Style>
+    <Style Selector="ToggleButton.mode.overworld Path"><Setter Property="Stroke" Value="#D4A373"/></Style>
     <Style Selector="ToggleButton.mode:checked Path">
       <Setter Property="Stroke" Value="{DynamicResource OnAccentBrush}"/>
     </Style>

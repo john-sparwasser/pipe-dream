@@ -539,7 +539,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Esc, one step at a time: drop what is in flight in the current mode, else leave the
-    /// mode, else leave an overlay mode, else drop the brush, else cycle layer 1 <-> sprites.</summary>
+    /// mode, else drop the brush, else cycle layer 1 <-> sprites.</summary>
     private void EscapeKey()
     {
         // First Esc in GFX mode throws away an un-dropped paste or drops the selection;
@@ -553,13 +553,6 @@ public partial class MainWindow : Window
         else if (modeBg.IsChecked == true && bgView.Selection is not null)
             bgView.ClearSelection();
         else if (modeLevel.IsChecked != true) OnMode(modeLevel, new RoutedEventArgs());
-        // The overlay modes are modes you can be IN, so Esc is how you leave one — before it
-        // gets as far as the layer/sprite cycle, which has no meaning while one is armed.
-        else if (canvas.Mode is LevelView.EditMode.Exits or LevelView.EditMode.Entrances)
-        {
-            exitsMode.IsChecked = entrancesMode.IsChecked = false;
-            ApplyOverlayMode(exitsMode);
-        }
         else if (brush is not null) SetBrush(null, 1, 1);
         else
         {

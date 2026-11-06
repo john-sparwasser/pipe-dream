@@ -416,7 +416,7 @@ public class EntranceMarkerTests
     [AvaloniaFact]
     public void dragging_an_entrance_drops_it_on_a_cell()
     {
-        var view = new LevelView { Zoom = 2.0, Mode = LevelView.EditMode.Entrances };
+        var view = new LevelView { Zoom = 2.0, ShowEntrances = true };
         var phases = new uint[4][];
         for (int p = 0; p < 4; p++) { phases[p] = new uint[512 * 432]; Array.Fill(phases[p], 0xFF3366CCu); }
         var bmp = new LevelBitmap(); bmp.SetImages(phases, 512, 432, 0);
@@ -442,13 +442,49 @@ public class EntranceMarkerTests
 
 public class EntranceEditBadgeTests
 {
+    /// <summary>Two entrances on one spot (the main entrance and the midway, say) must not hide
+    /// each other's label: the second steps down a row, and hovering each label offers the edit
+    /// badge for ITS entrance.</summary>
+    [AvaloniaFact]
+    public void stacked_entrances_get_a_label_each()
+    {
+        var view = new LevelView { Zoom = 2.0, ShowEntrances = true };
+        var phases = new uint[4][];
+        for (int p = 0; p < 4; p++) { phases[p] = new uint[512 * 432]; Array.Fill(phases[p], 0xFF3366CCu); }
+        var bmp = new LevelBitmap(); bmp.SetImages(phases, 512, 432, 0);
+        view.Source = bmp;
+        var main = new Services.LevelEntrance(Services.EntranceKind.Main, 0, 64, 320) { Free = true };
+        var mid = new Services.LevelEntrance(Services.EntranceKind.Midway, 0, 64, 320) { Free = true };
+        view.Entrances = [main, mid];
+        var window = new Window { Width = 800, Height = 900, Content = view };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+
+        // Marker at (64, 320) x2 is 32 wide, so the labels start at x = 128 + 32 + 3; the first
+        // sits at y = 641, the stacked one a row (18px) below it.
+        // The labels are hit-tested where they were last DRAWN, so draw once first; the view is
+        // centred in the window, so aim in view coordinates.
+        void HoverAt(double x, double y)
+        {
+            Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            Dispatcher.UIThread.RunJobs();
+            window.MouseMove(view.TranslatePoint(new Point(x, y), window)!.Value);
+            Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            Dispatcher.UIThread.RunJobs();
+        }
+        HoverAt(175, 649);
+        Assert.Equal(main, view.EditBadges.Single().E);
+        HoverAt(175, 667);
+        Assert.Equal(mid, view.EditBadges.Single().E);
+    }
+
     /// <summary>Hovering a marker grows an edit badge after its label; clicking the badge asks the
     /// host to open that entrance's settings instead of starting a drag. A double-click on the
     /// marker itself does the same.</summary>
     [AvaloniaFact]
     public void hovering_a_marker_offers_an_edit_badge_that_opens_the_entrance()
     {
-        var view = new LevelView { Zoom = 2.0, Mode = LevelView.EditMode.Entrances };
+        var view = new LevelView { Zoom = 2.0, ShowEntrances = true };
         var phases = new uint[4][];
         for (int p = 0; p < 4; p++) { phases[p] = new uint[512 * 432]; Array.Fill(phases[p], 0xFF3366CCu); }
         var bmp = new LevelBitmap(); bmp.SetImages(phases, 512, 432, 0);

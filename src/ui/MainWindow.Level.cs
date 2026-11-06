@@ -165,6 +165,9 @@ public partial class MainWindow
     {
         if (!session.RefreshPixels()) return;
         bitmap.SetImages(session.Phases, session.PxW, session.PxH, 0);
+        // The exits live in the layer-1 stream, so an edit or an undo there can change them;
+        // with the overlay showing beside the edit, its badges have to follow.
+        if (canvas.ShowExits) RefreshExitBadges();
         canvas.InvalidateVisual();
     }
 
@@ -256,35 +259,19 @@ public partial class MainWindow
     // ---- exits and entrances ----
 
     /// <summary>
-    /// Arm or disarm the canvas's exits mode. It TAKES OVER from the layer being edited rather
-    /// than sitting beside it: while it is on, the layer toggles are dead, the canvas paints no
-    /// selection, and a click means "this screen", not "this object".
+    /// Show or hide the exits and entrances overlays. Both sit OVER the layer being edited
+    /// rather than taking the canvas from it, so they can be on together and editing carries on
+    /// underneath; only their own badges, buttons and markers answer a click.
     /// </summary>
-    private void OnExitsMode(object? sender, RoutedEventArgs e) => ApplyOverlayMode(exitsMode);
-
-    private void OnEntrancesMode(object? sender, RoutedEventArgs e) => ApplyOverlayMode(entrancesMode);
-
-    /// <summary>
-    /// Arm or disarm one of the level's overlay modes. They are the two halves of a connection —
-    /// where a level leads and where it is entered — and each TAKES OVER from the layer being
-    /// edited, so they are exclusive with each other as well: arming one disarms the other,
-    /// rather than leaving two modes both claiming the canvas.
-    /// </summary>
-    private void ApplyOverlayMode(ToggleButton clicked)
+    private void OnExitsMode(object? sender, RoutedEventArgs e)
     {
-        if (clicked.IsChecked == true)
-            foreach (var other in new[] { exitsMode, entrancesMode })
-                if (!ReferenceEquals(other, clicked)) other.IsChecked = false;
-
-        bool exits = exitsMode.IsChecked == true, entrances = entrancesMode.IsChecked == true;
-        canvas.Mode = exits ? LevelView.EditMode.Exits
-                    : entrances ? LevelView.EditMode.Entrances
-                    : paletteTabs.SelectedIndex == 1 ? LevelView.EditMode.Sprites
-                                                     : LevelView.EditMode.Objects;
-        layerOne.IsEnabled = layerTwo.IsEnabled = !exits && !entrances;
-        edit?.Selection.Clear();
-        canvas.Sprites?.Selection.Clear();
+        canvas.ShowExits = exitsMode.IsChecked == true;
         RefreshExitBadges();
+    }
+
+    private void OnEntrancesMode(object? sender, RoutedEventArgs e)
+    {
+        canvas.ShowEntrances = entrancesMode.IsChecked == true;
         RefreshEntranceMarkers();
     }
 
@@ -293,7 +280,7 @@ public partial class MainWindow
     /// kept in step by hand.</summary>
     private void RefreshEntranceMarkers()
     {
-        canvas.Entrances = canvas.Mode == LevelView.EditMode.Entrances ? session.Entrances() : [];
+        canvas.Entrances = canvas.ShowEntrances ? session.Entrances() : [];
         // ponytail: built once per window from the first level's palette; Mario's own 10 colours
         // come from the ROM, only row 8's shared colours 1-5 could differ between levels.
         if (canvas.MarioIcon is null && session.Rom is { } rom && session.Scene?.Palettes[0] is { } pal
@@ -322,7 +309,7 @@ public partial class MainWindow
     /// every write — it is a handful of objects out of the layer-1 stream.</summary>
     private void RefreshExitBadges()
     {
-        canvas.Exits = edit is null || canvas.Mode != LevelView.EditMode.Exits
+        canvas.Exits = edit is null || !canvas.ShowExits
             ? []
             : [.. edit.ReadExits().Select(x => (x.Screen, x.Destination, x.LmForm))];
         canvas.InvalidateVisual();
